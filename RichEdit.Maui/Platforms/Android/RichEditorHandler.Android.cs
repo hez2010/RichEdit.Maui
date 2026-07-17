@@ -35,7 +35,12 @@ public partial class RichEditorHandler
 
         editor.SetSingleLine(false);
         editor.SetHorizontallyScrolling(false);
-        editor.SetPadding(ToPixels(12), ToPixels(10), ToPixels(12), ToPixels(10));
+        var density = editor.Resources?.DisplayMetrics?.Density ?? 1f;
+        editor.SetPadding(
+            checked((int)Math.Round(12 * density)),
+            checked((int)Math.Round(10 * density)),
+            checked((int)Math.Round(12 * density)),
+            checked((int)Math.Round(10 * density)));
         _editableKeyListener = editor.KeyListener;
         return editor;
     }
@@ -74,8 +79,17 @@ public partial class RichEditorHandler
             }
 
             var listNumbers = new Dictionary<(int Id, int Level), int>();
+            var allJustified = true;
+            var allHyphenated = true;
+            var allLeftToRight = true;
+            var allRightToLeft = true;
             foreach (var paragraph in document.Paragraphs)
             {
+                allJustified &= paragraph.Format.Alignment is
+                    RichTextAlignment.Justified or RichTextAlignment.Distributed;
+                allHyphenated &= paragraph.Format.Hyphenation;
+                allLeftToRight &= paragraph.Format.Direction == RichTextDirection.LeftToRight;
+                allRightToLeft &= paragraph.Format.Direction == RichTextDirection.RightToLeft;
                 var end = GetParagraphEnd(document.Text, paragraph.Start);
                 string? listMarker = null;
                 if (paragraph.Format.List is { } list)
@@ -119,11 +133,17 @@ public partial class RichEditorHandler
                 ApplyImage(builder, image);
             }
 
-            PlatformView.JustificationMode = document.Paragraphs.All(paragraph =>
-                paragraph.Format.Alignment is
-                    RichTextAlignment.Justified or RichTextAlignment.Distributed)
+            PlatformView.JustificationMode = allJustified
                 ? JustificationMode.InterWord
                 : JustificationMode.None;
+            PlatformView.HyphenationFrequency = allHyphenated
+                ? global::Android.Text.HyphenationFrequency.Normal
+                : global::Android.Text.HyphenationFrequency.None;
+            PlatformView.TextDirection = allRightToLeft
+                ? TextDirection.Rtl
+                : allLeftToRight
+                    ? TextDirection.Ltr
+                    : TextDirection.FirstStrong;
             PlatformView.SetText(builder, TextView.BufferType.Spannable);
             SetSelectionCore(selectionStart, selectionLength);
         }
@@ -362,13 +382,17 @@ public partial class RichEditorHandler
         {
             text.SetSpan(
                 new RichLineHeightSpan(
+                    start,
+                    end,
                     format.LineSpacingRule,
                     format.LineSpacingRule is
                         RichTextLineSpacingRule.AtLeast or RichTextLineSpacingRule.Exactly
                             ? ToPixels(format.LineSpacing)
                             : format.LineSpacing,
                     format.MinimumLineHeight is > 0 ? ToPixels(format.MinimumLineHeight.Value) : null,
-                    format.MaximumLineHeight is > 0 ? ToPixels(format.MaximumLineHeight.Value) : null),
+                    format.MaximumLineHeight is > 0 ? ToPixels(format.MaximumLineHeight.Value) : null,
+                    ToPixels(format.SpaceBefore),
+                    ToPixels(format.SpaceAfter)),
                 start,
                 end,
                 SpanTypes.Paragraph);
@@ -400,13 +424,27 @@ public partial class RichEditorHandler
                 SpanTypes.Paragraph);
         }
 
-        if (format.BackgroundColor is not null)
+        if (format.BackgroundColor is not null ||
+            format.Border is { Sides: not RichTextBorderSides.None, Style: not RichTextBorderStyle.None })
         {
+            var border = format.Border;
             text.SetSpan(
-                new BackgroundColorSpan(format.BackgroundColor.ToPlatform()),
+                new RichParagraphDecorationSpan(
+                    start,
+                    end,
+                    format.BackgroundColor?.ToPlatform(),
+                    border?.Sides ?? RichTextBorderSides.None,
+                    border?.Style ?? RichTextBorderStyle.None,
+                    border is null
+                        ? 0
+                        : Math.Max(
+                            (float)(border.Width *
+                                (PlatformView.Resources?.DisplayMetrics?.Density ?? 1f)),
+                            1f),
+                    (border?.Color ?? VirtualView.TextColor).ToPlatform()),
                 start,
                 end,
-                SpanTypes.ExclusiveExclusive);
+                SpanTypes.Paragraph);
         }
     }
 
@@ -465,17 +503,28 @@ public partial class RichEditorHandler
                 FromAndroidColor(new Android.Graphics.Color(PlatformView.CurrentTextColor)),
         };
         var runs = new List<RichTextRun>();
-        for (var position = 0; position < text.Length; position++)
+        for (var position = 0; position < text.Length;)
         {
+            var end = editable.NextSpanTransition(
+                position,
+                text.Length,
+                SpanType<CharacterStyle>.Value);
+            if (end <= position)
+            {
+                end = position + 1;
+            }
+
             var format = ReadCharacterFormat(editable, position, defaultCharacterFormat);
             if (runs.Count > 0 && runs[^1].Format == format)
             {
-                runs[^1] = runs[^1] with { Length = runs[^1].Length + 1 };
+                runs[^1] = runs[^1] with { Length = runs[^1].Length + end - position };
             }
             else
             {
-                runs.Add(new RichTextRun(position, 1, format));
+                runs.Add(new RichTextRun(position, end - position, format));
             }
+
+            position = end;
         }
 
         var paragraphs = new List<RichTextParagraph>();
@@ -710,6 +759,8 @@ public partial class RichEditorHandler
                 MaximumLineHeight = richLineHeight.MaximumHeight is { } maximum
                     ? FromPixels(maximum)
                     : null,
+                SpaceBefore = FromPixels(richLineHeight.SpaceBefore),
+                SpaceAfter = FromPixels(richLineHeight.SpaceAfter),
             };
         }
         else if (OperatingSystem.IsAndroidVersionAtLeast(29))
@@ -876,13 +927,19 @@ public partial class RichEditorHandler
         foreach (var value in text.GetSpans(
                      Math.Max(start, 0),
                      Math.Max(end, start),
-                     Java.Lang.Class.FromType(typeof(T))) ?? [])
+                     SpanType<T>.Value) ?? [])
         {
             if (value is T span)
             {
                 yield return span;
             }
         }
+    }
+
+    private static class SpanType<T>
+        where T : Java.Lang.Object
+    {
+        public static readonly Java.Lang.Class Value = Java.Lang.Class.FromType(typeof(T));
     }
 
     private static Microsoft.Maui.Graphics.Color FromAndroidColor(Android.Graphics.Color color) =>

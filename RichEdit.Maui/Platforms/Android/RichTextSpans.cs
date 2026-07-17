@@ -95,13 +95,21 @@ internal sealed class RichBaselineOffsetSpan(int pixels) : MetricAffectingSpan
 }
 
 internal sealed class RichLineHeightSpan(
+    int paragraphStart,
+    int paragraphEnd,
     RichTextLineSpacingRule rule,
     double value,
     int? minimumHeight,
-    int? maximumHeight) :
+    int? maximumHeight,
+    int spaceBefore,
+    int spaceAfter) :
     Java.Lang.Object,
     ILineHeightSpan
 {
+    public int ParagraphStart { get; } = paragraphStart;
+
+    public int ParagraphEnd { get; } = paragraphEnd;
+
     public RichTextLineSpacingRule Rule { get; } = rule;
 
     public double Value { get; } = value;
@@ -109,6 +117,10 @@ internal sealed class RichLineHeightSpan(
     public int? MinimumHeight { get; } = minimumHeight;
 
     public int? MaximumHeight { get; } = maximumHeight;
+
+    public int SpaceBefore { get; } = spaceBefore;
+
+    public int SpaceAfter { get; } = spaceAfter;
 
     public static bool IsNeeded(RichTextParagraphFormat format) =>
         (format.LineSpacingRule is
@@ -119,7 +131,9 @@ internal sealed class RichLineHeightSpan(
         format.LineSpacingRule == RichTextLineSpacingRule.Multiple &&
         format.LineSpacing > 0 && format.LineSpacing != 1d ||
         format.MinimumLineHeight is > 0 ||
-        format.MaximumLineHeight is > 0;
+        format.MaximumLineHeight is > 0 ||
+        format.SpaceBefore > 0 ||
+        format.SpaceAfter > 0;
 
     public void ChooseHeight(
         Java.Lang.ICharSequence? text,
@@ -160,18 +174,183 @@ internal sealed class RichLineHeightSpan(
         }
 
         var pixels = Math.Max(checked((int)Math.Round(targetHeight)), 1);
-        if (pixels == naturalHeight)
+        if (pixels != naturalHeight)
+        {
+            // Match Android's LineHeightSpan.Standard baseline-preserving scaling,
+            // while remaining available on the API 26 minimum supported here.
+            var descent = checked((int)Math.Round(
+                fontMetrics.Descent * (double)pixels / naturalHeight));
+            fontMetrics.Descent = descent;
+            fontMetrics.Ascent = descent - pixels;
+            fontMetrics.Bottom = fontMetrics.Descent;
+            fontMetrics.Top = fontMetrics.Ascent;
+        }
+
+        if (start <= ParagraphStart && SpaceBefore > 0)
+        {
+            fontMetrics.Ascent -= SpaceBefore;
+            fontMetrics.Top = fontMetrics.Ascent;
+        }
+
+        if (end >= ParagraphEnd && SpaceAfter > 0)
+        {
+            fontMetrics.Descent += SpaceAfter;
+            fontMetrics.Bottom = fontMetrics.Descent;
+        }
+    }
+}
+
+internal sealed class RichParagraphDecorationSpan(
+    int paragraphStart,
+    int paragraphEnd,
+    global::Android.Graphics.Color? backgroundColor,
+    RichTextBorderSides borderSides,
+    RichTextBorderStyle borderStyle,
+    float borderWidth,
+    global::Android.Graphics.Color borderColor) :
+    Java.Lang.Object,
+    ILineBackgroundSpan
+{
+    private readonly global::Android.Graphics.DashPathEffect? _pathEffect = borderStyle switch
+    {
+        RichTextBorderStyle.Dotted => new([borderWidth, borderWidth * 2], 0),
+        RichTextBorderStyle.Dashed => new([borderWidth * 4, borderWidth * 2], 0),
+        _ => null,
+    };
+
+    public void DrawBackground(
+        global::Android.Graphics.Canvas? canvas,
+        global::Android.Graphics.Paint? paint,
+        int left,
+        int right,
+        int top,
+        int baseline,
+        int bottom,
+        Java.Lang.ICharSequence? text,
+        int start,
+        int end,
+        int lineNumber)
+    {
+        if (canvas is null || paint is null)
         {
             return;
         }
 
-        // Match Android's LineHeightSpan.Standard baseline-preserving scaling,
-        // while remaining available on the API 26 minimum supported here.
-        var descent = checked((int)Math.Round(fontMetrics.Descent * (double)pixels / naturalHeight));
-        fontMetrics.Descent = descent;
-        fontMetrics.Ascent = descent - pixels;
-        fontMetrics.Bottom = fontMetrics.Descent;
-        fontMetrics.Top = fontMetrics.Ascent;
+        var previousColor = paint.Color;
+        var previousStyle = paint.GetStyle();
+        var previousStrokeWidth = paint.StrokeWidth;
+        var previousPathEffect = paint.PathEffect;
+        var previousStrokeCap = paint.StrokeCap;
+        try
+        {
+            if (backgroundColor is { } background)
+            {
+                paint.Color = background;
+                paint.SetStyle(global::Android.Graphics.Paint.Style.Fill);
+                paint.SetPathEffect(null);
+                canvas.DrawRect(left, top, right, bottom, paint);
+            }
+
+            if (borderSides == RichTextBorderSides.None ||
+                borderStyle == RichTextBorderStyle.None)
+            {
+                return;
+            }
+
+            paint.Color = borderColor;
+            paint.SetStyle(global::Android.Graphics.Paint.Style.Stroke);
+            paint.StrokeCap = borderStyle == RichTextBorderStyle.Dotted
+                ? global::Android.Graphics.Paint.Cap.Round
+                : global::Android.Graphics.Paint.Cap.Butt;
+            paint.SetPathEffect(_pathEffect);
+            paint.StrokeWidth = borderWidth;
+
+            if ((borderSides & RichTextBorderSides.Left) != 0)
+            {
+                DrawVerticalBorder(canvas, paint, left, top, bottom, inward: 1);
+            }
+
+            if ((borderSides & RichTextBorderSides.Right) != 0)
+            {
+                DrawVerticalBorder(canvas, paint, right, top, bottom, inward: -1);
+            }
+
+            if (start <= paragraphStart && (borderSides & RichTextBorderSides.Top) != 0)
+            {
+                DrawHorizontalBorder(canvas, paint, top, left, right, inward: 1);
+            }
+
+            if (end >= paragraphEnd && (borderSides & RichTextBorderSides.Bottom) != 0)
+            {
+                DrawHorizontalBorder(canvas, paint, bottom, left, right, inward: -1);
+            }
+        }
+        finally
+        {
+            paint.Color = previousColor;
+            paint.SetStyle(previousStyle);
+            paint.StrokeWidth = previousStrokeWidth;
+            paint.SetPathEffect(previousPathEffect);
+            paint.StrokeCap = previousStrokeCap;
+        }
+    }
+
+    private void DrawVerticalBorder(
+        global::Android.Graphics.Canvas canvas,
+        global::Android.Graphics.Paint paint,
+        float edge,
+        float top,
+        float bottom,
+        int inward)
+    {
+        if (borderStyle != RichTextBorderStyle.Double || borderWidth < 3)
+        {
+            var x = edge + inward * borderWidth / 2;
+            canvas.DrawLine(x, top, x, bottom, paint);
+            return;
+        }
+
+        var strokeWidth = Math.Max(borderWidth / 3, 1);
+        paint.StrokeWidth = strokeWidth;
+        paint.SetPathEffect(null);
+        var first = strokeWidth / 2;
+        var second = borderWidth - first;
+        canvas.DrawLine(
+            edge + inward * first,
+            top,
+            edge + inward * first,
+            bottom,
+            paint);
+        canvas.DrawLine(
+            edge + inward * second,
+            top,
+            edge + inward * second,
+            bottom,
+            paint);
+    }
+
+    private void DrawHorizontalBorder(
+        global::Android.Graphics.Canvas canvas,
+        global::Android.Graphics.Paint paint,
+        float edge,
+        float left,
+        float right,
+        int inward)
+    {
+        if (borderStyle != RichTextBorderStyle.Double || borderWidth < 3)
+        {
+            var y = edge + inward * borderWidth / 2;
+            canvas.DrawLine(left, y, right, y, paint);
+            return;
+        }
+
+        var strokeWidth = Math.Max(borderWidth / 3, 1);
+        paint.StrokeWidth = strokeWidth;
+        paint.SetPathEffect(null);
+        var first = strokeWidth / 2;
+        var second = borderWidth - first;
+        canvas.DrawLine(left, edge + inward * first, right, edge + inward * first, paint);
+        canvas.DrawLine(left, edge + inward * second, right, edge + inward * second, paint);
     }
 }
 

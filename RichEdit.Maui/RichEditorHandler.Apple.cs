@@ -2,6 +2,7 @@
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using CoreGraphics;
+using CoreText;
 using Foundation;
 using Microsoft.Maui.Platform;
 using UIKit;
@@ -285,6 +286,16 @@ namespace RichEdit.Maui
                     : NSLigatureType.None;
             }
 
+            if (format.Direction != RichTextDirection.Automatic)
+            {
+                attributes.WritingDirectionInt =
+                [
+                    NSNumber.FromInt32(format.Direction == RichTextDirection.RightToLeft
+                        ? (int)NSWritingDirection.RightToLeft
+                        : (int)NSWritingDirection.LeftToRight),
+                ];
+            }
+
             var dictionary = new NSMutableDictionary(attributes.Dictionary);
             dictionary[CharacterMetadataKey] = new CharacterMetadata(format);
             return dictionary;
@@ -410,17 +421,22 @@ namespace RichEdit.Maui
             var images = new List<RichTextImage>();
             string? activeLink = null;
             var activeLinkStart = 0;
-            for (var position = 0; position < text.Length; position++)
+            for (var position = 0; position < text.Length;)
             {
-                var dictionary = attributed.GetAttributes(position, out _) ?? new NSDictionary();
+                var dictionary = attributed.GetAttributes(position, out var effectiveRange) ??
+                    new NSDictionary();
+                var effectiveEnd = Math.Min(
+                    text.Length,
+                    checked((int)(effectiveRange.Location + effectiveRange.Length)));
+                var end = Math.Max(position + 1, effectiveEnd);
                 var format = ReadCharacterFormat(dictionary, defaultCharacterFormat);
                 if (runs.Count > 0 && runs[^1].Format == format)
                 {
-                    runs[^1] = runs[^1] with { Length = runs[^1].Length + 1 };
+                    runs[^1] = runs[^1] with { Length = runs[^1].Length + end - position };
                 }
                 else
                 {
-                    runs.Add(new RichTextRun(position, 1, format));
+                    runs.Add(new RichTextRun(position, end - position, format));
                 }
 
                 var attributes = new UIStringAttributes(dictionary);
@@ -439,11 +455,23 @@ namespace RichEdit.Maui
                     activeLinkStart = position;
                 }
 
-                if (text[position] == RichTextDocument.ObjectReplacementCharacter &&
-                    attributes.TextAttachment is { } attachment)
+                if (attributes.TextAttachment is { } attachment)
                 {
-                    images.Add(ReadImage(dictionary, attachment, position));
+                    for (var imagePosition = text.IndexOf(
+                             RichTextDocument.ObjectReplacementCharacter,
+                             position,
+                             end - position);
+                         imagePosition >= 0;
+                         imagePosition = text.IndexOf(
+                             RichTextDocument.ObjectReplacementCharacter,
+                             imagePosition + 1,
+                             end - imagePosition - 1))
+                    {
+                        images.Add(ReadImage(dictionary, attachment, imagePosition));
+                    }
                 }
+
+                position = end;
             }
 
             if (activeLink is not null)
@@ -592,6 +620,16 @@ namespace RichEdit.Maui
                     Shadow = attributes.Shadow is not null,
                 };
             }
+
+            format = format with
+            {
+                Direction = attributes.WritingDirectionInt?.FirstOrDefault()?.Int32Value switch
+                {
+                    1 or 3 => RichTextDirection.RightToLeft,
+                    0 or 2 => RichTextDirection.LeftToRight,
+                    _ => RichTextDirection.Automatic,
+                },
+            };
 
             return format;
         }
@@ -799,6 +837,21 @@ namespace RichEdit.Maui
             if (traits != 0 && font.FontDescriptor.CreateWithTraits(traits) is { } descriptor)
             {
                 font = UIFont.FromDescriptor(descriptor, size) ?? font;
+            }
+
+            if (format.SmallCaps || format.AllCaps)
+            {
+                var attributes = font.FontDescriptor.FontAttributes;
+#pragma warning disable CA1422 // The iOS 15-compatible feature-selector API is deprecated but still supported.
+                attributes.FeatureSettings =
+                [
+                    new UIFontFeature(format.AllCaps
+                        ? CTFontFeatureLetterCase.Selector.AllCaps
+                        : CTFontFeatureLetterCase.Selector.SmallCaps),
+                ];
+#pragma warning restore CA1422
+                var featureDescriptor = font.FontDescriptor.CreateWithAttributes(attributes);
+                font = UIFont.FromDescriptor(featureDescriptor, size) ?? font;
             }
 
             return font;

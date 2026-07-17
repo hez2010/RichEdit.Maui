@@ -51,13 +51,13 @@ WinUI and are remapped as the text changes.
 | Arbitrary baseline offset | Round-trip | Native | Native | Adapter | Native | Canonical unit is points. |
 | Character spacing/tracking | Round-trip | Native | Native | Adapter | Native | Android converts points to an `em` value for `TextPaint`. |
 | Horizontal scale/stretch | Round-trip | Degraded | Degraded | Native | Degraded | Apple uses expansion; WinUI selects the nearest `FontStretch`. |
-| Small caps | Round-trip | Model | Model | Adapter | Native | Android uses the font's `smcp` glyph feature; fonts without it show normal glyphs. |
-| All-caps display effect | Round-trip | Model | Model | Model | Native | Logical text is never rewritten. |
+| Small caps | Round-trip | Native | Native | Adapter | Native | Apple and Android use font glyph features; fonts without small-cap glyphs show their normal fallback. |
+| All-caps display effect | Round-trip | Native | Native | Model | Native | Apple uses a font feature and logical text is never rewritten. |
 | Outline | Round-trip | Native | Native | Adapter | Native | Android uses stroke paint with a size-relative width. |
 | Shadow | Round-trip | Native | Native | Adapter | Model | WinUI has no TOM shadow property. |
 | Hidden text | Round-trip | Adapter | Adapter | Adapter | Native | Apple/Android make glyphs transparent while retaining layout. |
 | Language/locale tag | Round-trip | Model | Model | Native | Native | Canonical representation is BCP 47; unsupported LCIDs import as unspecified. |
-| Explicit character direction | Round-trip | Model | Model | Model | Model | Paragraph direction and Unicode bidi characters remain effective. |
+| Explicit character direction | Round-trip | Native | Native | Model | Model | Apple uses the attributed-string writing-direction override; paragraph direction and Unicode bidi characters remain the fallback elsewhere. |
 | Kerning preference | Round-trip | Model | Model | Model | Native | It is a font-dependent hint where available. |
 | Ligature preference | Model only | Native | Native | Model | Model | Not currently emitted as an RTF control. |
 | Character shading pattern and colors | Round-trip | Model | Model | Model | Model | A separate solid highlight still renders on every platform. |
@@ -71,21 +71,21 @@ WinUI and are remapped as the text changes.
 | Whole-document justification | Round-trip | Native | Native | Adapter | Native | Android uses `TextView.JustificationMode.InterWord`, available from API 26. |
 | Mixed per-paragraph justification | Round-trip | Native | Native | Degraded | Native | Android preserves the values but renders justified/distributed paragraphs left-aligned unless every paragraph is justified. |
 | Distributed alignment | Round-trip | Degraded | Degraded | Degraded | Degraded | Rendered as inter-word justification where justification is available. |
-| Paragraph LTR/RTL direction | Round-trip | Native | Native | Model | Native | Android retains the canonical direction metadata. |
+| Paragraph LTR/RTL direction | Round-trip | Native | Native | Degraded | Native | Android forces the direction when every paragraph explicitly agrees; mixed documents use first-strong direction and retain metadata. |
 | Leading/left indent | Round-trip | Native | Native | Native | Native | Fully portable. |
 | First-line and hanging indent | Round-trip | Native | Native | Native | Native | Fully portable. |
 | Trailing/right indent | Round-trip | Native | Native | Model | Native | Android retains but does not render it. |
-| Space before and after | Round-trip | Native | Native | Model | Native | Android retains but does not render it. |
+| Space before and after | Round-trip | Native | Native | Adapter | Native | Android adds the requested space to the first and last line metrics. |
 | Single, 1.5, double, exact, at-least, and multiple line spacing | Round-trip | Native | Native | Adapter | Native | Android uses the API 1 `LineHeightSpan` contract, so all rules work at the API 26 minimum. |
 | Minimum and maximum line height | Model only | Native | Native | Adapter | Model | Android clamps the calculated per-line height. |
 | Left tab stops | Round-trip | Native | Native | Native | Native | Fully portable. |
 | Center and right tab stops | Round-trip | Native | Native | Model | Native | Android retains them without applying a visual stop. |
 | Decimal tab stops | Round-trip | Degraded | Degraded | Model | Native | Apple uses its natural tab alignment. |
 | Tab leaders | Round-trip | Model | Model | Model | Native | Positions still work where the alignment is supported. |
-| Hyphenation preference | Round-trip | Native | Native | Model | Model | No portable hyphenation dictionary or algorithm is imposed. |
-| Solid paragraph background | Round-trip | Model | Model | Degraded | Model | Android paints behind glyph ranges, not the entire line box. |
+| Hyphenation preference | Round-trip | Native | Native | Degraded | Model | Android delegates to native normal-frequency hyphenation when every paragraph enables it; mixed documents retain metadata. |
+| Solid paragraph background | Round-trip | Model | Model | Adapter | Model | Android paints the complete line box without altering text. |
 | Paragraph shading patterns | Round-trip | Model | Model | Model | Model | Exact values remain in the canonical model. |
-| Paragraph borders | Round-trip | Model | Model | Model | Model | Exact side/style/width/color values remain in the canonical model. |
+| Paragraph borders | Round-trip | Model | Model | Adapter | Model | Android draws selected sides with single, double, dotted, or dashed strokes. |
 | Named paragraph style | Model only | Model | Model | Model | Model | Explicit paragraph formatting is authoritative. |
 
 ## Lists
