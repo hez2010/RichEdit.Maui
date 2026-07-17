@@ -479,8 +479,15 @@ public partial class RichEditorHandler
         var alignment = image.VerticalAlignment == RichTextImageVerticalAlignment.Baseline
             ? SpanAlign.Baseline
             : SpanAlign.Bottom;
+        var imageSpan = new ImageSpan(drawable, image.Source ?? string.Empty, alignment);
+        if (!string.IsNullOrEmpty(image.AlternativeText) &&
+            OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            imageSpan.ContentDescription = image.AlternativeText;
+        }
+
         text.SetSpan(
-            new ImageSpan(drawable, image.Source ?? string.Empty, alignment),
+            imageSpan,
             image.Position,
             image.Position + 1,
             SpanTypes.ExclusiveExclusive);
@@ -857,6 +864,9 @@ public partial class RichEditorHandler
                 Source = span.Source,
                 Width = bounds is null ? 0 : FromPixels(bounds.Width()),
                 Height = bounds is null ? 0 : FromPixels(bounds.Height()),
+                AlternativeText = OperatingSystem.IsAndroidVersionAtLeast(30)
+                    ? span.ContentDescription
+                    : null,
             };
         }
 

@@ -394,10 +394,23 @@ namespace RichEdit.Maui
             if (data is not null)
             {
                 attachment.Image = UIImage.LoadFromData(data);
+                if (attachment.Image is { } renderedImage &&
+                    !string.IsNullOrEmpty(image.AlternativeText))
+                {
+                    renderedImage.AccessibilityLabel = image.AlternativeText;
+                }
             }
 
             attachment.FileType = image.MediaType;
-            attachment.Bounds = new CGRect(0, 0, image.Width, image.Height);
+            var characterAttributes = attributed.GetAttributes(image.Position, out _);
+            var font = characterAttributes is null
+                ? null
+                : new UIStringAttributes(characterAttributes).Font;
+            attachment.Bounds = new CGRect(
+                0,
+                GetImageVerticalOffset(font, image.Height, image.VerticalAlignment),
+                image.Width,
+                image.Height);
             var attributes = new UIStringAttributes { TextAttachment = attachment };
             var dictionary = new NSMutableDictionary(attributes.Dictionary);
             dictionary[ImageMetadataKey] = new ImageMetadata(image);
@@ -804,7 +817,77 @@ namespace RichEdit.Maui
                 Data = ImmutableArray.CreateRange(data),
                 Width = attachment.Bounds.Width,
                 Height = attachment.Bounds.Height,
+                VerticalAlignment = ReadImageVerticalAlignment(dictionary, attachment.Bounds),
+                AlternativeText = attachment.Image?.AccessibilityLabel,
             };
+        }
+
+        private static nfloat GetImageVerticalOffset(
+            UIFont? font,
+            double height,
+            RichTextImageVerticalAlignment alignment)
+        {
+            if (font is null || alignment == RichTextImageVerticalAlignment.Baseline)
+            {
+                return 0;
+            }
+
+            return alignment switch
+            {
+                RichTextImageVerticalAlignment.Bottom => font.Descender,
+                RichTextImageVerticalAlignment.Center =>
+                    (nfloat)(((double)font.CapHeight - height) / 2d),
+                RichTextImageVerticalAlignment.Top => (nfloat)((double)font.Ascender - height),
+                _ => 0,
+            };
+        }
+
+        private static RichTextImageVerticalAlignment ReadImageVerticalAlignment(
+            NSDictionary dictionary,
+            CGRect bounds)
+        {
+            var font = new UIStringAttributes(dictionary).Font;
+            if (font is null)
+            {
+                return RichTextImageVerticalAlignment.Baseline;
+            }
+
+            var actual = (double)bounds.Y;
+            var result = RichTextImageVerticalAlignment.Baseline;
+            var distance = Math.Abs(actual);
+            var bottomDistance = Math.Abs(
+                actual - GetImageVerticalOffset(
+                    font,
+                    bounds.Height,
+                    RichTextImageVerticalAlignment.Bottom));
+            if (bottomDistance < distance)
+            {
+                distance = bottomDistance;
+                result = RichTextImageVerticalAlignment.Bottom;
+            }
+
+            var centerDistance = Math.Abs(
+                actual - GetImageVerticalOffset(
+                    font,
+                    bounds.Height,
+                    RichTextImageVerticalAlignment.Center));
+            if (centerDistance < distance)
+            {
+                distance = centerDistance;
+                result = RichTextImageVerticalAlignment.Center;
+            }
+
+            var topDistance = Math.Abs(
+                actual - GetImageVerticalOffset(
+                    font,
+                    bounds.Height,
+                    RichTextImageVerticalAlignment.Top));
+            if (topDistance < distance)
+            {
+                result = RichTextImageVerticalAlignment.Top;
+            }
+
+            return result;
         }
 
         private static string? GetLinkTarget(NSObject? value) => value switch

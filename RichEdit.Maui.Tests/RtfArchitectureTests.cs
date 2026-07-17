@@ -68,7 +68,7 @@ public sealed class RtfArchitectureTests
         {
             Id = 7,
             Kind = RichListKind.Bulleted,
-            BulletText = "▪",
+            BulletText = "→",
             Suffix = string.Empty,
         };
         var document = new RichTextDocument(
@@ -80,7 +80,130 @@ public sealed class RtfArchitectureTests
 
         Assert.Equal("Alpha", parsed.Text);
         Assert.Equal(RichListKind.Bulleted, parsed.Paragraphs[0].Format.List?.Kind);
-        Assert.Equal("▪", parsed.Paragraphs[0].Format.List?.BulletText);
+        Assert.Equal("→", parsed.Paragraphs[0].Format.List?.BulletText);
+    }
+
+    [Fact]
+    public void MultilevelListRoundTripPreservesEachLevelDefinition()
+    {
+        var topLevel = new RichTextListFormat
+        {
+            Id = 9,
+            Level = 0,
+            Kind = RichListKind.Numbered,
+            NumberStyle = RichListNumberStyle.Arabic,
+            StartAt = 3,
+            Prefix = "(",
+            Suffix = ")",
+        };
+        var bulletLevel = new RichTextListFormat
+        {
+            Id = 9,
+            Level = 1,
+            Kind = RichListKind.Bulleted,
+            BulletText = "▪",
+            Suffix = string.Empty,
+        };
+        var letterLevel = new RichTextListFormat
+        {
+            Id = 9,
+            Level = 2,
+            Kind = RichListKind.Numbered,
+            NumberStyle = RichListNumberStyle.LowerLetter,
+            StartAt = 2,
+            Prefix = "[",
+            Suffix = "]",
+        };
+        var document = new RichTextDocument(
+            "Top\nChild\nPeer\nAgain",
+            paragraphs:
+            [
+                new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = topLevel }),
+                new RichTextParagraph(4, RichTextParagraphFormat.Default with { List = bulletLevel }),
+                new RichTextParagraph(10, RichTextParagraphFormat.Default with { List = letterLevel }),
+                new RichTextParagraph(15, RichTextParagraphFormat.Default with { List = bulletLevel }),
+            ]);
+
+        var rtf = document.ToRtf();
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal(document.Text, parsed.Text);
+        Assert.Contains(@"\listhybrid", rtf, StringComparison.Ordinal);
+        Assert.Equal(9, rtf.Split(@"\listlevel", StringSplitOptions.None).Length - 1);
+        Assert.Contains(@"\levelfollow0", rtf, StringComparison.Ordinal);
+        Assert.Contains("(3)", rtf, StringComparison.Ordinal);
+        Assert.Contains("[b]", rtf, StringComparison.Ordinal);
+
+        Assert.Equal(topLevel with { Id = 1 }, parsed.Paragraphs[0].Format.List);
+        Assert.Equal(bulletLevel with { Id = 1 }, parsed.Paragraphs[1].Format.List);
+        Assert.Equal(letterLevel with { Id = 1 }, parsed.Paragraphs[2].Format.List);
+        Assert.Equal(bulletLevel with { Id = 1 }, parsed.Paragraphs[3].Format.List);
+    }
+
+    [Fact]
+    public void ListCountersAreIndependentPerLevelAndHonorExplicitRestart()
+    {
+        static RichTextListFormat List(int level, int startAt = 1, bool restart = false) => new()
+        {
+            Id = 5,
+            Level = level,
+            Kind = RichListKind.Numbered,
+            StartAt = startAt,
+            Restart = restart,
+        };
+
+        var document = new RichTextDocument(
+            "A\nB\nC\nD\nE",
+            paragraphs:
+            [
+                new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = List(0) }),
+                new RichTextParagraph(2, RichTextParagraphFormat.Default with { List = List(1, 5) }),
+                new RichTextParagraph(4, RichTextParagraphFormat.Default with { List = List(1, 5) }),
+                new RichTextParagraph(6, RichTextParagraphFormat.Default with { List = List(0) }),
+                new RichTextParagraph(8, RichTextParagraphFormat.Default with { List = List(1, 5, restart: true) }),
+            ]);
+
+        var rtf = document.ToRtf();
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 1.\tab }"));
+        Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 2.\tab }"));
+        Assert.Equal(2, CountOccurrences(rtf, @"{\listtext 5.\tab }"));
+        Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 6.\tab }"));
+        Assert.False(parsed.Paragraphs[1].Format.List?.Restart);
+        Assert.False(parsed.Paragraphs[2].Format.List?.Restart);
+        Assert.True(parsed.Paragraphs[4].Format.List?.Restart);
+        Assert.Equal(5, parsed.Paragraphs[4].Format.List?.StartAt);
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var position = 0;
+        while ((position = text.IndexOf(value, position, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            position += value.Length;
+        }
+
+        return count;
+    }
+
+    [Fact]
+    public void LargeSingleParagraphImportAllocatesLinearly()
+    {
+        _ = RichTextDocument.FromRtf(@"{\rtf1\ansi warmup}");
+        var expected = new string('x', 20_000);
+        var rtf = @"{\rtf1\ansi " + expected + "}";
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var parsed = RichTextDocument.FromRtf(rtf);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(expected, parsed.Text);
+        Assert.True(
+            allocated < 25_000_000,
+            $"A 20,000-character import allocated {allocated:N0} bytes.");
     }
 
     [Fact]
@@ -408,6 +531,8 @@ public sealed class RtfArchitectureTests
             24.25) with
         {
             Crop = new RichTextImageCrop(1, 2, 3, 4),
+            AlternativeText = "Q1 {chart}",
+            Rotation = 22.5,
         };
         var document = new RichTextDocument(
             $"a{RichTextDocument.ObjectReplacementCharacter}b",
@@ -429,8 +554,12 @@ public sealed class RtfArchitectureTests
         Assert.Equal(image.Width, actual.Width, 2);
         Assert.Equal(image.Height, actual.Height, 2);
         Assert.Equal(image.Crop, actual.Crop);
+        Assert.Equal(image.AlternativeText, actual.AlternativeText);
+        Assert.Equal(image.Rotation, actual.Rotation);
         Assert.Equal(imageFormat.BaselineOffset, parsed.GetCharacterFormat(1).BaselineOffset);
         Assert.Contains(@"\pngblip", rtf, StringComparison.Ordinal);
+        Assert.Contains("wzDescription", rtf, StringComparison.Ordinal);
+        Assert.Contains(@"\sn rotation", rtf, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -54,8 +54,8 @@ internal static class RtfCodec
         private readonly List<RtfColor> _colors = [];
         private readonly Dictionary<RtfColor, int> _colorIndices = [];
         private readonly List<ListDefinition> _listDefinitions;
-        private readonly Dictionary<int, ListDefinition> _listsByItemStart = [];
-        private readonly Dictionary<int, int> _nextListNumbers = [];
+        private readonly Dictionary<int, ListItemDefinition> _listsByItemStart = [];
+        private readonly Dictionary<(int OverrideId, int Level), int> _nextListNumbers = [];
         private readonly RichTextRun[] _runs;
         private readonly Dictionary<int, RichTextField> _fieldsByStart;
         private readonly Dictionary<int, RichTextField[]> _emptyFieldsByPosition;
@@ -325,26 +325,15 @@ internal static class RtfCodec
             foreach (var definition in _listDefinitions)
             {
                 _output.Append(@"{\list\listtemplateid").Append(definition.ListId)
-                    .Append(@"\listsimple1{")
-                    .Append(@"\listlevel\levelnfc")
-                    .Append(definition.Kind == RichListKind.Bulleted ? 23 : (int)definition.NumberFormat)
-                    .Append(@"\levelnfcn")
-                    .Append(definition.Kind == RichListKind.Bulleted ? 23 : (int)definition.NumberFormat)
-                    .Append(@"\leveljc0\leveljcn0\levelfollow1\levelstartat")
-                    .Append(definition.StartAt);
+                    .Append(definition.IsMultilevel ? @"\listhybrid" : @"\listsimple1");
 
-                if (definition.Kind == RichListKind.Bulleted)
+                var levelCount = definition.IsMultilevel ? 9 : 1;
+                for (var level = 0; level < levelCount; level++)
                 {
-                    _output.Append(@"{\leveltext\'01\'95;}{\levelnumbers;}");
-                }
-                else
-                {
-                    _output.Append(@"{\leveltext\'02\'00")
-                        .Append(definition.Delimiter)
-                        .Append(@";}{\levelnumbers\'01;}");
+                    WriteListLevel(definition.Levels[level], level);
                 }
 
-                _output.Append(@"\fi-360\li720\lin720}\listrestarthdn0\listid")
+                _output.Append(@"\listrestarthdn0\listid")
                     .Append(definition.ListId)
                     .Append(@"{\listname ;}}")
                     .Append("\r\n");
@@ -362,6 +351,67 @@ internal static class RtfCodec
 
             _output.Append('}').Append("\r\n");
         }
+
+        private void WriteListLevel(ListLevelDefinition? definition, int level)
+        {
+            var numberFormat = definition switch
+            {
+                { Kind: RichListKind.Bulleted } => 23,
+                { Kind: RichListKind.Numbered } => (int)definition.NumberFormat,
+                _ => 255,
+            };
+            _output.Append(@"{\listlevel\levelnfc").Append(numberFormat)
+                .Append(@"\levelnfcn").Append(numberFormat)
+                .Append(@"\leveljc0\leveljcn0\levelfollow0\levelstartat")
+                .Append(definition?.StartAt ?? 1);
+            if (level > 0)
+            {
+                // RichTextListFormat counters are independent per level. Prevent an
+                // increment at a superior level from implicitly resetting this one.
+                _output.Append(@"\levelnorestart1");
+            }
+
+            WriteListLevelText(definition, level);
+            var indent = checked((level + 1) * 720);
+            _output.Append(@"\fi-360\li").Append(indent)
+                .Append(@"\lin").Append(indent)
+                .Append('}');
+        }
+
+        private void WriteListLevelText(ListLevelDefinition? definition, int level)
+        {
+            _output.Append(@"{\leveltext");
+            if (definition is null)
+            {
+                WriteHexByte(0);
+                _output.Append(@";}{\levelnumbers;}");
+                return;
+            }
+
+            if (definition.Kind == RichListKind.Bulleted)
+            {
+                var bulletLength = Math.Min(definition.BulletText.Length, byte.MaxValue);
+                WriteHexByte(bulletLength);
+                WriteText(definition.BulletText.AsSpan(0, bulletLength));
+                _output.Append(@";}{\levelnumbers;}");
+                return;
+            }
+
+            var prefixLength = Math.Min(definition.Prefix.Length, byte.MaxValue - 1);
+            var suffixLength = Math.Min(
+                definition.Suffix.Length,
+                byte.MaxValue - prefixLength - 1);
+            WriteHexByte(prefixLength + suffixLength + 1);
+            WriteText(definition.Prefix.AsSpan(0, prefixLength));
+            WriteHexByte(level);
+            WriteText(definition.Suffix.AsSpan(0, suffixLength));
+            _output.Append(@";}{\levelnumbers");
+            WriteHexByte(prefixLength + 1);
+            _output.Append(";}");
+        }
+
+        private void WriteHexByte(int value) =>
+            _output.Append(@"\'").Append(value.ToString("x2", CultureInfo.InvariantCulture));
 
         private void WriteBody()
         {
@@ -393,24 +443,26 @@ internal static class RtfCodec
 
             if (_listsByItemStart.TryGetValue(start, out var list))
             {
-                _output.Append(@"\ls").Append(list.OverrideId)
-                    .Append(@"\ilvl").Append(paragraphFormat.List?.Level ?? 0)
+                _output.Append(@"\ls").Append(list.Definition.OverrideId)
+                    .Append(@"\ilvl").Append(list.Format.Level)
                     .Append(' ');
                 _output.Append(@"{\listtext ");
-                if (list.Kind == RichListKind.Bulleted)
+                if (list.Format.Kind == RichListKind.Bulleted)
                 {
-                    WriteText((paragraphFormat.List?.BulletText ?? "•").AsSpan());
+                    WriteText(list.Format.BulletText.AsSpan());
                 }
                 else
                 {
-                    var number = _nextListNumbers.GetValueOrDefault(
-                        list.OverrideId,
-                        list.StartAt);
-                    _nextListNumbers[list.OverrideId] = number == int.MaxValue
+                    var key = (list.Definition.OverrideId, list.Format.Level);
+                    var number = list.Format.Restart
+                        ? list.Format.StartAt
+                        : _nextListNumbers.GetValueOrDefault(key, list.Format.StartAt);
+                    _nextListNumbers[key] = number == int.MaxValue
                         ? number
                         : number + 1;
-                    _output.Append(FormatListNumber(number, list.NumberFormat))
-                        .Append(list.Delimiter);
+                    WriteText(list.Format.Prefix.AsSpan());
+                    _output.Append(RichTextListFormatter.FormatNumber(number, list.Format.NumberStyle));
+                    WriteText(list.Format.Suffix.AsSpan());
                 }
 
                 _output.Append(@"\tab ");
@@ -586,6 +638,8 @@ internal static class RtfCodec
                 _output.Append(@"\piccropr").Append(ToTwips(image.Crop.Right));
             }
 
+            WritePictureProperties(image);
+
             _output.Append(' ');
             var bytes = image.Data.AsSpan();
             const string hexDigits = "0123456789abcdef";
@@ -605,6 +659,42 @@ internal static class RtfCodec
             {
                 _output.Append('}');
             }
+        }
+
+        private void WritePictureProperties(RichTextImage image)
+        {
+            var rotation = Math.Abs(image.Rotation) <= 32767d
+                ? image.Rotation
+                : Math.IEEERemainder(image.Rotation, 360d);
+            if (string.IsNullOrEmpty(image.AlternativeText) && rotation == 0)
+            {
+                return;
+            }
+
+            _output.Append(@"{\*\picprop");
+            if (!string.IsNullOrEmpty(image.AlternativeText))
+            {
+                WritePictureProperty("wzDescription", image.AlternativeText);
+            }
+
+            if (rotation != 0)
+            {
+                var fixedAngle = checked((int)Math.Round(rotation * 65536d));
+                WritePictureProperty(
+                    "rotation",
+                    fixedAngle.ToString(CultureInfo.InvariantCulture));
+            }
+
+            _output.Append('}');
+        }
+
+        private void WritePictureProperty(string name, string value)
+        {
+            _output.Append(@"{\sp{\sn ");
+            WriteText(name.AsSpan());
+            _output.Append(@"}{\sv ");
+            WriteText(value.AsSpan());
+            _output.Append("}}");
         }
 
         private static bool TryGetPictureControl(
@@ -1170,51 +1260,59 @@ internal static class RtfCodec
                             $"RTF 1.9.1 permits at most {MaximumListOverrideId} list override IDs in one document.");
                     }
 
-                    definition = new ListDefinition(
-                        overrideId,
-                        overrideId,
-                        list.Kind,
-                        list.StartAt,
-                        string.IsNullOrEmpty(list.Suffix) ? ' ' : list.Suffix[0],
-                        list.NumberStyle switch
-                        {
-                            RichListNumberStyle.UpperRoman => ListNumberFormat.UpperRoman,
-                            RichListNumberStyle.LowerRoman => ListNumberFormat.LowerRoman,
-                            RichListNumberStyle.UpperLetter => ListNumberFormat.UpperLetter,
-                            RichListNumberStyle.LowerLetter => ListNumberFormat.LowerLetter,
-                            _ => ListNumberFormat.Arabic,
-                        });
+                    definition = new ListDefinition(overrideId, overrideId);
                     definitionsById.Add(list.Id, definition);
                     definitions.Add(definition);
                 }
 
-                _listsByItemStart.Add(paragraph.Start, definition);
+                definition.AddLevel(list);
+                _listsByItemStart.Add(paragraph.Start, new ListItemDefinition(definition, list));
             }
 
             return definitions;
         }
 
-        private sealed class ListDefinition(
-            int listId,
-            int overrideId,
-            RichListKind kind,
-            int startAt,
-            char delimiter,
-            ListNumberFormat numberFormat)
+        private sealed class ListDefinition(int listId, int overrideId)
         {
             public int ListId { get; } = listId;
 
             public int OverrideId { get; } = overrideId;
 
-            public RichListKind Kind { get; } = kind;
+            public ListLevelDefinition?[] Levels { get; } = new ListLevelDefinition?[9];
 
-            public int StartAt { get; } = startAt;
+            public bool IsMultilevel => Levels[0] is null ||
+                Array.FindIndex(Levels, 1, static level => level is not null) >= 1;
 
-            public char Delimiter { get; } = delimiter;
-
-            public ListNumberFormat NumberFormat { get; } = numberFormat;
-
+            public void AddLevel(RichTextListFormat format)
+            {
+                Levels[format.Level] ??= new ListLevelDefinition(
+                    format.Kind,
+                    format.StartAt,
+                    format.Prefix,
+                    format.Suffix,
+                    format.BulletText,
+                    format.NumberStyle switch
+                    {
+                        RichListNumberStyle.UpperRoman => ListNumberFormat.UpperRoman,
+                        RichListNumberStyle.LowerRoman => ListNumberFormat.LowerRoman,
+                        RichListNumberStyle.UpperLetter => ListNumberFormat.UpperLetter,
+                        RichListNumberStyle.LowerLetter => ListNumberFormat.LowerLetter,
+                        _ => ListNumberFormat.Arabic,
+                    });
+            }
         }
+
+        private sealed record ListLevelDefinition(
+            RichListKind Kind,
+            int StartAt,
+            string Prefix,
+            string Suffix,
+            string BulletText,
+            ListNumberFormat NumberFormat);
+
+        private readonly record struct ListItemDefinition(
+            ListDefinition Definition,
+            RichTextListFormat Format);
     }
 
     private static bool IsBulletMarker(char character) =>
@@ -1401,14 +1499,14 @@ internal static class RtfCodec
         private readonly TextAccumulator _document = new();
         private readonly Dictionary<int, ParsedFont> _fonts = [];
         private readonly List<Color?> _colors = [];
-        private readonly Dictionary<int, ParsedListDefinition> _lists = [];
+        private readonly Dictionary<(int ListId, int Level), ParsedListDefinition> _lists = [];
         private readonly Dictionary<int, int> _listOverrides = [];
         private readonly Dictionary<int, RichTextListFormat> _listItems = [];
         private readonly Dictionary<int, RichTextParagraphFormat> _paragraphs = [];
         private readonly List<RichTextLink> _links = [];
         private readonly List<RichTextField> _fields = [];
         private readonly List<RichTextImage> _images = [];
-        private readonly Dictionary<int, int> _nextListNumbers = [];
+        private readonly Dictionary<(int OverrideId, int Level), int> _nextListNumbers = [];
         private readonly StringBuilder _fontName = new();
         private readonly List<byte> _encodedBytes = [];
         private int? _fontIndex;
@@ -1423,6 +1521,10 @@ internal static class RtfCodec
         private int _pendingListStartAt = 1;
         private int _pendingListLevel = -1;
         private bool _pendingListUsesModernNumberFormat;
+        private string _pendingListPrefix = string.Empty;
+        private string _pendingListSuffix = ".";
+        private string _pendingListBulletText = "•";
+        private readonly ParsedListDefinition?[] _pendingListLevels = new ParsedListDefinition?[9];
         private int? _pendingOverrideListId;
         private int? _pendingOverrideId;
         private int _unicodeFallbackRemaining;
@@ -1573,26 +1675,34 @@ internal static class RtfCodec
                     FontSize = run.Format.FontSize ?? defaultCharacterFormat.FontSize,
                 },
             });
-            var paragraphs = Enumerable.Range(0, _document.Text.Length + 1)
-                .Where(start => start == 0 || _document.Text[start - 1] == '\n')
-                .Select(start =>
-            {
-                var format = _paragraphs.GetValueOrDefault(start, _defaultParagraphFormat);
-                _listItems.TryGetValue(start, out var list);
-
-                return new RichTextParagraph(
-                    start,
-                    format with { List = list });
-            });
+            var text = _document.Text;
             return new RichTextDocument(
-                _document.Text,
+                text,
                 runs,
-                paragraphs,
+                EnumerateParagraphs(text),
                 links: CoalesceLinks(_links),
                 fields: CoalesceFields(_fields),
                 images: _images,
                 defaultCharacterFormat: defaultCharacterFormat,
                 defaultParagraphFormat: _defaultParagraphFormat);
+        }
+
+        private IEnumerable<RichTextParagraph> EnumerateParagraphs(string text)
+        {
+            for (var start = 0; ;)
+            {
+                var format = _paragraphs.GetValueOrDefault(start, _defaultParagraphFormat);
+                _listItems.TryGetValue(start, out var list);
+                yield return new RichTextParagraph(start, format with { List = list });
+
+                var newline = text.IndexOf('\n', start);
+                if (newline < 0)
+                {
+                    yield break;
+                }
+
+                start = newline + 1;
+            }
         }
 
         private static IReadOnlyList<RichTextLink> CoalesceLinks(
@@ -2585,6 +2695,24 @@ internal static class RtfCodec
                 case "listoverridetable":
                     state.Destination = Destination.ListOverrideTable;
                     return true;
+                case "leveltext" when state.Destination == Destination.ListTable:
+                    state.Destination = Destination.ListLevelText;
+                    state.ListLevelTextCapture = new StringBuilder();
+                    state.CompletesListLevelText = true;
+                    return true;
+                case "picprop" when state.Destination == Destination.Picture:
+                    state.Destination = Destination.PictureProperties;
+                    return true;
+                case "sn" when state.Destination == Destination.PictureProperties:
+                    state.Destination = Destination.PicturePropertyName;
+                    state.PicturePropertyCapture = new StringBuilder();
+                    state.CompletesPicturePropertyName = true;
+                    return true;
+                case "sv" when state.Destination == Destination.PictureProperties:
+                    state.Destination = Destination.PicturePropertyValue;
+                    state.PicturePropertyCapture = new StringBuilder();
+                    state.CompletesPicturePropertyValue = true;
+                    return true;
                 case "listtext":
                 case "pntext":
                     state.Destination = Destination.ListText;
@@ -2692,17 +2820,17 @@ internal static class RtfCodec
             if (word == "list")
             {
                 _pendingListId = null;
-                _pendingListKind = null;
-                _pendingListNumberFormat = ListNumberFormat.Arabic;
-                _pendingListStartAt = 1;
                 _pendingListLevel = -1;
-                _pendingListUsesModernNumberFormat = false;
+                Array.Clear(_pendingListLevels);
+                ResetPendingListLevel();
                 return;
             }
 
             if (word == "listlevel")
             {
+                CommitPendingListLevel();
                 _pendingListLevel++;
+                ResetPendingListLevel();
                 return;
             }
 
@@ -2711,16 +2839,16 @@ internal static class RtfCodec
                 _pendingListId = parameter;
             }
             else if (word == "levelnfc" && parameter is not null &&
-                     _pendingListLevel <= 0 && !_pendingListUsesModernNumberFormat)
+                     !_pendingListUsesModernNumberFormat)
             {
                 SetPendingListNumberFormat(parameter.Value);
             }
-            else if (word == "levelnfcn" && parameter is not null && _pendingListLevel <= 0)
+            else if (word == "levelnfcn" && parameter is not null)
             {
                 SetPendingListNumberFormat(parameter.Value);
                 _pendingListUsesModernNumberFormat = true;
             }
-            else if (word == "levelstartat" && parameter is > 0 && _pendingListLevel <= 0)
+            else if (word == "levelstartat" && parameter is > 0)
             {
                 _pendingListStartAt = parameter.Value;
             }
@@ -2730,13 +2858,70 @@ internal static class RtfCodec
 
         private void CommitListDefinition()
         {
-            if (_pendingListId is { } listId && _pendingListKind is { } kind)
+            CommitPendingListLevel();
+            if (_pendingListId is not { } listId)
             {
-                _lists[listId] = new ParsedListDefinition(
+                return;
+            }
+
+            for (var level = 0; level < _pendingListLevels.Length; level++)
+            {
+                if (_pendingListLevels[level] is { } definition)
+                {
+                    _lists[(listId, level)] = definition;
+                }
+            }
+        }
+
+        private void CommitPendingListLevel()
+        {
+            if (_pendingListLevel is >= 0 and < 9 && _pendingListKind is { } kind)
+            {
+                _pendingListLevels[_pendingListLevel] = new ParsedListDefinition(
                     kind,
                     _pendingListStartAt,
-                    _pendingListNumberFormat);
+                    _pendingListNumberFormat,
+                    _pendingListPrefix,
+                    _pendingListSuffix,
+                    _pendingListBulletText);
             }
+        }
+
+        private void ResetPendingListLevel()
+        {
+            _pendingListKind = null;
+            _pendingListNumberFormat = ListNumberFormat.Arabic;
+            _pendingListStartAt = 1;
+            _pendingListUsesModernNumberFormat = false;
+            _pendingListPrefix = string.Empty;
+            _pendingListSuffix = ".";
+            _pendingListBulletText = "•";
+        }
+
+        private void CompleteListLevelText(StringBuilder capture)
+        {
+            if (_pendingListLevel is < 0 or >= 9 || capture.Length == 0)
+            {
+                return;
+            }
+
+            var declaredLength = Math.Min(capture[0], capture.Length - 1);
+            var text = capture.ToString(1, declaredLength);
+            var placeholderIndex = text.IndexOfAny(
+                ['\0', '\u0001', '\u0002', '\u0003', '\u0004', '\u0005', '\u0006', '\u0007', '\b']);
+            if (placeholderIndex >= 0)
+            {
+                _pendingListPrefix = text[..placeholderIndex];
+                _pendingListSuffix = text[(placeholderIndex + 1)..];
+            }
+            else if (_pendingListKind == RichListKind.Bulleted && text.Length > 0)
+            {
+                _pendingListBulletText = text;
+                _pendingListSuffix = string.Empty;
+            }
+
+            CommitPendingListLevel();
+            CommitListDefinition();
         }
 
         private void SetPendingListNumberFormat(int numberFormat)
@@ -2898,11 +3083,18 @@ internal static class RtfCodec
                 case Destination.ListText:
                     state.Capture!.Append(character, state.Format);
                     break;
+                case Destination.ListLevelText:
+                    state.ListLevelTextCapture!.Append(character);
+                    break;
                 case Destination.FieldInstruction:
                     state.FieldInstructionCapture!.Append(character);
                     break;
                 case Destination.Picture:
                     state.Picture!.AppendHex(character);
+                    break;
+                case Destination.PicturePropertyName:
+                case Destination.PicturePropertyValue:
+                    state.PicturePropertyCapture!.Append(character);
                     break;
                 case Destination.Body:
                     AppendBodyCharacter(character, state.Format, state);
@@ -3076,18 +3268,58 @@ internal static class RtfCodec
                 CompletePicture(state.Picture);
             }
 
+            if (state.CompletesListLevelText && state.ListLevelTextCapture is not null)
+            {
+                CompleteListLevelText(state.ListLevelTextCapture);
+            }
+
+            if (state.CompletesPicturePropertyName &&
+                state.Picture is not null &&
+                state.PicturePropertyCapture is not null)
+            {
+                state.Picture.PendingPropertyName = state.PicturePropertyCapture.ToString().Trim();
+            }
+
+            if (state.CompletesPicturePropertyValue &&
+                state.Picture is not null &&
+                state.PicturePropertyCapture is not null)
+            {
+                state.Picture.ApplyPropertyValue(state.PicturePropertyCapture.ToString());
+            }
+
             if (state.CompletesCapture && state.Capture is not null)
             {
-                var definition = ResolveList(state.ListOverride);
+                var definition = ResolveList(state.ListOverride, state.ListLevel);
                 var kind = definition?.Kind ?? InferListKind(state.Capture.Text);
                 if (kind is { } listKind)
                 {
-                    var parsedNumber = TryParseNumberMarker(
-                        state.Capture.Text.AsSpan().TrimStart(),
-                        out var numberMarker,
-                        out _)
+                    var parsedNumber = TryParseListNumberMarker(
+                        state.Capture.Text,
+                        definition,
+                        out var numberMarker)
                         ? numberMarker
                         : (NumberMarker?)null;
+                    var startAt = definition?.StartAt ?? parsedNumber?.Number ?? 1;
+                    var restart = false;
+                    if (listKind == RichListKind.Numbered && parsedNumber is { } parsed)
+                    {
+                        var key = (
+                            state.ListOverride,
+                            Math.Clamp(state.ListLevel, 0, 8));
+                        if (_nextListNumbers.TryGetValue(key, out var expectedNumber))
+                        {
+                            restart = parsed.Number != expectedNumber;
+                            if (restart)
+                            {
+                                startAt = parsed.Number;
+                            }
+                        }
+                        else if (definition is not null && parsed.Number != definition.Value.StartAt)
+                        {
+                            startAt = parsed.Number;
+                        }
+                    }
+
                     _listItems[_lineStart] = new RichTextListFormat
                     {
                         Id = state.ListOverride > 0
@@ -3103,17 +3335,19 @@ internal static class RtfCodec
                             ListNumberFormat.LowerLetter => RichListNumberStyle.LowerLetter,
                             _ => RichListNumberStyle.Arabic,
                         },
-                        StartAt = definition?.StartAt ?? parsedNumber?.Number ?? 1,
-                        Suffix = parsedNumber?.Delimiter.ToString() ??
+                        StartAt = startAt,
+                        Restart = restart,
+                        Prefix = definition?.Prefix ?? string.Empty,
+                        Suffix = definition?.Suffix ?? parsedNumber?.Delimiter.ToString() ??
                             (listKind == RichListKind.Numbered ? "." : string.Empty),
                         BulletText = listKind == RichListKind.Bulleted
-                            ? GetBulletText(state.Capture.Text)
+                            ? GetBulletText(state.Capture.Text, definition?.BulletText)
                             : "•",
                     };
                 }
 
                 _paragraphListHandled = true;
-                UpdateNumberCounter(state.ListOverride, state.Capture.Text);
+                UpdateNumberCounter(state.ListOverride, state.ListLevel, state.Capture.Text);
             }
         }
 
@@ -3187,6 +3421,8 @@ internal static class RtfCodec
                     FromTwips(picture.CropTopTwips),
                     FromTwips(picture.CropRightTwips),
                     FromTwips(picture.CropBottomTwips)),
+                AlternativeText = picture.AlternativeText,
+                Rotation = picture.Rotation,
             };
             _images.Add(image);
         }
@@ -3443,7 +3679,7 @@ internal static class RtfCodec
                 return;
             }
 
-            var definition = ResolveList(state.ListOverride);
+            var definition = ResolveList(state.ListOverride, state.ListLevel);
             if (definition is null)
             {
                 return;
@@ -3463,10 +3699,13 @@ internal static class RtfCodec
                     _ => RichListNumberStyle.Arabic,
                 },
                 StartAt = definition.Value.StartAt,
+                Prefix = definition.Value.Prefix,
+                Suffix = definition.Value.Suffix,
+                BulletText = definition.Value.BulletText,
             };
             if (definition.Value.Kind == RichListKind.Numbered)
             {
-                _ = GetNextListNumber(state.ListOverride, definition.Value);
+                _ = GetNextListNumber(state.ListOverride, state.ListLevel, definition.Value);
             }
 
             _paragraphListHandled = true;
@@ -3489,42 +3728,127 @@ internal static class RtfCodec
             }
         }
 
-        private ParsedListDefinition? ResolveList(int overrideId)
+        private ParsedListDefinition? ResolveList(int overrideId, int level)
         {
-            if (overrideId <= 0 || !_listOverrides.TryGetValue(overrideId, out var listId) ||
-                !_lists.TryGetValue(listId, out var definition))
+            if (overrideId <= 0 || !_listOverrides.TryGetValue(overrideId, out var listId))
             {
                 return null;
             }
 
-            return definition;
+            level = Math.Clamp(level, 0, 8);
+            if (_lists.TryGetValue((listId, level), out var definition))
+            {
+                return definition;
+            }
+
+            if (_lists.TryGetValue((listId, 0), out definition))
+            {
+                return definition;
+            }
+
+            for (var fallbackLevel = 1; fallbackLevel < 9; fallbackLevel++)
+            {
+                if (_lists.TryGetValue((listId, fallbackLevel), out definition))
+                {
+                    return definition;
+                }
+            }
+
+            return null;
         }
 
-        private int GetNextListNumber(int overrideId, ParsedListDefinition definition)
+        private int GetNextListNumber(
+            int overrideId,
+            int level,
+            ParsedListDefinition definition)
         {
-            var number = _nextListNumbers.GetValueOrDefault(overrideId, definition.StartAt);
-            _nextListNumbers[overrideId] = number == int.MaxValue ? number : number + 1;
+            var key = (overrideId, Math.Clamp(level, 0, 8));
+            var number = _nextListNumbers.GetValueOrDefault(key, definition.StartAt);
+            _nextListNumbers[key] = number == int.MaxValue ? number : number + 1;
             return number;
         }
 
-        private void UpdateNumberCounter(int overrideId, string marker)
+        private void UpdateNumberCounter(int overrideId, int level, string marker)
         {
-            var definition = ResolveList(overrideId);
+            var definition = ResolveList(overrideId, level);
             if (definition is not { Kind: RichListKind.Numbered })
             {
                 return;
             }
 
-            if (TryParseNumberMarker(marker.AsSpan().TrimStart(), out var parsed, out _))
+            var key = (overrideId, Math.Clamp(level, 0, 8));
+            if (TryParseListNumberMarker(marker, definition, out var parsed))
             {
-                _nextListNumbers[overrideId] = parsed.Number == int.MaxValue
+                _nextListNumbers[key] = parsed.Number == int.MaxValue
                     ? parsed.Number
                     : parsed.Number + 1;
             }
             else
             {
-                _ = GetNextListNumber(overrideId, definition.Value);
+                _ = GetNextListNumber(overrideId, level, definition.Value);
             }
+        }
+
+        private static bool TryParseListNumberMarker(
+            string marker,
+            ParsedListDefinition? definition,
+            out NumberMarker parsed)
+        {
+            if (definition is { Kind: RichListKind.Numbered } known)
+            {
+                var content = marker.AsSpan();
+                content = !content.IsEmpty && content[^1] == '\t'
+                    ? content[..^1]
+                    : content.TrimEnd();
+                if (content.StartsWith(known.Prefix, StringComparison.Ordinal) &&
+                    content.EndsWith(known.Suffix, StringComparison.Ordinal) &&
+                    content.Length >= known.Prefix.Length + known.Suffix.Length)
+                {
+                    var token = content.Slice(
+                        known.Prefix.Length,
+                        content.Length - known.Prefix.Length - known.Suffix.Length);
+                    if (TryParseNumberToken(token, known.NumberFormat, out var number))
+                    {
+                        parsed = new NumberMarker(
+                            number,
+                            known.Suffix.Length > 0 ? known.Suffix[0] : '\0',
+                            known.NumberFormat);
+                        return true;
+                    }
+                }
+            }
+
+            return TryParseNumberMarker(marker.AsSpan().TrimStart(), out parsed, out _);
+        }
+
+        private static bool TryParseNumberToken(
+            ReadOnlySpan<char> token,
+            ListNumberFormat format,
+            out int number)
+        {
+            if (format == ListNumberFormat.Arabic)
+            {
+                return int.TryParse(
+                    token,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out number) && number > 0;
+            }
+
+            if (format is ListNumberFormat.UpperRoman or ListNumberFormat.LowerRoman &&
+                TryParseRoman(token, out number, out var romanFormat))
+            {
+                return romanFormat == format;
+            }
+
+            if (format is ListNumberFormat.UpperLetter or ListNumberFormat.LowerLetter &&
+                TryParseLetters(token, out number, out var letterFormat))
+            {
+                return letterFormat == format;
+            }
+
+            number = 0;
+            return false;
         }
 
         private static RichListKind? InferListKind(string marker)
@@ -3543,12 +3867,17 @@ internal static class RtfCodec
             return RichListKind.Numbered;
         }
 
-        private static string GetBulletText(string marker)
+        private static string GetBulletText(string marker, string? fallback)
         {
+            if (!string.IsNullOrEmpty(fallback))
+            {
+                return fallback;
+            }
+
             var content = marker.AsSpan().Trim();
             return content.Length > 0 && IsBulletMarker(content[0])
                 ? content[0].ToString()
-                : "•";
+                : fallback ?? "•";
         }
 
         private Color? ResolveColor(int index)
@@ -3740,7 +4069,10 @@ internal static class RtfCodec
         private readonly record struct ParsedListDefinition(
             RichListKind Kind,
             int StartAt,
-            ListNumberFormat NumberFormat);
+            ListNumberFormat NumberFormat,
+            string Prefix,
+            string Suffix,
+            string BulletText);
 
         private enum Destination
         {
@@ -3751,9 +4083,13 @@ internal static class RtfCodec
             DefaultParagraphProperties,
             ListTable,
             ListOverrideTable,
+            ListLevelText,
             ListText,
             FieldInstruction,
             Picture,
+            PictureProperties,
+            PicturePropertyName,
+            PicturePropertyValue,
             Skip,
         }
 
@@ -3801,7 +4137,32 @@ internal static class RtfCodec
 
             public int CropRightTwips { get; set; }
 
+            public string? PendingPropertyName { get; set; }
+
+            public string? AlternativeText { get; private set; }
+
+            public double Rotation { get; private set; }
+
             public byte[] Data => _data.ToArray();
+
+            public void ApplyPropertyValue(string value)
+            {
+                if (string.Equals(PendingPropertyName, "wzDescription", StringComparison.OrdinalIgnoreCase))
+                {
+                    AlternativeText = value;
+                }
+                else if (string.Equals(PendingPropertyName, "rotation", StringComparison.OrdinalIgnoreCase) &&
+                         int.TryParse(
+                             value,
+                             NumberStyles.Integer,
+                             CultureInfo.InvariantCulture,
+                             out var fixedAngle))
+                {
+                    Rotation = fixedAngle / 65536d;
+                }
+
+                PendingPropertyName = null;
+            }
 
             public void AppendByte(byte value)
             {
@@ -3881,6 +4242,16 @@ internal static class RtfCodec
 
             public TextAccumulator? Capture { get; set; }
 
+            public StringBuilder? ListLevelTextCapture { get; set; }
+
+            public bool CompletesListLevelText { get; set; }
+
+            public StringBuilder? PicturePropertyCapture { get; set; }
+
+            public bool CompletesPicturePropertyName { get; set; }
+
+            public bool CompletesPicturePropertyValue { get; set; }
+
             public FieldContext? Field { get; set; }
 
             public StringBuilder? FieldInstructionCapture { get; set; }
@@ -3918,6 +4289,8 @@ internal static class RtfCodec
                 AtGroupStart = true,
                 SkipDestination = SkipDestination,
                 Capture = Capture,
+                ListLevelTextCapture = ListLevelTextCapture,
+                PicturePropertyCapture = PicturePropertyCapture,
                 Field = Field,
                 FieldInstructionCapture = FieldInstructionCapture,
                 Picture = Picture,
