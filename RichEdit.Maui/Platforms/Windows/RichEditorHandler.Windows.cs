@@ -1,10 +1,13 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Storage.Streams;
 
 namespace RichEdit.Maui;
 
@@ -12,11 +15,13 @@ public partial class RichEditorHandler
 {
     private bool _applyingDocument;
     private bool _canReadLanguageTag = true;
+    private bool _hasNativeLinks;
     private bool _suppressingNativeEvents;
     private int _nativeEventSuppressionVersion;
     private DispatcherQueueTimer? _nativeReadbackTimer;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
+    private NativeTextSnapshot? _nativeTextSnapshot;
 
     protected override RichEditBox CreatePlatformView() => new()
     {
@@ -56,6 +61,8 @@ public partial class RichEditorHandler
 
         _nativeEventSuppressionVersion++;
         _suppressingNativeEvents = false;
+        _hasNativeLinks = false;
+        _nativeTextSnapshot = null;
 
         base.DisconnectHandler(platformView);
     }
@@ -77,7 +84,27 @@ public partial class RichEditorHandler
             nativeDocument.BatchDisplayUpdates();
             try
             {
-                nativeDocument.SetText(TextSetOptions.None, document.Text);
+                _hasNativeLinks = false;
+                _nativeTextSnapshot = null;
+                if (document.Images.Count == 0)
+                {
+                    nativeDocument.SetText(TextSetOptions.None, document.Text);
+                }
+                else
+                {
+                    // One native RTF load preserves inline pictures without inserting
+                    // each object separately or repeatedly shifting later ranges.
+                    try
+                    {
+                        LoadRtfDocument(nativeDocument, RtfCodec.SerializeForNativePictures(document));
+                    }
+                    catch (Exception exception) when (exception is ArgumentException or COMException)
+                    {
+                        // Invalid or unsupported picture data must not take down the
+                        // editor. Keep the logical object character as a placeholder.
+                        nativeDocument.SetText(TextSetOptions.None, document.Text);
+                    }
+                }
                 var fullRange = nativeDocument.GetRange(0, document.Text.Length);
                 var defaultCharacterFormat = nativeDocument.GetDefaultCharacterFormat().GetClone();
                 ApplyCharacterFormat(defaultCharacterFormat, document.DefaultCharacterFormat);
@@ -125,12 +152,21 @@ public partial class RichEditorHandler
                     formattingRange.ParagraphFormat.SetClone(nativeFormat);
                 }
 
-                foreach (var link in document.Links)
+                foreach (var link in document.Links.OrderByDescending(link => link.Start))
                 {
                     formattingRange.SetRange(link.Start, link.End);
-                    formattingRange.Link = link.Target;
+                    try
+                    {
+                        formattingRange.Link = ToNativeLink(link.Target);
+                        _hasNativeLinks = true;
+                    }
+                    catch (Exception exception) when (exception is ArgumentException or COMException)
+                    {
+                        // Keep the model link when TOM rejects an unsupported target.
+                    }
                 }
 
+                _nativeTextSnapshot = null;
                 SetSelectionCore(selectionStart, selectionLength);
             }
             finally
@@ -174,6 +210,20 @@ public partial class RichEditorHandler
         }
     }
 
+    private static void LoadRtfDocument(RichEditTextDocument nativeDocument, string rtf)
+    {
+        using var stream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+        {
+            writer.WriteBytes(Encoding.ASCII.GetBytes(rtf));
+            writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+            writer.DetachStream();
+        }
+
+        stream.Seek(0);
+        nativeDocument.LoadFromStream(TextSetOptions.FormatRtf, stream);
+    }
+
     private partial void SetSelectionCore(int start, int length)
     {
         if (PlatformView is null)
@@ -181,10 +231,20 @@ public partial class RichEditorHandler
             return;
         }
 
-        var textLength = GetNativeText().Length;
+        var textLength = VirtualView?.Document.Text.Length ?? 0;
         start = Math.Clamp(start, 0, textLength);
         length = Math.Clamp(length, 0, textLength - start);
-        PlatformView.Document.Selection.SetRange(start, start + length);
+        if (_hasNativeLinks)
+        {
+            var snapshot = GetNativeTextSnapshot();
+            PlatformView.Document.Selection.SetRange(
+                snapshot.ToNativePosition(start),
+                snapshot.ToNativePosition(start + length));
+        }
+        else
+        {
+            PlatformView.Document.Selection.SetRange(start, start + length);
+        }
     }
 
     private partial void UpdatePlaceholder(RichEditor editor)
@@ -223,6 +283,8 @@ public partial class RichEditorHandler
             ? FormatEffect.Off
             : FormatEffect.On;
         native.ForegroundColor = ToWindowsColor(format.ForegroundColor ?? VirtualView.TextColor);
+        // Each caller supplies a fresh default-format clone. Leaving its background
+        // untouched is the WinUI reset path; RichEdit ignores alpha on text backgrounds.
         if (format.BackgroundColor is { Alpha: > 0 } backgroundColor)
         {
             native.BackgroundColor = ToWindowsColor(backgroundColor);
@@ -313,31 +375,23 @@ public partial class RichEditorHandler
 
     private RichTextDocument ReadDocumentFromPlatform()
     {
-        var text = GetNativeText();
+        var snapshot = GetNativeTextSnapshot();
+        var text = snapshot.Text;
         var nativeDocument = PlatformView.Document;
         var defaultCharacterFormat = ReadCharacterFormat(
             nativeDocument.GetDefaultCharacterFormat());
         var defaultParagraphFormat = ReadParagraphFormat(
             nativeDocument.GetDefaultParagraphFormat(), null);
-        var runs = new List<RichTextRun>();
         var scanRange = nativeDocument.GetRange(0, 0);
-        for (var position = 0; position < text.Length;)
-        {
-            scanRange.SetRange(position, position + 1);
-            scanRange.Expand(TextRangeUnit.CharacterFormat);
-            var end = Math.Clamp(scanRange.EndPosition, position + 1, text.Length);
-            var format = ReadCharacterFormat(scanRange.CharacterFormat);
-            runs.Add(new RichTextRun(position, end - position, format));
-            position = end;
-        }
-
         var paragraphs = new List<RichTextParagraph>();
         RichTextListFormat? previousList = null;
         var nextListId = 1;
         for (var start = 0; ;)
         {
             var end = GetParagraphEnd(text, start);
-            scanRange.SetRange(start, end);
+            scanRange.SetRange(
+                snapshot.ToNativePosition(start),
+                snapshot.ToNativePosition(end));
             var native = scanRange.ParagraphFormat;
             var paragraphFormat = ReadParagraphFormat(native, previousList);
             if (paragraphFormat.List is { } list)
@@ -365,60 +419,85 @@ public partial class RichEditorHandler
             start = newline + 1;
         }
 
-        var links = ReadLinks(scanRange, text.Length);
         var previous = VirtualView.Document;
-        var images = previous.Images.Where(image =>
-            image.Position < text.Length &&
-            text[image.Position] == RichTextDocument.ObjectReplacementCharacter);
         return previous.MergeNativeSnapshot(
             text,
-            runs,
+            snapshot.Runs,
             paragraphs,
-            links,
-            images,
+            null,
+            null,
             defaultCharacterFormat,
             defaultParagraphFormat);
     }
 
-    private static IReadOnlyList<RichTextLink> ReadLinks(
-        ITextRange scanRange,
-        int textLength)
+    private NativeTextSnapshot GetNativeTextSnapshot() =>
+        _nativeTextSnapshot ??= CreateNativeTextSnapshot();
+
+    private NativeTextSnapshot CreateNativeTextSnapshot()
     {
-        var links = new List<RichTextLink>();
-        string? currentTarget = null;
-        var currentStart = 0;
-        for (var position = 0; position <= textLength; position++)
+        var nativeDocument = PlatformView.Document;
+        nativeDocument.GetText(TextGetOptions.None, out var rawText);
+        var nativeContentLength = rawText.EndsWith('\r')
+            ? rawText.Length - 1
+            : rawText.Length;
+        var text = new StringBuilder(nativeContentLength);
+        var nativeToLogical = new int[rawText.Length + 1];
+        var logicalToNative = new List<int>(nativeContentLength + 1);
+        var runs = new List<RichTextRun>();
+        var scanRange = nativeDocument.GetRange(0, 0);
+        for (var nativePosition = 0; nativePosition < nativeContentLength;)
         {
-            string? target = null;
-            if (position < textLength)
+            scanRange.SetRange(nativePosition, nativePosition + 1);
+            scanRange.Expand(TextRangeUnit.CharacterFormat);
+            var nativeEnd = Math.Clamp(
+                scanRange.EndPosition,
+                nativePosition + 1,
+                nativeContentLength);
+            var hidden = scanRange.CharacterFormat.Hidden == FormatEffect.On;
+            var logicalStart = text.Length;
+            for (var position = nativePosition; position < nativeEnd; position++)
             {
-                scanRange.SetRange(position, position + 1);
-                target = scanRange.Link;
-            }
-            if (string.IsNullOrWhiteSpace(target))
-            {
-                target = null;
+                nativeToLogical[position] = text.Length;
+                if (!hidden)
+                {
+                    logicalToNative.Add(position);
+                    text.Append(rawText[position] switch
+                    {
+                        '\r' => '\n',
+                        '\v' => RichTextDocument.SoftLineBreakCharacter,
+                        var character => character,
+                    });
+                }
+
+                nativeToLogical[position + 1] = text.Length;
             }
 
-            if (string.Equals(currentTarget, target, StringComparison.Ordinal))
+            if (!hidden && text.Length > logicalStart)
             {
-                continue;
+                runs.Add(new RichTextRun(
+                    logicalStart,
+                    text.Length - logicalStart,
+                    ReadCharacterFormat(scanRange.CharacterFormat)));
             }
 
-            if (currentTarget is not null)
-            {
-                links.Add(new RichTextLink(
-                    currentStart,
-                    position - currentStart,
-                    currentTarget));
-            }
-
-            currentTarget = target;
-            currentStart = position;
+            nativePosition = nativeEnd;
         }
 
-        return links;
+        for (var position = nativeContentLength; position < nativeToLogical.Length; position++)
+        {
+            nativeToLogical[position] = text.Length;
+        }
+
+        logicalToNative.Add(nativeContentLength);
+        return new NativeTextSnapshot(
+            text.ToString(),
+            [.. runs],
+            nativeToLogical,
+            [.. logicalToNative]);
     }
+
+    private static string ToNativeLink(string target) =>
+        $"\"{target.Replace("\"", "%22", StringComparison.Ordinal)}\"";
 
     private RichTextCharacterFormat ReadCharacterFormat(ITextCharacterFormat native) => new()
     {
@@ -670,6 +749,7 @@ public partial class RichEditorHandler
             return;
         }
 
+        _nativeTextSnapshot = null;
         if (_nativeReadbackTimer is null)
         {
             ReadNativeDocumentChange();
@@ -721,11 +801,13 @@ public partial class RichEditorHandler
         }
 
         var selection = PlatformView.Document.Selection;
-        var start = Math.Min(selection.StartPosition, selection.EndPosition);
-        var length = Math.Abs(selection.EndPosition - selection.StartPosition);
+        var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
+        var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
         var document = ReadDocumentFromPlatform();
-        start = Math.Clamp(start, 0, document.Text.Length);
-        length = Math.Clamp(length, 0, document.Text.Length - start);
+        var snapshot = GetNativeTextSnapshot();
+        var start = snapshot.ToLogicalPosition(nativeStart);
+        var end = snapshot.ToLogicalPosition(nativeEnd);
+        var length = end - start;
         VirtualView.UpdateDocumentFromPlatform(document, start, length);
     }
 
@@ -737,21 +819,37 @@ public partial class RichEditorHandler
         }
 
         var selection = PlatformView.Document.Selection;
-        var start = Math.Min(selection.StartPosition, selection.EndPosition);
-        var length = Math.Abs(selection.EndPosition - selection.StartPosition);
+        var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
+        var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
+        var start = nativeStart;
+        var end = nativeEnd;
+        if (_hasNativeLinks)
+        {
+            var snapshot = GetNativeTextSnapshot();
+            start = snapshot.ToLogicalPosition(nativeStart);
+            end = snapshot.ToLogicalPosition(nativeEnd);
+        }
+
         start = Math.Clamp(start, 0, VirtualView.Document.Text.Length);
-        length = Math.Clamp(length, 0, VirtualView.Document.Text.Length - start);
+        end = Math.Clamp(end, start, VirtualView.Document.Text.Length);
+        var length = end - start;
         VirtualView.UpdateSelectionFromPlatform(start, length);
     }
 
-    private string GetNativeText()
+    private sealed class NativeTextSnapshot(
+        string text,
+        RichTextRun[] runs,
+        int[] nativeToLogical,
+        int[] logicalToNative)
     {
-        PlatformView.Document.GetText(TextGetOptions.NoHidden, out var text);
-        if (text.EndsWith('\r'))
-        {
-            text = text[..^1];
-        }
+        public string Text { get; } = text;
 
-        return text.Replace('\r', '\n');
+        public IReadOnlyList<RichTextRun> Runs { get; } = runs;
+
+        public int ToLogicalPosition(int nativePosition) =>
+            nativeToLogical[Math.Clamp(nativePosition, 0, nativeToLogical.Length - 1)];
+
+        public int ToNativePosition(int logicalPosition) =>
+            logicalToNative[Math.Clamp(logicalPosition, 0, logicalToNative.Length - 1)];
     }
 }

@@ -46,6 +46,23 @@ public sealed class RichTextDocumentTests
     }
 
     [Fact]
+    public void TransparentBackgroundIsNormalizedToAColorReset()
+    {
+        var transparent = Microsoft.Maui.Graphics.Color.FromRgba(0, 0, 0, 0);
+        var document = new RichTextDocument(
+            "clear",
+            runs:
+            [
+                new RichTextRun(
+                    0,
+                    5,
+                    RichTextCharacterFormat.Default with { BackgroundColor = transparent }),
+            ]);
+
+        Assert.Null(document.GetCharacterFormat(0).BackgroundColor);
+    }
+
+    [Fact]
     public void ReplacePreservesAndRemapsSemanticRanges()
     {
         var document = new RichTextDocument(
@@ -73,6 +90,40 @@ public sealed class RichTextDocumentTests
         Assert.Equal(2, Assert.Single(replaced.Images).Position);
         Assert.Equal(new RichTextLink(3, 5, "https://example.test", "tip"), Assert.Single(replaced.Links));
         Assert.Equal(Bold, replaced.GetCharacterFormat(4));
+    }
+
+    [Fact]
+    public void NativeSnapshotCanRemapModelOwnedSemanticRanges()
+    {
+        const string originalText = "Field Link \uFFFC";
+        var document = new RichTextDocument(
+            originalText,
+            links: [new RichTextLink(6, 4, "https://example.test", "tip")],
+            fields: [new RichTextField(0, 5, "DATE")],
+            images:
+            [
+                RichTextImage.FromBytes(
+                    originalText.Length - 1,
+                    "image/png",
+                    [1, 2, 3],
+                    10,
+                    20),
+            ]);
+
+        var updatedText = $"X{originalText}";
+        var merged = document.MergeNativeSnapshot(
+            updatedText,
+            [new RichTextRun(0, updatedText.Length, RichTextCharacterFormat.Default)],
+            [new RichTextParagraph(0, RichTextParagraphFormat.Default)],
+            links: null,
+            images: null,
+            RichTextCharacterFormat.Default,
+            RichTextParagraphFormat.Default);
+
+        Assert.Equal(7, Assert.Single(merged.Links).Start);
+        Assert.Equal("tip", merged.Links[0].ToolTip);
+        Assert.Equal(1, Assert.Single(merged.Fields).Start);
+        Assert.Equal(originalText.Length, Assert.Single(merged.Images).Position);
     }
 
     [Fact]

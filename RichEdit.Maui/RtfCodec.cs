@@ -31,6 +31,12 @@ internal static class RtfCodec
         return new Writer(document).Write();
     }
 
+    public static string SerializeForNativePictures(RichTextDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return new Writer(document, includeSemanticRanges: false).Write();
+    }
+
     public static RichTextDocument Parse(string rtf)
     {
         ArgumentNullException.ThrowIfNull(rtf);
@@ -50,13 +56,49 @@ internal static class RtfCodec
         private readonly List<ListDefinition> _listDefinitions;
         private readonly Dictionary<int, ListDefinition> _listsByItemStart = [];
         private readonly Dictionary<int, int> _nextListNumbers = [];
+        private readonly RichTextRun[] _runs;
+        private readonly Dictionary<int, RichTextField> _fieldsByStart;
+        private readonly Dictionary<int, RichTextField[]> _emptyFieldsByPosition;
+        private readonly Dictionary<int, RichTextLink> _linksByStart;
+        private readonly Dictionary<int, RichTextImage> _imagesByPosition;
+        private readonly int[] _semanticStarts;
+        private readonly int[] _semanticBoundaries;
 
-        public Writer(RichTextDocument document)
+        public Writer(RichTextDocument document, bool includeSemanticRanges = true)
         {
             _document = document;
             AddFont(document.DefaultCharacterFormat.FontFamily ?? "Arial");
             BuildFormattingTables();
             _listDefinitions = BuildListDefinitions();
+            _runs = [.. document.Runs];
+            _semanticBoundaries = includeSemanticRanges
+                ? document.Fields
+                    .SelectMany(field => new[] { field.Start, field.End })
+                    .Concat(document.Links.SelectMany(link => new[] { link.Start, link.End }))
+                    .Distinct()
+                    .Order()
+                    .ToArray()
+                : [];
+            _fieldsByStart = includeSemanticRanges
+                ? SplitFields().ToDictionary(field => field.Start)
+                : [];
+            _emptyFieldsByPosition = includeSemanticRanges
+                ? document.Fields
+                    .Where(field => field.Length == 0)
+                    .GroupBy(field => field.Start)
+                    .ToDictionary(group => group.Key, group => group.ToArray())
+                : [];
+            _linksByStart = includeSemanticRanges
+                ? SplitLinks().ToDictionary(link => link.Start)
+                : [];
+            _imagesByPosition = document.Images.ToDictionary(image => image.Position);
+            _semanticStarts = _fieldsByStart.Keys
+                .Concat(_emptyFieldsByPosition.Keys)
+                .Concat(_linksByStart.Keys)
+                .Concat(_imagesByPosition.Keys)
+                .Distinct()
+                .Order()
+                .ToArray();
         }
 
         public string Write()
@@ -380,6 +422,7 @@ internal static class RtfCodec
             }
 
             WriteRange(start, end);
+            WriteEmptyFieldsAt(end);
             if (hasParagraphBreak)
             {
                 WriteParagraphBreak(end);
@@ -388,26 +431,357 @@ internal static class RtfCodec
             _output.Append('}').Append("\r\n");
         }
 
-        private void WriteRange(int start, int end)
+        private void WriteRange(
+            int start,
+            int end,
+            RichTextField? excludedField = null,
+            RichTextLink? excludedLink = null)
         {
             var position = start;
             while (position < end)
             {
-                var format = _document.GetCharacterFormat(position);
-                var runEnd = position + 1;
-                while (runEnd < end && format == _document.GetCharacterFormat(runEnd))
+                WriteEmptyFieldsAt(position, excludedField);
+                if (_fieldsByStart.TryGetValue(position, out var field) &&
+                    field != excludedField && field.End <= end)
                 {
-                    runEnd++;
+                    WriteField(field, excludedLink);
+                    position = field.End;
+                    continue;
                 }
+
+                if (_linksByStart.TryGetValue(position, out var link) &&
+                    link != excludedLink && link.End <= end)
+                {
+                    WriteHyperlink(link, excludedField);
+                    position = link.End;
+                    continue;
+                }
+
+                if (_imagesByPosition.TryGetValue(position, out var image))
+                {
+                    WriteImage(image);
+                    position++;
+                    continue;
+                }
+
+                var run = GetRunAt(position);
+                var format = run.Format;
+                var runEnd = Math.Min(run.End, GetNextSemanticStart(position, end));
 
                 WriteRun(_document.Text.AsSpan(position, runEnd - position), format);
                 position = runEnd;
             }
         }
 
+        private void WriteEmptyFieldsAt(int position, RichTextField? excludedField = null)
+        {
+            if (!_emptyFieldsByPosition.TryGetValue(position, out var fields))
+            {
+                return;
+            }
+
+            foreach (var field in fields)
+            {
+                if (field != excludedField)
+                {
+                    WriteField(field);
+                }
+            }
+        }
+
+        private void WriteField(
+            RichTextField field,
+            RichTextLink? excludedLink = null)
+        {
+            _output.Append(@"{\field{\*\fldinst ");
+            WriteText(field.Instruction.AsSpan());
+            _output.Append(@"}{\fldrslt ");
+            WriteRange(
+                field.Start,
+                field.End,
+                excludedField: field,
+                excludedLink: excludedLink);
+            _output.Append("}}");
+        }
+
+        private void WriteHyperlink(
+            RichTextLink link,
+            RichTextField? excludedField = null)
+        {
+            _output.Append("{\\field{\\*\\fldinst HYPERLINK \"");
+            WriteText(link.Target.Replace("\"", "%22", StringComparison.Ordinal).AsSpan());
+            _output.Append('"');
+            if (!string.IsNullOrWhiteSpace(link.ToolTip))
+            {
+                _output.Append(" \\\\o \"");
+                WriteText(link.ToolTip.Replace("\"", "'", StringComparison.Ordinal).AsSpan());
+                _output.Append('"');
+            }
+
+            _output.Append(@"}{\fldrslt ");
+            WriteRange(
+                link.Start,
+                link.End,
+                excludedField: excludedField,
+                excludedLink: link);
+            _output.Append("}}");
+        }
+
+        private void WriteImage(RichTextImage image)
+        {
+            var format = GetRunAt(image.Position).Format;
+            if (!TryGetPictureControl(image, out var pictureControl, out var isRaster))
+            {
+                WriteRun(
+                    _document.Text.AsSpan(image.Position, 1),
+                    format);
+                return;
+            }
+
+            var hasFormatting = format != _document.DefaultCharacterFormat;
+            if (hasFormatting)
+            {
+                _output.Append('{');
+                WriteFormatControls(format, _document.DefaultCharacterFormat);
+            }
+
+            _output.Append(@"{\pict").Append(pictureControl);
+            if (isRaster && image.Width > 0)
+            {
+                _output.Append(@"\picw").Append(ToPixelsAt96Dpi(image.Width));
+            }
+
+            if (isRaster && image.Height > 0)
+            {
+                _output.Append(@"\pich").Append(ToPixelsAt96Dpi(image.Height));
+            }
+
+            if (image.Width > 0)
+            {
+                _output.Append(@"\picwgoal").Append(ToTwips(image.Width));
+            }
+
+            if (image.Height > 0)
+            {
+                _output.Append(@"\pichgoal").Append(ToTwips(image.Height));
+            }
+
+            if (image.Crop.Top != 0)
+            {
+                _output.Append(@"\piccropt").Append(ToTwips(image.Crop.Top));
+            }
+
+            if (image.Crop.Bottom != 0)
+            {
+                _output.Append(@"\piccropb").Append(ToTwips(image.Crop.Bottom));
+            }
+
+            if (image.Crop.Left != 0)
+            {
+                _output.Append(@"\piccropl").Append(ToTwips(image.Crop.Left));
+            }
+
+            if (image.Crop.Right != 0)
+            {
+                _output.Append(@"\piccropr").Append(ToTwips(image.Crop.Right));
+            }
+
+            _output.Append(' ');
+            var bytes = image.Data.AsSpan();
+            const string hexDigits = "0123456789abcdef";
+            for (var index = 0; index < bytes.Length; index++)
+            {
+                var value = bytes[index];
+                _output.Append(hexDigits[value >> 4])
+                    .Append(hexDigits[value & 0x0f]);
+                if ((index + 1) % 32 == 0)
+                {
+                    _output.Append("\r\n");
+                }
+            }
+
+            _output.Append('}');
+            if (hasFormatting)
+            {
+                _output.Append('}');
+            }
+        }
+
+        private static bool TryGetPictureControl(
+            RichTextImage image,
+            out string control,
+            out bool isRaster)
+        {
+            var mediaType = image.MediaType.Trim().ToLowerInvariant();
+            switch (mediaType)
+            {
+                case "image/png":
+                    control = @"\pngblip";
+                    isRaster = true;
+                    return true;
+                case "image/jpeg":
+                case "image/jpg":
+                    control = @"\jpegblip";
+                    isRaster = true;
+                    return true;
+                case "image/emf":
+                case "image/x-emf":
+                    control = @"\emfblip";
+                    isRaster = false;
+                    return true;
+                case "image/wmf":
+                case "image/x-wmf":
+                    control = @"\wmetafile8";
+                    isRaster = false;
+                    return true;
+            }
+
+            var data = image.Data.AsSpan();
+            if (data.Length >= 8 &&
+                data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4e && data[3] == 0x47 &&
+                data[4] == 0x0d && data[5] == 0x0a && data[6] == 0x1a && data[7] == 0x0a)
+            {
+                control = @"\pngblip";
+                isRaster = true;
+                return true;
+            }
+
+            if (data.Length >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff)
+            {
+                control = @"\jpegblip";
+                isRaster = true;
+                return true;
+            }
+
+            if (data.Length >= 44 &&
+                data[0] == 1 && data[1] == 0 && data[2] == 0 && data[3] == 0 &&
+                data[40] == 0x20 && data[41] == 0x45 && data[42] == 0x4d && data[43] == 0x46)
+            {
+                control = @"\emfblip";
+                isRaster = false;
+                return true;
+            }
+
+            if (data.Length >= 4 &&
+                data[0] == 0xd7 && data[1] == 0xcd && data[2] == 0xc6 && data[3] == 0x9a ||
+                data.Length >= 4 && data[0] is 1 or 2 && data[1] == 0 &&
+                data[2] == 9 && data[3] == 0)
+            {
+                control = @"\wmetafile8";
+                isRaster = false;
+                return true;
+            }
+
+            control = string.Empty;
+            isRaster = false;
+            return false;
+        }
+
+        private static int ToPixelsAt96Dpi(double points) =>
+            checked((int)Math.Round(points * 96d / 72d));
+
+        private int GetNextSemanticStart(int position, int end)
+        {
+            var index = Array.BinarySearch(_semanticStarts, position + 1);
+            if (index < 0)
+            {
+                index = ~index;
+            }
+
+            return index < _semanticStarts.Length
+                ? Math.Min(_semanticStarts[index], end)
+                : end;
+        }
+
+        private RichTextRun GetRunAt(int position)
+        {
+            var low = 0;
+            var high = _runs.Length - 1;
+            while (low <= high)
+            {
+                var middle = low + ((high - low) / 2);
+                var run = _runs[middle];
+                if (position < run.Start)
+                {
+                    high = middle - 1;
+                }
+                else if (position >= run.End)
+                {
+                    low = middle + 1;
+                }
+                else
+                {
+                    return run;
+                }
+            }
+
+            throw new InvalidOperationException("The normalized document has no run at the requested position.");
+        }
+
+        private IEnumerable<RichTextField> SplitFields()
+        {
+            foreach (var field in _document.Fields)
+            {
+                if (field.Length == 0)
+                {
+                    continue;
+                }
+
+                foreach (var (start, length) in SplitSemanticRange(field.Start, field.End))
+                {
+                    yield return field with { Start = start, Length = length };
+                }
+            }
+        }
+
+        private IEnumerable<RichTextLink> SplitLinks()
+        {
+            foreach (var link in _document.Links)
+            {
+                foreach (var (start, length) in SplitSemanticRange(link.Start, link.End))
+                {
+                    yield return link with { Start = start, Length = length };
+                }
+            }
+        }
+
+        private IEnumerable<(int Start, int Length)> SplitSemanticRange(int start, int end)
+        {
+            while (start < end)
+            {
+                var newline = _document.Text.IndexOf('\n', start, end - start);
+                var segmentEnd = newline < 0 ? end : newline;
+                var boundaryIndex = Array.BinarySearch(_semanticBoundaries, start + 1);
+                if (boundaryIndex < 0)
+                {
+                    boundaryIndex = ~boundaryIndex;
+                }
+
+                if (boundaryIndex < _semanticBoundaries.Length)
+                {
+                    segmentEnd = Math.Min(segmentEnd, _semanticBoundaries[boundaryIndex]);
+                }
+
+                if (segmentEnd > start)
+                {
+                    yield return (start, segmentEnd - start);
+                    start = segmentEnd;
+                    continue;
+                }
+
+                if (start == newline)
+                {
+                    start++;
+                    continue;
+                }
+
+                throw new InvalidOperationException("A semantic range could not be partitioned.");
+            }
+        }
+
         private void WriteParagraphBreak(int index)
         {
-            var format = _document.GetCharacterFormat(index);
+            var format = GetRunAt(index).Format;
             if (format == _document.DefaultCharacterFormat)
             {
                 _output.Append(@"\par");
@@ -755,6 +1129,9 @@ internal static class RtfCodec
                     case '\t':
                         _output.Append(@"\tab ");
                         break;
+                    case RichTextDocument.SoftLineBreakCharacter:
+                        _output.Append(@"\line ");
+                        break;
                     case ';' when escapeFontTerminator:
                         WriteUnicodeCharacter(character);
                         break;
@@ -1057,8 +1434,8 @@ internal static class RtfCodec
             "colorschememapping", "datafield", "datastore", "docvar", "filetbl",
             "fontemb", "fontfile", "footer", "footerf", "footerl", "footerr", "footnote",
             "generator", "header", "headerf", "headerl", "headerr", "info", "latentstyles",
-            "nonesttables", "nonshppict", "object", "objdata", "pict", "private", "revtbl", "rsidtbl",
-            "shp", "shpinst", "shppict", "stylesheet", "themedata", "userprops", "xmlnstbl",
+            "nonesttables", "nonshppict", "object", "objdata", "private", "revtbl", "rsidtbl",
+            "shp", "shpinst", "stylesheet", "themedata", "userprops", "xmlnstbl",
         };
 
         private readonly string _rtf;
@@ -1069,6 +1446,9 @@ internal static class RtfCodec
         private readonly Dictionary<int, int> _listOverrides = [];
         private readonly Dictionary<int, RichTextListFormat> _listItems = [];
         private readonly Dictionary<int, RichTextParagraphFormat> _paragraphs = [];
+        private readonly List<RichTextLink> _links = [];
+        private readonly List<RichTextField> _fields = [];
+        private readonly List<RichTextImage> _images = [];
         private readonly Dictionary<int, int> _nextListNumbers = [];
         private readonly StringBuilder _fontName = new();
         private readonly List<byte> _encodedBytes = [];
@@ -1249,8 +1629,54 @@ internal static class RtfCodec
                 _document.Text,
                 runs,
                 paragraphs,
+                links: CoalesceLinks(_links),
+                fields: CoalesceFields(_fields),
+                images: _images,
                 defaultCharacterFormat: defaultCharacterFormat,
                 defaultParagraphFormat: _defaultParagraphFormat);
+        }
+
+        private static IReadOnlyList<RichTextLink> CoalesceLinks(
+            IEnumerable<RichTextLink> source)
+        {
+            var result = new List<RichTextLink>();
+            foreach (var link in source.OrderBy(link => link.Start).ThenBy(link => link.End))
+            {
+                if (result.Count > 0 && result[^1] is { } previous &&
+                    previous.End == link.Start &&
+                    string.Equals(previous.Target, link.Target, StringComparison.Ordinal) &&
+                    string.Equals(previous.ToolTip, link.ToolTip, StringComparison.Ordinal))
+                {
+                    result[^1] = previous with { Length = link.End - previous.Start };
+                }
+                else
+                {
+                    result.Add(link);
+                }
+            }
+
+            return result;
+        }
+
+        private static IReadOnlyList<RichTextField> CoalesceFields(
+            IEnumerable<RichTextField> source)
+        {
+            var result = new List<RichTextField>();
+            foreach (var field in source.OrderBy(field => field.Start).ThenBy(field => field.End))
+            {
+                if (result.Count > 0 && result[^1] is { } previous &&
+                    previous.End == field.Start &&
+                    string.Equals(previous.Instruction, field.Instruction, StringComparison.Ordinal))
+                {
+                    result[^1] = previous with { Length = field.End - previous.Start };
+                }
+                else
+                {
+                    result.Add(field);
+                }
+            }
+
+            return result;
         }
 
         private void ParseControl(ref int position, ReaderState state)
@@ -1387,6 +1813,14 @@ internal static class RtfCodec
                 }
 
                 _ = ConsumeUnicodeFallback();
+                if (state.Destination == Destination.Picture && state.Picture is { } picture)
+                {
+                    for (var index = 0; index < byteCount; index++)
+                    {
+                        picture.AppendByte((byte)_rtf[position + index]);
+                    }
+                }
+
                 position += byteCount;
                 state.AtGroupStart = false;
                 return;
@@ -1497,6 +1931,9 @@ internal static class RtfCodec
                     return;
                 case Destination.ListOverrideTable:
                     ApplyListOverrideControl(word, parameter);
+                    return;
+                case Destination.Picture:
+                    ApplyPictureControl(word, parameter, state.Picture!);
                     return;
             }
 
@@ -2208,6 +2645,18 @@ internal static class RtfCodec
                     state.FieldResultStart = _document.Length;
                     state.CompletesFieldResult = true;
                     return true;
+                case "pict":
+                    state.Destination = Destination.Picture;
+                    state.Picture = new PictureContext(
+                        state.Format,
+                        state.ParagraphFormat,
+                        state.ListOverride,
+                        state.ListLevel);
+                    state.CompletesPicture = true;
+                    return true;
+                case "shppict":
+                    // The ignorable wrapper contains the preferred Word 97+ picture.
+                    return true;
                 default:
                     if (SkippedDestinations.Contains(word))
                     {
@@ -2376,6 +2825,70 @@ internal static class RtfCodec
             }
         }
 
+        private static void ApplyPictureControl(
+            string word,
+            int? parameter,
+            PictureContext picture)
+        {
+            switch (word)
+            {
+                case "pngblip":
+                    picture.MediaType = "image/png";
+                    break;
+                case "jpegblip":
+                    picture.MediaType = "image/jpeg";
+                    break;
+                case "emfblip":
+                    picture.MediaType = "image/emf";
+                    break;
+                case "wmetafile":
+                    picture.MediaType = "image/wmf";
+                    break;
+                case "macpict":
+                    picture.MediaType = "image/x-pict";
+                    break;
+                case "pmmetafile":
+                    picture.MediaType = "image/x-os2-metafile";
+                    break;
+                case "dibitmap":
+                    picture.MediaType = "image/x-rtf-dib";
+                    break;
+                case "wbitmap":
+                    picture.MediaType = "image/x-rtf-ddb";
+                    break;
+                case "picwgoal":
+                    picture.WidthTwips = parameter ?? 0;
+                    break;
+                case "pichgoal":
+                    picture.HeightTwips = parameter ?? 0;
+                    break;
+                case "picw":
+                    picture.PixelWidth = parameter ?? 0;
+                    break;
+                case "pich":
+                    picture.PixelHeight = parameter ?? 0;
+                    break;
+                case "picscalex":
+                    picture.ScaleX = parameter ?? 100;
+                    break;
+                case "picscaley":
+                    picture.ScaleY = parameter ?? 100;
+                    break;
+                case "piccropt":
+                    picture.CropTopTwips = parameter ?? 0;
+                    break;
+                case "piccropb":
+                    picture.CropBottomTwips = parameter ?? 0;
+                    break;
+                case "piccropl":
+                    picture.CropLeftTwips = parameter ?? 0;
+                    break;
+                case "piccropr":
+                    picture.CropRightTwips = parameter ?? 0;
+                    break;
+            }
+        }
+
         private void ProcessLiteral(char character, ReaderState state)
         {
             if (ConsumeUnicodeFallback())
@@ -2428,6 +2941,9 @@ internal static class RtfCodec
                     break;
                 case Destination.FieldInstruction:
                     state.FieldInstructionCapture!.Append(character);
+                    break;
+                case Destination.Picture:
+                    state.Picture!.AppendHex(character);
                     break;
                 case Destination.Body:
                     AppendBodyCharacter(character, state.Format, state);
@@ -2591,6 +3107,16 @@ internal static class RtfCodec
                 }
             }
 
+            if (state.CompletesFieldResult && state.Field is not null)
+            {
+                CompleteFieldResult(state.Field, state.FieldResultStart);
+            }
+
+            if (state.CompletesPicture && state.Picture is not null)
+            {
+                CompletePicture(state.Picture);
+            }
+
             if (state.CompletesCapture && state.Capture is not null)
             {
                 var definition = ResolveList(state.ListOverride);
@@ -2631,6 +3157,128 @@ internal static class RtfCodec
                 UpdateNumberCounter(state.ListOverride, state.Capture.Text);
             }
         }
+
+        private void CompleteFieldResult(FieldContext field, int start)
+        {
+            if (string.IsNullOrWhiteSpace(field.Instruction) || start > _document.Length)
+            {
+                return;
+            }
+
+            var instruction = field.Instruction.Trim();
+            var length = _document.Length - start;
+            if (length > 0 && TryParseHyperlinkField(instruction, out var target, out var toolTip))
+            {
+                var link = new RichTextLink(start, length, target, toolTip);
+                if (!_links.Any(existing => RangesOverlap(
+                        existing.Start,
+                        existing.End,
+                        link.Start,
+                        link.End)))
+                {
+                    _links.Add(link);
+                }
+
+                return;
+            }
+
+            var candidate = new RichTextField(start, length, instruction);
+            if (!_fields.Any(existing => RangesOverlap(
+                    existing.Start,
+                    existing.End,
+                    candidate.Start,
+                    candidate.End)))
+            {
+                _fields.Add(candidate);
+            }
+        }
+
+        private void CompletePicture(PictureContext picture)
+        {
+            var position = _document.Length;
+            var pictureState = new ReaderState
+            {
+                Destination = Destination.Body,
+                Format = picture.Format,
+                ParagraphFormat = picture.ParagraphFormat,
+                ListOverride = picture.ListOverride,
+                ListLevel = picture.ListLevel,
+            };
+            AppendBodyCharacter(
+                RichTextDocument.ObjectReplacementCharacter,
+                picture.Format,
+                pictureState);
+            var width = picture.WidthTwips != 0
+                ? FromTwips(picture.WidthTwips)
+                : picture.PixelWidth * 72d / 96d;
+            var height = picture.HeightTwips != 0
+                ? FromTwips(picture.HeightTwips)
+                : picture.PixelHeight * 72d / 96d;
+            width *= Math.Max(picture.ScaleX, 0) / 100d;
+            height *= Math.Max(picture.ScaleY, 0) / 100d;
+            var image = RichTextImage.FromBytes(
+                position,
+                picture.MediaType,
+                picture.Data,
+                Math.Max(width, 0),
+                Math.Max(height, 0)) with
+            {
+                Crop = new RichTextImageCrop(
+                    FromTwips(picture.CropLeftTwips),
+                    FromTwips(picture.CropTopTwips),
+                    FromTwips(picture.CropRightTwips),
+                    FromTwips(picture.CropBottomTwips)),
+            };
+            _images.Add(image);
+        }
+
+        private static bool TryParseHyperlinkField(
+            string instruction,
+            out string target,
+            out string? toolTip)
+        {
+            target = string.Empty;
+            toolTip = null;
+            var position = 0;
+            if (!TryReadFieldToken(instruction, ref position, out var fieldName) ||
+                !fieldName.Equals("HYPERLINK", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string? fragment = null;
+            while (TryReadFieldToken(instruction, ref position, out var token))
+            {
+                if (token.Equals(@"\l", StringComparison.OrdinalIgnoreCase) &&
+                    TryReadFieldToken(instruction, ref position, out var bookmark))
+                {
+                    fragment = bookmark;
+                }
+                else if (token.Equals(@"\o", StringComparison.OrdinalIgnoreCase) &&
+                         TryReadFieldToken(instruction, ref position, out var parsedToolTip))
+                {
+                    toolTip = parsedToolTip;
+                }
+                else if (!token.StartsWith('\\') && target.Length == 0)
+                {
+                    target = token;
+                }
+            }
+
+            if (fragment is not null)
+            {
+                target = target.Length == 0 ? $"#{fragment}" : $"{target}#{fragment}";
+            }
+
+            return target.Length > 0;
+        }
+
+        private static bool RangesOverlap(
+            int firstStart,
+            int firstEnd,
+            int secondStart,
+            int secondEnd) =>
+            firstStart < secondEnd && secondStart < firstEnd;
 
         private bool TryEvaluateSymbolField(
             string? instruction,
@@ -3146,12 +3794,92 @@ internal static class RtfCodec
             ListOverrideTable,
             ListText,
             FieldInstruction,
+            Picture,
             Skip,
         }
 
         private sealed class FieldContext
         {
             public string? Instruction { get; set; }
+        }
+
+        private sealed class PictureContext(
+            RichTextCharacterFormat format,
+            RichTextParagraphFormat paragraphFormat,
+            int listOverride,
+            int listLevel)
+        {
+            private readonly List<byte> _data = [];
+            private int? _highNibble;
+
+            public RichTextCharacterFormat Format { get; } = format;
+
+            public RichTextParagraphFormat ParagraphFormat { get; } = paragraphFormat;
+
+            public int ListOverride { get; } = listOverride;
+
+            public int ListLevel { get; } = listLevel;
+
+            public string MediaType { get; set; } = "application/octet-stream";
+
+            public int WidthTwips { get; set; }
+
+            public int HeightTwips { get; set; }
+
+            public int PixelWidth { get; set; }
+
+            public int PixelHeight { get; set; }
+
+            public int ScaleX { get; set; } = 100;
+
+            public int ScaleY { get; set; } = 100;
+
+            public int CropTopTwips { get; set; }
+
+            public int CropBottomTwips { get; set; }
+
+            public int CropLeftTwips { get; set; }
+
+            public int CropRightTwips { get; set; }
+
+            public byte[] Data => _data.ToArray();
+
+            public void AppendByte(byte value)
+            {
+                _highNibble = null;
+                _data.Add(value);
+            }
+
+            public void AppendHex(char character)
+            {
+                int nibble;
+                if (character is >= '0' and <= '9')
+                {
+                    nibble = character - '0';
+                }
+                else if (character is >= 'a' and <= 'f')
+                {
+                    nibble = character - 'a' + 10;
+                }
+                else if (character is >= 'A' and <= 'F')
+                {
+                    nibble = character - 'A' + 10;
+                }
+                else
+                {
+                    return;
+                }
+
+                if (_highNibble is { } high)
+                {
+                    _data.Add((byte)((high << 4) | nibble));
+                    _highNibble = null;
+                }
+                else
+                {
+                    _highNibble = nibble;
+                }
+            }
         }
 
         private sealed class ReaderState
@@ -3204,6 +3932,10 @@ internal static class RtfCodec
 
             public bool CompletesFieldResult { get; set; }
 
+            public PictureContext? Picture { get; set; }
+
+            public bool CompletesPicture { get; set; }
+
             public bool CompletesDefaultCharacterProperties { get; set; }
 
             public bool CompletesDefaultParagraphProperties { get; set; }
@@ -3229,6 +3961,7 @@ internal static class RtfCodec
                 Capture = Capture,
                 Field = Field,
                 FieldInstructionCapture = FieldInstructionCapture,
+                Picture = Picture,
             };
         }
     }

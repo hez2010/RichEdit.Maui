@@ -64,6 +64,18 @@ public sealed class RtfArchitectureTests
     }
 
     [Fact]
+    public void SoftLineBreakSerializesAsThePortableLineControl()
+    {
+        var document = RichTextDocument.FromPlainText(
+            $"one{RichTextDocument.SoftLineBreakCharacter}two");
+
+        var rtf = document.ToRtf();
+
+        Assert.Contains(@"\line ", rtf, StringComparison.Ordinal);
+        Assert.Equal(document.Text, RichTextDocument.FromRtf(rtf).Text);
+    }
+
+    [Fact]
     public void BasicCharacterAndParagraphFormattingRoundTrips()
     {
         var defaultFormat = new RichTextCharacterFormat
@@ -283,6 +295,185 @@ public sealed class RtfArchitectureTests
         var parsed = RichTextDocument.FromRtf(document.ToRtf()).GetParagraphFormat(0);
 
         AssertColor(background, parsed.BackgroundColor);
+    }
+
+    [Fact]
+    public void HyperlinkRoundTripPreservesDisplayTextTargetAndToolTip()
+    {
+        var linkFormat = RichTextCharacterFormat.Default with
+        {
+            Underline = RichTextUnderlineStyle.Single,
+            ForegroundColor = Colors.Blue,
+        };
+        var document = new RichTextDocument(
+            "OpenAI",
+            [new RichTextRun(0, 6, linkFormat)],
+            links: [new RichTextLink(0, 6, "https://openai.com/docs?q=rtf", "Open docs")]);
+
+        var rtf = document.ToRtf();
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal(document.Text, parsed.Text);
+        var link = Assert.Single(parsed.Links);
+        Assert.Equal(document.Links[0], link);
+        Assert.Empty(parsed.Fields);
+        Assert.Equal(RichTextUnderlineStyle.Single, parsed.GetCharacterFormat(0).Underline);
+        AssertColor(Colors.Blue, parsed.GetCharacterFormat(0).ForegroundColor);
+        Assert.Contains("HYPERLINK", rtf, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GeneralFieldRoundTripPreservesInstructionAndResult()
+    {
+        var document = new RichTextDocument(
+            "2026-07-18",
+            fields: [new RichTextField(0, 10, "DATE \\@ \"yyyy-MM-dd\"")]);
+
+        var parsed = RichTextDocument.FromRtf(document.ToRtf());
+
+        Assert.Equal(document.Text, parsed.Text);
+        Assert.Equal(document.Fields[0], Assert.Single(parsed.Fields));
+        Assert.Empty(parsed.Links);
+    }
+
+    [Fact]
+    public void EmptyFieldResultRoundTripsAtItsLogicalPosition()
+    {
+        var document = new RichTextDocument(
+            "abc",
+            fields: [new RichTextField(1, 0, "PAGE")]);
+
+        var parsed = RichTextDocument.FromRtf(document.ToRtf());
+
+        Assert.Equal(document.Text, parsed.Text);
+        Assert.Equal(document.Fields[0], Assert.Single(parsed.Fields));
+    }
+
+    [Fact]
+    public void PartiallyOverlappingFieldAndLinkRoundTripWithoutLosingEitherRange()
+    {
+        var document = new RichTextDocument(
+            "abcdefgh",
+            links: [new RichTextLink(3, 5, "https://example.test")],
+            fields: [new RichTextField(0, 5, "MERGEFIELD Name")]);
+
+        var parsed = RichTextDocument.FromRtf(document.ToRtf());
+
+        Assert.Equal(document.Text, parsed.Text);
+        Assert.Equal(document.Fields[0], Assert.Single(parsed.Fields));
+        Assert.Equal(document.Links[0], Assert.Single(parsed.Links));
+    }
+
+    [Fact]
+    public void PngImageRoundTripPreservesOwnedBytesSizeCropAndCharacterFormat()
+    {
+        var imageFormat = RichTextCharacterFormat.Default with
+        {
+            BaselineOffset = 2,
+        };
+        var image = RichTextImage.FromBytes(
+            1,
+            "image/png",
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A],
+            32.5,
+            24.25) with
+        {
+            Crop = new RichTextImageCrop(1, 2, 3, 4),
+        };
+        var document = new RichTextDocument(
+            $"a{RichTextDocument.ObjectReplacementCharacter}b",
+            [
+                new RichTextRun(0, 1, RichTextCharacterFormat.Default),
+                new RichTextRun(1, 1, imageFormat),
+                new RichTextRun(2, 1, RichTextCharacterFormat.Default),
+            ],
+            images: [image]);
+
+        var rtf = document.ToRtf();
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal(document.Text, parsed.Text);
+        var actual = Assert.Single(parsed.Images);
+        Assert.Equal(image.Position, actual.Position);
+        Assert.Equal(image.MediaType, actual.MediaType);
+        Assert.True(image.Data.AsSpan().SequenceEqual(actual.Data.AsSpan()));
+        Assert.Equal(image.Width, actual.Width, 2);
+        Assert.Equal(image.Height, actual.Height, 2);
+        Assert.Equal(image.Crop, actual.Crop);
+        Assert.Equal(imageFormat.BaselineOffset, parsed.GetCharacterFormat(1).BaselineOffset);
+        Assert.Contains(@"\pngblip", rtf, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativePictureProjectionLeavesFieldsAndLinksAsPlainText()
+    {
+        const string text = "Field Link \uFFFC";
+        var document = new RichTextDocument(
+            text,
+            links: [new RichTextLink(6, 4, "https://example.test")],
+            fields: [new RichTextField(0, 5, "DATE")],
+            images:
+            [
+                RichTextImage.FromBytes(
+                    text.Length - 1,
+                    "image/png",
+                    [0x89, 0x50, 0x4E, 0x47],
+                    16,
+                    16),
+            ]);
+
+        var rtf = RtfCodec.SerializeForNativePictures(document);
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Contains(@"\pict", rtf, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\field", rtf, StringComparison.Ordinal);
+        Assert.DoesNotContain("HYPERLINK", rtf, StringComparison.Ordinal);
+        Assert.Equal(document.Text, parsed.Text);
+        Assert.Empty(parsed.Fields);
+        Assert.Empty(parsed.Links);
+        Assert.Single(parsed.Images);
+    }
+
+    [Fact]
+    public void BinaryPictureDataIsImported()
+    {
+        var rtf = "{\\rtf1{\\pict\\jpegblip\\picwgoal200\\pichgoal100\\bin3 " +
+            new string([(char)0xFF, (char)0xD8, (char)0xFF]) + "}}";
+
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal(RichTextDocument.ObjectReplacementCharacter.ToString(), parsed.Text);
+        var image = Assert.Single(parsed.Images);
+        Assert.Equal("image/jpeg", image.MediaType);
+        Assert.True(image.Data.AsSpan().SequenceEqual(new byte[] { 0xFF, 0xD8, 0xFF }));
+        Assert.Equal(10, image.Width);
+        Assert.Equal(5, image.Height);
+    }
+
+    [Fact]
+    public void PictureScaleIsAppliedToPixelDimensionsOnImport()
+    {
+        const string rtf = @"{\rtf1{\pict\pngblip\picw100\pich50" +
+            @"\picscalex50\picscaley200 8950}}";
+
+        var image = Assert.Single(RichTextDocument.FromRtf(rtf).Images);
+
+        Assert.Equal(37.5, image.Width, 2);
+        Assert.Equal(75, image.Height, 2);
+    }
+
+    [Fact]
+    public void PreferredWordPictureWrapperIsImportedWithoutCompatibilityDuplicate()
+    {
+        const string rtf = @"{\rtf1{\*\shppict{\pict\pngblip 89504e47}}" +
+            @"{\nonshppict{\pict\wmetafile8 0102}}}";
+
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal(RichTextDocument.ObjectReplacementCharacter.ToString(), parsed.Text);
+        var image = Assert.Single(parsed.Images);
+        Assert.Equal("image/png", image.MediaType);
+        Assert.True(image.Data.AsSpan().SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47 }));
     }
 
     private static void AssertColor(Color? expected, Color? actual)

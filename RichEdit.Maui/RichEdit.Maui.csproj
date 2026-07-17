@@ -27,6 +27,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<InternalsVisibleTo Include="RichEdit.Maui.Tests" />
 	</ItemGroup>
 
 </Project>

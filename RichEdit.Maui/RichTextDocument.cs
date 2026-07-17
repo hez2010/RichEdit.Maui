@@ -379,8 +379,8 @@ public sealed class RichTextDocument
         string text,
         IEnumerable<RichTextRun> runs,
         IEnumerable<RichTextParagraph> paragraphs,
-        IEnumerable<RichTextLink> links,
-        IEnumerable<RichTextImage> images,
+        IEnumerable<RichTextLink>? links,
+        IEnumerable<RichTextImage>? images,
         RichTextCharacterFormat defaultCharacterFormat,
         RichTextParagraphFormat defaultParagraphFormat)
     {
@@ -404,22 +404,23 @@ public sealed class RichTextDocument
                 text[prefixLength..newEnd]);
         }
 
-        var nativeLinks = links.ToArray();
-        var linksWithToolTips = nativeLinks.Select(link =>
-        {
-            var prior = remapped._links.FirstOrDefault(candidate =>
-                candidate.Start == link.Start &&
-                candidate.Length == link.Length &&
-                string.Equals(candidate.Target, link.Target, StringComparison.Ordinal));
-            return prior is null ? link : link with { ToolTip = prior.ToolTip };
-        });
+        var linksWithToolTips = links is null
+            ? remapped._links
+            : links.Select(link =>
+            {
+                var prior = remapped._links.FirstOrDefault(candidate =>
+                    candidate.Start == link.Start &&
+                    candidate.Length == link.Length &&
+                    string.Equals(candidate.Target, link.Target, StringComparison.Ordinal));
+                return prior is null ? link : link with { ToolTip = prior.ToolTip };
+            });
         return new RichTextDocument(
             text,
             runs,
             paragraphs,
             linksWithToolTips,
             remapped._fields,
-            images,
+            images ?? remapped._images,
             defaultCharacterFormat,
             defaultParagraphFormat,
             _metadata);
