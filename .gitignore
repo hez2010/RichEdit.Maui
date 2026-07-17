@@ -1,0 +1,54 @@
+# Build outputs
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+
+# Visual Studio and IDE state
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Codex-local workspace state
+.agents/
+.codex/
+
+# Test and coverage artifacts
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+coverage*.lcov
+
+# Packages and platform bundles
+*.nupkg
+*.snupkg
+*.apk
+*.aab
+*.ipa
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+
+# Signing and provisioning material
+*.keystore
+*.jks
+*.pfx
+*.p12
+*.mobileprovision
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+~$*

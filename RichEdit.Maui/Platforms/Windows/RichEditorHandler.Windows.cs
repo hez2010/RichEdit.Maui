@@ -1,0 +1,757 @@
+using System.Collections.Immutable;
+using Microsoft.Maui.Platform;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+
+namespace RichEdit.Maui;
+
+public partial class RichEditorHandler
+{
+    private bool _applyingDocument;
+    private bool _canReadLanguageTag = true;
+    private bool _suppressingNativeEvents;
+    private int _nativeEventSuppressionVersion;
+    private DispatcherQueueTimer? _nativeReadbackTimer;
+    private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
+    private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
+
+    protected override RichEditBox CreatePlatformView() => new()
+    {
+        AcceptsReturn = true,
+        HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
+        HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
+        IsSpellCheckEnabled = true,
+        Padding = new Microsoft.UI.Xaml.Thickness(12, 10, 12, 10),
+        TextWrapping = TextWrapping.Wrap,
+        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch,
+        VerticalContentAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch,
+    };
+
+    protected override void ConnectHandler(RichEditBox platformView)
+    {
+        base.ConnectHandler(platformView);
+        platformView.TextChanged += OnNativeDocumentChanged;
+        platformView.SelectionChanged += OnNativeSelectionChanged;
+        platformView.Loaded += OnPlatformViewLoaded;
+        _nativeReadbackTimer = platformView.DispatcherQueue.CreateTimer();
+        _nativeReadbackTimer.Interval = TimeSpan.FromMilliseconds(16);
+        _nativeReadbackTimer.IsRepeating = false;
+        _nativeReadbackTimer.Tick += OnNativeReadbackTimerTick;
+    }
+
+    protected override void DisconnectHandler(RichEditBox platformView)
+    {
+        platformView.TextChanged -= OnNativeDocumentChanged;
+        platformView.SelectionChanged -= OnNativeSelectionChanged;
+        platformView.Loaded -= OnPlatformViewLoaded;
+        if (_nativeReadbackTimer is not null)
+        {
+            _nativeReadbackTimer.Stop();
+            _nativeReadbackTimer.Tick -= OnNativeReadbackTimerTick;
+            _nativeReadbackTimer = null;
+        }
+
+        _nativeEventSuppressionVersion++;
+        _suppressingNativeEvents = false;
+
+        base.DisconnectHandler(platformView);
+    }
+
+    private partial void ApplyDocumentCore(
+        RichTextDocument document,
+        int selectionStart,
+        int selectionLength)
+    {
+        if (PlatformView is null)
+        {
+            return;
+        }
+
+        _applyingDocument = true;
+        try
+        {
+            var nativeDocument = PlatformView.Document;
+            nativeDocument.BatchDisplayUpdates();
+            try
+            {
+                nativeDocument.SetText(TextSetOptions.None, document.Text);
+                var fullRange = nativeDocument.GetRange(0, document.Text.Length);
+                var defaultCharacterFormat = nativeDocument.GetDefaultCharacterFormat().GetClone();
+                ApplyCharacterFormat(defaultCharacterFormat, document.DefaultCharacterFormat);
+                fullRange.CharacterFormat.SetClone(defaultCharacterFormat);
+                var formattingRange = nativeDocument.GetRange(0, 0);
+                var characterFormats = new Dictionary<RichTextCharacterFormat, ITextCharacterFormat>();
+                foreach (var run in document.Runs)
+                {
+                    if (run.Format == document.DefaultCharacterFormat)
+                    {
+                        continue;
+                    }
+
+                    if (!characterFormats.TryGetValue(run.Format, out var nativeFormat))
+                    {
+                        nativeFormat = defaultCharacterFormat.GetClone();
+                        ApplyCharacterFormat(nativeFormat, run.Format);
+                        characterFormats.Add(run.Format, nativeFormat);
+                    }
+
+                    formattingRange.SetRange(run.Start, run.End);
+                    formattingRange.CharacterFormat.SetClone(nativeFormat);
+                }
+
+                var defaultParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
+                ApplyParagraphFormat(defaultParagraphFormat, document.DefaultParagraphFormat);
+                fullRange.ParagraphFormat.SetClone(defaultParagraphFormat);
+                var paragraphFormats = new Dictionary<RichTextParagraphFormat, ITextParagraphFormat>();
+                foreach (var paragraph in document.Paragraphs)
+                {
+                    if (paragraph.Format == document.DefaultParagraphFormat)
+                    {
+                        continue;
+                    }
+
+                    if (!paragraphFormats.TryGetValue(paragraph.Format, out var nativeFormat))
+                    {
+                        nativeFormat = defaultParagraphFormat.GetClone();
+                        ApplyParagraphFormat(nativeFormat, paragraph.Format);
+                        paragraphFormats.Add(paragraph.Format, nativeFormat);
+                    }
+
+                    var end = GetParagraphEnd(document.Text, paragraph.Start);
+                    formattingRange.SetRange(paragraph.Start, end);
+                    formattingRange.ParagraphFormat.SetClone(nativeFormat);
+                }
+
+                foreach (var link in document.Links)
+                {
+                    formattingRange.SetRange(link.Start, link.End);
+                    formattingRange.Link = link.Target;
+                }
+
+                SetSelectionCore(selectionStart, selectionLength);
+            }
+            finally
+            {
+                nativeDocument.ApplyDisplayUpdates();
+            }
+        }
+        finally
+        {
+            _applyingDocument = false;
+            SuppressNativeEventsUntilIdle();
+        }
+    }
+
+    private partial void ApplyTypingFormatCore(
+        RichTextCharacterFormat characterFormat,
+        RichTextParagraphFormat paragraphFormat)
+    {
+        _nativeTypingFormat = characterFormat;
+        _nativeTypingParagraphFormat = paragraphFormat;
+        if (PlatformView is null || PlatformView.Document.Selection.Length != 0)
+        {
+            return;
+        }
+
+        _applyingDocument = true;
+        try
+        {
+            var nativeDocument = PlatformView.Document;
+            var nativeCharacterFormat = nativeDocument.GetDefaultCharacterFormat().GetClone();
+            ApplyCharacterFormat(nativeCharacterFormat, characterFormat);
+            nativeDocument.Selection.CharacterFormat.SetClone(nativeCharacterFormat);
+            var nativeParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
+            ApplyParagraphFormat(nativeParagraphFormat, paragraphFormat);
+            nativeDocument.Selection.ParagraphFormat.SetClone(nativeParagraphFormat);
+        }
+        finally
+        {
+            _applyingDocument = false;
+            SuppressNativeEventsUntilIdle();
+        }
+    }
+
+    private partial void SetSelectionCore(int start, int length)
+    {
+        if (PlatformView is null)
+        {
+            return;
+        }
+
+        var textLength = GetNativeText().Length;
+        start = Math.Clamp(start, 0, textLength);
+        length = Math.Clamp(length, 0, textLength - start);
+        PlatformView.Document.Selection.SetRange(start, start + length);
+    }
+
+    private partial void UpdatePlaceholder(RichEditor editor)
+    {
+        PlatformView.PlaceholderText = editor.Placeholder;
+        PlatformView.Resources["TextControlPlaceholderForeground"] = editor.PlaceholderColor.ToPlatform();
+    }
+
+    private partial void UpdateAppearance(RichEditor editor)
+    {
+        PlatformView.Foreground = editor.TextColor.ToPlatform();
+        PlatformView.FontFamily = new FontFamily(editor.FontFamily ?? "Segoe UI");
+        PlatformView.FontSize = editor.FontSize;
+        UpdatePlaceholder(editor);
+
+        if (!_applyingDocument)
+        {
+            ApplyDocumentCore(editor.Document, editor.SelectionStart, editor.SelectionLength);
+            ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
+        }
+    }
+
+    private partial void UpdateIsReadOnly(RichEditor editor) =>
+        PlatformView.IsReadOnly = editor.IsReadOnly;
+
+    private void ApplyCharacterFormat(
+        ITextCharacterFormat native,
+        RichTextCharacterFormat format)
+    {
+        native.Name = format.FontFamily ?? VirtualView.FontFamily ?? "Segoe UI";
+        native.Size = (float)(format.FontSize ?? VirtualView.FontSize);
+        native.Weight = format.FontWeight;
+        native.Italic = format.Italic ? FormatEffect.On : FormatEffect.Off;
+        native.Underline = ToNativeUnderline(format.Underline);
+        native.Strikethrough = format.Strikethrough == RichTextStrikethroughStyle.None
+            ? FormatEffect.Off
+            : FormatEffect.On;
+        native.ForegroundColor = ToWindowsColor(format.ForegroundColor ?? VirtualView.TextColor);
+        if (format.BackgroundColor is { Alpha: > 0 } backgroundColor)
+        {
+            native.BackgroundColor = ToWindowsColor(backgroundColor);
+        }
+
+        native.Subscript = format.Script == RichTextScript.Subscript
+            ? FormatEffect.On
+            : FormatEffect.Off;
+        native.Superscript = format.Script == RichTextScript.Superscript
+            ? FormatEffect.On
+            : FormatEffect.Off;
+        native.Position = (float)format.BaselineOffset;
+        native.Spacing = (float)format.CharacterSpacing;
+        native.SmallCaps = format.SmallCaps ? FormatEffect.On : FormatEffect.Off;
+        native.AllCaps = format.AllCaps ? FormatEffect.On : FormatEffect.Off;
+        native.Outline = format.Outline ? FormatEffect.On : FormatEffect.Off;
+        native.Hidden = format.Hidden ? FormatEffect.On : FormatEffect.Off;
+        if (!string.IsNullOrWhiteSpace(format.LanguageTag))
+        {
+            native.LanguageTag = format.LanguageTag;
+        }
+
+        if (format.Kerning != RichTextFeatureMode.Automatic)
+        {
+            native.Kerning = format.Kerning == RichTextFeatureMode.Enabled ? 1f : 0f;
+        }
+    }
+
+    private static void ApplyParagraphFormat(
+        ITextParagraphFormat native,
+        RichTextParagraphFormat format)
+    {
+        native.Alignment = format.Alignment switch
+        {
+            RichTextAlignment.Center => ParagraphAlignment.Center,
+            RichTextAlignment.Right => ParagraphAlignment.Right,
+            RichTextAlignment.Justified or RichTextAlignment.Distributed => ParagraphAlignment.Justify,
+            _ => ParagraphAlignment.Left,
+        };
+        native.RightToLeft = format.Direction == RichTextDirection.RightToLeft
+            ? FormatEffect.On
+            : FormatEffect.Off;
+        native.SetIndents(
+            (float)format.FirstLineIndent,
+            (float)format.LeadingIndent,
+            (float)format.TrailingIndent);
+        native.SpaceBefore = (float)format.SpaceBefore;
+        native.SpaceAfter = (float)format.SpaceAfter;
+        native.SetLineSpacing(ToNativeLineSpacing(format.LineSpacingRule), (float)format.LineSpacing);
+        native.ClearAllTabs();
+        foreach (var tab in format.TabStops.Take(63))
+        {
+            native.AddTab(
+                (float)tab.Position,
+                ToNativeTabAlignment(tab.Alignment),
+                ToNativeTabLeader(tab.Leader));
+        }
+
+        if (format.List is not { } list)
+        {
+            native.ListType = MarkerType.None;
+            native.ListLevelIndex = 0;
+            return;
+        }
+
+        native.ListType = list.Kind == RichListKind.Bulleted
+            ? MarkerType.Bullet
+            : list.NumberStyle switch
+            {
+                RichListNumberStyle.UpperRoman => MarkerType.UppercaseRoman,
+                RichListNumberStyle.LowerRoman => MarkerType.LowercaseRoman,
+                RichListNumberStyle.UpperLetter => MarkerType.UppercaseEnglishLetter,
+                RichListNumberStyle.LowerLetter => MarkerType.LowercaseEnglishLetter,
+                _ => MarkerType.Arabic,
+            };
+        native.ListStyle = list.Kind == RichListKind.Bulleted
+            ? MarkerStyle.Plain
+            : list.Suffix switch
+            {
+                ")" => MarkerStyle.Parenthesis,
+                "-" => MarkerStyle.Minus,
+                "" => MarkerStyle.Plain,
+                _ => MarkerStyle.Period,
+            };
+        native.ListStart = list.StartAt;
+        native.ListLevelIndex = list.Level + 1;
+    }
+
+    private RichTextDocument ReadDocumentFromPlatform()
+    {
+        var text = GetNativeText();
+        var nativeDocument = PlatformView.Document;
+        var defaultCharacterFormat = ReadCharacterFormat(
+            nativeDocument.GetDefaultCharacterFormat());
+        var defaultParagraphFormat = ReadParagraphFormat(
+            nativeDocument.GetDefaultParagraphFormat(), null);
+        var runs = new List<RichTextRun>();
+        var scanRange = nativeDocument.GetRange(0, 0);
+        for (var position = 0; position < text.Length;)
+        {
+            scanRange.SetRange(position, position + 1);
+            scanRange.Expand(TextRangeUnit.CharacterFormat);
+            var end = Math.Clamp(scanRange.EndPosition, position + 1, text.Length);
+            var format = ReadCharacterFormat(scanRange.CharacterFormat);
+            runs.Add(new RichTextRun(position, end - position, format));
+            position = end;
+        }
+
+        var paragraphs = new List<RichTextParagraph>();
+        RichTextListFormat? previousList = null;
+        var nextListId = 1;
+        for (var start = 0; ;)
+        {
+            var end = GetParagraphEnd(text, start);
+            scanRange.SetRange(start, end);
+            var native = scanRange.ParagraphFormat;
+            var paragraphFormat = ReadParagraphFormat(native, previousList);
+            if (paragraphFormat.List is { } list)
+            {
+                var continues = previousList is not null &&
+                    previousList.Kind == list.Kind &&
+                    previousList.NumberStyle == list.NumberStyle &&
+                    previousList.Level == list.Level;
+                list = list with { Id = continues ? previousList!.Id : nextListId++ };
+                paragraphFormat = paragraphFormat with { List = list };
+                previousList = list;
+            }
+            else
+            {
+                previousList = null;
+            }
+
+            paragraphs.Add(new RichTextParagraph(start, paragraphFormat));
+            var newline = text.IndexOf('\n', start);
+            if (newline < 0)
+            {
+                break;
+            }
+
+            start = newline + 1;
+        }
+
+        var links = ReadLinks(scanRange, text.Length);
+        var previous = VirtualView.Document;
+        var images = previous.Images.Where(image =>
+            image.Position < text.Length &&
+            text[image.Position] == RichTextDocument.ObjectReplacementCharacter);
+        return previous.MergeNativeSnapshot(
+            text,
+            runs,
+            paragraphs,
+            links,
+            images,
+            defaultCharacterFormat,
+            defaultParagraphFormat);
+    }
+
+    private static IReadOnlyList<RichTextLink> ReadLinks(
+        ITextRange scanRange,
+        int textLength)
+    {
+        var links = new List<RichTextLink>();
+        string? currentTarget = null;
+        var currentStart = 0;
+        for (var position = 0; position <= textLength; position++)
+        {
+            string? target = null;
+            if (position < textLength)
+            {
+                scanRange.SetRange(position, position + 1);
+                target = scanRange.Link;
+            }
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                target = null;
+            }
+
+            if (string.Equals(currentTarget, target, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (currentTarget is not null)
+            {
+                links.Add(new RichTextLink(
+                    currentStart,
+                    position - currentStart,
+                    currentTarget));
+            }
+
+            currentTarget = target;
+            currentStart = position;
+        }
+
+        return links;
+    }
+
+    private RichTextCharacterFormat ReadCharacterFormat(ITextCharacterFormat native) => new()
+    {
+        FontFamily = string.IsNullOrWhiteSpace(native.Name) ? null : native.Name,
+        FontSize = native.Size > 0 ? native.Size : null,
+        FontWeight = Math.Clamp(native.Weight, 1, 1000),
+        Italic = native.Italic == FormatEffect.On,
+        Underline = FromNativeUnderline(native.Underline),
+        Strikethrough = native.Strikethrough == FormatEffect.On
+            ? RichTextStrikethroughStyle.Single
+            : RichTextStrikethroughStyle.None,
+        ForegroundColor = FromWindowsColor(native.ForegroundColor),
+        BackgroundColor = FromWindowsColor(native.BackgroundColor, transparentAsNull: true),
+        Script = native.Superscript == FormatEffect.On
+            ? RichTextScript.Superscript
+            : native.Subscript == FormatEffect.On
+                ? RichTextScript.Subscript
+                : RichTextScript.Normal,
+        BaselineOffset = native.Position,
+        CharacterSpacing = native.Spacing,
+        SmallCaps = native.SmallCaps == FormatEffect.On,
+        AllCaps = native.AllCaps == FormatEffect.On,
+        Outline = native.Outline == FormatEffect.On,
+        Hidden = native.Hidden == FormatEffect.On,
+        LanguageTag = ReadLanguageTag(native),
+        Kerning = native.Kerning > 0
+            ? RichTextFeatureMode.Enabled
+            : RichTextFeatureMode.Disabled,
+    };
+
+    private string? ReadLanguageTag(ITextCharacterFormat native)
+    {
+        if (!_canReadLanguageTag)
+        {
+            return null;
+        }
+
+        try
+        {
+            var languageTag = native.LanguageTag;
+            return string.IsNullOrWhiteSpace(languageTag) ? null : languageTag;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // RichEdit can report E_FAIL for range language tags. Do not pay the
+            // exception cost again for every character in the document snapshot.
+            _canReadLanguageTag = false;
+            return null;
+        }
+    }
+
+    private static RichTextParagraphFormat ReadParagraphFormat(
+        ITextParagraphFormat native,
+        RichTextListFormat? previousList)
+    {
+        var tabs = ImmutableArray.CreateBuilder<RichTextTabStop>(Math.Max(native.TabCount, 0));
+        for (var index = 0; index < native.TabCount; index++)
+        {
+            native.GetTab(index, out var position, out var alignment, out var leader);
+            if (position >= 0)
+            {
+                tabs.Add(new RichTextTabStop(
+                    position,
+                    FromNativeTabAlignment(alignment),
+                    FromNativeTabLeader(leader)));
+            }
+        }
+
+        RichTextListFormat? list = null;
+        if (native.ListType is not (MarkerType.None or MarkerType.Undefined))
+        {
+            var kind = native.ListType is MarkerType.Bullet or
+                MarkerType.BlackCircleWingding or MarkerType.WhiteCircleWingding
+                ? RichListKind.Bulleted
+                : RichListKind.Numbered;
+            list = new RichTextListFormat
+            {
+                Id = previousList?.Id ?? 1,
+                Level = Math.Max(native.ListLevelIndex - 1, 0),
+                Kind = kind,
+                NumberStyle = native.ListType switch
+                {
+                    MarkerType.UppercaseRoman => RichListNumberStyle.UpperRoman,
+                    MarkerType.LowercaseRoman => RichListNumberStyle.LowerRoman,
+                    MarkerType.UppercaseEnglishLetter => RichListNumberStyle.UpperLetter,
+                    MarkerType.LowercaseEnglishLetter => RichListNumberStyle.LowerLetter,
+                    _ => RichListNumberStyle.Arabic,
+                },
+                StartAt = Math.Max(native.ListStart, 1),
+                Suffix = native.ListStyle switch
+                {
+                    MarkerStyle.Parenthesis => ")",
+                    MarkerStyle.Minus => "-",
+                    MarkerStyle.Plain or MarkerStyle.NoNumber => string.Empty,
+                    _ => ".",
+                },
+            };
+        }
+
+        return new RichTextParagraphFormat
+        {
+            Alignment = native.Alignment switch
+            {
+                ParagraphAlignment.Center => RichTextAlignment.Center,
+                ParagraphAlignment.Right => RichTextAlignment.Right,
+                ParagraphAlignment.Justify => RichTextAlignment.Justified,
+                _ => RichTextAlignment.Left,
+            },
+            Direction = native.RightToLeft == FormatEffect.On
+                ? RichTextDirection.RightToLeft
+                : RichTextDirection.LeftToRight,
+            LeadingIndent = native.LeftIndent,
+            TrailingIndent = native.RightIndent,
+            FirstLineIndent = native.FirstLineIndent,
+            SpaceBefore = Math.Max(native.SpaceBefore, 0),
+            SpaceAfter = Math.Max(native.SpaceAfter, 0),
+            LineSpacingRule = FromNativeLineSpacing(native.LineSpacingRule),
+            LineSpacing = Math.Max(native.LineSpacing, 0),
+            TabStops = tabs.MoveToImmutable(),
+            List = list,
+        };
+    }
+
+    private static UnderlineType ToNativeUnderline(RichTextUnderlineStyle value) => value switch
+    {
+        RichTextUnderlineStyle.None => UnderlineType.None,
+        RichTextUnderlineStyle.Words => UnderlineType.Words,
+        RichTextUnderlineStyle.Double => UnderlineType.Double,
+        RichTextUnderlineStyle.Dotted => UnderlineType.Dotted,
+        RichTextUnderlineStyle.Dash => UnderlineType.Dash,
+        RichTextUnderlineStyle.DashDot => UnderlineType.DashDot,
+        RichTextUnderlineStyle.DashDotDot => UnderlineType.DashDotDot,
+        RichTextUnderlineStyle.Wave => UnderlineType.Wave,
+        RichTextUnderlineStyle.Thick => UnderlineType.Thick,
+        RichTextUnderlineStyle.DoubleWave => UnderlineType.DoubleWave,
+        RichTextUnderlineStyle.HeavyWave => UnderlineType.HeavyWave,
+        RichTextUnderlineStyle.LongDash => UnderlineType.LongDash,
+        _ => UnderlineType.Single,
+    };
+
+    private static RichTextUnderlineStyle FromNativeUnderline(UnderlineType value) => value switch
+    {
+        UnderlineType.None or UnderlineType.Undefined => RichTextUnderlineStyle.None,
+        UnderlineType.Words => RichTextUnderlineStyle.Words,
+        UnderlineType.Double => RichTextUnderlineStyle.Double,
+        UnderlineType.Dotted or UnderlineType.ThickDotted => RichTextUnderlineStyle.Dotted,
+        UnderlineType.Dash or UnderlineType.ThickDash => RichTextUnderlineStyle.Dash,
+        UnderlineType.DashDot or UnderlineType.ThickDashDot => RichTextUnderlineStyle.DashDot,
+        UnderlineType.DashDotDot or UnderlineType.ThickDashDotDot => RichTextUnderlineStyle.DashDotDot,
+        UnderlineType.Wave => RichTextUnderlineStyle.Wave,
+        UnderlineType.Thick => RichTextUnderlineStyle.Thick,
+        UnderlineType.DoubleWave => RichTextUnderlineStyle.DoubleWave,
+        UnderlineType.HeavyWave => RichTextUnderlineStyle.HeavyWave,
+        UnderlineType.LongDash or UnderlineType.ThickLongDash => RichTextUnderlineStyle.LongDash,
+        _ => RichTextUnderlineStyle.Single,
+    };
+
+    private static LineSpacingRule ToNativeLineSpacing(RichTextLineSpacingRule value) => value switch
+    {
+        RichTextLineSpacingRule.OneAndHalf => LineSpacingRule.OneAndHalf,
+        RichTextLineSpacingRule.Double => LineSpacingRule.Double,
+        RichTextLineSpacingRule.AtLeast => LineSpacingRule.AtLeast,
+        RichTextLineSpacingRule.Exactly => LineSpacingRule.Exactly,
+        RichTextLineSpacingRule.Multiple => LineSpacingRule.Multiple,
+        _ => LineSpacingRule.Single,
+    };
+
+    private static RichTextLineSpacingRule FromNativeLineSpacing(LineSpacingRule value) => value switch
+    {
+        LineSpacingRule.OneAndHalf => RichTextLineSpacingRule.OneAndHalf,
+        LineSpacingRule.Double => RichTextLineSpacingRule.Double,
+        LineSpacingRule.AtLeast => RichTextLineSpacingRule.AtLeast,
+        LineSpacingRule.Exactly => RichTextLineSpacingRule.Exactly,
+        LineSpacingRule.Multiple or LineSpacingRule.Percent => RichTextLineSpacingRule.Multiple,
+        LineSpacingRule.Single => RichTextLineSpacingRule.Single,
+        _ => RichTextLineSpacingRule.Automatic,
+    };
+
+    private static TabAlignment ToNativeTabAlignment(RichTextTabAlignment value) => value switch
+    {
+        RichTextTabAlignment.Center => TabAlignment.Center,
+        RichTextTabAlignment.Right => TabAlignment.Right,
+        RichTextTabAlignment.Decimal => TabAlignment.Decimal,
+        _ => TabAlignment.Left,
+    };
+
+    private static RichTextTabAlignment FromNativeTabAlignment(TabAlignment value) => value switch
+    {
+        TabAlignment.Center => RichTextTabAlignment.Center,
+        TabAlignment.Right => RichTextTabAlignment.Right,
+        TabAlignment.Decimal => RichTextTabAlignment.Decimal,
+        _ => RichTextTabAlignment.Left,
+    };
+
+    private static TabLeader ToNativeTabLeader(RichTextTabLeader value) => value switch
+    {
+        RichTextTabLeader.Dots => TabLeader.Dots,
+        RichTextTabLeader.Hyphens => TabLeader.Dashes,
+        RichTextTabLeader.Underline => TabLeader.Lines,
+        RichTextTabLeader.ThickLine => TabLeader.ThickLines,
+        RichTextTabLeader.Equals => TabLeader.Equals,
+        _ => TabLeader.Spaces,
+    };
+
+    private static RichTextTabLeader FromNativeTabLeader(TabLeader value) => value switch
+    {
+        TabLeader.Dots => RichTextTabLeader.Dots,
+        TabLeader.Dashes => RichTextTabLeader.Hyphens,
+        TabLeader.Lines => RichTextTabLeader.Underline,
+        TabLeader.ThickLines => RichTextTabLeader.ThickLine,
+        TabLeader.Equals => RichTextTabLeader.Equals,
+        _ => RichTextTabLeader.None,
+    };
+
+    private static Windows.UI.Color ToWindowsColor(Color color) => Windows.UI.Color.FromArgb(
+        (byte)Math.Round(color.Alpha * byte.MaxValue),
+        (byte)Math.Round(color.Red * byte.MaxValue),
+        (byte)Math.Round(color.Green * byte.MaxValue),
+        (byte)Math.Round(color.Blue * byte.MaxValue));
+
+    private static Color? FromWindowsColor(
+        Windows.UI.Color color,
+        bool transparentAsNull = false) =>
+        transparentAsNull && color.A == 0
+            ? null
+            : Color.FromRgba(color.R, color.G, color.B, color.A);
+
+    private static int GetParagraphEnd(string text, int start)
+    {
+        var newline = text.IndexOf('\n', start);
+        return newline < 0 ? text.Length : newline + 1;
+    }
+
+    private void OnPlatformViewLoaded(object sender, RoutedEventArgs eventArgs)
+    {
+        if (VirtualView is null)
+        {
+            return;
+        }
+
+        ApplyDocumentCore(VirtualView.Document, VirtualView.SelectionStart, VirtualView.SelectionLength);
+        ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
+    }
+
+    private void OnNativeDocumentChanged(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_applyingDocument || _suppressingNativeEvents || VirtualView is null)
+        {
+            return;
+        }
+
+        if (_nativeReadbackTimer is null)
+        {
+            ReadNativeDocumentChange();
+            return;
+        }
+
+        RestartNativeReadbackTimer();
+    }
+
+    private void OnNativeReadbackTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        ReadNativeDocumentChange();
+    }
+
+    private void SuppressNativeEventsUntilIdle()
+    {
+        if (PlatformView is null)
+        {
+            return;
+        }
+
+        _suppressingNativeEvents = true;
+        var version = ++_nativeEventSuppressionVersion;
+        if (!PlatformView.DispatcherQueue.TryEnqueue(
+                DispatcherQueuePriority.Low,
+                () =>
+                {
+                    if (_nativeEventSuppressionVersion == version)
+                    {
+                        _suppressingNativeEvents = false;
+                    }
+                }))
+        {
+            _suppressingNativeEvents = false;
+        }
+    }
+
+    private void RestartNativeReadbackTimer()
+    {
+        _nativeReadbackTimer!.Stop();
+        _nativeReadbackTimer.Start();
+    }
+
+    private void ReadNativeDocumentChange()
+    {
+        if (_applyingDocument || _suppressingNativeEvents || VirtualView is null)
+        {
+            return;
+        }
+
+        var selection = PlatformView.Document.Selection;
+        var start = Math.Min(selection.StartPosition, selection.EndPosition);
+        var length = Math.Abs(selection.EndPosition - selection.StartPosition);
+        var document = ReadDocumentFromPlatform();
+        start = Math.Clamp(start, 0, document.Text.Length);
+        length = Math.Clamp(length, 0, document.Text.Length - start);
+        VirtualView.UpdateDocumentFromPlatform(document, start, length);
+    }
+
+    private void OnNativeSelectionChanged(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_applyingDocument || _suppressingNativeEvents || VirtualView is null)
+        {
+            return;
+        }
+
+        var selection = PlatformView.Document.Selection;
+        var start = Math.Min(selection.StartPosition, selection.EndPosition);
+        var length = Math.Abs(selection.EndPosition - selection.StartPosition);
+        start = Math.Clamp(start, 0, VirtualView.Document.Text.Length);
+        length = Math.Clamp(length, 0, VirtualView.Document.Text.Length - start);
+        VirtualView.UpdateSelectionFromPlatform(start, length);
+    }
+
+    private string GetNativeText()
+    {
+        PlatformView.Document.GetText(TextGetOptions.NoHidden, out var text);
+        if (text.EndsWith('\r'))
+        {
+            text = text[..^1];
+        }
+
+        return text.Replace('\r', '\n');
+    }
+}

@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui"
+             x:Class="RichEdit.Maui.TestApp.MainPage"
+             Title="Rich editor">
+
+    <Grid Padding="24"
+          RowDefinitions="Auto,Auto,*,Auto"
+          RowSpacing="14">
+        <VerticalStackLayout Spacing="4">
+            <Label Text="Write without losing the details"
+                   FontAttributes="Bold"
+                   FontSize="26" />
+            <Label Text="Select text or place the caret, then use the formatting toolbar."
+                   FontSize="14"
+                   TextColor="{AppThemeBinding Light={StaticResource Gray600}, Dark={StaticResource Gray300}}" />
+        </VerticalStackLayout>
+
+        <ScrollView Grid.Row="1"
+                    HorizontalScrollBarVisibility="Never"
+                    Orientation="Horizontal">
+            <HorizontalStackLayout Spacing="8">
+                <Button x:Name="BoldButton"
+                        Text="B"
+                        FontAttributes="Bold"
+                        Clicked="OnBoldClicked" />
+                <Button x:Name="ItalicButton"
+                        Text="I"
+                        FontAttributes="Italic"
+                        Clicked="OnItalicClicked" />
+                <Button x:Name="UnderlineButton"
+                        Text="U̲"
+                        Clicked="OnUnderlineClicked" />
+                <Button x:Name="SuperscriptButton"
+                        Text="x²"
+                        Clicked="OnSuperscriptClicked" />
+                <Button x:Name="SubscriptButton"
+                        Text="x₂"
+                        Clicked="OnSubscriptClicked" />
+                <Button x:Name="BulletButton"
+                        Text="• List"
+                        Clicked="OnBulletedListClicked" />
+                <Button x:Name="NumberButton"
+                        Text="1. List"
+                        Clicked="OnNumberedListClicked" />
+                <Picker x:Name="FontPicker"
+                        Title="Font"
+                        SelectedIndexChanged="OnFontChanged"
+                        WidthRequest="150" />
+                <Picker x:Name="SizePicker"
+                        Title="Size"
+                        SelectedIndexChanged="OnSizeChanged"
+                        WidthRequest="95" />
+                <Label Text="Text"
+                       VerticalOptions="Center" />
+                <Button x:Name="ForegroundDefaultButton"
+                        AutomationId="ForegroundDefault"
+                        Text="A"
+                        TextColor="#2C2440"
+                        BackgroundColor="#EDE9F7"
+                        CommandParameter=""
+                        Clicked="OnForegroundColorClicked" />
+                <Button x:Name="ForegroundCoralButton"
+                        AutomationId="ForegroundCoral"
+                        SemanticProperties.Description="Coral text color"
+                        Text="A"
+                        TextColor="#E06C75"
+                        BackgroundColor="#EDE9F7"
+                        CommandParameter="#E06C75"
+                        Clicked="OnForegroundColorClicked" />
+                <Button x:Name="ForegroundBlueButton"
+                        AutomationId="ForegroundBlue"
+                        SemanticProperties.Description="Blue text color"
+                        Text="A"
+                        TextColor="#327CCB"
+                        BackgroundColor="#EDE9F7"
+                        CommandParameter="#327CCB"
+                        Clicked="OnForegroundColorClicked" />
+                <Button x:Name="ForegroundGreenButton"
+                        AutomationId="ForegroundGreen"
+                        SemanticProperties.Description="Green text color"
+                        Text="A"
+                        TextColor="#3A8F45"
+                        BackgroundColor="#EDE9F7"
+                        CommandParameter="#3A8F45"
+                        Clicked="OnForegroundColorClicked" />
+                <Label Text="Highlight"
+                       VerticalOptions="Center" />
+                <Button x:Name="BackgroundClearButton"
+                        AutomationId="BackgroundClear"
+                        SemanticProperties.Description="Clear highlight color"
+                        Text="∅"
+                        TextColor="#2C2440"
+                        BackgroundColor="#EDE9F7"
+                        CommandParameter=""
+                        Clicked="OnBackgroundColorClicked" />
+                <Button x:Name="BackgroundYellowButton"
+                        AutomationId="BackgroundYellow"
+                        SemanticProperties.Description="Yellow highlight color"
+                        Text="A"
+                        TextColor="#2C2440"
+                        BackgroundColor="#FFF3A3"
+                        CommandParameter="#FFF3A3"
+                        Clicked="OnBackgroundColorClicked" />
+                <Button x:Name="BackgroundBlueButton"
+                        AutomationId="BackgroundBlue"
+                        SemanticProperties.Description="Blue highlight color"
+                        Text="A"
+                        TextColor="#2C2440"
+                        BackgroundColor="#BDE7FF"
+                        CommandParameter="#BDE7FF"
+                        Clicked="OnBackgroundColorClicked" />
+                <Button x:Name="BackgroundGreenButton"
+                        AutomationId="BackgroundGreen"
+                        SemanticProperties.Description="Green highlight color"
+                        Text="A"
+                        TextColor="#2C2440"
+                        BackgroundColor="#D8F3C5"
+                        CommandParameter="#D8F3C5"
+                        Clicked="OnBackgroundColorClicked" />
+            </HorizontalStackLayout>
+        </ScrollView>
+
+        <Border Grid.Row="2"
+                Padding="0"
+                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#252525}"
+                Stroke="{AppThemeBinding Light={StaticResource Gray200}, Dark={StaticResource Gray600}}"
+                StrokeShape="RoundRectangle 14"
+                StrokeThickness="1">
+            <rich:RichEditor x:Name="Editor"
+                             AutomationId="RichEditor"
+                             FontSize="17"
+                             MinimumHeightRequest="320"
+                             Placeholder="Start writing…"
+                             PlaceholderColor="{AppThemeBinding Light={StaticResource Gray500}, Dark={StaticResource Gray400}}"
+                             SelectionChanged="OnEditorSelectionChanged"
+                             TextColor="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource White}}" />
+        </Border>
+
+        <Grid Grid.Row="3"
+              ColumnDefinitions="*,Auto"
+              ColumnSpacing="12">
+            <Label x:Name="StatusLabel"
+                   VerticalOptions="Center"
+                   FontSize="13"
+                   Text="Ready"
+                   TextColor="{AppThemeBinding Light={StaticResource Gray600}, Dark={StaticResource Gray300}}" />
+            <Button Grid.Column="1"
+                    Text="Copy RTF"
+                    Clicked="OnCopyRtfClicked" />
+        </Grid>
+    </Grid>
+
+</ContentPage>

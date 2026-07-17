@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="RichEdit.Maui.TestApp/RichEdit.Maui.TestApp.csproj" />
+  <Project Path="RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj" />
+  <Project Path="RichEdit.Maui/RichEdit.Maui.csproj" />
+</Solution>
