@@ -31,7 +31,7 @@ internal static class RtfCodec
         return new Writer(document).Write();
     }
 
-    public static string SerializeForNativePictures(RichTextDocument document)
+    public static string SerializeForNativeProjection(RichTextDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
         return new Writer(document, includeSemanticRanges: false).Write();
@@ -54,6 +54,7 @@ internal static class RtfCodec
         private readonly List<RtfColor> _colors = [];
         private readonly Dictionary<RtfColor, int> _colorIndices = [];
         private readonly List<ListDefinition> _listDefinitions;
+        private readonly List<ListOverrideDefinition> _listOverrides = [];
         private readonly Dictionary<int, ListItemDefinition> _listsByItemStart = [];
         private readonly Dictionary<(int OverrideId, int Level), int> _nextListNumbers = [];
         private readonly RichTextRun[] _runs;
@@ -341,12 +342,27 @@ internal static class RtfCodec
 
             _output.Append('}').Append("\r\n");
             _output.Append(@"{\*\listoverridetable").Append("\r\n");
-            foreach (var definition in _listDefinitions)
+            foreach (var listOverride in _listOverrides)
             {
-                _output.Append(@"{\listoverride\listid").Append(definition.ListId)
-                    .Append(@"\listoverridecount0\ls").Append(definition.OverrideId)
-                    .Append("}")
-                    .Append("\r\n");
+                var levelCount = listOverride.HasStartOverrides
+                    ? (listOverride.Definition.IsMultilevel ? 9 : 1)
+                    : 0;
+                _output.Append(@"{\listoverride\listid")
+                    .Append(listOverride.Definition.ListId)
+                    .Append(@"\listoverridecount").Append(levelCount)
+                    .Append(@"\ls").Append(listOverride.OverrideId);
+                for (var level = 0; level < levelCount; level++)
+                {
+                    _output.Append(@"{\lfolevel");
+                    if (listOverride.StartAtByLevel[level] is { } startAt)
+                    {
+                        _output.Append(@"\listoverridestartat\levelstartat").Append(startAt);
+                    }
+
+                    _output.Append('}');
+                }
+
+                _output.Append('}').Append("\r\n");
             }
 
             _output.Append('}').Append("\r\n");
@@ -443,7 +459,7 @@ internal static class RtfCodec
 
             if (_listsByItemStart.TryGetValue(start, out var list))
             {
-                _output.Append(@"\ls").Append(list.Definition.OverrideId)
+                _output.Append(@"\ls").Append(list.Override.OverrideId)
                     .Append(@"\ilvl").Append(list.Format.Level)
                     .Append(' ');
                 _output.Append(@"{\listtext ");
@@ -453,10 +469,10 @@ internal static class RtfCodec
                 }
                 else
                 {
-                    var key = (list.Definition.OverrideId, list.Format.Level);
-                    var number = list.Format.Restart
-                        ? list.Format.StartAt
-                        : _nextListNumbers.GetValueOrDefault(key, list.Format.StartAt);
+                    var key = (list.Override.OverrideId, list.Format.Level);
+                    var number = _nextListNumbers.GetValueOrDefault(
+                        key,
+                        list.Override.StartAtByLevel[list.Format.Level] ?? list.Format.StartAt);
                     _nextListNumbers[key] = number == int.MaxValue
                         ? number
                         : number + 1;
@@ -1253,30 +1269,91 @@ internal static class RtfCodec
 
                 if (!definitionsById.TryGetValue(list.Id, out var definition))
                 {
-                    var overrideId = definitions.Count + 1;
-                    if (overrideId > MaximumListOverrideId)
-                    {
-                        throw new InvalidOperationException(
-                            $"RTF 1.9.1 permits at most {MaximumListOverrideId} list override IDs in one document.");
-                    }
-
-                    definition = new ListDefinition(overrideId, overrideId);
+                    definition = new ListDefinition(definitions.Count + 1, list.Id);
                     definitionsById.Add(list.Id, definition);
                     definitions.Add(definition);
                 }
 
                 definition.AddLevel(list);
-                _listsByItemStart.Add(paragraph.Start, new ListItemDefinition(definition, list));
+            }
+
+            var nextOverrideId = 0;
+            ListOverrideDefinition AddOverride(
+                ListDefinition definition,
+                int?[] startAtByLevel)
+            {
+                nextOverrideId++;
+                if (nextOverrideId > MaximumListOverrideId)
+                {
+                    throw new InvalidOperationException(
+                        $"RTF 1.9.1 permits at most {MaximumListOverrideId} list override IDs in one document.");
+                }
+
+                var result = new ListOverrideDefinition(
+                    definition,
+                    nextOverrideId,
+                    startAtByLevel);
+                _listOverrides.Add(result);
+                return result;
+            }
+
+            var activeOverrides = new Dictionary<int, ListOverrideDefinition>();
+            foreach (var definition in definitions)
+            {
+                activeOverrides.Add(
+                    definition.SourceId,
+                    AddOverride(definition, new int?[9]));
+            }
+
+            var nextNumbers = new Dictionary<(int ListId, int Level), int>();
+            foreach (var paragraph in _document.Paragraphs)
+            {
+                if (paragraph.Format.List is not { } list)
+                {
+                    continue;
+                }
+
+                var definition = definitionsById[list.Id];
+                var listOverride = activeOverrides[list.Id];
+                if (list.Kind == RichListKind.Numbered && list.Restart)
+                {
+                    var starts = new int?[9];
+                    for (var level = 0; level < starts.Length; level++)
+                    {
+                        if (definition.Levels[level] is { Kind: RichListKind.Numbered } levelDefinition)
+                        {
+                            starts[level] = nextNumbers.GetValueOrDefault(
+                                (list.Id, level),
+                                levelDefinition.StartAt);
+                        }
+                    }
+
+                    starts[list.Level] = list.StartAt;
+                    listOverride = AddOverride(definition, starts);
+                    activeOverrides[list.Id] = listOverride;
+                }
+
+                _listsByItemStart.Add(
+                    paragraph.Start,
+                    new ListItemDefinition(listOverride, list));
+                if (list.Kind == RichListKind.Numbered)
+                {
+                    var key = (list.Id, list.Level);
+                    var number = list.Restart
+                        ? list.StartAt
+                        : nextNumbers.GetValueOrDefault(key, list.StartAt);
+                    nextNumbers[key] = number == int.MaxValue ? number : number + 1;
+                }
             }
 
             return definitions;
         }
 
-        private sealed class ListDefinition(int listId, int overrideId)
+        private sealed class ListDefinition(int listId, int sourceId)
         {
             public int ListId { get; } = listId;
 
-            public int OverrideId { get; } = overrideId;
+            public int SourceId { get; } = sourceId;
 
             public ListLevelDefinition?[] Levels { get; } = new ListLevelDefinition?[9];
 
@@ -1310,8 +1387,23 @@ internal static class RtfCodec
             string BulletText,
             ListNumberFormat NumberFormat);
 
+        private sealed class ListOverrideDefinition(
+            ListDefinition definition,
+            int overrideId,
+            int?[] startAtByLevel)
+        {
+            public ListDefinition Definition { get; } = definition;
+
+            public int OverrideId { get; } = overrideId;
+
+            public int?[] StartAtByLevel { get; } = startAtByLevel;
+
+            public bool HasStartOverrides =>
+                Array.Exists(StartAtByLevel, static startAt => startAt is not null);
+        }
+
         private readonly record struct ListItemDefinition(
-            ListDefinition Definition,
+            ListOverrideDefinition Override,
             RichTextListFormat Format);
     }
 
@@ -1501,12 +1593,14 @@ internal static class RtfCodec
         private readonly List<Color?> _colors = [];
         private readonly Dictionary<(int ListId, int Level), ParsedListDefinition> _lists = [];
         private readonly Dictionary<int, int> _listOverrides = [];
+        private readonly Dictionary<(int OverrideId, int Level), int> _listOverrideStartAt = [];
+        private readonly Dictionary<(bool IsTableList, int Id), int> _modelListIds = [];
         private readonly Dictionary<int, RichTextListFormat> _listItems = [];
         private readonly Dictionary<int, RichTextParagraphFormat> _paragraphs = [];
         private readonly List<RichTextLink> _links = [];
         private readonly List<RichTextField> _fields = [];
         private readonly List<RichTextImage> _images = [];
-        private readonly Dictionary<(int OverrideId, int Level), int> _nextListNumbers = [];
+        private readonly Dictionary<(bool IsTableList, int Id, int Level), int> _nextListNumbers = [];
         private readonly StringBuilder _fontName = new();
         private readonly List<byte> _encodedBytes = [];
         private int? _fontIndex;
@@ -1527,6 +1621,8 @@ internal static class RtfCodec
         private readonly ParsedListDefinition?[] _pendingListLevels = new ParsedListDefinition?[9];
         private int? _pendingOverrideListId;
         private int? _pendingOverrideId;
+        private int _pendingOverrideLevel = -1;
+        private bool _pendingOverrideStartAt;
         private int _unicodeFallbackRemaining;
         private ReaderState? _encodedState;
         private int _encodedCodePage;
@@ -1542,6 +1638,7 @@ internal static class RtfCodec
         private bool _sawRtfHeader;
         private bool _expectRtfHeader;
         private int _fallbackListId = MaximumListOverrideId + 1;
+        private int _nextModelListId = 1;
 
         public Reader(string rtf)
         {
@@ -2951,6 +3048,15 @@ internal static class RtfCodec
             {
                 _pendingOverrideListId = null;
                 _pendingOverrideId = null;
+                _pendingOverrideLevel = -1;
+                _pendingOverrideStartAt = false;
+                return;
+            }
+
+            if (word == "lfolevel")
+            {
+                _pendingOverrideLevel++;
+                _pendingOverrideStartAt = false;
                 return;
             }
 
@@ -2961,6 +3067,18 @@ internal static class RtfCodec
             else if (word == "ls" && parameter is >= 1 and <= MaximumListOverrideId)
             {
                 _pendingOverrideId = parameter;
+            }
+            else if (word == "listoverridestartat")
+            {
+                _pendingOverrideStartAt = true;
+            }
+            else if (word == "levelstartat" &&
+                     parameter is > 0 &&
+                     _pendingOverrideStartAt &&
+                     _pendingOverrideId is { } startOverrideId &&
+                     _pendingOverrideLevel is >= 0 and < 9)
+            {
+                _listOverrideStartAt[(startOverrideId, _pendingOverrideLevel)] = parameter.Value;
             }
 
             if (_pendingOverrideListId is { } listId && _pendingOverrideId is { } overrideId)
@@ -3293,6 +3411,7 @@ internal static class RtfCodec
                 var kind = definition?.Kind ?? InferListKind(state.Capture.Text);
                 if (kind is { } listKind)
                 {
+                    var level = Math.Clamp(state.ListLevel, 0, 8);
                     var parsedNumber = TryParseListNumberMarker(
                         state.Capture.Text,
                         definition,
@@ -3300,13 +3419,15 @@ internal static class RtfCodec
                         ? numberMarker
                         : (NumberMarker?)null;
                     var startAt = definition?.StartAt ?? parsedNumber?.Number ?? 1;
-                    var restart = false;
+                    var counterKey = GetListCounterKey(state.ListOverride, level);
+                    var hasExpectedNumber = _nextListNumbers.TryGetValue(
+                        counterKey,
+                        out var expectedNumber);
+                    var restart = !hasExpectedNumber &&
+                        _listOverrideStartAt.ContainsKey((state.ListOverride, level));
                     if (listKind == RichListKind.Numbered && parsedNumber is { } parsed)
                     {
-                        var key = (
-                            state.ListOverride,
-                            Math.Clamp(state.ListLevel, 0, 8));
-                        if (_nextListNumbers.TryGetValue(key, out var expectedNumber))
+                        if (hasExpectedNumber)
                         {
                             restart = parsed.Number != expectedNumber;
                             if (restart)
@@ -3323,9 +3444,9 @@ internal static class RtfCodec
                     _listItems[_lineStart] = new RichTextListFormat
                     {
                         Id = state.ListOverride > 0
-                            ? state.ListOverride
+                            ? GetModelListId(state.ListOverride)
                             : _fallbackListId++,
-                        Level = Math.Clamp(state.ListLevel, 0, 8),
+                        Level = level,
                         Kind = listKind,
                         NumberStyle = (definition?.NumberFormat ?? parsedNumber?.Format) switch
                         {
@@ -3685,10 +3806,11 @@ internal static class RtfCodec
                 return;
             }
 
+            var level = Math.Clamp(state.ListLevel, 0, 8);
             _listItems[_lineStart] = new RichTextListFormat
             {
-                Id = state.ListOverride,
-                Level = Math.Clamp(state.ListLevel, 0, 8),
+                Id = GetModelListId(state.ListOverride),
+                Level = level,
                 Kind = definition.Value.Kind,
                 NumberStyle = definition.Value.NumberFormat switch
                 {
@@ -3699,6 +3821,8 @@ internal static class RtfCodec
                     _ => RichListNumberStyle.Arabic,
                 },
                 StartAt = definition.Value.StartAt,
+                Restart = _listOverrideStartAt.ContainsKey((state.ListOverride, level)) &&
+                    !_nextListNumbers.ContainsKey(GetListCounterKey(state.ListOverride, level)),
                 Prefix = definition.Value.Prefix,
                 Suffix = definition.Value.Suffix,
                 BulletText = definition.Value.BulletText,
@@ -3736,25 +3860,59 @@ internal static class RtfCodec
             }
 
             level = Math.Clamp(level, 0, 8);
+            ParsedListDefinition? result = null;
             if (_lists.TryGetValue((listId, level), out var definition))
             {
-                return definition;
+                result = definition;
             }
-
-            if (_lists.TryGetValue((listId, 0), out definition))
+            else if (_lists.TryGetValue((listId, 0), out definition))
             {
-                return definition;
+                result = definition;
             }
-
-            for (var fallbackLevel = 1; fallbackLevel < 9; fallbackLevel++)
+            else
             {
-                if (_lists.TryGetValue((listId, fallbackLevel), out definition))
+                for (var fallbackLevel = 1; fallbackLevel < 9; fallbackLevel++)
                 {
-                    return definition;
+                    if (_lists.TryGetValue((listId, fallbackLevel), out definition))
+                    {
+                        result = definition;
+                        break;
+                    }
                 }
             }
 
-            return null;
+            if (result is { } resolved &&
+                _listOverrideStartAt.TryGetValue((overrideId, level), out var startAt))
+            {
+                result = resolved with { StartAt = startAt };
+            }
+
+            return result;
+        }
+
+        private int GetModelListId(int overrideId)
+        {
+            var identity = GetListIdentity(overrideId);
+            if (!_modelListIds.TryGetValue(identity, out var modelListId))
+            {
+                modelListId = _nextModelListId++;
+                _modelListIds.Add(identity, modelListId);
+            }
+
+            return modelListId;
+        }
+
+        private (bool IsTableList, int Id) GetListIdentity(int overrideId) =>
+            _listOverrides.TryGetValue(overrideId, out var listId)
+                ? (true, listId)
+                : (false, overrideId);
+
+        private (bool IsTableList, int Id, int Level) GetListCounterKey(
+            int overrideId,
+            int level)
+        {
+            var identity = GetListIdentity(overrideId);
+            return (identity.IsTableList, identity.Id, Math.Clamp(level, 0, 8));
         }
 
         private int GetNextListNumber(
@@ -3762,7 +3920,7 @@ internal static class RtfCodec
             int level,
             ParsedListDefinition definition)
         {
-            var key = (overrideId, Math.Clamp(level, 0, 8));
+            var key = GetListCounterKey(overrideId, level);
             var number = _nextListNumbers.GetValueOrDefault(key, definition.StartAt);
             _nextListNumbers[key] = number == int.MaxValue ? number : number + 1;
             return number;
@@ -3776,7 +3934,7 @@ internal static class RtfCodec
                 return;
             }
 
-            var key = (overrideId, Math.Clamp(level, 0, 8));
+            var key = GetListCounterKey(overrideId, level);
             if (TryParseListNumberMarker(marker, definition, out var parsed))
             {
                 _nextListNumbers[key] = parsed.Number == int.MaxValue

@@ -75,7 +75,7 @@ var sameRtf = document.ToRtf();
 
 The reader follows RTF group scoping, Unicode fallback, code-page, paragraph-default, and ignorable-destination rules. It accepts ANSI, Mac, PC 437, PC 850, and font-specific `\fcharset`/`\cpg` text. Table cells are flattened to tab/newline text rather than concatenated. `\line` is represented as U+2028, while `\par` is represented as `\n`, so soft and paragraph breaks remain distinct.
 
-RTF uses opaque 8-bit RGB colors and half-point font sizes. Serialization rounds model values to those wire-format units. Alpha cannot be represented by RTF and is therefore degraded to opaque RGB.
+RTF uses opaque 8-bit RGB colors and half-point font sizes. Serialization rounds model values to those wire-format units. Nonzero alpha is degraded to opaque RGB; a fully transparent formatting color means unset/reset rather than an alpha-zero native color.
 
 See the [portable RTF support matrix](RTF_SUPPORT.md) for the exact iOS,
 Mac Catalyst, Android 26, and WinUI 3 behavior, including documented visual

@@ -153,7 +153,7 @@ public sealed class RtfArchitectureTests
         };
 
         var document = new RichTextDocument(
-            "A\nB\nC\nD\nE",
+            "A\nB\nC\nD\nE\nF",
             paragraphs:
             [
                 new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = List(0) }),
@@ -161,6 +161,7 @@ public sealed class RtfArchitectureTests
                 new RichTextParagraph(4, RichTextParagraphFormat.Default with { List = List(1, 5) }),
                 new RichTextParagraph(6, RichTextParagraphFormat.Default with { List = List(0) }),
                 new RichTextParagraph(8, RichTextParagraphFormat.Default with { List = List(1, 5, restart: true) }),
+                new RichTextParagraph(10, RichTextParagraphFormat.Default with { List = List(0) }),
             ]);
 
         var rtf = document.ToRtf();
@@ -168,12 +169,17 @@ public sealed class RtfArchitectureTests
 
         Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 1.\tab }"));
         Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 2.\tab }"));
+        Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 3.\tab }"));
         Assert.Equal(2, CountOccurrences(rtf, @"{\listtext 5.\tab }"));
         Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 6.\tab }"));
+        Assert.Contains(@"\listoverridecount9", rtf, StringComparison.Ordinal);
+        Assert.Contains(@"\listoverridestartat\levelstartat5", rtf, StringComparison.Ordinal);
+        Assert.All(parsed.Paragraphs, paragraph => Assert.Equal(1, paragraph.Format.List?.Id));
         Assert.False(parsed.Paragraphs[1].Format.List?.Restart);
         Assert.False(parsed.Paragraphs[2].Format.List?.Restart);
         Assert.True(parsed.Paragraphs[4].Format.List?.Restart);
         Assert.Equal(5, parsed.Paragraphs[4].Format.List?.StartAt);
+        Assert.False(parsed.Paragraphs[5].Format.List?.Restart);
     }
 
     private static int CountOccurrences(string text, string value)
@@ -563,7 +569,7 @@ public sealed class RtfArchitectureTests
     }
 
     [Fact]
-    public void NativePictureProjectionLeavesFieldsAndLinksAsPlainText()
+    public void NativeProjectionLeavesFieldsAndLinksAsPlainText()
     {
         const string text = "Field Link \uFFFC";
         var document = new RichTextDocument(
@@ -580,7 +586,7 @@ public sealed class RtfArchitectureTests
                     16),
             ]);
 
-        var rtf = RtfCodec.SerializeForNativePictures(document);
+        var rtf = RtfCodec.SerializeForNativeProjection(document);
         var parsed = RichTextDocument.FromRtf(rtf);
 
         Assert.Contains(@"\pict", rtf, StringComparison.Ordinal);

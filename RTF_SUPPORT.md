@@ -57,7 +57,7 @@ WinUI and are remapped as the text changes.
 | Shadow | Round-trip | Native | Native | Adapter | Model | WinUI has no TOM shadow property. |
 | Hidden text | Round-trip | Adapter | Adapter | Adapter | Native | Apple/Android make glyphs transparent while retaining layout. |
 | Language/locale tag | Round-trip | Model | Model | Native | Native | Canonical representation is BCP 47; unsupported LCIDs import as unspecified. |
-| Explicit character direction | Round-trip | Native | Native | Model | Model | Apple uses the attributed-string writing-direction override; paragraph direction and Unicode bidi characters remain the fallback elsewhere. |
+| Explicit character direction | Round-trip | Native | Native | Model | Native | Apple and WinUI use native character-direction overrides; paragraph direction and Unicode bidi characters remain Android's fallback. |
 | Kerning preference | Round-trip | Model | Model | Model | Native | It is a font-dependent hint where available. |
 | Ligature preference | Model only | Native | Native | Model | Model | Not currently emitted as an RTF control. |
 | Character shading pattern and colors | Round-trip | Model | Model | Model | Model | A separate solid highlight still renders on every platform. |
@@ -99,10 +99,11 @@ List markers are presentation metadata and are never inserted into
 | Arabic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Android uses the same numbering formatter as the RTF writer. |
 | Roman and alphabetic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Upper/lower Roman and letter styles are represented. |
 | Start-at value | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Values are positive integers. |
-| Restart flag | Degraded | Model | Model | Adapter | Degraded | Android restarts its per-list/per-level counter; a distinct list ID plus `StartAt` remains the RTF/WinUI mechanism. |
-| Nested level | Degraded | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Android adds a level margin; the current RTF writer emits a simple list definition. |
-| Custom marker prefix/suffix | Degraded | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Degraded | Android draws the complete marker; RTF/WinUI use the closest single-character suffix style. |
-| Alternate bullet text | Round-trip | Degraded | Degraded | Adapter | Degraded | Android draws the canonical bullet text; Apple/WinUI use their standard bullet. |
+| Restart flag | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | RTF uses a new standard list override with per-level start values; native Apple list objects and Android counters are likewise restarted only at the requested level. |
+| Nested level | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | RTF emits a nine-level hybrid definition. Apple shares the correct native list object at each nesting level; Android adds a level margin. |
+| Independent counters per level | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Advancing an outer level does not implicitly reset a nested counter; explicit restart remains available per level. |
+| Custom marker prefix/suffix | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | RTF `leveltext`, Apple marker formats, and Android marker spans retain the complete marker. WinUI receives the native RTF definition. |
+| Alternate bullet text | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | The canonical bullet string is used on every rendering path; a missing glyph can still fall back according to the selected font. |
 | Picture bullet identifier | Model only | Model | Model | Model | Model | No picture-bullet payload/resolver is implemented yet. |
 
 ## Links, fields, and inline pictures
@@ -117,9 +118,9 @@ List markers are presentation metadata and are never inserted into
 | PICT, DIB, DDB, and OS/2 metafile import | Import only | Model | Model | Model | Degraded | Parsed into an image object, but the current writer cannot emit those formats. |
 | Image width and height | Round-trip | Native | Native | Native | Native | Canonical unit is device-independent points. |
 | RTF image scale and crop | Round-trip | Model | Model | Model | Native | Import resolves scale into width/height; crop metadata is retained. |
-| Vertical alignment | Model only | Model | Model | Degraded | Model | Android supports baseline versus bottom; center/top fall back to bottom. |
-| Alternative text | Model only | Model | Model | Model | Model | Retained for application use but not attached to the native object yet. |
-| Rotation | Model only | Model | Model | Model | Model | Retained without a visual transform. |
+| Vertical alignment | Model only | Adapter | Adapter | Degraded | Model | Apple positions baseline, bottom, center, and top attachments. Android supports baseline versus bottom; center/top fall back to bottom. |
+| Alternative text | Round-trip | Native | Native | Degraded | Native | RTF uses the standard `wzDescription` picture property. Apple exposes an accessibility label; Android exposes a native content description on API 30+ and retains metadata on API 26-29. |
+| Rotation | Round-trip | Model | Model | Model | Native | RTF uses the standard fixed-angle `rotation` picture property. WinUI receives it through native RTF; Apple and Android retain it without a visual transform. |
 | Source URI/identifier | Model only | Model | Model | Model | Model | Owned bytes remain the portable persistence mechanism. |
 
 ## RTF document structures and interoperability

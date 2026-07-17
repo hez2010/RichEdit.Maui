@@ -86,77 +86,84 @@ public partial class RichEditorHandler
             {
                 _hasNativeLinks = false;
                 _nativeTextSnapshot = null;
-                if (document.Images.Count == 0)
+                var useNativeRtf = document.Images.Count > 0 ||
+                    document.Paragraphs.Any(paragraph => paragraph.Format.List is not null);
+                var loadedNativeRtf = false;
+                if (!useNativeRtf)
                 {
                     nativeDocument.SetText(TextSetOptions.None, document.Text);
                 }
                 else
                 {
-                    // One native RTF load preserves inline pictures without inserting
-                    // each object separately or repeatedly shifting later ranges.
+                    // One native RTF load preserves list definitions and inline pictures
+                    // without repeatedly shifting or reformatting later ranges.
                     try
                     {
-                        LoadRtfDocument(nativeDocument, RtfCodec.SerializeForNativePictures(document));
+                        LoadRtfDocument(nativeDocument, RtfCodec.SerializeForNativeProjection(document));
+                        loadedNativeRtf = true;
                     }
                     catch (Exception exception) when (exception is ArgumentException or COMException)
                     {
-                        // Invalid or unsupported picture data must not take down the
-                        // editor. Keep the logical object character as a placeholder.
+                        // Invalid or unsupported native RTF must not take down the editor.
+                        // Keep image object characters and list text as plain placeholders.
                         nativeDocument.SetText(TextSetOptions.None, document.Text);
                     }
                 }
-                var fullRange = nativeDocument.GetRange(0, document.Text.Length);
-                // Keep the pristine native default separate from the document default.
-                // SetClone from this unhighlighted format is the TOM reset operation;
-                // assigning an alpha-zero BackgroundColor would leave the old highlight.
-                var resetCharacterFormat = nativeDocument.GetDefaultCharacterFormat();
-                var defaultCharacterFormat = resetCharacterFormat.GetClone();
-                ApplyCharacterFormat(defaultCharacterFormat, document.DefaultCharacterFormat);
-                fullRange.CharacterFormat.SetClone(defaultCharacterFormat);
                 var formattingRange = nativeDocument.GetRange(0, 0);
-                var characterFormats = new Dictionary<RichTextCharacterFormat, ITextCharacterFormat>();
-                foreach (var run in document.Runs)
+                if (!loadedNativeRtf)
                 {
-                    if (run.Format == document.DefaultCharacterFormat)
+                    var fullRange = nativeDocument.GetRange(0, document.Text.Length);
+                    // Keep the pristine native default separate from the document default.
+                    // SetClone from this unhighlighted format is the TOM reset operation;
+                    // assigning an alpha-zero BackgroundColor would leave the old highlight.
+                    var resetCharacterFormat = nativeDocument.GetDefaultCharacterFormat();
+                    var defaultCharacterFormat = resetCharacterFormat.GetClone();
+                    ApplyCharacterFormat(defaultCharacterFormat, document.DefaultCharacterFormat);
+                    fullRange.CharacterFormat.SetClone(defaultCharacterFormat);
+                    var characterFormats = new Dictionary<RichTextCharacterFormat, ITextCharacterFormat>();
+                    foreach (var run in document.Runs)
                     {
-                        continue;
+                        if (run.Format == document.DefaultCharacterFormat)
+                        {
+                            continue;
+                        }
+
+                        if (!characterFormats.TryGetValue(run.Format, out var nativeFormat))
+                        {
+                            // Runs are fully resolved model formats, not deltas from the
+                            // document default. Start from the pristine native format so
+                            // a null/transparent background actively clears highlighting.
+                            nativeFormat = resetCharacterFormat.GetClone();
+                            ApplyCharacterFormat(nativeFormat, run.Format);
+                            characterFormats.Add(run.Format, nativeFormat);
+                        }
+
+                        formattingRange.SetRange(run.Start, run.End);
+                        formattingRange.CharacterFormat.SetClone(nativeFormat);
                     }
 
-                    if (!characterFormats.TryGetValue(run.Format, out var nativeFormat))
+                    var defaultParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
+                    ApplyParagraphFormat(defaultParagraphFormat, document.DefaultParagraphFormat);
+                    fullRange.ParagraphFormat.SetClone(defaultParagraphFormat);
+                    var paragraphFormats = new Dictionary<RichTextParagraphFormat, ITextParagraphFormat>();
+                    foreach (var paragraph in document.Paragraphs)
                     {
-                        // Runs are fully resolved model formats, not deltas from the
-                        // document default. Start from the pristine native format so
-                        // a null/transparent background actively clears highlighting.
-                        nativeFormat = resetCharacterFormat.GetClone();
-                        ApplyCharacterFormat(nativeFormat, run.Format);
-                        characterFormats.Add(run.Format, nativeFormat);
+                        if (paragraph.Format == document.DefaultParagraphFormat)
+                        {
+                            continue;
+                        }
+
+                        if (!paragraphFormats.TryGetValue(paragraph.Format, out var nativeFormat))
+                        {
+                            nativeFormat = defaultParagraphFormat.GetClone();
+                            ApplyParagraphFormat(nativeFormat, paragraph.Format);
+                            paragraphFormats.Add(paragraph.Format, nativeFormat);
+                        }
+
+                        var end = GetParagraphEnd(document.Text, paragraph.Start);
+                        formattingRange.SetRange(paragraph.Start, end);
+                        formattingRange.ParagraphFormat.SetClone(nativeFormat);
                     }
-
-                    formattingRange.SetRange(run.Start, run.End);
-                    formattingRange.CharacterFormat.SetClone(nativeFormat);
-                }
-
-                var defaultParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
-                ApplyParagraphFormat(defaultParagraphFormat, document.DefaultParagraphFormat);
-                fullRange.ParagraphFormat.SetClone(defaultParagraphFormat);
-                var paragraphFormats = new Dictionary<RichTextParagraphFormat, ITextParagraphFormat>();
-                foreach (var paragraph in document.Paragraphs)
-                {
-                    if (paragraph.Format == document.DefaultParagraphFormat)
-                    {
-                        continue;
-                    }
-
-                    if (!paragraphFormats.TryGetValue(paragraph.Format, out var nativeFormat))
-                    {
-                        nativeFormat = defaultParagraphFormat.GetClone();
-                        ApplyParagraphFormat(nativeFormat, paragraph.Format);
-                        paragraphFormats.Add(paragraph.Format, nativeFormat);
-                    }
-
-                    var end = GetParagraphEnd(document.Text, paragraph.Start);
-                    formattingRange.SetRange(paragraph.Start, end);
-                    formattingRange.ParagraphFormat.SetClone(nativeFormat);
                 }
 
                 foreach (var link in document.Links.OrderByDescending(link => link.Start))

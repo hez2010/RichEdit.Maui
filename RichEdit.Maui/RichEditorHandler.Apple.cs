@@ -113,9 +113,18 @@ namespace RichEdit.Maui
             }
 
             _applyingDocument = true;
+            List<NSTextList>? ownedTextLists = null;
             try
             {
                 var attributed = new NSMutableAttributedString(document.Text);
+                Dictionary<int, NSTextList[]>? textListsByParagraph = null;
+                if (OperatingSystem.IsIOSVersionAtLeast(16) ||
+                    OperatingSystem.IsMacCatalystVersionAtLeast(16))
+                {
+                    ownedTextLists = [];
+                    textListsByParagraph = CreateNativeTextLists(document, ownedTextLists);
+                }
+
                 if (document.Text.Length > 0)
                 {
                     var fullRange = new NSRange(0, document.Text.Length);
@@ -140,7 +149,9 @@ namespace RichEdit.Maui
                             continue;
                         }
 
-                        using var attributes = CreateParagraphAttributes(paragraph.Format);
+                        NSTextList[]? textLists = null;
+                        textListsByParagraph?.TryGetValue(paragraph.Start, out textLists);
+                        using var attributes = CreateParagraphAttributes(paragraph.Format, textLists);
                         attributed.AddAttributes(
                             attributes,
                             new NSRange(paragraph.Start, end - paragraph.Start));
@@ -166,6 +177,14 @@ namespace RichEdit.Maui
             }
             finally
             {
+                if (ownedTextLists is not null)
+                {
+                    foreach (var textList in ownedTextLists)
+                    {
+                        textList.Dispose();
+                    }
+                }
+
                 _applyingDocument = false;
             }
         }
@@ -301,7 +320,9 @@ namespace RichEdit.Maui
             return dictionary;
         }
 
-        private NSMutableDictionary CreateParagraphAttributes(RichTextParagraphFormat format)
+        private NSMutableDictionary CreateParagraphAttributes(
+            RichTextParagraphFormat format,
+            NSTextList[]? textLists = null)
         {
             var style = new NSMutableParagraphStyle
             {
@@ -370,7 +391,14 @@ namespace RichEdit.Maui
                 if (OperatingSystem.IsIOSVersionAtLeast(16) ||
                     OperatingSystem.IsMacCatalystVersionAtLeast(16))
                 {
-                    ApplyNativeTextList(style, list);
+                    if (textLists is null)
+                    {
+                        ApplyNativeTextList(style, list);
+                    }
+                    else
+                    {
+                        style.TextLists = textLists;
+                    }
                 }
             }
 
@@ -730,12 +758,95 @@ namespace RichEdit.Maui
 
         [SupportedOSPlatform("ios16.0")]
         [SupportedOSPlatform("maccatalyst16.0")]
+        private static Dictionary<int, NSTextList[]> CreateNativeTextLists(
+            RichTextDocument document,
+            List<NSTextList> ownedTextLists)
+        {
+            var definitions = new Dictionary<(int Id, int Level), RichTextListFormat>();
+            foreach (var paragraph in document.Paragraphs)
+            {
+                if (paragraph.Format.List is { } list)
+                {
+                    definitions.TryAdd((list.Id, list.Level), list);
+                }
+            }
+
+            var result = new Dictionary<int, NSTextList[]>();
+            var activeLists = new Dictionary<int, NSTextList?[]>();
+            foreach (var paragraph in document.Paragraphs)
+            {
+                if (paragraph.Format.List is not { } list)
+                {
+                    continue;
+                }
+
+                var level = Math.Clamp(list.Level, 0, 8);
+                if (!activeLists.TryGetValue(list.Id, out var levels))
+                {
+                    levels = new NSTextList?[9];
+                    activeLists.Add(list.Id, levels);
+                }
+
+                if (list.Restart)
+                {
+                    levels[level] = null;
+                    Array.Clear(levels, level + 1, levels.Length - level - 1);
+                }
+
+                for (var outerLevel = 0; outerLevel <= level; outerLevel++)
+                {
+                    if (levels[outerLevel] is not null)
+                    {
+                        continue;
+                    }
+
+                    var definition = definitions.GetValueOrDefault(
+                        (list.Id, outerLevel),
+                        list with
+                        {
+                            Level = outerLevel,
+                            Restart = false,
+                            StartAt = 1,
+                        });
+                    if (outerLevel == level && list.Restart)
+                    {
+                        definition = list;
+                    }
+
+                    var textList = CreateNativeTextList(definition);
+                    levels[outerLevel] = textList;
+                    ownedTextLists.Add(textList);
+                }
+
+                var paragraphLists = new NSTextList[level + 1];
+                for (var outerLevel = 0; outerLevel <= level; outerLevel++)
+                {
+                    paragraphLists[outerLevel] = levels[outerLevel]!;
+                }
+
+                result.Add(paragraph.Start, paragraphLists);
+            }
+
+            return result;
+        }
+
+        [SupportedOSPlatform("ios16.0")]
+        [SupportedOSPlatform("maccatalyst16.0")]
         private static void ApplyNativeTextList(
             NSMutableParagraphStyle style,
             RichTextListFormat list)
         {
+            var textList = CreateNativeTextList(list);
+            style.TextLists = Enumerable.Repeat(textList, list.Level + 1).ToArray();
+            textList.Dispose();
+        }
+
+        [SupportedOSPlatform("ios16.0")]
+        [SupportedOSPlatform("maccatalyst16.0")]
+        private static NSTextList CreateNativeTextList(RichTextListFormat list)
+        {
             var markerFormat = list.Kind == RichListKind.Bulleted
-                ? "{disc}"
+                ? (string.IsNullOrEmpty(list.BulletText) ? "{disc}" : list.BulletText)
                 : list.NumberStyle switch
                 {
                     RichListNumberStyle.UpperRoman => "{upper-roman}",
@@ -745,11 +856,10 @@ namespace RichEdit.Maui
                     _ => "{decimal}",
                 };
             markerFormat = string.Concat(list.Prefix, markerFormat, list.Suffix);
-            var textList = new NSTextList(
+            return new NSTextList(
                 markerFormat,
-                NSTextListOptions.PrependEnclosingMarker,
+                NSTextListOptions.None,
                 list.StartAt);
-            style.TextLists = Enumerable.Repeat(textList, list.Level + 1).ToArray();
         }
 
         [SupportedOSPlatform("ios16.0")]
