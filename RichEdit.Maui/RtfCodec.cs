@@ -13,6 +13,8 @@ internal static class RtfCodec
     private const int MaximumListOverrideId = 2000;
     private const double DefaultRtfFontSize = 12d;
     private const int DefaultCodePage = 65001;
+    private const double TwipsPerPoint = 20d;
+    private const int SingleLineSpacingTwips = 240;
 
     private enum ListNumberFormat
     {
@@ -66,6 +68,7 @@ internal static class RtfCodec
             WriteFontTable();
             WriteColorTable();
             WriteDefaultCharacterProperties();
+            WriteDefaultParagraphProperties();
             WriteListTables();
             WriteBody();
             _output.Append('}');
@@ -74,6 +77,8 @@ internal static class RtfCodec
 
         private void BuildFormattingTables()
         {
+            AddCharacterFormatColors(_document.DefaultCharacterFormat);
+            AddParagraphFormatColors(_document.DefaultParagraphFormat);
             if (_document.DefaultCharacterFormat.FontSize is { } defaultFontSize)
             {
                 _ = GetHalfPointSize(defaultFontSize);
@@ -92,21 +97,31 @@ internal static class RtfCodec
                     _ = GetHalfPointSize(fontSize);
                 }
 
-                AddColor(format.ForegroundColor);
-                AddColor(format.BackgroundColor);
-                AddColor(format.UnderlineColor);
-                AddColor(format.StrikethroughColor);
-                AddColor(format.ShadingForegroundColor);
-                AddColor(format.ShadingBackgroundColor);
+                AddCharacterFormatColors(format);
             }
 
             foreach (var paragraph in _document.Paragraphs)
             {
-                AddColor(paragraph.Format.BackgroundColor);
-                AddColor(paragraph.Format.ShadingForegroundColor);
-                AddColor(paragraph.Format.ShadingBackgroundColor);
-                AddColor(paragraph.Format.Border?.Color);
+                AddParagraphFormatColors(paragraph.Format);
             }
+        }
+
+        private void AddCharacterFormatColors(RichTextCharacterFormat format)
+        {
+            AddColor(format.ForegroundColor);
+            AddColor(format.BackgroundColor);
+            AddColor(format.UnderlineColor);
+            AddColor(format.StrikethroughColor);
+            AddColor(format.ShadingForegroundColor);
+            AddColor(format.ShadingBackgroundColor);
+        }
+
+        private void AddParagraphFormatColors(RichTextParagraphFormat format)
+        {
+            AddColor(format.BackgroundColor);
+            AddColor(format.ShadingForegroundColor);
+            AddColor(format.ShadingBackgroundColor);
+            AddColor(format.Border?.Color);
         }
 
         private void AddFont(string fontFamily)
@@ -168,6 +183,35 @@ internal static class RtfCodec
             return checked((int)Math.Round(halfPoints));
         }
 
+        private static int ToTwips(double points)
+        {
+            var twips = points * TwipsPerPoint;
+            if (!double.IsFinite(points) || twips < int.MinValue || twips > int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "A point measurement is outside the range representable by RTF.");
+            }
+
+            return checked((int)Math.Round(twips));
+        }
+
+        private static int GetLanguageId(string? languageTag)
+        {
+            if (string.IsNullOrWhiteSpace(languageTag))
+            {
+                return 0;
+            }
+
+            try
+            {
+                return CultureInfo.GetCultureInfo(languageTag).LCID;
+            }
+            catch (CultureNotFoundException)
+            {
+                return 0;
+            }
+        }
+
         private void WriteFontTable()
         {
             _output.Append(@"{\fonttbl");
@@ -202,16 +246,30 @@ internal static class RtfCodec
 
         private void WriteDefaultCharacterProperties()
         {
-            if (_document.DefaultCharacterFormat.FontSize is not { } fontSize ||
-                fontSize == DefaultRtfFontSize)
+            if (_document.DefaultCharacterFormat == RichTextCharacterFormat.Default)
             {
                 return;
             }
 
-            _output.Append(@"{\*\defchp\fs")
-                .Append(GetHalfPointSize(fontSize))
-                .Append('}')
-                .Append("\r\n");
+            _output.Append(@"{\*\defchp");
+            WriteFormatControls(
+                _document.DefaultCharacterFormat,
+                RichTextCharacterFormat.Default);
+            _output.Append('}').Append("\r\n");
+        }
+
+        private void WriteDefaultParagraphProperties()
+        {
+            if (_document.DefaultParagraphFormat == RichTextParagraphFormat.Default)
+            {
+                return;
+            }
+
+            _output.Append(@"{\*\defpap");
+            WriteParagraphFormatControls(
+                _document.DefaultParagraphFormat,
+                RichTextParagraphFormat.Default);
+            _output.Append('}').Append("\r\n");
         }
 
         private void WriteListTables()
@@ -289,18 +347,7 @@ internal static class RtfCodec
         {
             _output.Append(@"{\pard\plain");
             var paragraphFormat = _document.GetParagraphFormat(start);
-            switch (paragraphFormat.Alignment)
-            {
-                case RichTextAlignment.Center:
-                    _output.Append(@"\qc");
-                    break;
-                case RichTextAlignment.Right:
-                    _output.Append(@"\qr");
-                    break;
-                case RichTextAlignment.Justified:
-                    _output.Append(@"\qj");
-                    break;
-            }
+            WriteParagraphFormatControls(paragraphFormat, _document.DefaultParagraphFormat);
 
             if (_listsByItemStart.TryGetValue(start, out var list))
             {
@@ -368,7 +415,7 @@ internal static class RtfCodec
             }
 
             _output.Append('{');
-            WriteFormatControls(format);
+            WriteFormatControls(format, _document.DefaultCharacterFormat);
             _output.Append(@"\par}");
         }
 
@@ -381,56 +428,316 @@ internal static class RtfCodec
             }
 
             _output.Append('{');
-            WriteFormatControls(format);
+            WriteFormatControls(format, _document.DefaultCharacterFormat);
             _output.Append(' ');
             WriteText(text);
             _output.Append('}');
         }
 
-        private void WriteFormatControls(RichTextCharacterFormat format)
+        private void WriteFormatControls(
+            RichTextCharacterFormat format,
+            RichTextCharacterFormat baseline)
         {
-            if (format.Bold)
+            if (format.Bold != baseline.Bold)
             {
-                _output.Append(@"\b");
+                _output.Append(format.Bold ? @"\b" : @"\b0");
             }
 
-            if (format.Italic)
+            if (format.Italic != baseline.Italic)
             {
-                _output.Append(@"\i");
+                _output.Append(format.Italic ? @"\i" : @"\i0");
             }
 
-            if (format.Underline != RichTextUnderlineStyle.None)
+            if (format.Underline != baseline.Underline)
             {
-                _output.Append(@"\ul");
+                WriteUnderlineControl(format.Underline);
             }
 
-            if (format.FontFamily is not null)
+            if (!string.Equals(format.FontFamily, baseline.FontFamily, StringComparison.Ordinal) &&
+                format.FontFamily is not null)
             {
                 _output.Append(@"\f").Append(_fontIndices[format.FontFamily]);
             }
 
-            if (format.FontSize is { } fontSize)
+            if (format.FontSize != baseline.FontSize && format.FontSize is { } fontSize)
             {
                 _output.Append(@"\fs").Append(GetHalfPointSize(fontSize));
             }
 
-            if (format.Script == RichTextScript.Superscript)
+            if (format.Script != baseline.Script)
             {
-                _output.Append(@"\super");
-            }
-            else if (format.Script == RichTextScript.Subscript)
-            {
-                _output.Append(@"\sub");
-            }
-
-            if (format.ForegroundColor is not null)
-            {
-                _output.Append(@"\cf").Append(_colorIndices[GetRtfColor(format.ForegroundColor)]);
+                _output.Append(format.Script switch
+                {
+                    RichTextScript.Superscript => @"\super",
+                    RichTextScript.Subscript => @"\sub",
+                    _ => @"\nosupersub",
+                });
             }
 
-            if (format.BackgroundColor is not null)
+            WriteColorControl(@"\cf", format.ForegroundColor, baseline.ForegroundColor);
+            WriteColorControl(@"\highlight", format.BackgroundColor, baseline.BackgroundColor);
+            WriteColorControl(@"\ulc", format.UnderlineColor, baseline.UnderlineColor);
+
+            if (format.Strikethrough != baseline.Strikethrough)
             {
-                _output.Append(@"\highlight").Append(_colorIndices[GetRtfColor(format.BackgroundColor)]);
+                _output.Append(format.Strikethrough switch
+                {
+                    RichTextStrikethroughStyle.Single => @"\strike",
+                    RichTextStrikethroughStyle.Double => @"\striked1",
+                    _ => baseline.Strikethrough == RichTextStrikethroughStyle.Double
+                        ? @"\striked0"
+                        : @"\strike0",
+                });
+            }
+
+            if (!format.BaselineOffset.Equals(baseline.BaselineOffset))
+            {
+                var halfPoints = checked((int)Math.Round(Math.Abs(format.BaselineOffset) * 2d));
+                _output.Append(format.BaselineOffset < 0 ? @"\dn" : @"\up")
+                    .Append(halfPoints);
+            }
+
+            if (!format.CharacterSpacing.Equals(baseline.CharacterSpacing))
+            {
+                var quarterPoints = checked((int)Math.Round(format.CharacterSpacing * 4d));
+                _output.Append(@"\expnd").Append(quarterPoints)
+                    .Append(@"\expndtw").Append(ToTwips(format.CharacterSpacing));
+            }
+
+            if (!format.HorizontalScale.Equals(baseline.HorizontalScale))
+            {
+                _output.Append(@"\charscalex")
+                    .Append(checked((int)Math.Round(format.HorizontalScale * 100d)));
+            }
+
+            WriteToggle(@"\scaps", format.SmallCaps, baseline.SmallCaps);
+            WriteToggle(@"\caps", format.AllCaps, baseline.AllCaps);
+            WriteToggle(@"\outl", format.Outline, baseline.Outline);
+            WriteToggle(@"\shad", format.Shadow, baseline.Shadow);
+            WriteToggle(@"\v", format.Hidden, baseline.Hidden);
+
+            if (!string.Equals(format.LanguageTag, baseline.LanguageTag, StringComparison.OrdinalIgnoreCase))
+            {
+                _output.Append(@"\lang").Append(GetLanguageId(format.LanguageTag));
+            }
+
+            if (format.Direction != baseline.Direction)
+            {
+                _output.Append(format.Direction == RichTextDirection.RightToLeft
+                    ? @"\rtlch"
+                    : @"\ltrch");
+            }
+
+            if (format.Kerning != baseline.Kerning)
+            {
+                _output.Append(@"\kerning")
+                    .Append(format.Kerning == RichTextFeatureMode.Enabled ? 1 : 0);
+            }
+
+            if (format.Shading != baseline.Shading)
+            {
+                _output.Append(@"\chshdng").Append(format.Shading);
+            }
+
+            WriteColorControl(
+                @"\chcfpat",
+                format.ShadingForegroundColor,
+                baseline.ShadingForegroundColor);
+            WriteColorControl(
+                @"\chcbpat",
+                format.ShadingBackgroundColor,
+                baseline.ShadingBackgroundColor);
+        }
+
+        private void WriteParagraphFormatControls(
+            RichTextParagraphFormat format,
+            RichTextParagraphFormat baseline)
+        {
+            if (format.Alignment != baseline.Alignment)
+            {
+                _output.Append(format.Alignment switch
+                {
+                    RichTextAlignment.Center => @"\qc",
+                    RichTextAlignment.Right => @"\qr",
+                    RichTextAlignment.Justified => @"\qj",
+                    RichTextAlignment.Distributed => @"\qd",
+                    _ => @"\ql",
+                });
+            }
+
+            if (format.Direction != baseline.Direction)
+            {
+                _output.Append(format.Direction == RichTextDirection.RightToLeft
+                    ? @"\rtlpar"
+                    : @"\ltrpar");
+            }
+
+            WriteTwipsControl(@"\li", format.LeadingIndent, baseline.LeadingIndent);
+            WriteTwipsControl(@"\ri", format.TrailingIndent, baseline.TrailingIndent);
+            WriteTwipsControl(@"\fi", format.FirstLineIndent, baseline.FirstLineIndent);
+            WriteTwipsControl(@"\sb", format.SpaceBefore, baseline.SpaceBefore);
+            WriteTwipsControl(@"\sa", format.SpaceAfter, baseline.SpaceAfter);
+
+            if (format.LineSpacingRule != baseline.LineSpacingRule ||
+                !format.LineSpacing.Equals(baseline.LineSpacing))
+            {
+                var (spacing, multiple) = format.LineSpacingRule switch
+                {
+                    RichTextLineSpacingRule.Single => (SingleLineSpacingTwips, 1),
+                    RichTextLineSpacingRule.OneAndHalf => (SingleLineSpacingTwips * 3 / 2, 1),
+                    RichTextLineSpacingRule.Double => (SingleLineSpacingTwips * 2, 1),
+                    RichTextLineSpacingRule.Multiple =>
+                        (checked((int)Math.Round(format.LineSpacing * SingleLineSpacingTwips)), 1),
+                    RichTextLineSpacingRule.AtLeast => (ToTwips(format.LineSpacing), 0),
+                    RichTextLineSpacingRule.Exactly => (-ToTwips(format.LineSpacing), 0),
+                    _ => (0, 0),
+                };
+                _output.Append(@"\sl").Append(spacing)
+                    .Append(@"\slmult").Append(multiple);
+            }
+
+            if (!format.TabStops.AsSpan().SequenceEqual(baseline.TabStops.AsSpan()))
+            {
+                foreach (var tab in format.TabStops)
+                {
+                    _output.Append(tab.Alignment switch
+                    {
+                        RichTextTabAlignment.Center => @"\tqc",
+                        RichTextTabAlignment.Right => @"\tqr",
+                        RichTextTabAlignment.Decimal => @"\tqdec",
+                        _ => @"\tql",
+                    });
+                    _output.Append(tab.Leader switch
+                    {
+                        RichTextTabLeader.Dots => @"\tldot",
+                        RichTextTabLeader.Hyphens => @"\tlhyph",
+                        RichTextTabLeader.Underline => @"\tlul",
+                        RichTextTabLeader.ThickLine => @"\tlth",
+                        RichTextTabLeader.Equals => @"\tleq",
+                        _ => string.Empty,
+                    });
+                    _output.Append(@"\tx").Append(ToTwips(tab.Position));
+                }
+            }
+
+            WriteToggle(@"\hyphpar", format.Hyphenation, baseline.Hyphenation);
+            var shading = format.Shading;
+            var shadingForeground = format.ShadingForegroundColor;
+            if (format.BackgroundColor is not null && shading == 0)
+            {
+                shading = 10000;
+                shadingForeground = format.BackgroundColor;
+            }
+
+            var baselineShading = baseline.Shading;
+            var baselineShadingForeground = baseline.ShadingForegroundColor;
+            if (baseline.BackgroundColor is not null && baselineShading == 0)
+            {
+                baselineShading = 10000;
+                baselineShadingForeground = baseline.BackgroundColor;
+            }
+
+            if (shading != baselineShading)
+            {
+                _output.Append(@"\shading").Append(shading);
+            }
+
+            WriteColorControl(@"\cfpat", shadingForeground, baselineShadingForeground);
+            WriteColorControl(
+                @"\cbpat",
+                format.ShadingBackgroundColor,
+                baseline.ShadingBackgroundColor);
+
+            if (format.Border != baseline.Border && format.Border is { } border)
+            {
+                WriteBorder(border);
+            }
+        }
+
+        private void WriteBorder(RichTextBorder border)
+        {
+            foreach (var (side, control) in new[]
+                     {
+                         (RichTextBorderSides.Left, @"\brdrl"),
+                         (RichTextBorderSides.Top, @"\brdrt"),
+                         (RichTextBorderSides.Right, @"\brdrr"),
+                         (RichTextBorderSides.Bottom, @"\brdrb"),
+                     })
+            {
+                if (!border.Sides.HasFlag(side))
+                {
+                    continue;
+                }
+
+                _output.Append(control).Append(border.Style switch
+                {
+                    RichTextBorderStyle.Double => @"\brdrdb",
+                    RichTextBorderStyle.Dotted => @"\brdrdot",
+                    RichTextBorderStyle.Dashed => @"\brdrdash",
+                    RichTextBorderStyle.None => @"\brdrnil",
+                    _ => @"\brdrs",
+                });
+                _output.Append(@"\brdrw").Append(Math.Clamp(ToTwips(border.Width), 0, 255));
+                if (border.Color is not null)
+                {
+                    _output.Append(@"\brdrcf")
+                        .Append(_colorIndices[GetRtfColor(border.Color)]);
+                }
+            }
+        }
+
+        private void WriteUnderlineControl(RichTextUnderlineStyle underline)
+        {
+            _output.Append(underline switch
+            {
+                RichTextUnderlineStyle.None => @"\ulnone",
+                RichTextUnderlineStyle.Words => @"\ulw",
+                RichTextUnderlineStyle.Double => @"\uldb",
+                RichTextUnderlineStyle.Dotted => @"\uld",
+                RichTextUnderlineStyle.Dash => @"\uldash",
+                RichTextUnderlineStyle.DashDot => @"\uldashd",
+                RichTextUnderlineStyle.DashDotDot => @"\uldashdd",
+                RichTextUnderlineStyle.Wave => @"\ulwave",
+                RichTextUnderlineStyle.Thick => @"\ulth",
+                RichTextUnderlineStyle.DoubleWave => @"\ululdbwave",
+                RichTextUnderlineStyle.HeavyWave => @"\ulhwave",
+                RichTextUnderlineStyle.LongDash => @"\ulldash",
+                _ => @"\ul",
+            });
+        }
+
+        private void WriteColorControl(string control, Color? value, Color? baseline)
+        {
+            if (Equals(value, baseline))
+            {
+                return;
+            }
+
+            _output.Append(control).Append(value is null
+                ? 0
+                : _colorIndices[GetRtfColor(value)]);
+        }
+
+        private void WriteTwipsControl(
+            string control,
+            double value,
+            double baseline)
+        {
+            if (!value.Equals(baseline))
+            {
+                _output.Append(control).Append(ToTwips(value));
+            }
+        }
+
+        private void WriteToggle(string control, bool value, bool baseline)
+        {
+            if (value != baseline)
+            {
+                _output.Append(control);
+                if (!value)
+                {
+                    _output.Append('0');
+                }
             }
         }
 
@@ -761,7 +1068,7 @@ internal static class RtfCodec
         private readonly Dictionary<int, ParsedListDefinition> _lists = [];
         private readonly Dictionary<int, int> _listOverrides = [];
         private readonly Dictionary<int, RichTextListFormat> _listItems = [];
-        private readonly Dictionary<int, RichTextAlignment> _paragraphs = [];
+        private readonly Dictionary<int, RichTextParagraphFormat> _paragraphs = [];
         private readonly Dictionary<int, int> _nextListNumbers = [];
         private readonly StringBuilder _fontName = new();
         private readonly List<byte> _encodedBytes = [];
@@ -786,7 +1093,7 @@ internal static class RtfCodec
         private int _defaultFontIndex;
         private int? _defaultCharacterFontIndex;
         private RichTextCharacterFormat _defaultCharacterFormat = RichTextCharacterFormat.Default;
-        private RichTextAlignment _defaultParagraphAlignment = RichTextAlignment.Left;
+        private RichTextParagraphFormat _defaultParagraphFormat = RichTextParagraphFormat.Default;
         private int _lineStart;
         private bool _paragraphListHandled;
         private bool _pendingCellSeparator;
@@ -873,7 +1180,7 @@ internal static class RtfCodec
                         if (completesDefaultParagraphProperties)
                         {
                             ResetToDefaultParagraphProperties(state);
-                            TrackParagraphAlignment(state);
+                            TrackParagraphFormat(state);
                         }
 
                         depth--;
@@ -931,22 +1238,19 @@ internal static class RtfCodec
                 .Where(start => start == 0 || _document.Text[start - 1] == '\n')
                 .Select(start =>
             {
-                var alignment = _paragraphs.GetValueOrDefault(start, _defaultParagraphAlignment);
+                var format = _paragraphs.GetValueOrDefault(start, _defaultParagraphFormat);
                 _listItems.TryGetValue(start, out var list);
 
                 return new RichTextParagraph(
                     start,
-                    new RichTextParagraphFormat { Alignment = alignment, List = list });
+                    format with { List = list });
             });
             return new RichTextDocument(
                 _document.Text,
                 runs,
                 paragraphs,
                 defaultCharacterFormat: defaultCharacterFormat,
-                defaultParagraphFormat: new RichTextParagraphFormat
-                {
-                    Alignment = _defaultParagraphAlignment,
-                });
+                defaultParagraphFormat: _defaultParagraphFormat);
         }
 
         private void ParseControl(ref int position, ReaderState state)
@@ -1249,27 +1553,8 @@ internal static class RtfCodec
                 return;
             }
 
-            if (word == "pard")
+            if (TryApplyParagraphControl(word, parameter, state))
             {
-                state.Alignment = state.Destination == Destination.DefaultParagraphProperties
-                    ? RichTextAlignment.Left
-                    : _defaultParagraphAlignment;
-                state.ListOverride = 0;
-                state.ListLevel = 0;
-                TrackParagraphAlignment(state);
-                return;
-            }
-
-            if (word is "ql" or "qc" or "qr" or "qj")
-            {
-                state.Alignment = word switch
-                {
-                    "qc" => RichTextAlignment.Center,
-                    "qr" => RichTextAlignment.Right,
-                    "qj" => RichTextAlignment.Justified,
-                    _ => RichTextAlignment.Left,
-                };
-                TrackParagraphAlignment(state);
                 return;
             }
 
@@ -1298,19 +1583,41 @@ internal static class RtfCodec
                 return;
             }
 
-            if (word == "ulnone")
-            {
-                state.Format = state.Format with { Underline = RichTextUnderlineStyle.None };
-                return;
-            }
-
-            if (UnderlineControls.Contains(word))
+            if (word == "ulnone" || UnderlineControls.Contains(word))
             {
                 state.Format = state.Format with
                 {
-                    Underline = parameter == 0
+                    Underline = word == "ulnone" || parameter == 0
                         ? RichTextUnderlineStyle.None
-                        : RichTextUnderlineStyle.Single,
+                        : GetUnderlineStyle(word),
+                };
+                return;
+            }
+
+            if (word == "ulc")
+            {
+                state.Format = state.Format with { UnderlineColor = ResolveColor(parameter ?? 0) };
+                return;
+            }
+
+            if (word == "strike")
+            {
+                state.Format = state.Format with
+                {
+                    Strikethrough = parameter == 0
+                        ? RichTextStrikethroughStyle.None
+                        : RichTextStrikethroughStyle.Single,
+                };
+                return;
+            }
+
+            if (word == "striked")
+            {
+                state.Format = state.Format with
+                {
+                    Strikethrough = parameter == 0
+                        ? RichTextStrikethroughStyle.None
+                        : RichTextStrikethroughStyle.Double,
                 };
                 return;
             }
@@ -1362,6 +1669,75 @@ internal static class RtfCodec
                 return;
             }
 
+            if (word is "up" or "dn")
+            {
+                var halfPoints = parameter ?? 6;
+                state.Format = state.Format with
+                {
+                    BaselineOffset = (word == "dn" ? -halfPoints : halfPoints) / 2d,
+                };
+                return;
+            }
+
+            if (word is "expnd" or "expndtw")
+            {
+                state.Format = state.Format with
+                {
+                    CharacterSpacing = word == "expndtw"
+                        ? (parameter ?? 0) / TwipsPerPoint
+                        : (parameter ?? 0) / 4d,
+                };
+                return;
+            }
+
+            if (word == "charscalex" && parameter is > 0)
+            {
+                state.Format = state.Format with { HorizontalScale = parameter.Value / 100d };
+                return;
+            }
+
+            if (word is "scaps" or "caps" or "outl" or "shad" or "v")
+            {
+                var enabled = parameter != 0;
+                state.Format = word switch
+                {
+                    "scaps" => state.Format with { SmallCaps = enabled },
+                    "caps" => state.Format with { AllCaps = enabled },
+                    "outl" => state.Format with { Outline = enabled },
+                    "shad" => state.Format with { Shadow = enabled },
+                    _ => state.Format with { Hidden = enabled },
+                };
+                return;
+            }
+
+            if (word is "lang" or "langnp" or "langfe" or "langfenp")
+            {
+                state.Format = state.Format with { LanguageTag = GetLanguageTag(parameter ?? 0) };
+                return;
+            }
+
+            if (word is "ltrch" or "rtlch")
+            {
+                state.Format = state.Format with
+                {
+                    Direction = word == "rtlch"
+                        ? RichTextDirection.RightToLeft
+                        : RichTextDirection.LeftToRight,
+                };
+                return;
+            }
+
+            if (word == "kerning")
+            {
+                state.Format = state.Format with
+                {
+                    Kerning = parameter == 0
+                        ? RichTextFeatureMode.Disabled
+                        : RichTextFeatureMode.Enabled,
+                };
+                return;
+            }
+
             if (word == "cf")
             {
                 state.Format = state.Format with { ForegroundColor = ResolveColor(parameter ?? 0) };
@@ -1376,13 +1752,41 @@ internal static class RtfCodec
 
             if (word == "chshdng")
             {
-                state.CharacterShading = parameter ?? 0;
+                var shading = Math.Clamp(parameter ?? 0, 0, 10000);
+                state.CharacterShading = shading;
+                state.Format = state.Format with
+                {
+                    Shading = shading,
+                    BackgroundColor = shading == 10000
+                        ? state.Format.ShadingForegroundColor
+                        : state.Format.BackgroundColor,
+                };
                 return;
             }
 
-            if (word == "chcbpat" && state.CharacterShading == 0)
+            if (word == "chcfpat")
             {
-                state.Format = state.Format with { BackgroundColor = ResolveColor(parameter ?? 0) };
+                var color = ResolveColor(parameter ?? 0);
+                state.Format = state.Format with
+                {
+                    ShadingForegroundColor = color,
+                    BackgroundColor = state.CharacterShading == 10000
+                        ? color
+                        : state.Format.BackgroundColor,
+                };
+                return;
+            }
+
+            if (word == "chcbpat")
+            {
+                var color = ResolveColor(parameter ?? 0);
+                state.Format = state.Format with
+                {
+                    ShadingBackgroundColor = color,
+                    BackgroundColor = state.CharacterShading == 0
+                        ? color
+                        : state.Format.BackgroundColor,
+                };
                 return;
             }
 
@@ -1448,6 +1852,314 @@ internal static class RtfCodec
             }
         }
 
+        private bool TryApplyParagraphControl(
+            string word,
+            int? parameter,
+            ReaderState state)
+        {
+            if (word == "pard")
+            {
+                state.ParagraphFormat = state.Destination == Destination.DefaultParagraphProperties
+                    ? RichTextParagraphFormat.Default
+                    : _defaultParagraphFormat;
+                state.ListOverride = 0;
+                state.ListLevel = 0;
+                ResetParagraphControlState(state);
+                TrackParagraphFormat(state);
+                return true;
+            }
+
+            if (word is "ql" or "qc" or "qr" or "qj" or "qd")
+            {
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    Alignment = word switch
+                    {
+                        "qc" => RichTextAlignment.Center,
+                        "qr" => RichTextAlignment.Right,
+                        "qj" => RichTextAlignment.Justified,
+                        "qd" => RichTextAlignment.Distributed,
+                        _ => RichTextAlignment.Left,
+                    },
+                });
+                return true;
+            }
+
+            if (word is "ltrpar" or "rtlpar")
+            {
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    Direction = word == "rtlpar"
+                        ? RichTextDirection.RightToLeft
+                        : RichTextDirection.LeftToRight,
+                });
+                return true;
+            }
+
+            if (word is "li" or "lin" or "ri" or "rin" or "fi" or "sb" or "sa")
+            {
+                var points = FromTwips(parameter ?? 0);
+                SetParagraphFormat(state, word switch
+                {
+                    "li" or "lin" => state.ParagraphFormat with { LeadingIndent = points },
+                    "ri" or "rin" => state.ParagraphFormat with { TrailingIndent = points },
+                    "fi" => state.ParagraphFormat with { FirstLineIndent = points },
+                    "sb" => state.ParagraphFormat with { SpaceBefore = Math.Max(points, 0) },
+                    _ => state.ParagraphFormat with { SpaceAfter = Math.Max(points, 0) },
+                });
+                return true;
+            }
+
+            if (word == "hyphpar")
+            {
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    Hyphenation = parameter != 0,
+                });
+                return true;
+            }
+
+            if (word is "sl" or "slmult")
+            {
+                if (word == "sl")
+                {
+                    state.ParagraphLineSpacingTwips = parameter ?? 0;
+                }
+                else
+                {
+                    state.ParagraphLineSpacingMultiple = parameter != 0;
+                }
+
+                ApplyParagraphLineSpacing(state);
+                return true;
+            }
+
+            if (word is "tql" or "tqc" or "tqr" or "tqdec")
+            {
+                state.PendingTabAlignment = word switch
+                {
+                    "tqc" => RichTextTabAlignment.Center,
+                    "tqr" => RichTextTabAlignment.Right,
+                    "tqdec" => RichTextTabAlignment.Decimal,
+                    _ => RichTextTabAlignment.Left,
+                };
+                return true;
+            }
+
+            if (word is "tldot" or "tlhyph" or "tlul" or "tlth" or "tleq")
+            {
+                state.PendingTabLeader = word switch
+                {
+                    "tldot" => RichTextTabLeader.Dots,
+                    "tlhyph" => RichTextTabLeader.Hyphens,
+                    "tlul" => RichTextTabLeader.Underline,
+                    "tlth" => RichTextTabLeader.ThickLine,
+                    _ => RichTextTabLeader.Equals,
+                };
+                return true;
+            }
+
+            if (word is "tx" or "tb")
+            {
+                var tab = new RichTextTabStop(
+                    Math.Max(FromTwips(parameter ?? 0), 0),
+                    state.PendingTabAlignment,
+                    state.PendingTabLeader);
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    TabStops = state.ParagraphFormat.TabStops.Add(tab),
+                });
+                state.PendingTabAlignment = RichTextTabAlignment.Left;
+                state.PendingTabLeader = RichTextTabLeader.None;
+                return true;
+            }
+
+            if (word == "shading")
+            {
+                var shading = Math.Clamp(parameter ?? 0, 0, 10000);
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    Shading = shading,
+                    BackgroundColor = shading == 10000
+                        ? state.ParagraphFormat.ShadingForegroundColor
+                        : state.ParagraphFormat.BackgroundColor,
+                });
+                return true;
+            }
+
+            if (word == "cfpat")
+            {
+                var color = ResolveColor(parameter ?? 0);
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    ShadingForegroundColor = color,
+                    BackgroundColor = state.ParagraphFormat.Shading == 10000
+                        ? color
+                        : state.ParagraphFormat.BackgroundColor,
+                });
+                return true;
+            }
+
+            if (word == "cbpat")
+            {
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    ShadingBackgroundColor = ResolveColor(parameter ?? 0),
+                });
+                return true;
+            }
+
+            var borderSides = word switch
+            {
+                "brdrl" => RichTextBorderSides.Left,
+                "brdrt" => RichTextBorderSides.Top,
+                "brdrr" => RichTextBorderSides.Right,
+                "brdrb" => RichTextBorderSides.Bottom,
+                "box" => RichTextBorderSides.All,
+                _ => RichTextBorderSides.None,
+            };
+            if (borderSides != RichTextBorderSides.None)
+            {
+                state.CurrentBorderSides = borderSides;
+                var current = state.ParagraphFormat.Border;
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    Border = new RichTextBorder(
+                        (current?.Sides ?? RichTextBorderSides.None) | borderSides,
+                        current?.Style ?? RichTextBorderStyle.Single,
+                        current?.Width ?? 0,
+                        current?.Color),
+                });
+                return true;
+            }
+
+            if (word is "brdrs" or "brdrdb" or "brdrdot" or "brdrdash" or "brdrnil" or
+                "brdrnone")
+            {
+                if (word is "brdrnil" or "brdrnone")
+                {
+                    SetParagraphFormat(state, state.ParagraphFormat with { Border = null });
+                }
+                else if (state.ParagraphFormat.Border is { } border)
+                {
+                    SetParagraphFormat(state, state.ParagraphFormat with
+                    {
+                        Border = border with
+                        {
+                            Style = word switch
+                            {
+                                "brdrdb" => RichTextBorderStyle.Double,
+                                "brdrdot" => RichTextBorderStyle.Dotted,
+                                "brdrdash" => RichTextBorderStyle.Dashed,
+                                _ => RichTextBorderStyle.Single,
+                            },
+                        },
+                    });
+                }
+
+                return true;
+            }
+
+            if (word == "brdrw" && state.ParagraphFormat.Border is { } widthBorder)
+            {
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    Border = widthBorder with { Width = Math.Max(FromTwips(parameter ?? 0), 0) },
+                });
+                return true;
+            }
+
+            if (word == "brdrcf" && state.ParagraphFormat.Border is { } colorBorder)
+            {
+                SetParagraphFormat(state, state.ParagraphFormat with
+                {
+                    Border = colorBorder with { Color = ResolveColor(parameter ?? 0) },
+                });
+                return true;
+            }
+
+            return false;
+        }
+
+        private void ApplyParagraphLineSpacing(ReaderState state)
+        {
+            var twips = state.ParagraphLineSpacingTwips;
+            RichTextLineSpacingRule rule;
+            double spacing;
+            if (twips == 0)
+            {
+                rule = RichTextLineSpacingRule.Automatic;
+                spacing = 0;
+            }
+            else if (state.ParagraphLineSpacingMultiple)
+            {
+                rule = twips switch
+                {
+                    SingleLineSpacingTwips => RichTextLineSpacingRule.Single,
+                    SingleLineSpacingTwips * 3 / 2 => RichTextLineSpacingRule.OneAndHalf,
+                    SingleLineSpacingTwips * 2 => RichTextLineSpacingRule.Double,
+                    _ => RichTextLineSpacingRule.Multiple,
+                };
+                spacing = rule == RichTextLineSpacingRule.Multiple
+                    ? (double)twips / SingleLineSpacingTwips
+                    : 0;
+            }
+            else
+            {
+                rule = twips < 0
+                    ? RichTextLineSpacingRule.Exactly
+                    : RichTextLineSpacingRule.AtLeast;
+                spacing = Math.Abs(FromTwips(twips));
+            }
+
+            SetParagraphFormat(state, state.ParagraphFormat with
+            {
+                LineSpacingRule = rule,
+                LineSpacing = spacing,
+            });
+        }
+
+        private void SetParagraphFormat(ReaderState state, RichTextParagraphFormat format)
+        {
+            state.ParagraphFormat = format;
+            TrackParagraphFormat(state);
+        }
+
+        private static double FromTwips(int twips) => twips / TwipsPerPoint;
+
+        private static RichTextUnderlineStyle GetUnderlineStyle(string word) => word switch
+        {
+            "ulw" => RichTextUnderlineStyle.Words,
+            "uldb" => RichTextUnderlineStyle.Double,
+            "uld" or "ulthd" => RichTextUnderlineStyle.Dotted,
+            "uldash" or "ulthdash" => RichTextUnderlineStyle.Dash,
+            "uldashd" or "ulthdashd" => RichTextUnderlineStyle.DashDot,
+            "uldashdd" or "ulthdashdd" => RichTextUnderlineStyle.DashDotDot,
+            "ulwave" => RichTextUnderlineStyle.Wave,
+            "ulth" => RichTextUnderlineStyle.Thick,
+            "ululdbwave" => RichTextUnderlineStyle.DoubleWave,
+            "ulhwave" => RichTextUnderlineStyle.HeavyWave,
+            "ulldash" or "ulthldash" => RichTextUnderlineStyle.LongDash,
+            _ => RichTextUnderlineStyle.Single,
+        };
+
+        private static string? GetLanguageTag(int languageId)
+        {
+            if (languageId is 0 or 1024)
+            {
+                return null;
+            }
+
+            try
+            {
+                return CultureInfo.GetCultureInfo(languageId).Name;
+            }
+            catch (CultureNotFoundException)
+            {
+                return null;
+            }
+        }
+
         private bool TrySetDestination(string word, ReaderState state)
         {
             switch (word)
@@ -1467,7 +2179,8 @@ internal static class RtfCodec
                     return true;
                 case "defpap":
                     state.Destination = Destination.DefaultParagraphProperties;
-                    state.Alignment = RichTextAlignment.Left;
+                    state.ParagraphFormat = RichTextParagraphFormat.Default;
+                    ResetParagraphControlState(state);
                     state.CompletesDefaultParagraphProperties = true;
                     return true;
                 case "listtable":
@@ -1728,7 +2441,7 @@ internal static class RtfCodec
             ReaderState state)
         {
             AppendPendingCellSeparator(format);
-            TrackParagraphAlignment(state);
+            TrackParagraphFormat(state);
             EnsureParagraphList(state);
             _document.Append(character, format);
             if (character == '\n')
@@ -1751,7 +2464,7 @@ internal static class RtfCodec
             }
 
             AppendPendingCellSeparator(state.Format);
-            TrackParagraphAlignment(state);
+            TrackParagraphFormat(state);
             EnsureParagraphList(state);
             _document.Append('\n', state.Format);
             _lineStart = _document.Length;
@@ -1788,7 +2501,7 @@ internal static class RtfCodec
                 return;
             }
 
-            TrackParagraphAlignment(state);
+            TrackParagraphFormat(state);
             _document.Append('\n', state.Format);
             _lineStart = _document.Length;
             _paragraphListHandled = false;
@@ -1853,7 +2566,7 @@ internal static class RtfCodec
 
             if (state.CompletesDefaultParagraphProperties)
             {
-                _defaultParagraphAlignment = state.Alignment;
+                _defaultParagraphFormat = state.ParagraphFormat;
             }
 
             if (state.CompletesFieldInstruction &&
@@ -2152,20 +2865,20 @@ internal static class RtfCodec
             _paragraphListHandled = true;
         }
 
-        private void TrackParagraphAlignment(ReaderState state)
+        private void TrackParagraphFormat(ReaderState state)
         {
             if (state.Destination != Destination.Body)
             {
                 return;
             }
 
-            if (state.Alignment == RichTextAlignment.Left)
+            if (state.ParagraphFormat == _defaultParagraphFormat)
             {
                 _paragraphs.Remove(_lineStart);
             }
             else
             {
-                _paragraphs[_lineStart] = state.Alignment;
+                _paragraphs[_lineStart] = state.ParagraphFormat;
             }
         }
 
@@ -2348,9 +3061,19 @@ internal static class RtfCodec
 
         private void ResetToDefaultParagraphProperties(ReaderState state)
         {
-            state.Alignment = _defaultParagraphAlignment;
+            state.ParagraphFormat = _defaultParagraphFormat;
             state.ListOverride = 0;
             state.ListLevel = 0;
+            ResetParagraphControlState(state);
+        }
+
+        private static void ResetParagraphControlState(ReaderState state)
+        {
+            state.ParagraphLineSpacingTwips = 0;
+            state.ParagraphLineSpacingMultiple = false;
+            state.PendingTabAlignment = RichTextTabAlignment.Left;
+            state.PendingTabLeader = RichTextTabLeader.None;
+            state.CurrentBorderSides = RichTextBorderSides.None;
         }
 
         private static int? GetCodePageForCharacterSet(int characterSet) => characterSet switch
@@ -2445,7 +3168,17 @@ internal static class RtfCodec
 
             public int? CharacterShading { get; set; }
 
-            public RichTextAlignment Alignment { get; set; } = RichTextAlignment.Left;
+            public RichTextParagraphFormat ParagraphFormat { get; set; } = RichTextParagraphFormat.Default;
+
+            public int ParagraphLineSpacingTwips { get; set; }
+
+            public bool ParagraphLineSpacingMultiple { get; set; }
+
+            public RichTextTabAlignment PendingTabAlignment { get; set; }
+
+            public RichTextTabLeader PendingTabLeader { get; set; }
+
+            public RichTextBorderSides CurrentBorderSides { get; set; }
 
             public int ListOverride { get; set; }
 
@@ -2483,7 +3216,12 @@ internal static class RtfCodec
                 UnicodeSkipCount = UnicodeSkipCount,
                 CodePage = CodePage,
                 CharacterShading = CharacterShading,
-                Alignment = Alignment,
+                ParagraphFormat = ParagraphFormat,
+                ParagraphLineSpacingTwips = ParagraphLineSpacingTwips,
+                ParagraphLineSpacingMultiple = ParagraphLineSpacingMultiple,
+                PendingTabAlignment = PendingTabAlignment,
+                PendingTabLeader = PendingTabLeader,
+                CurrentBorderSides = CurrentBorderSides,
                 ListOverride = ListOverride,
                 ListLevel = ListLevel,
                 AtGroupStart = true,
