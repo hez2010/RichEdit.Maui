@@ -382,7 +382,11 @@ public sealed class RichTextDocument
         IEnumerable<RichTextLink>? links,
         IEnumerable<RichTextImage>? images,
         RichTextCharacterFormat defaultCharacterFormat,
-        RichTextParagraphFormat defaultParagraphFormat)
+        RichTextParagraphFormat defaultParagraphFormat,
+        Func<RichTextCharacterFormat, RichTextCharacterFormat, RichTextCharacterFormat>?
+            mergeCharacterFormat = null,
+        Func<RichTextParagraphFormat, RichTextParagraphFormat, RichTextParagraphFormat>?
+            mergeParagraphFormat = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         var remapped = this;
@@ -404,6 +408,35 @@ public sealed class RichTextDocument
                 text[prefixLength..newEnd]);
         }
 
+        var nativeRuns = NormalizeRuns(text.Length, runs, defaultCharacterFormat);
+        var nativeParagraphs = NormalizeParagraphs(text, paragraphs, defaultParagraphFormat);
+        if (mergeCharacterFormat is not null)
+        {
+            defaultCharacterFormat = mergeCharacterFormat(
+                defaultCharacterFormat,
+                remapped.DefaultCharacterFormat);
+            nativeRuns = MergeCharacterFormats(
+                nativeRuns,
+                remapped._runs,
+                mergeCharacterFormat);
+        }
+
+        if (mergeParagraphFormat is not null)
+        {
+            defaultParagraphFormat = mergeParagraphFormat(
+                defaultParagraphFormat,
+                remapped.DefaultParagraphFormat);
+            nativeParagraphs =
+            [
+                .. nativeParagraphs.Select(paragraph => paragraph with
+                {
+                    Format = mergeParagraphFormat(
+                        paragraph.Format,
+                        remapped.GetParagraphFormat(paragraph.Start)),
+                }),
+            ];
+        }
+
         var linksWithToolTips = links is null
             ? remapped._links
             : links.Select(link =>
@@ -416,14 +449,50 @@ public sealed class RichTextDocument
             });
         return new RichTextDocument(
             text,
-            runs,
-            paragraphs,
+            nativeRuns,
+            nativeParagraphs,
             linksWithToolTips,
             remapped._fields,
             images ?? remapped._images,
             defaultCharacterFormat,
             defaultParagraphFormat,
             _metadata);
+    }
+
+    private static ImmutableArray<RichTextRun> MergeCharacterFormats(
+        ImmutableArray<RichTextRun> nativeRuns,
+        ImmutableArray<RichTextRun> previousRuns,
+        Func<RichTextCharacterFormat, RichTextCharacterFormat, RichTextCharacterFormat> merge)
+    {
+        var result = new List<RichTextRun>(nativeRuns.Length + previousRuns.Length);
+        var nativeIndex = 0;
+        var previousIndex = 0;
+        while (nativeIndex < nativeRuns.Length && previousIndex < previousRuns.Length)
+        {
+            var native = nativeRuns[nativeIndex];
+            var previous = previousRuns[previousIndex];
+            var start = Math.Max(native.Start, previous.Start);
+            var end = Math.Min(native.End, previous.End);
+            if (end > start)
+            {
+                AddRun(result, new RichTextRun(
+                    start,
+                    end - start,
+                    merge(native.Format, previous.Format)));
+            }
+
+            if (native.End <= end)
+            {
+                nativeIndex++;
+            }
+
+            if (previous.End <= end)
+            {
+                previousIndex++;
+            }
+        }
+
+        return [.. result];
     }
 
     private static string NormalizeText(string? text) =>

@@ -127,6 +127,155 @@ public sealed class RichTextDocumentTests
     }
 
     [Fact]
+    public void NativeSnapshotMergeSplitsRunsAtPreservedMetadataBoundaries()
+    {
+        var shadow = RichTextCharacterFormat.Default with { Shadow = true };
+        var paragraphBackground = Microsoft.Maui.Graphics.Color.FromRgb(0x12, 0x34, 0x56);
+        var document = new RichTextDocument(
+            "ab\ncd",
+            [
+                new RichTextRun(0, 2, shadow),
+                new RichTextRun(2, 3, RichTextCharacterFormat.Default),
+            ],
+            [
+                new RichTextParagraph(
+                    0,
+                    RichTextParagraphFormat.Default with
+                    {
+                        BackgroundColor = paragraphBackground,
+                    }),
+                new RichTextParagraph(3, RichTextParagraphFormat.Default),
+            ]);
+
+        var merged = document.MergeNativeSnapshot(
+            document.Text,
+            [new RichTextRun(0, document.Text.Length, RichTextCharacterFormat.Default)],
+            document.Paragraphs.Select(paragraph =>
+                new RichTextParagraph(paragraph.Start, RichTextParagraphFormat.Default)),
+            links: null,
+            images: null,
+            RichTextCharacterFormat.Default,
+            RichTextParagraphFormat.Default,
+            RichEditorHandler.MergeWindowsCharacterFormat,
+            RichEditorHandler.MergeWindowsParagraphFormat);
+
+        Assert.True(merged.GetCharacterFormat(0).Shadow);
+        Assert.False(merged.GetCharacterFormat(3).Shadow);
+        Assert.Equal(paragraphBackground, merged.GetParagraphFormat(0).BackgroundColor);
+        Assert.Null(merged.GetParagraphFormat(3).BackgroundColor);
+    }
+
+    [Fact]
+    public void WindowsReadbackPreservesOnlyPropertiesMissingFromTom()
+    {
+        var underlineColor = Microsoft.Maui.Graphics.Color.FromRgb(0x11, 0x22, 0x33);
+        var strikeColor = Microsoft.Maui.Graphics.Color.FromRgb(0x44, 0x55, 0x66);
+        var shadingColor = Microsoft.Maui.Graphics.Color.FromRgb(0x77, 0x88, 0x99);
+        var previousCharacter = RichTextCharacterFormat.Default with
+        {
+            UnderlineColor = underlineColor,
+            Strikethrough = RichTextStrikethroughStyle.Double,
+            StrikethroughColor = strikeColor,
+            HorizontalScale = 1.17,
+            Shadow = true,
+            LanguageTag = "ja-JP",
+            Direction = RichTextDirection.RightToLeft,
+            Kerning = RichTextFeatureMode.Automatic,
+            Ligatures = RichTextFeatureMode.Enabled,
+            Shading = 2500,
+            ShadingForegroundColor = shadingColor,
+            StyleName = "Emphasis",
+        };
+        var nativeCharacter = RichTextCharacterFormat.Default with
+        {
+            FontFamily = "Segoe UI",
+            Strikethrough = RichTextStrikethroughStyle.Single,
+            HorizontalScale = 1.125,
+            Kerning = RichTextFeatureMode.Disabled,
+        };
+
+        var character = RichEditorHandler.MergeWindowsCharacterFormat(
+            nativeCharacter,
+            previousCharacter);
+
+        Assert.Equal("Segoe UI", character.FontFamily);
+        Assert.Equal(underlineColor, character.UnderlineColor);
+        Assert.Equal(RichTextStrikethroughStyle.Double, character.Strikethrough);
+        Assert.Equal(strikeColor, character.StrikethroughColor);
+        Assert.Equal(1.17, character.HorizontalScale, 3);
+        Assert.True(character.Shadow);
+        Assert.Equal("ja-JP", character.LanguageTag);
+        Assert.Equal(RichTextDirection.RightToLeft, character.Direction);
+        Assert.Equal(RichTextFeatureMode.Automatic, character.Kerning);
+        Assert.Equal(RichTextFeatureMode.Enabled, character.Ligatures);
+        Assert.Equal(2500, character.Shading);
+        Assert.Equal(shadingColor, character.ShadingForegroundColor);
+        Assert.Equal("Emphasis", character.StyleName);
+
+        var background = Microsoft.Maui.Graphics.Color.FromRgb(0xaa, 0xbb, 0xcc);
+        var previousList = new RichTextListFormat
+        {
+            Id = 23,
+            Kind = RichListKind.Numbered,
+            NumberStyle = RichListNumberStyle.UpperRoman,
+            StartAt = 4,
+            Restart = true,
+            Prefix = "(",
+            Suffix = ").",
+            PictureId = "marker",
+        };
+        var previousParagraph = RichTextParagraphFormat.Default with
+        {
+            Alignment = RichTextAlignment.Distributed,
+            Direction = RichTextDirection.Automatic,
+            MinimumLineHeight = 12,
+            MaximumLineHeight = 24,
+            Hyphenation = true,
+            BackgroundColor = background,
+            Border = new RichTextBorder(
+                RichTextBorderSides.Bottom,
+                RichTextBorderStyle.Single,
+                1,
+                background),
+            StyleName = "Body",
+            List = previousList,
+        };
+        var nativeParagraph = RichTextParagraphFormat.Default with
+        {
+            Alignment = RichTextAlignment.Justified,
+            Direction = RichTextDirection.LeftToRight,
+            SpaceAfter = 6,
+            List = new RichTextListFormat
+            {
+                Id = 1,
+                Kind = RichListKind.Numbered,
+                NumberStyle = RichListNumberStyle.UpperRoman,
+                StartAt = 4,
+                Suffix = ".",
+            },
+        };
+
+        var paragraph = RichEditorHandler.MergeWindowsParagraphFormat(
+            nativeParagraph,
+            previousParagraph);
+
+        Assert.Equal(RichTextAlignment.Distributed, paragraph.Alignment);
+        Assert.Equal(RichTextDirection.Automatic, paragraph.Direction);
+        Assert.Equal(6, paragraph.SpaceAfter);
+        Assert.Equal(12, paragraph.MinimumLineHeight);
+        Assert.Equal(24, paragraph.MaximumLineHeight);
+        Assert.True(paragraph.Hyphenation);
+        Assert.Equal(background, paragraph.BackgroundColor);
+        Assert.Equal(previousParagraph.Border, paragraph.Border);
+        Assert.Equal("Body", paragraph.StyleName);
+        Assert.Equal(23, paragraph.List?.Id);
+        Assert.True(paragraph.List?.Restart);
+        Assert.Equal("(", paragraph.List?.Prefix);
+        Assert.Equal(").", paragraph.List?.Suffix);
+        Assert.Equal("marker", paragraph.List?.PictureId);
+    }
+
+    [Fact]
     public void InsertImageCreatesExactlyOneObjectCharacter()
     {
         var image = RichTextImage.FromBytes(0, "image/png", [0x89, 0x50], 32, 24);

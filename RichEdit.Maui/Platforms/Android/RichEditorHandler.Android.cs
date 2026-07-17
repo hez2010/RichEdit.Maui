@@ -73,10 +73,36 @@ public partial class RichEditorHandler
                 ApplyCharacterFormat(builder, run.Start, run.End, run.Format);
             }
 
+            var listNumbers = new Dictionary<(int Id, int Level), int>();
             foreach (var paragraph in document.Paragraphs)
             {
                 var end = GetParagraphEnd(document.Text, paragraph.Start);
-                ApplyParagraphFormat(builder, paragraph.Start, end, paragraph.Format);
+                string? listMarker = null;
+                if (paragraph.Format.List is { } list)
+                {
+                    if (list.Kind == RichListKind.Bulleted)
+                    {
+                        listMarker = list.BulletText;
+                    }
+                    else
+                    {
+                        var key = (list.Id, list.Level);
+                        if (list.Restart || !listNumbers.TryGetValue(key, out var number))
+                        {
+                            number = list.StartAt;
+                        }
+
+                        listMarker = RichTextListFormatter.FormatMarker(list, number);
+                        listNumbers[key] = number == int.MaxValue ? number : number + 1;
+                    }
+                }
+
+                ApplyParagraphFormat(
+                    builder,
+                    paragraph.Start,
+                    end,
+                    paragraph.Format,
+                    listMarker);
             }
 
             foreach (var link in document.Links)
@@ -291,7 +317,8 @@ public partial class RichEditorHandler
         ISpannable text,
         int start,
         int end,
-        RichTextParagraphFormat format)
+        RichTextParagraphFormat format,
+        string? listMarker)
     {
         if (end <= start)
         {
@@ -356,10 +383,18 @@ public partial class RichEditorHandler
                 SpanTypes.Paragraph);
         }
 
-        if (format.List is { Kind: RichListKind.Bulleted })
+        if (format.List is { } list && !string.IsNullOrEmpty(listMarker))
         {
+            var markerWidth = PlatformView is { Paint: { } paint }
+                ? checked((int)Math.Ceiling(paint.MeasureText(listMarker)))
+                : 16;
             text.SetSpan(
-                new BulletSpan(ToPixels(8)),
+                new RichListMarkerSpan(
+                    list,
+                    listMarker,
+                    markerWidth,
+                    ToPixels(8),
+                    ToPixels(18 * list.Level)),
                 start,
                 end,
                 SpanTypes.Paragraph);
@@ -700,7 +735,12 @@ public partial class RichEditorHandler
             format = format with { TabStops = tabs };
         }
 
-        if (GetSpans<BulletSpan>(text, start, end).Any())
+        var listMarker = GetSpans<RichListMarkerSpan>(text, start, end).LastOrDefault();
+        if (listMarker is not null)
+        {
+            format = format with { List = listMarker.ListFormat };
+        }
+        else if (GetSpans<BulletSpan>(text, start, end).Any())
         {
             format = format with
             {

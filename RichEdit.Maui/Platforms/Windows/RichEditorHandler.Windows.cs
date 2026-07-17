@@ -106,7 +106,11 @@ public partial class RichEditorHandler
                     }
                 }
                 var fullRange = nativeDocument.GetRange(0, document.Text.Length);
-                var defaultCharacterFormat = nativeDocument.GetDefaultCharacterFormat().GetClone();
+                // Keep the pristine native default separate from the document default.
+                // SetClone from this unhighlighted format is the TOM reset operation;
+                // assigning an alpha-zero BackgroundColor would leave the old highlight.
+                var resetCharacterFormat = nativeDocument.GetDefaultCharacterFormat();
+                var defaultCharacterFormat = resetCharacterFormat.GetClone();
                 ApplyCharacterFormat(defaultCharacterFormat, document.DefaultCharacterFormat);
                 fullRange.CharacterFormat.SetClone(defaultCharacterFormat);
                 var formattingRange = nativeDocument.GetRange(0, 0);
@@ -120,7 +124,10 @@ public partial class RichEditorHandler
 
                     if (!characterFormats.TryGetValue(run.Format, out var nativeFormat))
                     {
-                        nativeFormat = defaultCharacterFormat.GetClone();
+                        // Runs are fully resolved model formats, not deltas from the
+                        // document default. Start from the pristine native format so
+                        // a null/transparent background actively clears highlighting.
+                        nativeFormat = resetCharacterFormat.GetClone();
                         ApplyCharacterFormat(nativeFormat, run.Format);
                         characterFormats.Add(run.Format, nativeFormat);
                     }
@@ -283,8 +290,9 @@ public partial class RichEditorHandler
             ? FormatEffect.Off
             : FormatEffect.On;
         native.ForegroundColor = ToWindowsColor(format.ForegroundColor ?? VirtualView.TextColor);
-        // Each caller supplies a fresh default-format clone. Leaving its background
-        // untouched is the WinUI reset path; RichEdit ignores alpha on text backgrounds.
+        // Each caller supplies a pristine default-format clone. Leaving its background
+        // untouched and later using SetClone is the WinUI reset path; RichEdit ignores
+        // alpha on text backgrounds.
         if (format.BackgroundColor is { Alpha: > 0 } backgroundColor)
         {
             native.BackgroundColor = ToWindowsColor(backgroundColor);
@@ -363,13 +371,7 @@ public partial class RichEditorHandler
             };
         native.ListStyle = list.Kind == RichListKind.Bulleted
             ? MarkerStyle.Plain
-            : list.Suffix switch
-            {
-                ")" => MarkerStyle.Parenthesis,
-                "-" => MarkerStyle.Minus,
-                "" => MarkerStyle.Plain,
-                _ => MarkerStyle.Period,
-            };
+            : ToNativeListStyle(list.Suffix);
         native.ListStart = list.StartAt;
         native.ListLevelIndex = list.Level + 1;
     }
@@ -428,7 +430,9 @@ public partial class RichEditorHandler
             null,
             null,
             defaultCharacterFormat,
-            defaultParagraphFormat);
+            defaultParagraphFormat,
+            MergeWindowsCharacterFormat,
+            MergeWindowsParagraphFormat);
     }
 
     private NativeTextSnapshot GetNativeTextSnapshot() =>
@@ -550,6 +554,93 @@ public partial class RichEditorHandler
             return null;
         }
     }
+
+    internal static RichTextCharacterFormat MergeWindowsCharacterFormat(
+        RichTextCharacterFormat native,
+        RichTextCharacterFormat previous)
+    {
+        var horizontalScale = ToNativeFontStretch(native.HorizontalScale) ==
+            ToNativeFontStretch(previous.HorizontalScale)
+                ? previous.HorizontalScale
+                : native.HorizontalScale;
+        return native with
+        {
+            UnderlineColor = previous.UnderlineColor,
+            Strikethrough = native.Strikethrough != RichTextStrikethroughStyle.None &&
+                previous.Strikethrough == RichTextStrikethroughStyle.Double
+                    ? RichTextStrikethroughStyle.Double
+                    : native.Strikethrough,
+            StrikethroughColor = previous.StrikethroughColor,
+            HorizontalScale = horizontalScale,
+            Shadow = previous.Shadow,
+            LanguageTag = native.LanguageTag ?? previous.LanguageTag,
+            Direction = previous.Direction,
+            Kerning = previous.Kerning == RichTextFeatureMode.Automatic
+                ? RichTextFeatureMode.Automatic
+                : native.Kerning,
+            Ligatures = previous.Ligatures,
+            Shading = previous.Shading,
+            ShadingForegroundColor = previous.ShadingForegroundColor,
+            ShadingBackgroundColor = previous.ShadingBackgroundColor,
+            StyleName = previous.StyleName,
+        };
+    }
+
+    internal static RichTextParagraphFormat MergeWindowsParagraphFormat(
+        RichTextParagraphFormat native,
+        RichTextParagraphFormat previous)
+    {
+        var alignment = native.Alignment == RichTextAlignment.Justified &&
+            previous.Alignment == RichTextAlignment.Distributed
+                ? RichTextAlignment.Distributed
+                : native.Alignment;
+        var direction = native.Direction == RichTextDirection.LeftToRight &&
+            previous.Direction == RichTextDirection.Automatic
+                ? RichTextDirection.Automatic
+                : native.Direction;
+        RichTextListFormat? list = native.List;
+        if (list is not null && previous.List is { } previousList)
+        {
+            list = list with
+            {
+                Id = previousList.Id,
+                Restart = previousList.Restart,
+                Prefix = previousList.Prefix,
+                Suffix = HasEquivalentWindowsListSuffix(list.Suffix, previousList.Suffix)
+                    ? previousList.Suffix
+                    : list.Suffix,
+                BulletText = previousList.BulletText,
+                PictureId = previousList.PictureId,
+            };
+        }
+
+        return native with
+        {
+            Alignment = alignment,
+            Direction = direction,
+            MinimumLineHeight = previous.MinimumLineHeight,
+            MaximumLineHeight = previous.MaximumLineHeight,
+            Hyphenation = previous.Hyphenation,
+            BackgroundColor = previous.BackgroundColor,
+            Shading = previous.Shading,
+            ShadingForegroundColor = previous.ShadingForegroundColor,
+            ShadingBackgroundColor = previous.ShadingBackgroundColor,
+            Border = previous.Border,
+            StyleName = previous.StyleName,
+            List = list,
+        };
+    }
+
+    private static bool HasEquivalentWindowsListSuffix(string first, string second) =>
+        ToNativeListStyle(first) == ToNativeListStyle(second);
+
+    private static MarkerStyle ToNativeListStyle(string suffix) => suffix switch
+    {
+        ")" => MarkerStyle.Parenthesis,
+        "-" => MarkerStyle.Minus,
+        "" => MarkerStyle.Plain,
+        _ => MarkerStyle.Period,
+    };
 
     private static RichTextParagraphFormat ReadParagraphFormat(
         ITextParagraphFormat native,

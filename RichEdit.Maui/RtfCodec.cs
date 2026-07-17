@@ -1310,7 +1310,13 @@ internal static class RtfCodec
         }
 
         if (total is <= 0 or > 3999 ||
-            !token.Equals(FormatRomanNumber(total, uppercase).AsSpan(), StringComparison.Ordinal))
+            !token.Equals(
+                RichTextListFormatter.FormatNumber(
+                    total,
+                    uppercase
+                        ? RichListNumberStyle.UpperRoman
+                        : RichListNumberStyle.LowerRoman).AsSpan(),
+                StringComparison.Ordinal))
         {
             return false;
         }
@@ -1357,62 +1363,15 @@ internal static class RtfCodec
         return true;
     }
 
-    private static string FormatListNumber(int number, ListNumberFormat format) => format switch
-    {
-        ListNumberFormat.UpperRoman => FormatRomanNumber(number, uppercase: true),
-        ListNumberFormat.LowerRoman => FormatRomanNumber(number, uppercase: false),
-        ListNumberFormat.UpperLetter => FormatLetterNumber(number, uppercase: true),
-        ListNumberFormat.LowerLetter => FormatLetterNumber(number, uppercase: false),
-        _ => number.ToString(CultureInfo.InvariantCulture),
-    };
-
-    private static string FormatRomanNumber(int number, bool uppercase)
-    {
-        if (number is <= 0 or > 3999)
+    private static string FormatListNumber(int number, ListNumberFormat format) =>
+        RichTextListFormatter.FormatNumber(number, format switch
         {
-            return number.ToString(CultureInfo.InvariantCulture);
-        }
-
-        ReadOnlySpan<(int Value, string Text)> numerals =
-        [
-            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
-        ];
-        var output = new StringBuilder();
-        foreach (var numeral in numerals)
-        {
-            while (number >= numeral.Value)
-            {
-                output.Append(numeral.Text);
-                number -= numeral.Value;
-            }
-        }
-
-        var result = output.ToString();
-        return uppercase ? result : result.ToLowerInvariant();
-    }
-
-    private static string FormatLetterNumber(int number, bool uppercase)
-    {
-        if (number <= 0)
-        {
-            return number.ToString(CultureInfo.InvariantCulture);
-        }
-
-        Span<char> buffer = stackalloc char[16];
-        var position = buffer.Length;
-        while (number > 0 && position > 0)
-        {
-            number--;
-            buffer[--position] = (char)((uppercase ? 'A' : 'a') + number % 26);
-            number /= 26;
-        }
-
-        return number == 0
-            ? new string(buffer[position..])
-            : string.Empty;
-    }
+            ListNumberFormat.UpperRoman => RichListNumberStyle.UpperRoman,
+            ListNumberFormat.LowerRoman => RichListNumberStyle.LowerRoman,
+            ListNumberFormat.UpperLetter => RichListNumberStyle.UpperLetter,
+            ListNumberFormat.LowerLetter => RichListNumberStyle.LowerLetter,
+            _ => RichListNumberStyle.Arabic,
+        });
 
     private readonly record struct NumberMarker(
         int Number,

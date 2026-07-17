@@ -20,10 +20,10 @@ Legend:
 
 Apple and Android attach canonical metadata to attributed ranges/spans, so a
 native edit normally retains properties their renderer cannot express. WinUI
-readback is authoritative for character and paragraph formatting; properties
-that have no TOM representation can therefore be lost after a native edit.
-Fields, links, and existing images are model-owned on WinUI and are remapped as
-the text changes.
+readback is authoritative for formatting TOM can represent; metadata without a
+TOM representation is overlaid from the remapped document model at native range
+boundaries. Fields, links, and existing images are likewise model-owned on
+WinUI and are remapped as the text changes.
 
 ## Text and character formatting
 
@@ -95,14 +95,14 @@ List markers are presentation metadata and are never inserted into
 
 | Feature | RTF codec | iOS | Mac Catalyst | Android 26 | WinUI 3 | Portable behavior |
 |---|---|---|---|---|---|---|
-| Basic bullets | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Native | Native | iOS/Mac Catalyst 15 retain list metadata but do not draw a native marker. |
-| Arabic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Model | Native | Android retains numbering without drawing a marker. |
-| Roman and alphabetic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Model | Native | Upper/lower Roman and letter styles are represented. |
-| Start-at value | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Model | Native | Values are positive integers. |
-| Restart flag | Degraded | Model | Model | Model | Degraded | A distinct list ID plus `StartAt` is the portable restart mechanism. |
-| Nested level | Degraded | Native 16+; Model 15 | Native 16+; Model 15 | Model | Native | Canonical levels 0–8 are retained; the current RTF writer emits a simple list definition. |
-| Custom marker prefix/suffix | Degraded | Native 16+; Model 15 | Native 16+; Model 15 | Model | Degraded | RTF/WinUI use the closest single-character suffix style. |
-| Alternate bullet text | Round-trip | Degraded | Degraded | Degraded | Degraded | Canonical bullet text is retained; native renderers use their standard bullet. |
+| Basic bullets | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Android draws the marker without inserting it into logical text. |
+| Arabic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Android uses the same numbering formatter as the RTF writer. |
+| Roman and alphabetic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Upper/lower Roman and letter styles are represented. |
+| Start-at value | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Values are positive integers. |
+| Restart flag | Degraded | Model | Model | Adapter | Degraded | Android restarts its per-list/per-level counter; a distinct list ID plus `StartAt` remains the RTF/WinUI mechanism. |
+| Nested level | Degraded | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Android adds a level margin; the current RTF writer emits a simple list definition. |
+| Custom marker prefix/suffix | Degraded | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Degraded | Android draws the complete marker; RTF/WinUI use the closest single-character suffix style. |
+| Alternate bullet text | Round-trip | Degraded | Degraded | Adapter | Degraded | Android draws the canonical bullet text; Apple/WinUI use their standard bullet. |
 | Picture bullet identifier | Model only | Model | Model | Model | Model | No picture-bullet payload/resolver is implemented yet. |
 
 ## Links, fields, and inline pictures

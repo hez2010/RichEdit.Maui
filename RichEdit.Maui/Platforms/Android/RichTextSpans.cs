@@ -174,3 +174,53 @@ internal sealed class RichLineHeightSpan(
         fontMetrics.Top = fontMetrics.Ascent;
     }
 }
+
+internal sealed class RichListMarkerSpan(
+    RichTextListFormat listFormat,
+    string marker,
+    int markerWidth,
+    int gapWidth,
+    int levelIndent) :
+    Java.Lang.Object,
+    ILeadingMarginSpan
+{
+    public RichTextListFormat ListFormat { get; } = listFormat;
+
+    public string Marker { get; } = marker;
+
+    public int GetLeadingMargin(bool first) =>
+        checked(levelIndent + markerWidth + gapWidth);
+
+    public void DrawLeadingMargin(
+        global::Android.Graphics.Canvas? canvas,
+        global::Android.Graphics.Paint? paint,
+        int x,
+        int direction,
+        int top,
+        int baseline,
+        int bottom,
+        Java.Lang.ICharSequence? text,
+        int start,
+        int end,
+        bool first,
+        global::Android.Text.Layout? layout)
+    {
+        if (!first || canvas is null || paint is null)
+        {
+            return;
+        }
+
+        var previousAlignment = paint.TextAlign;
+        try
+        {
+            paint.TextAlign = direction < 0
+                ? global::Android.Graphics.Paint.Align.Right
+                : global::Android.Graphics.Paint.Align.Left;
+            canvas.DrawText(Marker, x + direction * levelIndent, baseline, paint);
+        }
+        finally
+        {
+            paint.TextAlign = previousAlignment;
+        }
+    }
+}

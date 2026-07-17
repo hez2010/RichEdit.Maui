@@ -2,6 +2,35 @@ namespace RichEdit.Maui.Tests;
 
 public sealed class RtfArchitectureTests
 {
+    [Theory]
+    [InlineData(4, RichListNumberStyle.Arabic, "4")]
+    [InlineData(4, RichListNumberStyle.UpperRoman, "IV")]
+    [InlineData(14, RichListNumberStyle.LowerRoman, "xiv")]
+    [InlineData(27, RichListNumberStyle.UpperLetter, "AA")]
+    [InlineData(52, RichListNumberStyle.LowerLetter, "az")]
+    public void SharedListNumberFormatterMatchesRtfMarkers(
+        int number,
+        RichListNumberStyle style,
+        string expected)
+    {
+        Assert.Equal(expected, RichTextListFormatter.FormatNumber(number, style));
+    }
+
+    [Fact]
+    public void SharedListMarkerFormatterKeepsPrefixAndSuffixOutOfText()
+    {
+        var list = new RichTextListFormat
+        {
+            Id = 1,
+            Kind = RichListKind.Numbered,
+            NumberStyle = RichListNumberStyle.UpperRoman,
+            Prefix = "(",
+            Suffix = ")",
+        };
+
+        Assert.Equal("(IV)", RichTextListFormatter.FormatMarker(list, 4));
+    }
+
     [Fact]
     public void NumberedListRoundTripKeepsMarkersOutOfLogicalText()
     {
