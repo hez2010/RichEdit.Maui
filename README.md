@@ -77,6 +77,10 @@ The reader follows RTF group scoping, Unicode fallback, code-page, paragraph-def
 
 RTF uses opaque 8-bit RGB colors and half-point font sizes. Serialization rounds model values to those wire-format units. Alpha cannot be represented by RTF and is therefore degraded to opaque RGB.
 
+See the [portable RTF support matrix](RTF_SUPPORT.md) for the exact iOS,
+Mac Catalyst, Android 26, and WinUI 3 behavior, including documented visual
+fallbacks and model-only properties.
+
 ## Document model
 
 Runs are normalized to cover the complete text without gaps or overlaps. Every paragraph has a format entry, semantic ranges cannot overlap, and every image occupies one U+FFFC object-replacement character. Input line endings are normalized to `\n`.

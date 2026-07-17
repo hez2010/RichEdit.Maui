@@ -298,6 +298,7 @@ public partial class RichEditorHandler
             : FormatEffect.Off;
         native.Position = (float)format.BaselineOffset;
         native.Spacing = (float)format.CharacterSpacing;
+        native.FontStretch = ToNativeFontStretch(format.HorizontalScale);
         native.SmallCaps = format.SmallCaps ? FormatEffect.On : FormatEffect.Off;
         native.AllCaps = format.AllCaps ? FormatEffect.On : FormatEffect.Off;
         native.Outline = format.Outline ? FormatEffect.On : FormatEffect.Off;
@@ -518,6 +519,7 @@ public partial class RichEditorHandler
                 : RichTextScript.Normal,
         BaselineOffset = native.Position,
         CharacterSpacing = native.Spacing,
+        HorizontalScale = FromNativeFontStretch(native.FontStretch),
         SmallCaps = native.SmallCaps == FormatEffect.On,
         AllCaps = native.AllCaps == FormatEffect.On,
         Outline = native.Outline == FormatEffect.On,
@@ -674,6 +676,32 @@ public partial class RichEditorHandler
         LineSpacingRule.Multiple or LineSpacingRule.Percent => RichTextLineSpacingRule.Multiple,
         LineSpacingRule.Single => RichTextLineSpacingRule.Single,
         _ => RichTextLineSpacingRule.Automatic,
+    };
+
+    private static Windows.UI.Text.FontStretch ToNativeFontStretch(double scale) => scale switch
+    {
+        < 0.5625d => Windows.UI.Text.FontStretch.UltraCondensed,
+        < 0.6875d => Windows.UI.Text.FontStretch.ExtraCondensed,
+        < 0.8125d => Windows.UI.Text.FontStretch.Condensed,
+        < 0.9375d => Windows.UI.Text.FontStretch.SemiCondensed,
+        < 1.0625d => Windows.UI.Text.FontStretch.Normal,
+        < 1.1875d => Windows.UI.Text.FontStretch.SemiExpanded,
+        < 1.375d => Windows.UI.Text.FontStretch.Expanded,
+        < 1.75d => Windows.UI.Text.FontStretch.ExtraExpanded,
+        _ => Windows.UI.Text.FontStretch.UltraExpanded,
+    };
+
+    private static double FromNativeFontStretch(Windows.UI.Text.FontStretch stretch) => stretch switch
+    {
+        Windows.UI.Text.FontStretch.UltraCondensed => 0.5d,
+        Windows.UI.Text.FontStretch.ExtraCondensed => 0.625d,
+        Windows.UI.Text.FontStretch.Condensed => 0.75d,
+        Windows.UI.Text.FontStretch.SemiCondensed => 0.875d,
+        Windows.UI.Text.FontStretch.SemiExpanded => 1.125d,
+        Windows.UI.Text.FontStretch.Expanded => 1.25d,
+        Windows.UI.Text.FontStretch.ExtraExpanded => 1.5d,
+        Windows.UI.Text.FontStretch.UltraExpanded => 2d,
+        _ => 1d,
     };
 
     private static TabAlignment ToNativeTabAlignment(RichTextTabAlignment value) => value switch

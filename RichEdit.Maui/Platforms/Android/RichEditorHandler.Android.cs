@@ -93,6 +93,11 @@ public partial class RichEditorHandler
                 ApplyImage(builder, image);
             }
 
+            PlatformView.JustificationMode = document.Paragraphs.All(paragraph =>
+                paragraph.Format.Alignment is
+                    RichTextAlignment.Justified or RichTextAlignment.Distributed)
+                ? JustificationMode.InterWord
+                : JustificationMode.None;
             PlatformView.SetText(builder, TextView.BufferType.Spannable);
             SetSelectionCore(selectionStart, selectionLength);
         }
@@ -326,12 +331,17 @@ public partial class RichEditorHandler
                 SpanTypes.Paragraph);
         }
 
-        if (format.LineSpacingRule == RichTextLineSpacingRule.Exactly &&
-            format.LineSpacing > 0 &&
-            OperatingSystem.IsAndroidVersionAtLeast(29))
+        if (RichLineHeightSpan.IsNeeded(format))
         {
             text.SetSpan(
-                new LineHeightSpanStandard(ToPixels(format.LineSpacing)),
+                new RichLineHeightSpan(
+                    format.LineSpacingRule,
+                    format.LineSpacingRule is
+                        RichTextLineSpacingRule.AtLeast or RichTextLineSpacingRule.Exactly
+                            ? ToPixels(format.LineSpacing)
+                            : format.LineSpacing,
+                    format.MinimumLineHeight is > 0 ? ToPixels(format.MinimumLineHeight.Value) : null,
+                    format.MaximumLineHeight is > 0 ? ToPixels(format.MaximumLineHeight.Value) : null),
                 start,
                 end,
                 SpanTypes.Paragraph);
@@ -649,7 +659,25 @@ public partial class RichEditorHandler
             };
         }
 
-        if (OperatingSystem.IsAndroidVersionAtLeast(29))
+        var richLineHeight = GetSpans<RichLineHeightSpan>(text, start, end).LastOrDefault();
+        if (richLineHeight is not null)
+        {
+            format = format with
+            {
+                LineSpacingRule = richLineHeight.Rule,
+                LineSpacing = richLineHeight.Rule is
+                    RichTextLineSpacingRule.AtLeast or RichTextLineSpacingRule.Exactly
+                        ? FromPixels(richLineHeight.Value)
+                        : richLineHeight.Value,
+                MinimumLineHeight = richLineHeight.MinimumHeight is { } minimum
+                    ? FromPixels(minimum)
+                    : null,
+                MaximumLineHeight = richLineHeight.MaximumHeight is { } maximum
+                    ? FromPixels(maximum)
+                    : null,
+            };
+        }
+        else if (OperatingSystem.IsAndroidVersionAtLeast(29))
         {
             var lineHeight = GetSpans<LineHeightSpanStandard>(text, start, end).LastOrDefault();
             if (lineHeight is not null)
