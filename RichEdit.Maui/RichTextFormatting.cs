@@ -222,6 +222,40 @@ public sealed record RichTextListFormat
     public string? PictureId { get; init; }
 }
 
+public sealed record RichTextListPicture
+{
+    public string Id { get; init; } = string.Empty;
+
+    public string MediaType { get; init; } = "image/png";
+
+    public ImmutableArray<byte> Data { get; init; } = [];
+
+    public string? Source { get; init; }
+
+    public double Width { get; init; }
+
+    public double Height { get; init; }
+
+    public string? AlternativeText { get; init; }
+
+    public static RichTextListPicture FromBytes(
+        string id,
+        string mediaType,
+        ReadOnlySpan<byte> data,
+        double width,
+        double height,
+        string? alternativeText = null) =>
+        new()
+        {
+            Id = id,
+            MediaType = mediaType,
+            Data = ImmutableArray.CreateRange(data.ToArray()),
+            Width = width,
+            Height = height,
+            AlternativeText = alternativeText,
+        };
+}
+
 public sealed record RichTextBorder(
     RichTextBorderSides Sides,
     RichTextBorderStyle Style,

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -55,6 +56,8 @@ internal static class RtfCodec
         private readonly Dictionary<RtfColor, int> _colorIndices = [];
         private readonly List<ListDefinition> _listDefinitions;
         private readonly List<ListOverrideDefinition> _listOverrides = [];
+        private readonly RichTextListPicture[] _listPictures;
+        private readonly Dictionary<string, int> _listPictureIndices;
         private readonly Dictionary<int, ListItemDefinition> _listsByItemStart = [];
         private readonly Dictionary<(int OverrideId, int Level), int> _nextListNumbers = [];
         private readonly RichTextRun[] _runs;
@@ -70,6 +73,20 @@ internal static class RtfCodec
             _document = document;
             AddFont(document.DefaultCharacterFormat.FontFamily ?? "Arial");
             BuildFormattingTables();
+            _listPictures = document.Paragraphs
+                .Select(paragraph => paragraph.Format.List?.PictureId)
+                .Where(static id => id is not null)
+                .Distinct(StringComparer.Ordinal)
+                .Select(id => document.ListPictures[id!])
+                .Where(static picture => TryGetPictureControl(
+                    picture.MediaType,
+                    picture.Data.AsSpan(),
+                    out _,
+                    out _))
+                .ToArray();
+            _listPictureIndices = _listPictures
+                .Select((picture, index) => (picture.Id, Index: index))
+                .ToDictionary(item => item.Id, item => item.Index, StringComparer.Ordinal);
             _listDefinitions = BuildListDefinitions();
             _runs = [.. document.Runs];
             _semanticBoundaries = includeSemanticRanges
@@ -323,6 +340,7 @@ internal static class RtfCodec
             }
 
             _output.Append(@"{\*\listtable").Append("\r\n");
+            WriteListPictures();
             foreach (var definition in _listDefinitions)
             {
                 _output.Append(@"{\list\listtemplateid").Append(definition.ListId)
@@ -368,6 +386,37 @@ internal static class RtfCodec
             _output.Append('}').Append("\r\n");
         }
 
+        private void WriteListPictures()
+        {
+            if (_listPictures.Length == 0)
+            {
+                return;
+            }
+
+            _output.Append(@"{\*\listpicture").Append("\r\n");
+            foreach (var picture in _listPictures)
+            {
+                _ = TryGetPictureControl(
+                    picture.MediaType,
+                    picture.Data.AsSpan(),
+                    out var control,
+                    out var isRaster);
+                _output.Append(@"{\*\shppict");
+                WritePictureData(
+                    control,
+                    isRaster,
+                    picture.Data.AsSpan(),
+                    picture.Width,
+                    picture.Height,
+                    default,
+                    picture.AlternativeText,
+                    rotation: 0);
+                _output.Append('}').Append("\r\n");
+            }
+
+            _output.Append('}').Append("\r\n");
+        }
+
         private void WriteListLevel(ListLevelDefinition? definition, int level)
         {
             var numberFormat = definition switch
@@ -388,6 +437,12 @@ internal static class RtfCodec
             }
 
             WriteListLevelText(definition, level);
+            if (definition?.PictureId is { } pictureId &&
+                _listPictureIndices.TryGetValue(pictureId, out var pictureIndex))
+            {
+                _output.Append(@"\levelpicture").Append(pictureIndex);
+            }
+
             var indent = checked((level + 1) * 720);
             _output.Append(@"\fi-360\li").Append(indent)
                 .Append(@"\lin").Append(indent)
@@ -598,7 +653,11 @@ internal static class RtfCodec
         private void WriteImage(RichTextImage image)
         {
             var format = GetRunAt(image.Position).Format;
-            if (!TryGetPictureControl(image, out var pictureControl, out var isRaster))
+            if (!TryGetPictureControl(
+                    image.MediaType,
+                    image.Data.AsSpan(),
+                    out var pictureControl,
+                    out var isRaster))
             {
                 WriteRun(
                     _document.Text.AsSpan(image.Position, 1),
@@ -613,51 +672,76 @@ internal static class RtfCodec
                 WriteFormatControls(format, _document.DefaultCharacterFormat);
             }
 
+            WritePictureData(
+                pictureControl,
+                isRaster,
+                image.Data.AsSpan(),
+                image.Width,
+                image.Height,
+                image.Crop,
+                image.AlternativeText,
+                image.Rotation);
+
+            if (hasFormatting)
+            {
+                _output.Append('}');
+            }
+        }
+
+        private void WritePictureData(
+            string pictureControl,
+            bool isRaster,
+            ReadOnlySpan<byte> bytes,
+            double width,
+            double height,
+            RichTextImageCrop crop,
+            string? alternativeText,
+            double rotation)
+        {
             _output.Append(@"{\pict").Append(pictureControl);
-            if (isRaster && image.Width > 0)
+            if (isRaster && width > 0)
             {
-                _output.Append(@"\picw").Append(ToPixelsAt96Dpi(image.Width));
+                _output.Append(@"\picw").Append(ToPixelsAt96Dpi(width));
             }
 
-            if (isRaster && image.Height > 0)
+            if (isRaster && height > 0)
             {
-                _output.Append(@"\pich").Append(ToPixelsAt96Dpi(image.Height));
+                _output.Append(@"\pich").Append(ToPixelsAt96Dpi(height));
             }
 
-            if (image.Width > 0)
+            if (width > 0)
             {
-                _output.Append(@"\picwgoal").Append(ToTwips(image.Width));
+                _output.Append(@"\picwgoal").Append(ToTwips(width));
             }
 
-            if (image.Height > 0)
+            if (height > 0)
             {
-                _output.Append(@"\pichgoal").Append(ToTwips(image.Height));
+                _output.Append(@"\pichgoal").Append(ToTwips(height));
             }
 
-            if (image.Crop.Top != 0)
+            if (crop.Top != 0)
             {
-                _output.Append(@"\piccropt").Append(ToTwips(image.Crop.Top));
+                _output.Append(@"\piccropt").Append(ToTwips(crop.Top));
             }
 
-            if (image.Crop.Bottom != 0)
+            if (crop.Bottom != 0)
             {
-                _output.Append(@"\piccropb").Append(ToTwips(image.Crop.Bottom));
+                _output.Append(@"\piccropb").Append(ToTwips(crop.Bottom));
             }
 
-            if (image.Crop.Left != 0)
+            if (crop.Left != 0)
             {
-                _output.Append(@"\piccropl").Append(ToTwips(image.Crop.Left));
+                _output.Append(@"\piccropl").Append(ToTwips(crop.Left));
             }
 
-            if (image.Crop.Right != 0)
+            if (crop.Right != 0)
             {
-                _output.Append(@"\piccropr").Append(ToTwips(image.Crop.Right));
+                _output.Append(@"\piccropr").Append(ToTwips(crop.Right));
             }
 
-            WritePictureProperties(image);
+            WritePictureProperties(alternativeText, rotation);
 
             _output.Append(' ');
-            var bytes = image.Data.AsSpan();
             const string hexDigits = "0123456789abcdef";
             for (var index = 0; index < bytes.Length; index++)
             {
@@ -671,26 +755,22 @@ internal static class RtfCodec
             }
 
             _output.Append('}');
-            if (hasFormatting)
-            {
-                _output.Append('}');
-            }
         }
 
-        private void WritePictureProperties(RichTextImage image)
+        private void WritePictureProperties(string? alternativeText, double rotation)
         {
-            var rotation = Math.Abs(image.Rotation) <= 32767d
-                ? image.Rotation
-                : Math.IEEERemainder(image.Rotation, 360d);
-            if (string.IsNullOrEmpty(image.AlternativeText) && rotation == 0)
+            rotation = Math.Abs(rotation) <= 32767d
+                ? rotation
+                : Math.IEEERemainder(rotation, 360d);
+            if (string.IsNullOrEmpty(alternativeText) && rotation == 0)
             {
                 return;
             }
 
             _output.Append(@"{\*\picprop");
-            if (!string.IsNullOrEmpty(image.AlternativeText))
+            if (!string.IsNullOrEmpty(alternativeText))
             {
-                WritePictureProperty("wzDescription", image.AlternativeText);
+                WritePictureProperty("wzDescription", alternativeText);
             }
 
             if (rotation != 0)
@@ -714,12 +794,12 @@ internal static class RtfCodec
         }
 
         private static bool TryGetPictureControl(
-            RichTextImage image,
+            string mediaType,
+            ReadOnlySpan<byte> data,
             out string control,
             out bool isRaster)
         {
-            var mediaType = image.MediaType.Trim().ToLowerInvariant();
-            switch (mediaType)
+            switch (mediaType.Trim().ToLowerInvariant())
             {
                 case "image/png":
                     control = @"\pngblip";
@@ -742,7 +822,6 @@ internal static class RtfCodec
                     return true;
             }
 
-            var data = image.Data.AsSpan();
             if (data.Length >= 8 &&
                 data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4e && data[3] == 0x47 &&
                 data[4] == 0x0d && data[5] == 0x0a && data[6] == 0x1a && data[7] == 0x0a)
@@ -1368,6 +1447,7 @@ internal static class RtfCodec
                     format.Prefix,
                     format.Suffix,
                     format.BulletText,
+                    format.PictureId,
                     format.NumberStyle switch
                     {
                         RichListNumberStyle.UpperRoman => ListNumberFormat.UpperRoman,
@@ -1385,6 +1465,7 @@ internal static class RtfCodec
             string Prefix,
             string Suffix,
             string BulletText,
+            string? PictureId,
             ListNumberFormat NumberFormat);
 
         private sealed class ListOverrideDefinition(
@@ -1583,8 +1664,9 @@ internal static class RtfCodec
             "colorschememapping", "datafield", "datastore", "docvar", "filetbl",
             "fontemb", "fontfile", "footer", "footerf", "footerl", "footerr", "footnote",
             "generator", "header", "headerf", "headerl", "headerr", "info", "latentstyles",
-            "nonesttables", "nonshppict", "object", "objdata", "private", "revtbl", "rsidtbl",
-            "shp", "shpinst", "stylesheet", "themedata", "userprops", "xmlnstbl",
+            "nonesttables", "nonshppict", "objalias", "objclass", "objdata", "objname",
+            "objsect", "oleclsid", "private", "revtbl", "rsidtbl", "shprslt", "stylesheet",
+            "themedata", "userprops", "xmlnstbl",
         };
 
         private readonly string _rtf;
@@ -1600,6 +1682,7 @@ internal static class RtfCodec
         private readonly List<RichTextLink> _links = [];
         private readonly List<RichTextField> _fields = [];
         private readonly List<RichTextImage> _images = [];
+        private readonly List<RichTextListPicture> _listPictures = [];
         private readonly Dictionary<(bool IsTableList, int Id, int Level), int> _nextListNumbers = [];
         private readonly StringBuilder _fontName = new();
         private readonly List<byte> _encodedBytes = [];
@@ -1618,6 +1701,7 @@ internal static class RtfCodec
         private string _pendingListPrefix = string.Empty;
         private string _pendingListSuffix = ".";
         private string _pendingListBulletText = "•";
+        private int? _pendingListPictureIndex;
         private readonly ParsedListDefinition?[] _pendingListLevels = new ParsedListDefinition?[9];
         private int? _pendingOverrideListId;
         private int? _pendingOverrideId;
@@ -1781,7 +1865,8 @@ internal static class RtfCodec
                 fields: CoalesceFields(_fields),
                 images: _images,
                 defaultCharacterFormat: defaultCharacterFormat,
-                defaultParagraphFormat: _defaultParagraphFormat);
+                defaultParagraphFormat: _defaultParagraphFormat,
+                listPictures: _listPictures);
         }
 
         private IEnumerable<RichTextParagraph> EnumerateParagraphs(string text)
@@ -2417,6 +2502,12 @@ internal static class RtfCodec
                 return;
             }
 
+            if (word == "objattph")
+            {
+                AppendFallbackText("[Attachment]", state);
+                return;
+            }
+
             if (word is "cell" or "nestcell")
             {
                 EndTableCell(state);
@@ -2792,6 +2883,9 @@ internal static class RtfCodec
                 case "listoverridetable":
                     state.Destination = Destination.ListOverrideTable;
                     return true;
+                case "listpicture" when state.Destination == Destination.ListTable:
+                    state.Destination = Destination.ListPictures;
+                    return true;
                 case "leveltext" when state.Destination == Destination.ListTable:
                     state.Destination = Destination.ListLevelText;
                     state.ListLevelTextCapture = new StringBuilder();
@@ -2829,13 +2923,48 @@ internal static class RtfCodec
                     state.FieldResultStart = _document.Length;
                     state.CompletesFieldResult = true;
                     return true;
+                case "object":
+                    state.Destination = Destination.Object;
+                    state.Object = new ObjectContext(
+                        _document.Length,
+                        state.Format,
+                        state.ParagraphFormat,
+                        state.ListOverride,
+                        state.ListLevel);
+                    state.CompletesObject = true;
+                    return true;
+                case "result" when state.Object is not null:
+                    state.Destination = Destination.Body;
+                    return true;
+                case "shp":
+                case "shpgrp":
+                    state.Destination = Destination.Shape;
+                    return true;
+                case "shpinst" when state.Destination == Destination.Shape:
+                    state.Destination = Destination.ShapeInstructions;
+                    return true;
+                case "sp" when state.Destination == Destination.ShapeInstructions:
+                    state.Destination = Destination.ShapeProperty;
+                    return true;
+                case "sn" when state.Destination == Destination.ShapeProperty:
+                    state.Destination = Destination.ShapePropertyName;
+                    return true;
+                case "sv" when state.Destination == Destination.ShapeProperty:
+                    state.Destination = Destination.ShapePropertyValue;
+                    return true;
+                case "shptxt" when state.Destination is
+                    Destination.Shape or Destination.ShapeInstructions:
+                    state.Destination = Destination.Body;
+                    return true;
                 case "pict":
+                    var isListPicture = state.Destination == Destination.ListPictures;
                     state.Destination = Destination.Picture;
                     state.Picture = new PictureContext(
                         state.Format,
                         state.ParagraphFormat,
                         state.ListOverride,
-                        state.ListLevel);
+                        state.ListLevel,
+                        isListPicture);
                     state.CompletesPicture = true;
                     return true;
                 case "shppict":
@@ -2949,6 +3078,10 @@ internal static class RtfCodec
             {
                 _pendingListStartAt = parameter.Value;
             }
+            else if (word == "levelpicture" && parameter is >= 0)
+            {
+                _pendingListPictureIndex = parameter.Value;
+            }
 
             CommitListDefinition();
         }
@@ -2980,7 +3113,8 @@ internal static class RtfCodec
                     _pendingListNumberFormat,
                     _pendingListPrefix,
                     _pendingListSuffix,
-                    _pendingListBulletText);
+                    _pendingListBulletText,
+                    _pendingListPictureIndex);
             }
         }
 
@@ -2993,6 +3127,7 @@ internal static class RtfCodec
             _pendingListPrefix = string.Empty;
             _pendingListSuffix = ".";
             _pendingListBulletText = "•";
+            _pendingListPictureIndex = null;
         }
 
         private void CompleteListLevelText(StringBuilder capture)
@@ -3235,6 +3370,14 @@ internal static class RtfCodec
             }
         }
 
+        private void AppendFallbackText(ReadOnlySpan<char> text, ReaderState state)
+        {
+            foreach (var character in text)
+            {
+                AppendBodyCharacter(character, state.Format, state);
+            }
+        }
+
         private void AppendParagraphBreak(ReaderState state)
         {
             if (state.Destination == Destination.ListText)
@@ -3405,6 +3548,11 @@ internal static class RtfCodec
                 state.Picture.ApplyPropertyValue(state.PicturePropertyCapture.ToString());
             }
 
+            if (state.CompletesObject && state.Object is not null)
+            {
+                CompleteObject(state.Object);
+            }
+
             if (state.CompletesCapture && state.Capture is not null)
             {
                 var definition = ResolveList(state.ListOverride, state.ListLevel);
@@ -3464,6 +3612,9 @@ internal static class RtfCodec
                         BulletText = listKind == RichListKind.Bulleted
                             ? GetBulletText(state.Capture.Text, definition?.BulletText)
                             : "•",
+                        PictureId = listKind == RichListKind.Bulleted
+                            ? GetListPictureId(definition)
+                            : null,
                     };
                 }
 
@@ -3509,6 +3660,29 @@ internal static class RtfCodec
 
         private void CompletePicture(PictureContext picture)
         {
+            var width = picture.WidthTwips != 0
+                ? FromTwips(picture.WidthTwips)
+                : picture.PixelWidth * 72d / 96d;
+            var height = picture.HeightTwips != 0
+                ? FromTwips(picture.HeightTwips)
+                : picture.PixelHeight * 72d / 96d;
+            width *= Math.Max(picture.ScaleX, 0) / 100d;
+            height *= Math.Max(picture.ScaleY, 0) / 100d;
+            if (picture.IsListPicture)
+            {
+                var id = _listPictures.Count.ToString(CultureInfo.InvariantCulture);
+                _listPictures.Add(new RichTextListPicture
+                {
+                    Id = id,
+                    MediaType = picture.MediaType,
+                    Data = picture.TakeData(),
+                    Width = Math.Max(width, 0),
+                    Height = Math.Max(height, 0),
+                    AlternativeText = picture.AlternativeText,
+                });
+                return;
+            }
+
             var position = _document.Length;
             var pictureState = new ReaderState
             {
@@ -3522,21 +3696,13 @@ internal static class RtfCodec
                 RichTextDocument.ObjectReplacementCharacter,
                 picture.Format,
                 pictureState);
-            var width = picture.WidthTwips != 0
-                ? FromTwips(picture.WidthTwips)
-                : picture.PixelWidth * 72d / 96d;
-            var height = picture.HeightTwips != 0
-                ? FromTwips(picture.HeightTwips)
-                : picture.PixelHeight * 72d / 96d;
-            width *= Math.Max(picture.ScaleX, 0) / 100d;
-            height *= Math.Max(picture.ScaleY, 0) / 100d;
-            var image = RichTextImage.FromBytes(
-                position,
-                picture.MediaType,
-                picture.Data,
-                Math.Max(width, 0),
-                Math.Max(height, 0)) with
+            var image = new RichTextImage
             {
+                Position = position,
+                MediaType = picture.MediaType,
+                Data = picture.TakeData(),
+                Width = Math.Max(width, 0),
+                Height = Math.Max(height, 0),
                 Crop = new RichTextImageCrop(
                     FromTwips(picture.CropLeftTwips),
                     FromTwips(picture.CropTopTwips),
@@ -3546,6 +3712,30 @@ internal static class RtfCodec
                 Rotation = picture.Rotation,
             };
             _images.Add(image);
+        }
+
+        private string? GetListPictureId(ParsedListDefinition? definition) =>
+            definition?.PictureIndex is { } index &&
+            (uint)index < (uint)_listPictures.Count
+                ? _listPictures[index].Id
+                : null;
+
+        private void CompleteObject(ObjectContext context)
+        {
+            if (_document.Length != context.Start)
+            {
+                return;
+            }
+
+            var state = new ReaderState
+            {
+                Destination = Destination.Body,
+                Format = context.Format,
+                ParagraphFormat = context.ParagraphFormat,
+                ListOverride = context.ListOverride,
+                ListLevel = context.ListLevel,
+            };
+            AppendFallbackText("[Embedded object]", state);
         }
 
         private static bool TryParseHyperlinkField(
@@ -3826,6 +4016,9 @@ internal static class RtfCodec
                 Prefix = definition.Value.Prefix,
                 Suffix = definition.Value.Suffix,
                 BulletText = definition.Value.BulletText,
+                PictureId = definition.Value.Kind == RichListKind.Bulleted
+                    ? GetListPictureId(definition)
+                    : null,
             };
             if (definition.Value.Kind == RichListKind.Numbered)
             {
@@ -4230,7 +4423,8 @@ internal static class RtfCodec
             ListNumberFormat NumberFormat,
             string Prefix,
             string Suffix,
-            string BulletText);
+            string BulletText,
+            int? PictureIndex);
 
         private enum Destination
         {
@@ -4240,6 +4434,7 @@ internal static class RtfCodec
             DefaultCharacterProperties,
             DefaultParagraphProperties,
             ListTable,
+            ListPictures,
             ListOverrideTable,
             ListLevelText,
             ListText,
@@ -4248,6 +4443,12 @@ internal static class RtfCodec
             PictureProperties,
             PicturePropertyName,
             PicturePropertyValue,
+            Object,
+            Shape,
+            ShapeInstructions,
+            ShapeProperty,
+            ShapePropertyName,
+            ShapePropertyValue,
             Skip,
         }
 
@@ -4256,11 +4457,30 @@ internal static class RtfCodec
             public string? Instruction { get; set; }
         }
 
-        private sealed class PictureContext(
+        private sealed class ObjectContext(
+            int start,
             RichTextCharacterFormat format,
             RichTextParagraphFormat paragraphFormat,
             int listOverride,
             int listLevel)
+        {
+            public int Start { get; } = start;
+
+            public RichTextCharacterFormat Format { get; } = format;
+
+            public RichTextParagraphFormat ParagraphFormat { get; } = paragraphFormat;
+
+            public int ListOverride { get; } = listOverride;
+
+            public int ListLevel { get; } = listLevel;
+        }
+
+        private sealed class PictureContext(
+            RichTextCharacterFormat format,
+            RichTextParagraphFormat paragraphFormat,
+            int listOverride,
+            int listLevel,
+            bool isListPicture)
         {
             private readonly List<byte> _data = [];
             private int? _highNibble;
@@ -4272,6 +4492,8 @@ internal static class RtfCodec
             public int ListOverride { get; } = listOverride;
 
             public int ListLevel { get; } = listLevel;
+
+            public bool IsListPicture { get; } = isListPicture;
 
             public string MediaType { get; set; } = "application/octet-stream";
 
@@ -4301,7 +4523,8 @@ internal static class RtfCodec
 
             public double Rotation { get; private set; }
 
-            public byte[] Data => _data.ToArray();
+            public ImmutableArray<byte> TakeData() =>
+                ImmutableCollectionsMarshal.AsImmutableArray(_data.ToArray());
 
             public void ApplyPropertyValue(string value)
             {
@@ -4412,6 +4635,10 @@ internal static class RtfCodec
 
             public FieldContext? Field { get; set; }
 
+            public ObjectContext? Object { get; set; }
+
+            public bool CompletesObject { get; set; }
+
             public StringBuilder? FieldInstructionCapture { get; set; }
 
             public bool CompletesFieldInstruction { get; set; }
@@ -4450,6 +4677,7 @@ internal static class RtfCodec
                 ListLevelTextCapture = ListLevelTextCapture,
                 PicturePropertyCapture = PicturePropertyCapture,
                 Field = Field,
+                Object = Object,
                 FieldInstructionCapture = FieldInstructionCapture,
                 Picture = Picture,
             };

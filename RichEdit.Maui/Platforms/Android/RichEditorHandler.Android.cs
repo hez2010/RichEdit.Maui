@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Android.Graphics;
 using Android.Graphics.Drawables;
 using Android.Text;
@@ -78,6 +79,8 @@ public partial class RichEditorHandler
                 ApplyCharacterFormat(builder, run.Start, run.End, run.Format);
             }
 
+            var listPictures = new Dictionary<string, Drawable?>(StringComparer.Ordinal);
+
             var listNumbers = new Dictionary<(int Id, int Level), int>();
             var allJustified = true;
             var allHyphenated = true;
@@ -111,12 +114,25 @@ public partial class RichEditorHandler
                     }
                 }
 
+                Drawable? listPicture = null;
+                if (paragraph.Format.List?.PictureId is { } pictureId &&
+                    !listPictures.TryGetValue(pictureId, out listPicture))
+                {
+                    var picture = document.ListPictures[pictureId];
+                    listPicture = CreateBitmapDrawable(
+                        picture.Data,
+                        picture.Width,
+                        picture.Height);
+                    listPictures.Add(pictureId, listPicture);
+                }
+
                 ApplyParagraphFormat(
                     builder,
                     paragraph.Start,
                     end,
                     paragraph.Format,
-                    listMarker);
+                    listMarker,
+                    listPicture);
             }
 
             foreach (var link in document.Links)
@@ -338,7 +354,8 @@ public partial class RichEditorHandler
         int start,
         int end,
         RichTextParagraphFormat format,
-        string? listMarker)
+        string? listMarker,
+        Drawable? listPicture)
     {
         if (end <= start)
         {
@@ -409,13 +426,15 @@ public partial class RichEditorHandler
 
         if (format.List is { } list && !string.IsNullOrEmpty(listMarker))
         {
-            var markerWidth = PlatformView is { Paint: { } paint }
-                ? checked((int)Math.Ceiling(paint.MeasureText(listMarker)))
-                : 16;
+            var markerWidth = listPicture?.Bounds.Width() ??
+                (PlatformView is { Paint: { } paint }
+                    ? checked((int)Math.Ceiling(paint.MeasureText(listMarker)))
+                    : 16);
             text.SetSpan(
                 new RichListMarkerSpan(
                     list,
                     listMarker,
+                    listPicture,
                     markerWidth,
                     ToPixels(8),
                     ToPixels(18 * list.Level)),
@@ -465,17 +484,12 @@ public partial class RichEditorHandler
             return;
         }
 
-        var bytes = image.Data.ToArray();
-        var bitmap = BitmapFactory.DecodeByteArray(bytes, 0, bytes.Length);
-        if (bitmap is null)
+        var drawable = CreateBitmapDrawable(image.Data, image.Width, image.Height);
+        if (drawable is null)
         {
             return;
         }
 
-        var drawable = new BitmapDrawable(PlatformView.Resources, bitmap);
-        var width = image.Width > 0 ? ToPixels(image.Width) : bitmap.Width;
-        var height = image.Height > 0 ? ToPixels(image.Height) : bitmap.Height;
-        drawable.SetBounds(0, 0, Math.Max(width, 1), Math.Max(height, 1));
         var alignment = image.VerticalAlignment == RichTextImageVerticalAlignment.Baseline
             ? SpanAlign.Baseline
             : SpanAlign.Bottom;
@@ -491,6 +505,35 @@ public partial class RichEditorHandler
             image.Position,
             image.Position + 1,
             SpanTypes.ExclusiveExclusive);
+    }
+
+    private BitmapDrawable? CreateBitmapDrawable(
+        ImmutableArray<byte> data,
+        double width,
+        double height)
+    {
+        if (data.IsDefaultOrEmpty)
+        {
+            return null;
+        }
+
+        var bytes = ImmutableCollectionsMarshal.AsArray(data);
+        if (bytes is null)
+        {
+            return null;
+        }
+
+        var bitmap = BitmapFactory.DecodeByteArray(bytes, 0, bytes.Length);
+        if (bitmap is null)
+        {
+            return null;
+        }
+
+        var drawable = new BitmapDrawable(PlatformView.Resources, bitmap);
+        var pixelWidth = width > 0 ? ToPixels(width) : bitmap.Width;
+        var pixelHeight = height > 0 ? ToPixels(height) : bitmap.Height;
+        drawable.SetBounds(0, 0, Math.Max(pixelWidth, 1), Math.Max(pixelHeight, 1));
+        return drawable;
     }
 
     private RichTextDocument ReadDocumentFromPlatform()

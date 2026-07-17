@@ -12,6 +12,7 @@ public sealed class RichTextDocument
     private readonly ImmutableArray<RichTextLink> _links;
     private readonly ImmutableArray<RichTextField> _fields;
     private readonly ImmutableArray<RichTextImage> _images;
+    private readonly ImmutableDictionary<string, RichTextListPicture> _listPictures;
     private readonly ImmutableDictionary<string, string> _metadata;
 
     public RichTextDocument(
@@ -23,13 +24,16 @@ public sealed class RichTextDocument
         IEnumerable<RichTextImage>? images = null,
         RichTextCharacterFormat? defaultCharacterFormat = null,
         RichTextParagraphFormat? defaultParagraphFormat = null,
-        IEnumerable<KeyValuePair<string, string>>? metadata = null)
+        IEnumerable<KeyValuePair<string, string>>? metadata = null,
+        IEnumerable<RichTextListPicture>? listPictures = null)
     {
         Text = NormalizeText(text);
         DefaultCharacterFormat = Validate(defaultCharacterFormat ?? RichTextCharacterFormat.Default);
         DefaultParagraphFormat = Validate(defaultParagraphFormat ?? RichTextParagraphFormat.Default);
         _runs = NormalizeRuns(Text.Length, runs, DefaultCharacterFormat);
+        _listPictures = NormalizeListPictures(listPictures);
         _paragraphs = NormalizeParagraphs(Text, paragraphs, DefaultParagraphFormat);
+        ValidateListPictureReferences(_paragraphs, _listPictures, nameof(listPictures));
         _links = NormalizeLinks(Text.Length, links);
         _fields = NormalizeFields(Text.Length, fields);
         _images = NormalizeImages(Text, images);
@@ -48,6 +52,8 @@ public sealed class RichTextDocument
     public IReadOnlyList<RichTextField> Fields => _fields;
 
     public IReadOnlyList<RichTextImage> Images => _images;
+
+    public IReadOnlyDictionary<string, RichTextListPicture> ListPictures => _listPictures;
 
     public IReadOnlyDictionary<string, string> Metadata => _metadata;
 
@@ -308,7 +314,8 @@ public sealed class RichTextDocument
                     : image),
             DefaultCharacterFormat,
             DefaultParagraphFormat,
-            _metadata);
+            _metadata,
+            _listPictures.Values);
     }
 
     public RichTextDocument SetLink(Range range, string target, string? toolTip = null)
@@ -363,7 +370,8 @@ public sealed class RichTextDocument
         IEnumerable<RichTextImage>? images = null,
         RichTextCharacterFormat? defaultCharacterFormat = null,
         RichTextParagraphFormat? defaultParagraphFormat = null,
-        IEnumerable<KeyValuePair<string, string>>? metadata = null) =>
+        IEnumerable<KeyValuePair<string, string>>? metadata = null,
+        IEnumerable<RichTextListPicture>? listPictures = null) =>
         new(
             text ?? Text,
             runs ?? _runs,
@@ -373,7 +381,8 @@ public sealed class RichTextDocument
             images ?? _images,
             defaultCharacterFormat ?? DefaultCharacterFormat,
             defaultParagraphFormat ?? DefaultParagraphFormat,
-            metadata ?? _metadata);
+            metadata ?? _metadata,
+            listPictures ?? _listPictures.Values);
 
     internal RichTextDocument MergeNativeSnapshot(
         string text,
@@ -456,7 +465,8 @@ public sealed class RichTextDocument
             images ?? remapped._images,
             defaultCharacterFormat,
             defaultParagraphFormat,
-            _metadata);
+            _metadata,
+            remapped._listPictures.Values);
     }
 
     private static ImmutableArray<RichTextRun> MergeCharacterFormats(
@@ -656,6 +666,51 @@ public sealed class RichTextDocument
         return [.. images];
     }
 
+    private static ImmutableDictionary<string, RichTextListPicture> NormalizeListPictures(
+        IEnumerable<RichTextListPicture>? source)
+    {
+        var result = ImmutableDictionary.CreateBuilder<string, RichTextListPicture>(
+            StringComparer.Ordinal);
+        foreach (var picture in source ?? [])
+        {
+            ArgumentNullException.ThrowIfNull(picture);
+            if (string.IsNullOrWhiteSpace(picture.Id) ||
+                string.IsNullOrWhiteSpace(picture.MediaType) ||
+                !double.IsFinite(picture.Width) || picture.Width < 0 ||
+                !double.IsFinite(picture.Height) || picture.Height < 0)
+            {
+                throw new ArgumentException("List picture metadata is invalid.", nameof(source));
+            }
+
+            if (!result.TryAdd(
+                    picture.Id,
+                    picture.Data.IsDefault ? picture with { Data = [] } : picture))
+            {
+                throw new ArgumentException(
+                    "List picture identifiers must be unique.",
+                    nameof(source));
+            }
+        }
+
+        return result.ToImmutable();
+    }
+
+    private static void ValidateListPictureReferences(
+        ImmutableArray<RichTextParagraph> paragraphs,
+        ImmutableDictionary<string, RichTextListPicture> pictures,
+        string parameterName)
+    {
+        var missingId = paragraphs
+            .Select(paragraph => paragraph.Format.List?.PictureId)
+            .FirstOrDefault(id => id is not null && !pictures.ContainsKey(id));
+        if (missingId is not null)
+        {
+            throw new ArgumentException(
+                $"List picture '{missingId}' is not present in the document.",
+                parameterName);
+        }
+    }
+
     private static RichTextCharacterFormat Validate(RichTextCharacterFormat format)
     {
         ArgumentNullException.ThrowIfNull(format);
@@ -705,7 +760,9 @@ public sealed class RichTextDocument
         var list = format.List;
         if (list is not null &&
             (list.Id <= 0 || list.Level is < 0 or > 8 || list.StartAt <= 0 ||
-             string.IsNullOrEmpty(list.BulletText)))
+             string.IsNullOrEmpty(list.BulletText) ||
+             (string.IsNullOrWhiteSpace(list.PictureId) && list.PictureId is not null) ||
+             (list.PictureId is not null && list.Kind != RichListKind.Bulleted)))
         {
             throw new ArgumentException("List formatting is invalid.", nameof(format));
         }

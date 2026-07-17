@@ -84,6 +84,68 @@ public sealed class RtfArchitectureTests
     }
 
     [Fact]
+    public void PictureBulletRoundTripUsesStandardListPictureTable()
+    {
+        var picture = RichTextListPicture.FromBytes(
+            "round-marker",
+            "image/png",
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
+            12,
+            12,
+            "Round marker");
+        var list = new RichTextListFormat
+        {
+            Id = 8,
+            Kind = RichListKind.Bulleted,
+            BulletText = "•",
+            Suffix = string.Empty,
+            PictureId = picture.Id,
+        };
+        var document = new RichTextDocument(
+            "Alpha\nBeta",
+            paragraphs:
+            [
+                new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = list }),
+                new RichTextParagraph(6, RichTextParagraphFormat.Default with { List = list }),
+            ],
+            listPictures: [picture]);
+
+        var rtf = document.ToRtf();
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Contains(@"{\*\listpicture", rtf, StringComparison.Ordinal);
+        Assert.Contains(@"\levelpicture0", rtf, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(rtf, @"{\*\shppict{\pict"));
+        var parsedPicture = Assert.Single(parsed.ListPictures).Value;
+        Assert.Equal("0", parsedPicture.Id);
+        Assert.Equal(picture.MediaType, parsedPicture.MediaType);
+        Assert.True(picture.Data.AsSpan().SequenceEqual(parsedPicture.Data.AsSpan()));
+        Assert.Equal(picture.Width, parsedPicture.Width, 2);
+        Assert.Equal(picture.Height, parsedPicture.Height, 2);
+        Assert.Equal(picture.AlternativeText, parsedPicture.AlternativeText);
+        Assert.All(
+            parsed.Paragraphs,
+            paragraph => Assert.Equal(parsedPicture.Id, paragraph.Format.List?.PictureId));
+    }
+
+    [Fact]
+    public void NumberedListIgnoresMalformedPictureReference()
+    {
+        const string rtf = @"{\rtf1\ansi" +
+            @"{\*\listtable{\*\listpicture{\*\shppict{\pict\pngblip 89504e47}}}" +
+            @"{\list\listtemplateid1{\listlevel\levelnfc0\levelstartat1" +
+            @"{\leveltext\'02\'00.;}{\levelnumbers\'01;}\levelpicture0}" +
+            @"\listid1}}{\*\listoverridetable{\listoverride\listid1\ls1}}" +
+            @"\pard\ls1\ilvl0{\listtext 1.\tab }Item}";
+
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Single(parsed.ListPictures);
+        Assert.Equal(RichListKind.Numbered, parsed.GetParagraphFormat(0).List?.Kind);
+        Assert.Null(parsed.GetParagraphFormat(0).List?.PictureId);
+    }
+
+    [Fact]
     public void MultilevelListRoundTripPreservesEachLevelDefinition()
     {
         var topLevel = new RichTextListFormat
@@ -636,6 +698,66 @@ public sealed class RtfArchitectureTests
 
         Assert.Equal(RichTextDocument.ObjectReplacementCharacter.ToString(), parsed.Text);
         var image = Assert.Single(parsed.Images);
+        Assert.Equal("image/png", image.MediaType);
+        Assert.True(image.Data.AsSpan().SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47 }));
+    }
+
+    [Fact]
+    public void OleObjectImportsItsResultAndSkipsPayload()
+    {
+        const string rtf = @"{\rtf1\ansi before {\object\objemb" +
+            @"{\*\objclass Package}{\*\objdata 010203}" +
+            @"{\result Result text}} after}";
+
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal("before Result text after", parsed.Text);
+        Assert.DoesNotContain("010203", parsed.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OleObjectWithoutAResultUsesPortablePlaceholder()
+    {
+        const string rtf = @"{\rtf1\ansi a{\object\objemb" +
+            @"{\*\objclass Package}{\*\objdata 010203}}b}";
+
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal("a[Embedded object]b", parsed.Text);
+    }
+
+    [Fact]
+    public void AttachmentPlaceholderIsFlattenedToReadableText()
+    {
+        var parsed = RichTextDocument.FromRtf(@"{\rtf1\ansi a\objattph b}");
+
+        Assert.Equal("a[Attachment]b", parsed.Text);
+    }
+
+    [Fact]
+    public void ShapeTextIsFlattenedAndShapePropertiesAreIgnored()
+    {
+        const string rtf = @"{\rtf1\ansi a{\shp" +
+            @"{\*\shpinst{\sp{\sn shapeType}{\sv 202}}}" +
+            @"{\shptxt Box text}}b}";
+
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal("aBox textb", parsed.Text);
+        Assert.Empty(parsed.Images);
+    }
+
+    [Fact]
+    public void FloatingShapePictureIsFlattenedInline()
+    {
+        const string rtf = @"{\rtf1\ansi a{\shp\shpleft100\shptop200\shpwr3" +
+            @"{\*\shpinst{\sp{\sn pib}{\sv{\pict\pngblip 89504e47}}}}}b}";
+
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        Assert.Equal($"a{RichTextDocument.ObjectReplacementCharacter}b", parsed.Text);
+        var image = Assert.Single(parsed.Images);
+        Assert.Equal(1, image.Position);
         Assert.Equal("image/png", image.MediaType);
         Assert.True(image.Data.AsSpan().SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47 }));
     }

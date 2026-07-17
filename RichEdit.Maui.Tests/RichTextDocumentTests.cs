@@ -63,6 +63,86 @@ public sealed class RichTextDocumentTests
     }
 
     [Fact]
+    public void ListPictureResourcesSurviveTextAndNativeSnapshotRemapping()
+    {
+        var picture = RichTextListPicture.FromBytes(
+            "marker",
+            "image/png",
+            [0x89, 0x50, 0x4E, 0x47],
+            10,
+            10);
+        var list = new RichTextListFormat
+        {
+            Id = 1,
+            Kind = RichListKind.Bulleted,
+            PictureId = picture.Id,
+        };
+        var document = new RichTextDocument(
+            "item",
+            paragraphs:
+            [new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = list })],
+            listPictures: [picture]);
+
+        var replaced = document.Replace(4..4, "!");
+        var merged = replaced.MergeNativeSnapshot(
+            replaced.Text,
+            replaced.Runs,
+            [new RichTextParagraph(
+                0,
+                RichTextParagraphFormat.Default with
+                {
+                    List = list with { PictureId = null },
+                })],
+            links: null,
+            images: null,
+            replaced.DefaultCharacterFormat,
+            replaced.DefaultParagraphFormat,
+            RichEditorHandler.MergeWindowsCharacterFormat,
+            RichEditorHandler.MergeWindowsParagraphFormat);
+
+        Assert.Same(picture, replaced.ListPictures[picture.Id]);
+        Assert.Same(picture, merged.ListPictures[picture.Id]);
+        Assert.Equal(picture.Id, merged.GetParagraphFormat(0).List?.PictureId);
+
+        var switchedToNumbering = RichEditorHandler.MergeWindowsParagraphFormat(
+            RichTextParagraphFormat.Default with
+            {
+                List = new RichTextListFormat
+                {
+                    Id = 1,
+                    Kind = RichListKind.Numbered,
+                },
+            },
+            replaced.GetParagraphFormat(0));
+        Assert.Null(switchedToNumbering.List?.PictureId);
+    }
+
+    [Fact]
+    public void ConstructorRejectsInvalidListPictureReferences()
+    {
+        var missingPictureList = RichTextParagraphFormat.Default with
+        {
+            List = new RichTextListFormat
+            {
+                Id = 1,
+                Kind = RichListKind.Bulleted,
+                PictureId = "missing",
+            },
+        };
+        Assert.Throws<ArgumentException>(() => new RichTextDocument(
+            "item",
+            paragraphs: [new RichTextParagraph(0, missingPictureList)]));
+
+        var numberedPictureList = missingPictureList with
+        {
+            List = missingPictureList.List! with { Kind = RichListKind.Numbered },
+        };
+        Assert.Throws<ArgumentException>(() => new RichTextDocument(
+            "item",
+            paragraphs: [new RichTextParagraph(0, numberedPictureList)]));
+    }
+
+    [Fact]
     public void ReplacePreservesAndRemapsSemanticRanges()
     {
         var document = new RichTextDocument(
@@ -222,7 +302,6 @@ public sealed class RichTextDocumentTests
             Restart = true,
             Prefix = "(",
             Suffix = ").",
-            PictureId = "marker",
         };
         var previousParagraph = RichTextParagraphFormat.Default with
         {
@@ -272,7 +351,7 @@ public sealed class RichTextDocumentTests
         Assert.True(paragraph.List?.Restart);
         Assert.Equal("(", paragraph.List?.Prefix);
         Assert.Equal(").", paragraph.List?.Suffix);
-        Assert.Equal("marker", paragraph.List?.PictureId);
+        Assert.Null(paragraph.List?.PictureId);
     }
 
     [Fact]

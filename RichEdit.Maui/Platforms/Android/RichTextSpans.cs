@@ -1,5 +1,6 @@
 using Android.Text;
 using Android.Text.Style;
+using Android.Graphics.Drawables;
 
 namespace RichEdit.Maui.Platforms.Android;
 
@@ -357,6 +358,7 @@ internal sealed class RichParagraphDecorationSpan(
 internal sealed class RichListMarkerSpan(
     RichTextListFormat listFormat,
     string marker,
+    Drawable? picture,
     int markerWidth,
     int gapWidth,
     int levelIndent) :
@@ -395,7 +397,26 @@ internal sealed class RichListMarkerSpan(
             paint.TextAlign = direction < 0
                 ? global::Android.Graphics.Paint.Align.Right
                 : global::Android.Graphics.Paint.Align.Left;
-            canvas.DrawText(Marker, x + direction * levelIndent, baseline, paint);
+            if (picture is null)
+            {
+                canvas.DrawText(Marker, x + direction * levelIndent, baseline, paint);
+            }
+            else
+            {
+                var saveCount = canvas.Save();
+                try
+                {
+                    var left = direction < 0
+                        ? x - levelIndent - picture.Bounds.Width()
+                        : x + levelIndent;
+                    canvas.Translate(left, baseline - picture.Bounds.Height());
+                    picture.Draw(canvas);
+                }
+                finally
+                {
+                    canvas.RestoreToCount(saveCount);
+                }
+            }
         }
         finally
         {

@@ -1,5 +1,6 @@
 #if IOS || MACCATALYST
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using CoreGraphics;
 using CoreText;
@@ -415,7 +416,10 @@ namespace RichEdit.Maui
                 return;
             }
 
-            NSData? data = image.Data.IsDefaultOrEmpty ? null : NSData.FromArray(image.Data.ToArray());
+            var bytes = image.Data.IsDefaultOrEmpty
+                ? null
+                : ImmutableCollectionsMarshal.AsArray(image.Data);
+            NSData? data = bytes is null ? null : NSData.FromArray(bytes);
             var attachment = data is null
                 ? new NSTextAttachment()
                 : new NSTextAttachment(data, image.MediaType);

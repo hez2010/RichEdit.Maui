@@ -57,7 +57,7 @@ WinUI and are remapped as the text changes.
 | Shadow | Round-trip | Native | Native | Adapter | Model | WinUI has no TOM shadow property. |
 | Hidden text | Round-trip | Adapter | Adapter | Adapter | Native | Apple/Android make glyphs transparent while retaining layout. |
 | Language/locale tag | Round-trip | Model | Model | Native | Native | Canonical representation is BCP 47; unsupported LCIDs import as unspecified. |
-| Explicit character direction | Round-trip | Native | Native | Model | Native | Apple and WinUI use native character-direction overrides; paragraph direction and Unicode bidi characters remain Android's fallback. |
+| Explicit character direction | Round-trip | Native | Native | Model | Model | Apple uses native character-direction overrides. Android and WinUI retain/remap the canonical value because their editable-text APIs do not expose a per-run direction property; paragraph direction and Unicode bidi characters remain the visual fallback. |
 | Kerning preference | Round-trip | Model | Model | Model | Native | It is a font-dependent hint where available. |
 | Ligature preference | Model only | Native | Native | Model | Model | Not currently emitted as an RTF control. |
 | Character shading pattern and colors | Round-trip | Model | Model | Model | Model | A separate solid highlight still renders on every platform. |
@@ -104,7 +104,7 @@ List markers are presentation metadata and are never inserted into
 | Independent counters per level | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Advancing an outer level does not implicitly reset a nested counter; explicit restart remains available per level. |
 | Custom marker prefix/suffix | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | RTF `leveltext`, Apple marker formats, and Android marker spans retain the complete marker. WinUI receives the native RTF definition. |
 | Alternate bullet text | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | The canonical bullet string is used on every rendering path; a missing glyph can still fall back according to the selected font. |
-| Picture bullet identifier | Model only | Model | Model | Model | Model | No picture-bullet payload/resolver is implemented yet. |
+| Picture bullets | Round-trip | Degraded | Degraded | Adapter | Native | RTF uses the standard `\listpicture` table and `\levelpicture` index. Android draws decoded raster markers; Apple shows the configured text bullet; WinUI receives the native RTF definition. The owned payload and identifier survive native readback. |
 
 ## Links, fields, and inline pictures
 
@@ -134,8 +134,8 @@ List markers are presentation metadata and are never inserted into
 | Headers, footers, footnotes, and endnotes | Not part of the continuous editor model; destination content is skipped. |
 | Stylesheets and named styles | Style definitions/names are not persisted; explicit formatting on content is retained when present. |
 | Bookmarks, comments, annotations, tracked revisions, and protection data | Not represented and are skipped. |
-| OLE objects and file attachments | Not represented; visible fallback/result text may remain, otherwise the object is skipped. |
-| Drawing shapes, text boxes, and floating/wrapped pictures | A recognized `\shppict` picture is imported inline; positioning and wrapping are flattened. |
+| OLE objects and file attachments | Flattened on import: `\result` text or pictures are kept, opaque `\objdata` is skipped, and a result-less object or `\objattph` becomes a readable placeholder. OLE payloads are not re-emitted. |
+| Drawing shapes, text boxes, and floating/wrapped pictures | Flattened on import: `\shptxt` becomes ordinary text and pictures in shape properties become inline images. Positioning, wrapping, and editable vector geometry are discarded. |
 | Equations and math zones | No portable math model; plain field/result text or pictures can be used as a fallback. |
 | Document information, user properties, themes, mail merge, forms, and XML/custom data | Not serialized into the portable model. Application metadata can be stored in `RichTextDocument.Metadata`, which is currently model-only. |
 | Rich clipboard paste | Supported attributes are read back from each native editor. Unsupported attributes follow the same degradation rules as programmatic documents; full cross-platform RTF clipboard equivalence is not guaranteed. |

@@ -465,12 +465,13 @@ public partial class RichEditorHandler
                 scanRange.EndPosition,
                 nativePosition + 1,
                 nativeContentLength);
-            var hidden = scanRange.CharacterFormat.Hidden == FormatEffect.On;
+            var characterFormat = scanRange.CharacterFormat;
+            var omitFromLogicalText = IsHiddenLinkInstruction(scanRange, characterFormat);
             var logicalStart = text.Length;
             for (var position = nativePosition; position < nativeEnd; position++)
             {
                 nativeToLogical[position] = text.Length;
-                if (!hidden)
+                if (!omitFromLogicalText)
                 {
                     logicalToNative.Add(position);
                     text.Append(rawText[position] switch
@@ -484,12 +485,12 @@ public partial class RichEditorHandler
                 nativeToLogical[position + 1] = text.Length;
             }
 
-            if (!hidden && text.Length > logicalStart)
+            if (!omitFromLogicalText && text.Length > logicalStart)
             {
                 runs.Add(new RichTextRun(
                     logicalStart,
                     text.Length - logicalStart,
-                    ReadCharacterFormat(scanRange.CharacterFormat)));
+                    ReadCharacterFormat(characterFormat)));
             }
 
             nativePosition = nativeEnd;
@@ -506,6 +507,25 @@ public partial class RichEditorHandler
             [.. runs],
             nativeToLogical,
             [.. logicalToNative]);
+    }
+
+    private static bool IsHiddenLinkInstruction(
+        ITextRange range,
+        ITextCharacterFormat format)
+    {
+        if (format.Hidden != FormatEffect.On)
+        {
+            return false;
+        }
+
+        try
+        {
+            return !string.IsNullOrWhiteSpace(range.Link);
+        }
+        catch (COMException)
+        {
+            return false;
+        }
     }
 
     private static string ToNativeLink(string target) =>
@@ -617,7 +637,9 @@ public partial class RichEditorHandler
                     ? previousList.Suffix
                     : list.Suffix,
                 BulletText = previousList.BulletText,
-                PictureId = previousList.PictureId,
+                PictureId = list.Kind == RichListKind.Bulleted
+                    ? previousList.PictureId
+                    : null,
             };
         }
 
