@@ -351,12 +351,22 @@ public partial class RichEditorHandler
         native.SpaceAfter = (float)format.SpaceAfter;
         native.SetLineSpacing(ToNativeLineSpacing(format.LineSpacingRule), (float)format.LineSpacing);
         native.ClearAllTabs();
-        foreach (var tab in format.TabStops.Take(63))
+        var tabCount = 0;
+        foreach (var tab in format.TabStops)
         {
+            if (!TryConvertWindowsTabPosition(tab.Position, out var position))
+            {
+                continue;
+            }
+
             native.AddTab(
-                (float)tab.Position,
+                position,
                 ToNativeTabAlignment(tab.Alignment),
                 ToNativeTabLeader(tab.Leader));
+            if (++tabCount == 63)
+            {
+                break;
+            }
         }
 
         if (format.List is not { } list)
@@ -660,6 +670,12 @@ public partial class RichEditorHandler
         };
     }
 
+    internal static bool TryConvertWindowsTabPosition(double position, out float nativePosition)
+    {
+        nativePosition = (float)position;
+        return nativePosition > 0 && float.IsFinite(nativePosition);
+    }
+
     private static bool HasEquivalentWindowsListSuffix(string first, string second) =>
         ToNativeListStyle(first) == ToNativeListStyle(second);
 
@@ -679,7 +695,7 @@ public partial class RichEditorHandler
         for (var index = 0; index < native.TabCount; index++)
         {
             native.GetTab(index, out var position, out var alignment, out var leader);
-            if (position >= 0)
+            if (position > 0 && float.IsFinite(position))
             {
                 tabs.Add(new RichTextTabStop(
                     position,
@@ -738,7 +754,7 @@ public partial class RichEditorHandler
             SpaceAfter = Math.Max(native.SpaceAfter, 0),
             LineSpacingRule = FromNativeLineSpacing(native.LineSpacingRule),
             LineSpacing = Math.Max(native.LineSpacing, 0),
-            TabStops = tabs.MoveToImmutable(),
+            TabStops = tabs.DrainToImmutable(),
             List = list,
         };
     }

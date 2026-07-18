@@ -2655,14 +2655,19 @@ internal static class RtfCodec
 
             if (word is "tx" or "tb")
             {
-                var tab = new RichTextTabStop(
-                    Math.Max(FromTwips(parameter ?? 0), 0),
-                    state.PendingTabAlignment,
-                    state.PendingTabLeader);
-                SetParagraphFormat(state, state.ParagraphFormat with
+                var position = FromTwips(parameter ?? 0);
+                if (position > 0)
                 {
-                    TabStops = state.ParagraphFormat.TabStops.Add(tab),
-                });
+                    var tab = new RichTextTabStop(
+                        position,
+                        state.PendingTabAlignment,
+                        state.PendingTabLeader);
+                    SetParagraphFormat(state, state.ParagraphFormat with
+                    {
+                        TabStops = state.ParagraphFormat.TabStops.Add(tab),
+                    });
+                }
+
                 state.PendingTabAlignment = RichTextTabAlignment.Left;
                 state.PendingTabLeader = RichTextTabLeader.None;
                 return true;

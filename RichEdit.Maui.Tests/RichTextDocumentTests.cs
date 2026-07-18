@@ -354,6 +354,18 @@ public sealed class RichTextDocumentTests
         Assert.Null(paragraph.List?.PictureId);
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1e-100, false)]
+    [InlineData(36, true)]
+    [InlineData(double.MaxValue, false)]
+    public void WindowsTabPositionsMustBePositiveFiniteFloats(double position, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            RichEditorHandler.TryConvertWindowsTabPosition(position, out _));
+    }
+
     [Fact]
     public void InsertImageCreatesExactlyOneObjectCharacter()
     {

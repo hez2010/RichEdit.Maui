@@ -504,6 +504,15 @@ public sealed class RtfArchitectureTests
     }
 
     [Fact]
+    public void NonpositiveTabStopsAreIgnoredOnImport()
+    {
+        var document = RichTextDocument.FromRtf(@"{\rtf1\ansi\tx0\tx-20\tx720 x}");
+
+        var tab = Assert.Single(document.GetParagraphFormat(0).TabStops);
+        Assert.Equal(36, tab.Position);
+    }
+
+    [Fact]
     public void SolidParagraphBackgroundRoundTripsAsShading()
     {
         var background = Color.FromRgb(0xFA, 0xE0, 0x90);
