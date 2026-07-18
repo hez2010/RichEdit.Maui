@@ -1,3 +1,4 @@
+using System.Globalization;
 using RichEdit.Maui;
 
 namespace RichEdit.Maui.TestApp;
@@ -18,6 +19,24 @@ public partial class MainPage : ContentPage
             FirstLineIndent = -18,
             MarkerTab = 18,
         },
+        new RichTextListLevelDefinition
+        {
+            Marker = new RichTextListMarker.Bullet("◦"),
+            Prefix = string.Empty,
+            Suffix = string.Empty,
+            LeadingIndent = 36,
+            FirstLineIndent = -18,
+            MarkerTab = 36,
+        },
+        new RichTextListLevelDefinition
+        {
+            Marker = new RichTextListMarker.Bullet("▪"),
+            Prefix = string.Empty,
+            Suffix = string.Empty,
+            LeadingIndent = 54,
+            FirstLineIndent = -18,
+            MarkerTab = 54,
+        },
     ]);
     private static readonly RichTextListDefinition NumberedList = new(
     [
@@ -30,7 +49,26 @@ public partial class MainPage : ContentPage
             FirstLineIndent = -36,
             MarkerTab = 36,
         },
+        new RichTextListLevelDefinition
+        {
+            Marker = new RichTextListMarker.Number(RichTextListNumberStyle.LowerLetter, 1),
+            Prefix = string.Empty,
+            Suffix = ")",
+            LeadingIndent = 54,
+            FirstLineIndent = -36,
+            MarkerTab = 54,
+        },
+        new RichTextListLevelDefinition
+        {
+            Marker = new RichTextListMarker.Number(RichTextListNumberStyle.LowerRoman, 1),
+            Prefix = "(",
+            Suffix = ")",
+            LeadingIndent = 72,
+            FirstLineIndent = -36,
+            MarkerTab = 72,
+        },
     ]);
+    private RichTextImage? _sampleImage;
     private bool _updatingToolbar;
 
     public MainPage()
@@ -189,8 +227,12 @@ public partial class MainPage : ContentPage
             \par
             \par }}
             """;
+        _sampleImage = Editor.Document.CurrentSnapshot.Images.FirstOrDefault();
         UpdateToolbar();
     }
+
+    private void OnNewDocumentClicked(object? sender, EventArgs e) =>
+        Editor.Text = string.Empty;
 
     private void OnBoldClicked(object? sender, EventArgs e)
     {
@@ -207,6 +249,12 @@ public partial class MainPage : ContentPage
     private void OnUnderlineClicked(object? sender, EventArgs e)
     {
         Editor.Selection.ToggleUnderline(RichTextUnderlineStyle.Single);
+        Editor.Focus();
+    }
+
+    private void OnStrikethroughClicked(object? sender, EventArgs e)
+    {
+        Editor.Selection.ToggleStrikethrough(RichTextStrikethroughStyle.Single);
         Editor.Focus();
     }
 
@@ -231,6 +279,88 @@ public partial class MainPage : ContentPage
     private void OnNumberedListClicked(object? sender, EventArgs e)
     {
         Editor.Selection.ToggleList(NumberedList);
+        Editor.Focus();
+    }
+
+    private void OnClearListClicked(object? sender, EventArgs e)
+    {
+        Editor.Selection.ClearList();
+        Editor.Focus();
+    }
+
+    private void OnOutdentListClicked(object? sender, EventArgs e)
+    {
+        Editor.Selection.ChangeListLevel(-1);
+        Editor.Focus();
+    }
+
+    private void OnIndentListClicked(object? sender, EventArgs e)
+    {
+        Editor.Selection.ChangeListLevel(1);
+        Editor.Focus();
+    }
+
+    private void OnRestartListClicked(object? sender, EventArgs e)
+    {
+        Editor.Selection.RestartList(1);
+        Editor.Focus();
+    }
+
+    private void OnAlignLeftClicked(object? sender, EventArgs e) =>
+        SetAlignment(RichTextAlignment.Left);
+
+    private void OnAlignCenterClicked(object? sender, EventArgs e) =>
+        SetAlignment(RichTextAlignment.Center);
+
+    private void OnAlignRightClicked(object? sender, EventArgs e) =>
+        SetAlignment(RichTextAlignment.Right);
+
+    private void OnAlignJustifyClicked(object? sender, EventArgs e) =>
+        SetAlignment(RichTextAlignment.Justified);
+
+    private void SetAlignment(RichTextAlignment alignment)
+    {
+        Editor.Selection.ParagraphFormat.Alignment = alignment;
+        Editor.Focus();
+    }
+
+    private void OnSetLinkClicked(object? sender, EventArgs e)
+    {
+        if (Editor.SelectedRange.IsEmpty)
+        {
+            StatusLabel.Text = "Select the link text first";
+            return;
+        }
+
+        Editor.Selection.SetLink(
+            "https://github.com/hez2010/RichEdit.Maui",
+            "RichEdit.Maui repository");
+        Editor.Focus();
+    }
+
+    private void OnRemoveLinksClicked(object? sender, EventArgs e)
+    {
+        Editor.Selection.RemoveLinks();
+        Editor.Focus();
+    }
+
+    private void OnInsertImageClicked(object? sender, EventArgs e)
+    {
+        if (_sampleImage is null)
+        {
+            StatusLabel.Text = "The sample image is unavailable";
+            return;
+        }
+
+        Editor.Selection.InsertImage(_sampleImage with { Position = 0 });
+        Editor.Focus();
+    }
+
+    private void OnInsertFieldClicked(object? sender, EventArgs e)
+    {
+        Editor.Selection.InsertField(
+            "DATE \\@ \"yyyy-MM-dd\"",
+            DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         Editor.Focus();
     }
 
@@ -278,6 +408,29 @@ public partial class MainPage : ContentPage
     private void OnEditorSelectionChanged(object? sender, RichTextSelectionChangedEventArgs e) =>
         UpdateToolbar();
 
+    private void OnEditorSelectionFormatChanged(object? sender, EventArgs e) =>
+        UpdateToolbar();
+
+    private void OnEditorContentChanged(object? sender, RichTextContentChangedEventArgs e) =>
+        UpdateToolbar();
+
+    private void OnEditorPasting(object? sender, RichTextPastingEventArgs e) =>
+        StatusLabel.Text = $"Pasting {e.Fragment.Text.Length} characters";
+
+    private void OnEditorLinkInvoked(object? sender, RichTextLinkInvokedEventArgs e)
+    {
+        e.Handled = true;
+        StatusLabel.Text = $"Link invoked: {e.Target}";
+    }
+
+    private void OnEditorInlineObjectInvoked(
+        object? sender,
+        RichTextInlineObjectInvokedEventArgs e)
+    {
+        e.Handled = true;
+        StatusLabel.Text = $"Image invoked: {e.Image.AlternativeText ?? "inline image"}";
+    }
+
     private async void OnCopyRtfClicked(object? sender, EventArgs e)
     {
         await Clipboard.Default.SetTextAsync(Editor.RtfText);
@@ -296,6 +449,10 @@ public partial class MainPage : ContentPage
             !characterFormat.IsUnderlineMixed &&
             characterFormat.Underline != RichTextUnderlineStyle.None);
         SetToolbarState(
+            StrikethroughButton,
+            !characterFormat.IsStrikethroughMixed &&
+            characterFormat.Strikethrough != RichTextStrikethroughStyle.None);
+        SetToolbarState(
             SuperscriptButton,
             !characterFormat.IsScriptMixed &&
             characterFormat.Script == RichTextScript.Superscript);
@@ -310,6 +467,23 @@ public partial class MainPage : ContentPage
         SetToolbarState(
             NumberButton,
             !paragraphFormat.IsListMixed && listMarker is RichTextListMarker.Number);
+        SetToolbarState(
+            AlignLeftButton,
+            !paragraphFormat.IsAlignmentMixed &&
+            paragraphFormat.Alignment == RichTextAlignment.Left);
+        SetToolbarState(
+            AlignCenterButton,
+            !paragraphFormat.IsAlignmentMixed &&
+            paragraphFormat.Alignment == RichTextAlignment.Center);
+        SetToolbarState(
+            AlignRightButton,
+            !paragraphFormat.IsAlignmentMixed &&
+            paragraphFormat.Alignment == RichTextAlignment.Right);
+        SetToolbarState(
+            AlignJustifyButton,
+            !paragraphFormat.IsAlignmentMixed &&
+            paragraphFormat.Alignment is RichTextAlignment.Justified or
+                RichTextAlignment.Distributed);
         SetColorState(ForegroundDefaultButton, characterFormat.ForegroundColor, null);
         SetColorState(ForegroundCoralButton, characterFormat.ForegroundColor, "#E06C75");
         SetColorState(ForegroundBlueButton, characterFormat.ForegroundColor, "#327CCB");

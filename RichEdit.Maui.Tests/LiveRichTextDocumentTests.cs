@@ -259,11 +259,11 @@ public sealed class LiveRichTextDocumentTests
         var sourceToken = new object();
 
         var first = document.CurrentSnapshot.Replace(0..0, "a");
-        document.ReplaceSnapshotFromNative(first, sourceToken);
+        document.ReplaceSnapshotFromNative(first, sourceToken, nativeUndoOwned: false);
         var second = document.CurrentSnapshot.Replace(1..1, "b");
-        document.ReplaceSnapshotFromNative(second, sourceToken);
+        document.ReplaceSnapshotFromNative(second, sourceToken, nativeUndoOwned: false);
         var third = document.CurrentSnapshot.Replace(2..2, "c");
-        document.ReplaceSnapshotFromNative(third, sourceToken);
+        document.ReplaceSnapshotFromNative(third, sourceToken, nativeUndoOwned: false);
 
         Assert.Equal("abc", document.Text);
         document.Undo();
@@ -276,13 +276,31 @@ public sealed class LiveRichTextDocumentTests
     {
         var document = new RichTextDocument();
         var first = document.CurrentSnapshot.Replace(0..0, "a");
-        document.ReplaceSnapshotFromNative(first, new object());
+        document.ReplaceSnapshotFromNative(first, new object(), nativeUndoOwned: false);
         var second = document.CurrentSnapshot.Replace(1..1, "b");
-        document.ReplaceSnapshotFromNative(second, new object());
+        document.ReplaceSnapshotFromNative(second, new object(), nativeUndoOwned: false);
 
         document.Undo();
         Assert.Equal("a", document.Text);
         Assert.True(document.CanUndo);
+    }
+
+    [Fact]
+    public void NativeOwnedUndoDoesNotCreateCompetingManagedHistory()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit => edit.InsertText(0, "a"));
+        Assert.True(document.CanUndo);
+
+        var nativeSnapshot = document.CurrentSnapshot.Replace(1..1, "b");
+        document.ReplaceSnapshotFromNative(
+            nativeSnapshot,
+            new object(),
+            nativeUndoOwned: true);
+
+        Assert.Equal("ab", document.Text);
+        Assert.False(document.CanUndo);
+        Assert.False(document.CanRedo);
     }
 
     [Fact]

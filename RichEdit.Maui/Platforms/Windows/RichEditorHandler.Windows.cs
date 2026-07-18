@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -21,7 +20,6 @@ public partial class RichEditorHandler
     private bool _suppressingNativeEvents;
     private int _nativeEventSuppressionVersion;
     private DispatcherQueueTimer? _nativeReadbackTimer;
-    private InputKeyboardSource? _inputKeyboardSource;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private NativeTextSnapshot? _nativeTextSnapshot;
@@ -47,10 +45,9 @@ public partial class RichEditorHandler
         platformView.SelectionChanged += OnNativeSelectionChanged;
         platformView.ActualThemeChanged += OnPlatformThemeChanged;
         platformView.Loaded += OnPlatformViewLoaded;
-        platformView.KeyDown += OnPlatformKeyDown;
+        platformView.PreviewKeyDown += OnPlatformKeyDown;
         platformView.Paste += OnPlatformPaste;
         platformView.Tapped += OnPlatformTapped;
-        platformView.Document.UndoLimit = 0;
         _nativeReadbackTimer = platformView.DispatcherQueue.CreateTimer();
         _nativeReadbackTimer.Interval = TimeSpan.FromMilliseconds(16);
         _nativeReadbackTimer.IsRepeating = false;
@@ -64,7 +61,7 @@ public partial class RichEditorHandler
         platformView.SelectionChanged -= OnNativeSelectionChanged;
         platformView.ActualThemeChanged -= OnPlatformThemeChanged;
         platformView.Loaded -= OnPlatformViewLoaded;
-        platformView.KeyDown -= OnPlatformKeyDown;
+        platformView.PreviewKeyDown -= OnPlatformKeyDown;
         platformView.Paste -= OnPlatformPaste;
         platformView.Tapped -= OnPlatformTapped;
         if (_nativeReadbackTimer is not null)
@@ -78,7 +75,6 @@ public partial class RichEditorHandler
         _suppressingNativeEvents = false;
         _hasNativeLinks = false;
         _nativeTextSnapshot = null;
-        _inputKeyboardSource = null;
 
         base.DisconnectHandler(platformView);
     }
@@ -250,6 +246,7 @@ public partial class RichEditorHandler
         _applyingDocument = true;
         var nativeDocument = PlatformView.Document;
         nativeDocument.BatchDisplayUpdates();
+        nativeDocument.BeginUndoGroup();
         try
         {
             foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
@@ -294,9 +291,16 @@ public partial class RichEditorHandler
         }
         finally
         {
-            nativeDocument.ApplyDisplayUpdates();
-            _applyingDocument = false;
-            SuppressNativeEventsUntilIdle();
+            try
+            {
+                nativeDocument.EndUndoGroup();
+            }
+            finally
+            {
+                nativeDocument.ApplyDisplayUpdates();
+                _applyingDocument = false;
+                SuppressNativeEventsUntilIdle();
+            }
         }
     }
 
@@ -509,6 +513,40 @@ public partial class RichEditorHandler
         }
     }
 
+    private partial bool SupportsNativeUndoCore() => true;
+
+    private partial bool CanUndoCore() => PlatformView?.Document.CanUndo() == true;
+
+    private partial bool CanRedoCore() => PlatformView?.Document.CanRedo() == true;
+
+    private partial void UndoCore()
+    {
+        if (PlatformView is null || VirtualView.IsReadOnly || !PlatformView.Document.CanUndo())
+        {
+            return;
+        }
+
+        PlatformView.Document.Undo();
+        VirtualView.UpdateUndoStateFromPlatform();
+    }
+
+    private partial void RedoCore()
+    {
+        if (PlatformView is null || VirtualView.IsReadOnly || !PlatformView.Document.CanRedo())
+        {
+            return;
+        }
+
+        PlatformView.Document.Redo();
+        VirtualView.UpdateUndoStateFromPlatform();
+    }
+
+    private partial void ClearUndoHistoryCore()
+    {
+        PlatformView?.Document.ClearUndoRedoHistory();
+        VirtualView?.UpdateUndoStateFromPlatform();
+    }
+
     private partial void UpdatePlaceholder(RichEditor editor)
     {
         if (editor.IsSet(RichEditor.PlaceholderProperty))
@@ -616,29 +654,6 @@ public partial class RichEditorHandler
             return;
         }
 
-        var controlDown = IsControlKeyDown();
-        if (controlDown && eventArgs.Key == Windows.System.VirtualKey.Z)
-        {
-            if (!VirtualView.IsReadOnly)
-            {
-                VirtualView.Undo();
-            }
-
-            eventArgs.Handled = true;
-            return;
-        }
-
-        if (controlDown && eventArgs.Key == Windows.System.VirtualKey.Y)
-        {
-            if (!VirtualView.IsReadOnly)
-            {
-                VirtualView.Redo();
-            }
-
-            eventArgs.Handled = true;
-            return;
-        }
-
         if (eventArgs.Key == Windows.System.VirtualKey.Tab &&
             VirtualView.AcceptsTab && !VirtualView.IsReadOnly)
         {
@@ -655,8 +670,8 @@ public partial class RichEditorHandler
         }
 
         // Route every user paste through the portable fragment and cancellable
-        // Pasting event. Marking the native event handled also keeps WinUI's own
-        // undo stack from competing with the live document undo manager.
+        // Pasting event. The resulting incremental edit is committed to WinUI's
+        // own undo stack as one native undo group.
         eventArgs.Handled = true;
         await VirtualView.PasteAsync();
     }
@@ -710,15 +725,14 @@ public partial class RichEditorHandler
         }
     }
 
-    private bool IsControlKeyDown()
-    {
-        _inputKeyboardSource ??= PlatformView.XamlRoot is { } xamlRoot
-            ? InputKeyboardSource.GetForIsland(xamlRoot.ContentIsland)
-            : null;
-        return _inputKeyboardSource is not null &&
-            (_inputKeyboardSource.GetKeyState(Windows.System.VirtualKey.Control) &
-             VirtualKeyStates.Down) != 0;
-    }
+    private static bool IsControlKeyDown() =>
+        (GetNativeKeyState(VirtualKeyControl) & KeyPressedMask) != 0;
+
+    private const int VirtualKeyControl = 0x11;
+    private const int KeyPressedMask = 0x8000;
+
+    [DllImport("user32.dll", EntryPoint = "GetKeyState")]
+    private static extern short GetNativeKeyState(int virtualKey);
 
     private void ApplyCharacterFormat(
         ITextCharacterFormat native,
@@ -751,13 +765,26 @@ public partial class RichEditorHandler
             native.BackgroundColor = ToWindowsColor(backgroundColor);
         }
 
-        native.Subscript = format.Script == RichTextScript.Subscript
-            ? FormatEffect.On
-            : FormatEffect.Off;
-        native.Superscript = format.Script == RichTextScript.Superscript
-            ? FormatEffect.On
-            : FormatEffect.Off;
         native.Position = (float)format.BaselineOffset;
+        // TOM treats subscript and superscript as mutually exclusive effects.
+        // Clear the opposite effect first so that the requested effect is the
+        // final write instead of immediately being cancelled.
+        switch (format.Script)
+        {
+            case RichTextScript.Subscript:
+                native.Superscript = FormatEffect.Off;
+                native.Subscript = FormatEffect.On;
+                break;
+            case RichTextScript.Superscript:
+                native.Subscript = FormatEffect.Off;
+                native.Superscript = FormatEffect.On;
+                break;
+            default:
+                native.Subscript = FormatEffect.Off;
+                native.Superscript = FormatEffect.Off;
+                break;
+        }
+
         native.Spacing = (float)format.CharacterSpacing;
         native.FontStretch = ToNativeFontStretch(format.HorizontalScale);
         native.SmallCaps = format.SmallCaps ? FormatEffect.On : FormatEffect.Off;
@@ -917,7 +944,7 @@ public partial class RichEditorHandler
     private NativeTextSnapshot CreateNativeTextSnapshot()
     {
         var nativeDocument = PlatformView.Document;
-        nativeDocument.GetText(TextGetOptions.None, out var rawText);
+        var rawText = ReadNativeStoryText(nativeDocument);
         var nativeContentLength = rawText.EndsWith('\r')
             ? rawText.Length - 1
             : rawText.Length;
@@ -1501,6 +1528,8 @@ public partial class RichEditorHandler
             return;
         }
 
+        _nativeReadbackTimer?.Stop();
+
         var selection = PlatformView.Document.Selection;
         var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
         var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
@@ -1522,6 +1551,7 @@ public partial class RichEditorHandler
 
         var length = end - start;
         VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+        VirtualView.UpdateUndoStateFromPlatform();
         UpdateTypingFormatsFromPlatform();
     }
 
@@ -1578,7 +1608,7 @@ public partial class RichEditorHandler
 
     private string ReadNativePlainText()
     {
-        PlatformView.Document.GetText(TextGetOptions.None, out var rawText);
+        var rawText = ReadNativeStoryText(PlatformView.Document);
         var length = rawText.EndsWith('\r') ? rawText.Length - 1 : rawText.Length;
         var content = rawText.AsSpan(0, length);
         if (content.IndexOfAny('\r', '\v') < 0)
@@ -1598,6 +1628,13 @@ public partial class RichEditorHandler
                 };
             }
         });
+    }
+
+    private static string ReadNativeStoryText(RichEditTextDocument nativeDocument)
+    {
+        var range = nativeDocument.GetRange(0, 0);
+        range.SetRange(0, range.StoryLength);
+        return range.Text ?? string.Empty;
     }
 
     private bool TryOverlayNativeCharacterFormats(

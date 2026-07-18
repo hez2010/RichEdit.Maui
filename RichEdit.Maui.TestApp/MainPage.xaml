@@ -6,7 +6,7 @@
              Title="Rich editor">
 
     <Grid Padding="24"
-          RowDefinitions="Auto,Auto,*,Auto"
+          RowDefinitions="Auto,Auto,Auto,*,Auto"
           RowSpacing="14">
         <VerticalStackLayout Spacing="4">
             <Label Text="Write without losing the details"
@@ -21,6 +21,20 @@
                     HorizontalScrollBarVisibility="Never"
                     Orientation="Horizontal">
             <HorizontalStackLayout Spacing="8">
+                <Button Text="New"
+                        Clicked="OnNewDocumentClicked" />
+                <Button Text="All"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.SelectAll}" />
+                <Button Text="Undo"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Undo}" />
+                <Button Text="Redo"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Redo}" />
+                <Button Text="Cut"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Cut}" />
+                <Button Text="Copy"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Copy}" />
+                <Button Text="Paste"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Paste}" />
                 <Button x:Name="BoldButton"
                         Text="B"
                         FontAttributes="Bold"
@@ -32,18 +46,15 @@
                 <Button x:Name="UnderlineButton"
                         Text="U̲"
                         Clicked="OnUnderlineClicked" />
+                <Button x:Name="StrikethroughButton"
+                        Text="S̶"
+                        Clicked="OnStrikethroughClicked" />
                 <Button x:Name="SuperscriptButton"
                         Text="x²"
                         Clicked="OnSuperscriptClicked" />
                 <Button x:Name="SubscriptButton"
                         Text="x₂"
                         Clicked="OnSubscriptClicked" />
-                <Button x:Name="BulletButton"
-                        Text="• List"
-                        Clicked="OnBulletedListClicked" />
-                <Button x:Name="NumberButton"
-                        Text="1. List"
-                        Clicked="OnNumberedListClicked" />
                 <Picker x:Name="FontPicker"
                         Title="Font"
                         SelectedIndexChanged="OnFontChanged"
@@ -122,7 +133,48 @@
             </HorizontalStackLayout>
         </ScrollView>
 
-        <Border Grid.Row="2"
+        <ScrollView Grid.Row="2"
+                    HorizontalScrollBarVisibility="Never"
+                    Orientation="Horizontal">
+            <HorizontalStackLayout Spacing="8">
+                <Button x:Name="BulletButton"
+                        Text="• List"
+                        Clicked="OnBulletedListClicked" />
+                <Button x:Name="NumberButton"
+                        Text="1. List"
+                        Clicked="OnNumberedListClicked" />
+                <Button Text="No list"
+                        Clicked="OnClearListClicked" />
+                <Button Text="Outdent"
+                        Clicked="OnOutdentListClicked" />
+                <Button Text="Indent"
+                        Clicked="OnIndentListClicked" />
+                <Button Text="Restart"
+                        Clicked="OnRestartListClicked" />
+                <Button x:Name="AlignLeftButton"
+                        Text="Left"
+                        Clicked="OnAlignLeftClicked" />
+                <Button x:Name="AlignCenterButton"
+                        Text="Center"
+                        Clicked="OnAlignCenterClicked" />
+                <Button x:Name="AlignRightButton"
+                        Text="Right"
+                        Clicked="OnAlignRightClicked" />
+                <Button x:Name="AlignJustifyButton"
+                        Text="Justify"
+                        Clicked="OnAlignJustifyClicked" />
+                <Button Text="Link"
+                        Clicked="OnSetLinkClicked" />
+                <Button Text="Unlink"
+                        Clicked="OnRemoveLinksClicked" />
+                <Button Text="Image"
+                        Clicked="OnInsertImageClicked" />
+                <Button Text="Field"
+                        Clicked="OnInsertFieldClicked" />
+            </HorizontalStackLayout>
+        </ScrollView>
+
+        <Border Grid.Row="3"
                 Padding="0"
                 BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#252525}"
                 Stroke="{AppThemeBinding Light={StaticResource Gray200}, Dark={StaticResource Gray600}}"
@@ -131,14 +183,19 @@
             <rich:RichEditor x:Name="Editor"
                              AutomationId="RichEditor"
                              FontSize="17"
-                             MinimumHeightRequest="320"
+                             MinimumHeightRequest="240"
                              Placeholder="Start writing…"
                              PlaceholderColor="{AppThemeBinding Light={StaticResource Gray500}, Dark={StaticResource Gray400}}"
+                             ContentChanged="OnEditorContentChanged"
+                             InlineObjectInvoked="OnEditorInlineObjectInvoked"
+                             LinkInvoked="OnEditorLinkInvoked"
+                             Pasting="OnEditorPasting"
                              SelectionChanged="OnEditorSelectionChanged"
+                             SelectionFormatChanged="OnEditorSelectionFormatChanged"
                              TextColor="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource White}}" />
         </Border>
 
-        <Grid Grid.Row="3"
+        <Grid Grid.Row="4"
               ColumnDefinitions="*,Auto"
               ColumnSpacing="12">
             <Label x:Name="StatusLabel"

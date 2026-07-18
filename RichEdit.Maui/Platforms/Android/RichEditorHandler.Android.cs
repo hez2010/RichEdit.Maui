@@ -391,7 +391,8 @@ public partial class RichEditorHandler
              index++)
         {
             var paragraph = snapshot.Paragraphs[index];
-            if (paragraph.Range.Start > range.End)
+            if (paragraph.Range.Start > range.End ||
+                (!range.IsEmpty && paragraph.Range.Start == range.End))
             {
                 break;
             }
@@ -575,18 +576,39 @@ public partial class RichEditorHandler
 
     private static void RemoveParagraphSpans(ISpannable text, int start, int end)
     {
-        RemoveSpans<RichParagraphMetadataSpan>(text, start, end);
-        RemoveSpans<AlignmentSpanStandard>(text, start, end);
-        RemoveSpans<LeadingMarginSpanStandard>(text, start, end);
-        RemoveSpans<RichLineHeightSpan>(text, start, end);
+        RemoveIntersectingParagraphSpans<RichParagraphMetadataSpan>(text, start, end);
+        RemoveIntersectingParagraphSpans<AlignmentSpanStandard>(text, start, end);
+        RemoveIntersectingParagraphSpans<LeadingMarginSpanStandard>(text, start, end);
+        RemoveIntersectingParagraphSpans<RichLineHeightSpan>(text, start, end);
         if (OperatingSystem.IsAndroidVersionAtLeast(29))
         {
-            RemoveSpans<LineHeightSpanStandard>(text, start, end);
+            RemoveIntersectingParagraphSpans<LineHeightSpanStandard>(text, start, end);
         }
-        RemoveSpans<TabStopSpanStandard>(text, start, end);
-        RemoveSpans<RichListMarkerSpan>(text, start, end);
-        RemoveSpans<BulletSpan>(text, start, end);
-        RemoveSpans<RichParagraphDecorationSpan>(text, start, end);
+        RemoveIntersectingParagraphSpans<TabStopSpanStandard>(text, start, end);
+        RemoveIntersectingParagraphSpans<RichListMarkerSpan>(text, start, end);
+        RemoveIntersectingParagraphSpans<BulletSpan>(text, start, end);
+        RemoveIntersectingParagraphSpans<RichParagraphDecorationSpan>(text, start, end);
+    }
+
+    private static void RemoveIntersectingParagraphSpans<T>(
+        ISpannable text,
+        int start,
+        int end)
+        where T : Java.Lang.Object
+    {
+        foreach (var span in GetSpans<T>(text, start, end).ToArray())
+        {
+            var spanStart = text.GetSpanStart(span);
+            var spanEnd = text.GetSpanEnd(span);
+            var intersects = start == end
+                ? spanStart == start || spanStart < start && spanEnd > start
+                : spanStart < end && spanEnd > start ||
+                  spanStart == spanEnd && spanStart >= start && spanStart < end;
+            if (intersects)
+            {
+                text.RemoveSpan(span);
+            }
+        }
     }
 
     private static void RemoveSpans<T>(ISpannable text, int start, int end)
@@ -617,6 +639,24 @@ public partial class RichEditorHandler
         start = Math.Clamp(start, 0, textLength);
         length = Math.Clamp(length, 0, textLength - start);
         PlatformView.SetSelection(start, start + length);
+    }
+
+    // Android's public TextView API does not expose its internal undo manager or
+    // CanUndo/CanRedo state, so the portable document history remains the fallback.
+    private partial bool SupportsNativeUndoCore() => false;
+
+    private partial bool CanUndoCore() => VirtualView?.Document.CanUndo == true;
+
+    private partial bool CanRedoCore() => VirtualView?.Document.CanRedo == true;
+
+    private partial void UndoCore() => OnPlatformUndo();
+
+    private partial void RedoCore() => OnPlatformRedo();
+
+    private partial void ClearUndoHistoryCore()
+    {
+        VirtualView?.Document.ClearUndoHistory();
+        VirtualView?.UpdateUndoStateFromPlatform();
     }
 
     private partial void UpdatePlaceholder(RichEditor editor)
@@ -1598,43 +1638,29 @@ public partial class RichEditorHandler
         var document = previous.ApplyParagraphFormat(
             paragraphStart..paragraphStart,
             format => format with { List = null });
+        document = document.Replace(
+            paragraphStart..paragraphStart,
+            "\n",
+            _nativeTypingFormat);
+        var refreshStart = paragraphStart == 0
+            ? 0
+            : GetParagraphStart(document.Text, paragraphStart - 1);
         var paragraphEnd = GetParagraphEnd(document.Text, paragraphStart);
+        var caret = paragraphStart + 1;
 
         _applyingDocument = true;
         try
         {
-            text.Delete(paragraphStart, paragraphStart + 1);
-            foreach (var span in GetSpans<RichListMarkerSpan>(text, paragraphStart, paragraphEnd)
-                         .Where(span => text.GetSpanStart(span) == paragraphStart)
-                         .ToArray())
-            {
-                text.RemoveSpan(span);
-            }
-
-            foreach (var span in GetSpans<BulletSpan>(text, paragraphStart, paragraphEnd)
-                         .Where(span => text.GetSpanStart(span) == paragraphStart)
-                         .ToArray())
-            {
-                text.RemoveSpan(span);
-            }
-
-            foreach (var span in GetSpans<RichParagraphMetadataSpan>(text, paragraphStart, paragraphEnd)
-                         .Where(span => text.GetSpanStart(span) == paragraphStart)
-                         .ToArray())
-            {
-                text.RemoveSpan(span);
-            }
-
-            if (paragraphEnd > paragraphStart)
-            {
-                text.SetSpan(
-                    new RichParagraphMetadataSpan(document.GetParagraphFormat(paragraphStart)),
-                    paragraphStart,
-                    paragraphEnd,
-                    SpanTypes.Paragraph);
-            }
-
-            PlatformView.SetSelection(paragraphStart);
+            // A SPAN_PARAGRAPH ending at the buffer boundary expands when the
+            // second newline is inserted. Refresh the preceding item as well as
+            // the terminated empty paragraph so its marker endpoint is restored
+            // to the real paragraph boundary instead of covering the blank line.
+            ApplyParagraphFormatsIncrementally(
+                text,
+                document,
+                new RichTextRange(refreshStart, paragraphEnd - refreshStart));
+            UpdateGlobalParagraphProjection(document);
+            PlatformView.SetSelection(caret);
             PlatformView.RequestLayout();
             PlatformView.Invalidate();
         }
@@ -1643,7 +1669,7 @@ public partial class RichEditorHandler
             _applyingDocument = false;
         }
 
-        VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0, _sourceToken);
+        VirtualView.UpdateDocumentFromPlatform(document, caret, 0, _sourceToken);
         UpdateTypingFormatsFromPlatform();
     }
 

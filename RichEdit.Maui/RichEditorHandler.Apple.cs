@@ -387,10 +387,26 @@ namespace RichEdit.Maui
                 using var attributes = CreateCharacterAttributes(
                     run.Format,
                     snapshot.DefaultCharacterFormat);
-                PlatformView.TextStorage.SetAttributes(
-                    attributes,
-                    new NSRange(start, end - start));
+                var nativeRange = new NSRange(start, end - start);
+                RemoveOptionalCharacterAttributes(nativeRange);
+                PlatformView.TextStorage.AddAttributes(attributes, nativeRange);
             }
+        }
+
+        private void RemoveOptionalCharacterAttributes(NSRange range)
+        {
+            // Character refreshes must not replace paragraph styles, links, list
+            // metadata, or text attachments. Remove only character attributes
+            // which CreateCharacterAttributes may intentionally omit, then merge
+            // the current character attributes into the attributed string.
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.BackgroundColor, range);
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.UnderlineColor, range);
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.StrikethroughColor, range);
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.StrokeColor, range);
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.StrokeWidth, range);
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.Shadow, range);
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.Ligature, range);
+            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.WritingDirection, range);
         }
 
         private void ApplyParagraphFormatsIncrementally(
@@ -580,6 +596,40 @@ namespace RichEdit.Maui
             start = Math.Clamp(start, 0, textLength);
             length = Math.Clamp(length, 0, textLength - start);
             PlatformView.SelectedRange = new NSRange(start, length);
+        }
+
+        private partial bool SupportsNativeUndoCore() => true;
+
+        private partial bool CanUndoCore() => PlatformView?.UndoManager?.CanUndo == true;
+
+        private partial bool CanRedoCore() => PlatformView?.UndoManager?.CanRedo == true;
+
+        private partial void UndoCore()
+        {
+            if (VirtualView.IsReadOnly || PlatformView?.UndoManager is not { CanUndo: true } manager)
+            {
+                return;
+            }
+
+            manager.Undo();
+            VirtualView.UpdateUndoStateFromPlatform();
+        }
+
+        private partial void RedoCore()
+        {
+            if (VirtualView.IsReadOnly || PlatformView?.UndoManager is not { CanRedo: true } manager)
+            {
+                return;
+            }
+
+            manager.Redo();
+            VirtualView.UpdateUndoStateFromPlatform();
+        }
+
+        private partial void ClearUndoHistoryCore()
+        {
+            PlatformView?.UndoManager?.RemoveAllActions();
+            VirtualView?.UpdateUndoStateFromPlatform();
         }
 
         private partial void UpdatePlaceholder(RichEditor editor)
@@ -1604,7 +1654,7 @@ namespace RichEdit.Maui
             return currentLength - removedLength + replacementText.Length <= VirtualView.MaxLength;
         }
 
-        private bool TryExitEmptyListParagraph(
+        private bool PrepareEmptyListParagraphExit(
             UITextView textView,
             NSRange range,
             string replacementText)
@@ -1618,9 +1668,8 @@ namespace RichEdit.Maui
 
             var document = VirtualView.Document.CurrentSnapshot;
             var text = document.Text;
-            var textStorage = textView.TextStorage;
             var paragraphStart = (int)range.Location;
-            if (textStorage.Length != text.Length ||
+            if (textView.TextStorage.Length != text.Length ||
                 paragraphStart > text.Length ||
                 (paragraphStart > 0 && text[paragraphStart - 1] != '\n') ||
                 document.GetParagraphFormat(paragraphStart).List is null)
@@ -1639,46 +1688,13 @@ namespace RichEdit.Maui
                 return false;
             }
 
-            document = document.ApplyParagraphFormat(
-                paragraphStart..paragraphStart,
-                format => format with { List = null });
-            var paragraphFormat = document.GetParagraphFormat(paragraphStart);
-            var characterFormat = document.GetCaretFormat(paragraphStart);
-
-            _applyingDocument = true;
-            try
-            {
-                var attributedParagraphEnd = GetParagraphEnd(text, paragraphStart);
-                if (attributedParagraphEnd > paragraphStart)
-                {
-                    using var attributes = CreateParagraphAttributes(paragraphFormat);
-                    textStorage.BeginEditing();
-                    try
-                    {
-                        textStorage.AddAttributes(
-                            attributes,
-                            new NSRange(
-                                paragraphStart,
-                                attributedParagraphEnd - paragraphStart));
-                    }
-                    finally
-                    {
-                        textStorage.EndEditing();
-                    }
-                }
-
-                textView.SelectedRange = new NSRange(paragraphStart, 0);
-                ApplyTypingFormatCore(characterFormat, paragraphFormat);
-                textView.SetNeedsLayout();
-                textView.SetNeedsDisplay();
-            }
-            finally
-            {
-                _applyingDocument = false;
-            }
-
-            VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0, _sourceToken);
-            UpdateTypingFormatsFromPlatform();
+            // Let UITextView perform the insertion so its native undo manager owns
+            // the complete edit. Supplying the non-list paragraph as the native
+            // typing format makes the inserted delimiter and following paragraph
+            // leave the list without any attributed-string rewrite afterward.
+            var paragraphFormat = document.GetParagraphFormat(paragraphStart) with { List = null };
+            textView.SelectionAffinity = UITextStorageDirection.Forward;
+            ApplyTypingFormatCore(document.GetCaretFormat(paragraphStart), paragraphFormat);
             return true;
         }
 
@@ -1897,6 +1913,7 @@ namespace RichEdit.Maui
                 0,
                 document.Text.Length - start);
             VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+            VirtualView.UpdateUndoStateFromPlatform();
             UpdateTypingFormatsFromPlatform();
         }
 
@@ -1916,8 +1933,43 @@ namespace RichEdit.Maui
                 0,
                 VirtualView.Document.Text.Length - start);
             VirtualView.UpdateSelectionFromPlatform(start, length);
+            ApplyEmptyParagraphTypingAffinity(textView, start, length);
             UpdateTypingFormatsFromPlatform();
             _pendingNativeChange = null;
+        }
+
+        private void ApplyEmptyParagraphTypingAffinity(
+            UITextView textView,
+            int start,
+            int length)
+        {
+            if (length != 0 || VirtualView is null || start <= 0)
+            {
+                return;
+            }
+
+            var document = VirtualView.Document.CurrentSnapshot;
+            if (start > document.Length || document.Text[start - 1] != '\n')
+            {
+                return;
+            }
+
+            var paragraphEnd = GetParagraphEnd(document.Text, start);
+            var isEmpty = paragraphEnd == start ||
+                paragraphEnd == start + 1 && document.Text[start] == '\n';
+            var paragraphFormat = document.GetParagraphFormat(start);
+            if (!isEmpty || paragraphFormat.List is not null ||
+                document.GetParagraphFormat(start - 1).List is null)
+            {
+                return;
+            }
+
+            // A storage position immediately after a list newline has both an
+            // upstream list affinity and a downstream empty-paragraph affinity.
+            // Keep the caret on the authored non-list paragraph when keyboard
+            // navigation lands on that boundary.
+            textView.SelectionAffinity = UITextStorageDirection.Forward;
+            ApplyTypingFormatCore(document.GetCaretFormat(start), paragraphFormat);
         }
 
         private Task OnPlatformPasteAsync() =>
@@ -1980,12 +2032,12 @@ namespace RichEdit.Maui
                     return true;
                 }
 
-                if (!target.ShouldAllowNativeChange(range, text) ||
-                    target.TryExitEmptyListParagraph(textView, range, text))
+                if (!target.ShouldAllowNativeChange(range, text))
                 {
                     return false;
                 }
 
+                target.PrepareEmptyListParagraphExit(textView, range, text);
                 target.RecordPendingNativeChange(range);
                 return true;
             }

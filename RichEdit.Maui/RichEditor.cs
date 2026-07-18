@@ -435,14 +435,43 @@ public sealed class RichEditor : View
 
     internal RichTextParagraphFormat TypingParagraphFormat => _typingParagraphFormat;
 
-    /// <summary>Undoes the most recent recorded document transaction.</summary>
-    public void Undo() => Document.Undo();
+    /// <summary>Undoes the most recent native edit, or the document edit when detached.</summary>
+    public void Undo()
+    {
+        if (Handler is IRichEditorHandler { SupportsNativeUndo: true } handler)
+        {
+            handler.Undo();
+        }
+        else
+        {
+            Document.Undo();
+        }
+    }
 
-    /// <summary>Redoes the most recently undone document transaction.</summary>
-    public void Redo() => Document.Redo();
+    /// <summary>Redoes the most recent native undo, or the document undo when detached.</summary>
+    public void Redo()
+    {
+        if (Handler is IRichEditorHandler { SupportsNativeUndo: true } handler)
+        {
+            handler.Redo();
+        }
+        else
+        {
+            Document.Redo();
+        }
+    }
 
-    /// <summary>Clears undo and redo history without changing content.</summary>
-    public void ClearUndoHistory() => Document.ClearUndoHistory();
+    /// <summary>Clears native and managed undo and redo history without changing content.</summary>
+    public void ClearUndoHistory()
+    {
+        if (Handler is IRichEditorHandler { SupportsNativeUndo: true } handler)
+        {
+            handler.ClearUndoHistory();
+        }
+
+        Document.ClearUndoHistory();
+        RefreshUndoState();
+    }
 
     /// <summary>Selects the complete logical document.</summary>
     public void SelectAll() => SelectedRange = new RichTextRange(0, Document.Length);
@@ -503,7 +532,12 @@ public sealed class RichEditor : View
         _pendingPlatformSelection = selection;
         try
         {
-            var changes = Document.ReplaceSnapshotFromNative(snapshot, sourceToken);
+            var nativeUndoOwned =
+                Handler is IRichEditorHandler { SupportsNativeUndo: true };
+            var changes = Document.ReplaceSnapshotFromNative(
+                snapshot,
+                sourceToken,
+                nativeUndoOwned);
             if (changes.IsEmpty)
             {
                 SetSelectionFromPlatform(selection);
@@ -517,6 +551,8 @@ public sealed class RichEditor : View
 
     internal void UpdateSelectionFromPlatform(int start, int length) =>
         SetSelectionFromPlatform(new RichTextRange(start, length));
+
+    internal void UpdateUndoStateFromPlatform() => RefreshUndoState();
 
     internal void SetTypingCharacterFormat(RichTextCharacterFormat format)
     {
@@ -692,26 +728,30 @@ public sealed class RichEditor : View
             }
         }
 
-        ContentChanged?.Invoke(this, new RichTextContentChangedEventArgs(changeSet));
-        if (changeSet.IsTextChanged)
-        {
-            TextChanged?.Invoke(this, new RichTextTextChangedEventArgs(changeSet));
-        }
-
+        var selectionChanged = SelectedRange != resultingSelection;
+        SetSelectionCore(
+            resultingSelection,
+            fromPlatform: changeSet.Origin == RichTextChangeOrigin.User);
         SynchronizeContentProperties();
+        RefreshUndoState();
         if (AutoSize == EditorAutoSizeOption.TextChanges && changeSet.IsTextChanged)
         {
             InvalidateMeasure();
         }
 
-        var selectionChanged = SelectedRange != resultingSelection;
-        SetSelectionCore(
-            resultingSelection,
-            fromPlatform: changeSet.Origin == RichTextChangeOrigin.User);
-        RefreshUndoState();
         if (!selectionChanged)
         {
             RaiseSelectionFormatChanged();
+        }
+
+        // Public observers must see one coherent committed state. In particular,
+        // a destructive edit can make the previous selection invalid, so publish
+        // content events only after the selection and bindable projections have
+        // been advanced to the new document version.
+        ContentChanged?.Invoke(this, new RichTextContentChangedEventArgs(changeSet));
+        if (changeSet.IsTextChanged)
+        {
+            TextChanged?.Invoke(this, new RichTextTextChangedEventArgs(changeSet));
         }
     }
 
@@ -801,8 +841,10 @@ public sealed class RichEditor : View
 
     private void RefreshUndoState()
     {
-        SetValue(CanUndoPropertyKey, Document.CanUndo);
-        SetValue(CanRedoPropertyKey, Document.CanRedo);
+        var handler = Handler as IRichEditorHandler;
+        var useNative = handler?.SupportsNativeUndo == true;
+        SetValue(CanUndoPropertyKey, useNative ? handler!.CanUndo : Document.CanUndo);
+        SetValue(CanRedoPropertyKey, useNative ? handler!.CanRedo : Document.CanRedo);
         Commands.Refresh();
     }
 

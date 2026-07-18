@@ -26,6 +26,12 @@ internal interface IRichEditorHandler
 {
     object SourceToken { get; }
 
+    bool SupportsNativeUndo { get; }
+
+    bool CanUndo { get; }
+
+    bool CanRedo { get; }
+
     void ApplySnapshot(RichTextDocumentSnapshot snapshot, RichTextRange selection);
 
     void ApplyChanges(RichTextChangeSet changes, RichTextRange selection);
@@ -33,6 +39,12 @@ internal interface IRichEditorHandler
     void ApplyAppearance(RichTextAppearanceChange changes);
 
     void SetSelection(RichTextRange selection);
+
+    void Undo();
+
+    void Redo();
+
+    void ClearUndoHistory();
 }
 
 /// <summary>
@@ -82,10 +94,20 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     object IRichEditorHandler.SourceToken => _sourceToken;
 
+    bool IRichEditorHandler.SupportsNativeUndo => SupportsNativeUndoCore();
+
+    bool IRichEditorHandler.CanUndo => CanUndoCore();
+
+    bool IRichEditorHandler.CanRedo => CanRedoCore();
+
     void IRichEditorHandler.ApplySnapshot(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange selection) =>
+        RichTextRange selection)
+    {
         ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+        ClearUndoHistoryCore();
+        VirtualView.UpdateUndoStateFromPlatform();
+    }
 
     void IRichEditorHandler.ApplyChanges(
         RichTextChangeSet changes,
@@ -117,6 +139,12 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             VirtualView.Selection.TypingParagraphFormat);
     }
 
+    void IRichEditorHandler.Undo() => UndoCore();
+
+    void IRichEditorHandler.Redo() => RedoCore();
+
+    void IRichEditorHandler.ClearUndoHistory() => ClearUndoHistoryCore();
+
     private void ApplyChangesCore(RichTextChangeSet changes, RichTextRange selection)
     {
         if (ReferenceEquals(changes.SourceToken, _sourceToken))
@@ -142,6 +170,18 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     private partial void SetSelectionCore(int start, int length);
 
+    private partial bool SupportsNativeUndoCore();
+
+    private partial bool CanUndoCore();
+
+    private partial bool CanRedoCore();
+
+    private partial void UndoCore();
+
+    private partial void RedoCore();
+
+    private partial void ClearUndoHistoryCore();
+
     private static void MapDocument(RichEditorHandler handler, RichEditor editor)
     {
         handler.ApplyDocumentCore(
@@ -151,6 +191,8 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         handler.ApplyTypingFormatCore(
             editor.Selection.TypingCharacterFormat,
             editor.Selection.TypingParagraphFormat);
+        handler.ClearUndoHistoryCore();
+        editor.UpdateUndoStateFromPlatform();
     }
 
     private static void MapPlaceholder(RichEditorHandler handler, RichEditor editor) =>

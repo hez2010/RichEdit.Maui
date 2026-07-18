@@ -214,15 +214,18 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     internal RichTextChangeSet ReplaceSnapshotFromNative(
         RichTextDocumentSnapshot snapshot,
-        object sourceToken)
+        object sourceToken,
+        bool nativeUndoOwned)
     {
         VerifyMutationAccess();
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(sourceToken);
         var changes = CreateDelta(_snapshot, snapshot);
-        var undoBehavior = CanMergeNativeEdit(changes, sourceToken)
-            ? RichTextUndoBehavior.MergeWithPrevious
-            : RichTextUndoBehavior.CreateUnit;
+        var undoBehavior = nativeUndoOwned
+            ? RichTextUndoBehavior.ClearHistory
+            : CanMergeNativeEdit(changes, sourceToken)
+                ? RichTextUndoBehavior.MergeWithPrevious
+                : RichTextUndoBehavior.CreateUnit;
         var result = Commit(
             snapshot,
             changes,
