@@ -552,9 +552,8 @@ public partial class RichEditorHandler
         return drawable;
     }
 
-    private RichTextDocument ReadDocumentFromPlatform()
+    private RichTextDocument ReadDocumentFromPlatform(string text)
     {
-        var text = PlatformView.Text ?? string.Empty;
         if (PlatformView.EditableText is not { } editable)
         {
             return RichTextDocument.FromPlainText(text);
@@ -946,13 +945,28 @@ public partial class RichEditorHandler
             eventArgs.BeforeCount,
             0,
             previousText.Length - removedStart);
+        var nativeText = PlatformView.Text ?? string.Empty;
+        var insertedStart = Math.Clamp(eventArgs.Start, 0, nativeText.Length);
+        var insertedLength = Math.Clamp(eventArgs.AfterCount, 0, nativeText.Length - insertedStart);
+        if (IsEmptyListParagraphBreak(
+                previousDocument,
+                nativeText,
+                removedStart,
+                removedLength,
+                insertedStart,
+                insertedLength))
+        {
+            ExitEmptyListParagraph(editable, previousDocument, removedStart);
+            return;
+        }
+
         var paragraphStructureChanged = previousText
             .AsSpan(removedStart, removedLength)
             .Contains('\n');
 
-        var document = ReadDocumentFromPlatform();
-        var insertedStart = Math.Clamp(eventArgs.Start, 0, document.Text.Length);
-        var insertedLength = Math.Clamp(eventArgs.AfterCount, 0, document.Text.Length - insertedStart);
+        var document = ReadDocumentFromPlatform(nativeText);
+        insertedStart = Math.Clamp(insertedStart, 0, document.Text.Length);
+        insertedLength = Math.Clamp(insertedLength, 0, document.Text.Length - insertedStart);
         paragraphStructureChanged |= document.Text
             .AsSpan(insertedStart, insertedLength)
             .Contains('\n');
@@ -1015,6 +1029,94 @@ public partial class RichEditorHandler
         {
             ApplyDocumentCore(document, start, end - start);
         }
+    }
+
+    private static bool IsEmptyListParagraphBreak(
+        RichTextDocument previous,
+        string currentText,
+        int removedStart,
+        int removedLength,
+        int insertedStart,
+        int insertedLength)
+    {
+        if (removedLength != 0 || insertedLength != 1 || insertedStart != removedStart ||
+            currentText[insertedStart] != '\n')
+        {
+            return false;
+        }
+
+        var paragraphStart = GetParagraphStart(previous.Text, removedStart);
+        if (removedStart != paragraphStart ||
+            previous.GetParagraphFormat(paragraphStart).List is null)
+        {
+            return false;
+        }
+
+        var paragraphEnd = GetParagraphEnd(previous.Text, paragraphStart);
+        if (paragraphEnd > paragraphStart && previous.Text[paragraphEnd - 1] == '\n')
+        {
+            paragraphEnd--;
+        }
+
+        return paragraphEnd == paragraphStart;
+    }
+
+    private void ExitEmptyListParagraph(
+        IEditable text,
+        RichTextDocument previous,
+        int paragraphStart)
+    {
+        var document = previous.ApplyParagraphFormat(
+            paragraphStart..paragraphStart,
+            format => format with { List = null });
+        var paragraphEnd = GetParagraphEnd(document.Text, paragraphStart);
+
+        _applyingDocument = true;
+        try
+        {
+            text.Delete(paragraphStart, paragraphStart + 1);
+            foreach (var span in GetSpans<RichListMarkerSpan>(text, paragraphStart, paragraphEnd)
+                         .Where(span => text.GetSpanStart(span) == paragraphStart)
+                         .ToArray())
+            {
+                text.RemoveSpan(span);
+            }
+
+            foreach (var span in GetSpans<BulletSpan>(text, paragraphStart, paragraphEnd)
+                         .Where(span => text.GetSpanStart(span) == paragraphStart)
+                         .ToArray())
+            {
+                text.RemoveSpan(span);
+            }
+
+            foreach (var span in GetSpans<RichParagraphMetadataSpan>(text, paragraphStart, paragraphEnd)
+                         .Where(span => text.GetSpanStart(span) == paragraphStart)
+                         .ToArray())
+            {
+                text.RemoveSpan(span);
+            }
+
+            if (paragraphEnd > paragraphStart)
+            {
+                text.SetSpan(
+                    new RichParagraphMetadataSpan(document.GetParagraphFormat(paragraphStart)),
+                    paragraphStart,
+                    paragraphEnd,
+                    SpanTypes.Paragraph);
+            }
+
+            PlatformView.SetSelection(paragraphStart);
+            PlatformView.RequestLayout();
+            PlatformView.Invalidate();
+        }
+        finally
+        {
+            _applyingDocument = false;
+        }
+
+        VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0);
+        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
     }
 
     private void OnNativeSelectionChanged(object? sender, NativeSelectionChangedEventArgs eventArgs)
