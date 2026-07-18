@@ -374,18 +374,21 @@ namespace RichEdit.Maui
                     break;
             }
 
-            style.TabStops = format.TabStops
-                .Select(tab => new NSTextTab(
-                    tab.Alignment switch
-                    {
-                        RichTextTabAlignment.Center => UITextAlignment.Center,
-                        RichTextTabAlignment.Right => UITextAlignment.Right,
-                        RichTextTabAlignment.Decimal => UITextAlignment.Natural,
-                        _ => UITextAlignment.Left,
-                    },
-                    (nfloat)tab.Position,
-                    new NSDictionary()))
-                .ToArray();
+            if (!format.TabStops.IsDefaultOrEmpty)
+            {
+                style.TabStops = format.TabStops
+                    .Select(tab => new NSTextTab(
+                        tab.Alignment switch
+                        {
+                            RichTextTabAlignment.Center => UITextAlignment.Center,
+                            RichTextTabAlignment.Right => UITextAlignment.Right,
+                            RichTextTabAlignment.Decimal => UITextAlignment.Natural,
+                            _ => UITextAlignment.Left,
+                        },
+                        (nfloat)tab.Position,
+                        new NSDictionary()))
+                    .ToArray();
+            }
 
             if (format.List is { } list)
             {
@@ -419,21 +422,30 @@ namespace RichEdit.Maui
             var bytes = image.Data.IsDefaultOrEmpty
                 ? null
                 : ImmutableCollectionsMarshal.AsArray(image.Data);
-            NSData? data = bytes is null ? null : NSData.FromArray(bytes);
-            var attachment = data is null
-                ? new NSTextAttachment()
-                : new NSTextAttachment(data, image.MediaType);
-            if (data is not null)
+            NSTextAttachment attachment;
+            if (bytes is null)
             {
-                attachment.Image = UIImage.LoadFromData(data);
-                if (attachment.Image is { } renderedImage &&
-                    !string.IsNullOrEmpty(image.AlternativeText))
+                attachment = new NSTextAttachment();
+            }
+            else
+            {
+                using var data = NSData.FromArray(bytes);
+                using var renderedImage = UIImage.LoadFromData(data);
+                if (renderedImage is null)
                 {
-                    renderedImage.AccessibilityLabel = image.AlternativeText;
+                    attachment = new NSTextAttachment();
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(image.AlternativeText))
+                    {
+                        renderedImage.AccessibilityLabel = image.AlternativeText;
+                    }
+
+                    attachment = NSTextAttachment.Create(renderedImage);
                 }
             }
 
-            attachment.FileType = image.MediaType;
             var characterAttributes = attributed.GetAttributes(image.Position, out _);
             var font = characterAttributes is null
                 ? null
