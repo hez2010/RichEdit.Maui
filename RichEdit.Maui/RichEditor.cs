@@ -70,14 +70,12 @@ public class RichEditor : View
     public static readonly BindableProperty TextColorProperty = BindableProperty.Create(
         nameof(TextColor),
         typeof(Color),
-        typeof(RichEditor),
-        Colors.Black);
+        typeof(RichEditor));
 
     public static readonly BindableProperty PlaceholderColorProperty = BindableProperty.Create(
         nameof(PlaceholderColor),
         typeof(Color),
-        typeof(RichEditor),
-        Colors.Gray);
+        typeof(RichEditor));
 
     public static readonly BindableProperty FontFamilyProperty = BindableProperty.Create(
         nameof(FontFamily),
@@ -86,10 +84,10 @@ public class RichEditor : View
 
     public static readonly BindableProperty FontSizeProperty = BindableProperty.Create(
         nameof(FontSize),
-        typeof(double),
+        typeof(double?),
         typeof(RichEditor),
-        16d,
-        validateValue: static (_, value) => double.IsFinite((double)value) && (double)value > 0);
+        validateValue: static (_, value) => value is null ||
+            value is double size && double.IsFinite(size) && size > 0);
 
     public static readonly BindableProperty IsReadOnlyProperty = BindableProperty.Create(
         nameof(IsReadOnly),
@@ -130,15 +128,15 @@ public class RichEditor : View
         set => SetValue(PlaceholderProperty, value ?? string.Empty);
     }
 
-    public Color TextColor
+    public Color? TextColor
     {
-        get => (Color)GetValue(TextColorProperty);
+        get => (Color?)GetValue(TextColorProperty);
         set => SetValue(TextColorProperty, value);
     }
 
-    public Color PlaceholderColor
+    public Color? PlaceholderColor
     {
-        get => (Color)GetValue(PlaceholderColorProperty);
+        get => (Color?)GetValue(PlaceholderColorProperty);
         set => SetValue(PlaceholderColorProperty, value);
     }
 
@@ -149,9 +147,9 @@ public class RichEditor : View
     }
 
     [System.ComponentModel.TypeConverter(typeof(FontSizeConverter))]
-    public double FontSize
+    public double? FontSize
     {
-        get => (double)GetValue(FontSizeProperty);
+        get => (double?)GetValue(FontSizeProperty);
         set => SetValue(FontSizeProperty, value);
     }
 

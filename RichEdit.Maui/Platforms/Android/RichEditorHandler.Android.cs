@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
+using Android.Content.Res;
 using Android.Graphics;
 using Android.Graphics.Drawables;
 using Android.Text;
@@ -17,6 +18,10 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private bool _applyingDocument;
+    private ColorStateList? _defaultHintTextColors;
+    private ColorStateList? _defaultTextColors;
+    private float _defaultTextSize;
+    private Typeface? _defaultTypeface;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private IKeyListener? _editableKeyListener;
@@ -36,6 +41,10 @@ public partial class RichEditorHandler
 
         editor.SetSingleLine(false);
         editor.SetHorizontallyScrolling(false);
+        _defaultHintTextColors = editor.HintTextColors;
+        _defaultTextColors = editor.TextColors;
+        _defaultTextSize = editor.TextSize;
+        _defaultTypeface = editor.Typeface;
         var density = editor.Resources?.DisplayMetrics?.Density ?? 1f;
         editor.SetPadding(
             checked((int)Math.Round(12 * density)),
@@ -192,17 +201,53 @@ public partial class RichEditorHandler
 
     private partial void UpdatePlaceholder(RichEditor editor)
     {
-        PlatformView.Hint = editor.Placeholder;
-        PlatformView.SetHintTextColor(editor.PlaceholderColor.ToPlatform());
+        if (editor.IsSet(RichEditor.PlaceholderProperty))
+        {
+            PlatformView.Hint = editor.Placeholder;
+        }
+
+        if (editor.IsSet(RichEditor.PlaceholderColorProperty))
+        {
+            if (editor.PlaceholderColor is { } placeholderColor)
+            {
+                PlatformView.SetHintTextColor(placeholderColor.ToPlatform());
+            }
+            else if (_defaultHintTextColors is not null)
+            {
+                PlatformView.SetHintTextColor(_defaultHintTextColors);
+            }
+        }
     }
 
     private partial void UpdateAppearance(RichEditor editor)
     {
-        PlatformView.SetTextColor(editor.TextColor.ToPlatform());
-        PlatformView.SetTextSize(ComplexUnitType.Sp, (float)editor.FontSize);
-        PlatformView.Typeface = string.IsNullOrWhiteSpace(editor.FontFamily)
-            ? Typeface.Default
-            : Typeface.Create(editor.FontFamily, TypefaceStyle.Normal);
+        if (editor.IsSet(RichEditor.TextColorProperty) && editor.TextColor is { } textColor)
+        {
+            PlatformView.SetTextColor(textColor.ToPlatform());
+        }
+        else if (editor.IsSet(RichEditor.TextColorProperty) && _defaultTextColors is not null)
+        {
+            PlatformView.SetTextColor(_defaultTextColors);
+        }
+
+        if (editor.IsSet(RichEditor.FontSizeProperty))
+        {
+            if (editor.FontSize is { } fontSize)
+            {
+                PlatformView.SetTextSize(ComplexUnitType.Sp, (float)fontSize);
+            }
+            else
+            {
+                PlatformView.SetTextSize(ComplexUnitType.Px, _defaultTextSize);
+            }
+        }
+
+        if (editor.IsSet(RichEditor.FontFamilyProperty))
+        {
+            PlatformView.Typeface = string.IsNullOrWhiteSpace(editor.FontFamily)
+                ? _defaultTypeface
+                : Typeface.Create(editor.FontFamily, TypefaceStyle.Normal);
+        }
 
         if (!_applyingDocument)
         {
@@ -322,7 +367,7 @@ public partial class RichEditorHandler
 
         if (format.CharacterSpacing != 0)
         {
-            var fontSize = format.FontSize ?? VirtualView.FontSize;
+            var fontSize = ResolveFontSize(format.FontSize);
             text.SetSpan(
                 new RichLetterSpacingSpan((float)(format.CharacterSpacing / fontSize)),
                 start,
@@ -446,7 +491,7 @@ public partial class RichEditorHandler
                             (float)(border.Width *
                                 (PlatformView.Resources?.DisplayMetrics?.Density ?? 1f)),
                             1f),
-                    (border?.Color ?? VirtualView.TextColor).ToPlatform()),
+                    ResolveTextColor(border?.Color)),
                 start,
                 end,
                 SpanTypes.Paragraph);
@@ -560,13 +605,7 @@ public partial class RichEditorHandler
         }
 
         var previous = VirtualView.Document;
-        var defaultCharacterFormat = previous.DefaultCharacterFormat with
-        {
-            FontFamily = previous.DefaultCharacterFormat.FontFamily ?? VirtualView.FontFamily,
-            FontSize = previous.DefaultCharacterFormat.FontSize ?? VirtualView.FontSize,
-            ForegroundColor = previous.DefaultCharacterFormat.ForegroundColor ??
-                FromAndroidColor(new Android.Graphics.Color(PlatformView.CurrentTextColor)),
-        };
+        var defaultCharacterFormat = previous.DefaultCharacterFormat;
         var runs = new List<RichTextRun>();
         for (var position = 0; position < text.Length;)
         {
@@ -711,7 +750,7 @@ public partial class RichEditorHandler
         {
             format = format with
             {
-                FontSize = Math.Max((format.FontSize ?? VirtualView.FontSize) * span.SizeChange, 1),
+                FontSize = Math.Max(ResolveFontSize(format.FontSize) * span.SizeChange, 1),
             };
         }
 
@@ -755,7 +794,7 @@ public partial class RichEditorHandler
         {
             format = format with
             {
-                CharacterSpacing = spacing.Em * (format.FontSize ?? VirtualView.FontSize),
+                CharacterSpacing = spacing.Em * ResolveFontSize(format.FontSize),
             };
         }
 
@@ -1273,6 +1312,37 @@ public partial class RichEditorHandler
 
     private static Microsoft.Maui.Graphics.Color FromAndroidColor(Android.Graphics.Color color) =>
         Microsoft.Maui.Graphics.Color.FromRgba(color.R, color.G, color.B, color.A);
+
+    private Android.Graphics.Color ResolveTextColor(Microsoft.Maui.Graphics.Color? color)
+    {
+        if (color is not null)
+        {
+            return color.ToPlatform();
+        }
+
+        if (VirtualView.TextColor is { } textColor)
+        {
+            return textColor.ToPlatform();
+        }
+
+        return new Android.Graphics.Color(PlatformView.CurrentTextColor);
+    }
+
+    private double ResolveFontSize(double? fontSize)
+    {
+        if (fontSize is not null)
+        {
+            return fontSize.Value;
+        }
+
+        if (VirtualView.FontSize is { } viewFontSize)
+        {
+            return viewFontSize;
+        }
+
+        var density = PlatformView.Resources?.DisplayMetrics?.Density ?? 1f;
+        return Math.Max(PlatformView.TextSize / density, 1f);
+    }
 
     private static int GetParagraphStart(string text, int position) =>
         position == 0 ? 0 : text.LastIndexOf('\n', position - 1) + 1;

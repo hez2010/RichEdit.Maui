@@ -40,6 +40,7 @@ public partial class RichEditorHandler
         base.ConnectHandler(platformView);
         platformView.TextChanged += OnNativeDocumentChanged;
         platformView.SelectionChanged += OnNativeSelectionChanged;
+        platformView.ActualThemeChanged += OnPlatformThemeChanged;
         platformView.Loaded += OnPlatformViewLoaded;
         _nativeReadbackTimer = platformView.DispatcherQueue.CreateTimer();
         _nativeReadbackTimer.Interval = TimeSpan.FromMilliseconds(16);
@@ -51,6 +52,7 @@ public partial class RichEditorHandler
     {
         platformView.TextChanged -= OnNativeDocumentChanged;
         platformView.SelectionChanged -= OnNativeSelectionChanged;
+        platformView.ActualThemeChanged -= OnPlatformThemeChanged;
         platformView.Loaded -= OnPlatformViewLoaded;
         if (_nativeReadbackTimer is not null)
         {
@@ -99,7 +101,16 @@ public partial class RichEditorHandler
                     // without repeatedly shifting or reformatting later ranges.
                     try
                     {
-                        LoadRtfDocument(nativeDocument, RtfCodec.SerializeForNativeProjection(document));
+                        var nativeDefaultCharacterFormat = RichTextCharacterFormat.Default with
+                        {
+                            FontFamily = ResolveFontFamily(),
+                            FontSize = ResolveFontSize(),
+                            ForegroundColor = ResolveTextColor(),
+                        };
+                        var rtf = RtfCodec.SerializeForNativeProjection(
+                            document,
+                            nativeDefaultCharacterFormat);
+                        LoadRtfDocument(nativeDocument, rtf);
                         loadedNativeRtf = true;
                     }
                     catch (Exception exception) when (exception is ArgumentException or COMException)
@@ -263,16 +274,59 @@ public partial class RichEditorHandler
 
     private partial void UpdatePlaceholder(RichEditor editor)
     {
-        PlatformView.PlaceholderText = editor.Placeholder;
-        PlatformView.Resources["TextControlPlaceholderForeground"] = editor.PlaceholderColor.ToPlatform();
+        if (editor.IsSet(RichEditor.PlaceholderProperty))
+        {
+            PlatformView.PlaceholderText = editor.Placeholder;
+        }
+
+        if (editor.IsSet(RichEditor.PlaceholderColorProperty))
+        {
+            if (editor.PlaceholderColor is { } placeholderColor)
+            {
+                PlatformView.Resources["TextControlPlaceholderForeground"] =
+                    placeholderColor.ToPlatform();
+            }
+            else
+            {
+                PlatformView.Resources.Remove("TextControlPlaceholderForeground");
+            }
+        }
     }
 
     private partial void UpdateAppearance(RichEditor editor)
     {
-        PlatformView.Foreground = editor.TextColor.ToPlatform();
-        PlatformView.FontFamily = new FontFamily(editor.FontFamily ?? "Segoe UI");
-        PlatformView.FontSize = editor.FontSize;
-        UpdatePlaceholder(editor);
+        if (editor.IsSet(RichEditor.TextColorProperty) && editor.TextColor is { } textColor)
+        {
+            PlatformView.Foreground = textColor.ToPlatform();
+        }
+        else if (editor.IsSet(RichEditor.TextColorProperty))
+        {
+            PlatformView.ClearValue(Microsoft.UI.Xaml.Controls.Control.ForegroundProperty);
+        }
+
+        if (editor.IsSet(RichEditor.FontFamilyProperty))
+        {
+            if (string.IsNullOrWhiteSpace(editor.FontFamily))
+            {
+                PlatformView.ClearValue(Microsoft.UI.Xaml.Controls.Control.FontFamilyProperty);
+            }
+            else
+            {
+                PlatformView.FontFamily = new FontFamily(editor.FontFamily);
+            }
+        }
+
+        if (editor.IsSet(RichEditor.FontSizeProperty))
+        {
+            if (editor.FontSize is { } fontSize)
+            {
+                PlatformView.FontSize = fontSize;
+            }
+            else
+            {
+                PlatformView.ClearValue(Microsoft.UI.Xaml.Controls.Control.FontSizeProperty);
+            }
+        }
 
         if (!_applyingDocument)
         {
@@ -288,15 +342,25 @@ public partial class RichEditorHandler
         ITextCharacterFormat native,
         RichTextCharacterFormat format)
     {
-        native.Name = format.FontFamily ?? VirtualView.FontFamily ?? "Segoe UI";
-        native.Size = (float)(format.FontSize ?? VirtualView.FontSize);
+        if ((format.FontFamily ?? VirtualView.FontFamily) is { } fontFamily)
+        {
+            native.Name = fontFamily;
+        }
+
+        if ((format.FontSize ?? VirtualView.FontSize) is { } fontSize)
+        {
+            native.Size = (float)fontSize;
+        }
         native.Weight = format.FontWeight;
         native.Italic = format.Italic ? FormatEffect.On : FormatEffect.Off;
         native.Underline = ToNativeUnderline(format.Underline);
         native.Strikethrough = format.Strikethrough == RichTextStrikethroughStyle.None
             ? FormatEffect.Off
             : FormatEffect.On;
-        native.ForegroundColor = ToWindowsColor(format.ForegroundColor ?? VirtualView.TextColor);
+        if ((format.ForegroundColor ?? ResolveTextColor()) is { } foregroundColor)
+        {
+            native.ForegroundColor = ToWindowsColor(foregroundColor);
+        }
         // Each caller supplies a pristine default-format clone. Leaving its background
         // untouched and later using SetClone is the WinUI reset path; RichEdit ignores
         // alpha on text backgrounds.
@@ -398,8 +462,14 @@ public partial class RichEditorHandler
         var snapshot = GetNativeTextSnapshot();
         var text = snapshot.Text;
         var nativeDocument = PlatformView.Document;
+        var previous = VirtualView.Document;
         var defaultCharacterFormat = ReadCharacterFormat(
-            nativeDocument.GetDefaultCharacterFormat());
+            nativeDocument.GetDefaultCharacterFormat()) with
+        {
+            FontFamily = previous.DefaultCharacterFormat.FontFamily,
+            FontSize = previous.DefaultCharacterFormat.FontSize,
+            ForegroundColor = previous.DefaultCharacterFormat.ForegroundColor,
+        };
         var defaultParagraphFormat = ReadParagraphFormat(
             nativeDocument.GetDefaultParagraphFormat(), null);
         var scanRange = nativeDocument.GetRange(0, 0);
@@ -439,7 +509,9 @@ public partial class RichEditorHandler
             start = newline + 1;
         }
 
-        var previous = VirtualView.Document;
+        var fontFamily = ResolveFontFamily();
+        var fontSize = ResolveFontSize();
+        var textColor = ResolveTextColor();
         return previous.MergeNativeSnapshot(
             text,
             snapshot.Runs,
@@ -448,7 +520,12 @@ public partial class RichEditorHandler
             null,
             defaultCharacterFormat,
             defaultParagraphFormat,
-            MergeWindowsCharacterFormat,
+            (native, prior) => MergeWindowsCharacterFormat(
+                native,
+                prior,
+                fontFamily,
+                fontSize,
+                textColor),
             MergeWindowsParagraphFormat);
     }
 
@@ -594,7 +671,15 @@ public partial class RichEditorHandler
 
     internal static RichTextCharacterFormat MergeWindowsCharacterFormat(
         RichTextCharacterFormat native,
-        RichTextCharacterFormat previous)
+        RichTextCharacterFormat previous) =>
+        MergeWindowsCharacterFormat(native, previous, null, null, null);
+
+    private static RichTextCharacterFormat MergeWindowsCharacterFormat(
+        RichTextCharacterFormat native,
+        RichTextCharacterFormat previous,
+        string? fontFamily,
+        double? fontSize,
+        Color? textColor)
     {
         var horizontalScale = ToNativeFontStretch(native.HorizontalScale) ==
             ToNativeFontStretch(previous.HorizontalScale)
@@ -602,6 +687,22 @@ public partial class RichEditorHandler
                 : native.HorizontalScale;
         return native with
         {
+            FontFamily = previous.FontFamily is null &&
+                string.Equals(native.FontFamily, fontFamily, StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : native.FontFamily,
+            FontSize = previous.FontSize is null &&
+                native.FontSize is { } nativeFontSize &&
+                fontSize is not null &&
+                Math.Abs(nativeFontSize - fontSize.Value) < 0.01d
+                    ? null
+                    : native.FontSize,
+            ForegroundColor = previous.ForegroundColor is null &&
+                native.ForegroundColor is { } nativeForeground &&
+                textColor is not null &&
+                ToWindowsColor(nativeForeground).Equals(ToWindowsColor(textColor))
+                    ? null
+                    : native.ForegroundColor,
             UnderlineColor = previous.UnderlineColor,
             Strikethrough = native.Strikethrough != RichTextStrikethroughStyle.None &&
                 previous.Strikethrough == RichTextStrikethroughStyle.Double
@@ -889,6 +990,43 @@ public partial class RichEditorHandler
             ? null
             : Color.FromRgba(color.R, color.G, color.B, color.A);
 
+    private Color? ResolveTextColor()
+    {
+        if (VirtualView.TextColor is { } textColor)
+        {
+            return textColor;
+        }
+
+        if (PlatformView.Foreground is Microsoft.UI.Xaml.Media.SolidColorBrush foreground)
+        {
+            return FromWindowsColor(foreground.Color);
+        }
+
+        return FromWindowsColor(PlatformView.Document.GetDefaultCharacterFormat().ForegroundColor);
+    }
+
+    private string? ResolveFontFamily()
+    {
+        if (!string.IsNullOrWhiteSpace(VirtualView.FontFamily))
+        {
+            return VirtualView.FontFamily;
+        }
+
+        return PlatformView.FontFamily?.Source;
+    }
+
+    private double? ResolveFontSize()
+    {
+        if (VirtualView.FontSize is { } fontSize)
+        {
+            return fontSize;
+        }
+
+        return double.IsFinite(PlatformView.FontSize) && PlatformView.FontSize > 0
+            ? PlatformView.FontSize
+            : null;
+    }
+
     private static int GetParagraphEnd(string text, int start)
     {
         var newline = text.IndexOf('\n', start);
@@ -898,6 +1036,17 @@ public partial class RichEditorHandler
     private void OnPlatformViewLoaded(object sender, RoutedEventArgs eventArgs)
     {
         if (VirtualView is null)
+        {
+            return;
+        }
+
+        ApplyDocumentCore(VirtualView.Document, VirtualView.SelectionStart, VirtualView.SelectionLength);
+        ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
+    }
+
+    private void OnPlatformThemeChanged(FrameworkElement sender, object args)
+    {
+        if (VirtualView is null || VirtualView.TextColor is not null)
         {
             return;
         }

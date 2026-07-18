@@ -38,6 +38,18 @@ internal static class RtfCodec
         return new Writer(document, includeSemanticRanges: false).Write();
     }
 
+    public static string SerializeForNativeProjection(
+        RichTextDocument document,
+        RichTextCharacterFormat nativeDefaultCharacterFormat)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(nativeDefaultCharacterFormat);
+        return new Writer(
+            document,
+            includeSemanticRanges: false,
+            nativeDefaultCharacterFormat).Write();
+    }
+
     public static RichTextDocument Parse(string rtf)
     {
         ArgumentNullException.ThrowIfNull(rtf);
@@ -67,11 +79,19 @@ internal static class RtfCodec
         private readonly Dictionary<int, RichTextImage> _imagesByPosition;
         private readonly int[] _semanticStarts;
         private readonly int[] _semanticBoundaries;
+        private readonly RichTextCharacterFormat? _nativeDefaultCharacterFormat;
 
-        public Writer(RichTextDocument document, bool includeSemanticRanges = true)
+        public Writer(
+            RichTextDocument document,
+            bool includeSemanticRanges = true,
+            RichTextCharacterFormat? nativeDefaultCharacterFormat = null)
         {
             _document = document;
-            AddFont(document.DefaultCharacterFormat.FontFamily ?? "Arial");
+            _nativeDefaultCharacterFormat = nativeDefaultCharacterFormat;
+            AddFont(
+                document.DefaultCharacterFormat.FontFamily ??
+                nativeDefaultCharacterFormat?.FontFamily ??
+                "Arial");
             BuildFormattingTables();
             _listPictures = document.Paragraphs
                 .Select(paragraph => paragraph.Format.List?.PictureId)
@@ -137,6 +157,17 @@ internal static class RtfCodec
 
         private void BuildFormattingTables()
         {
+            if (_nativeDefaultCharacterFormat?.FontFamily is { } fontFamily)
+            {
+                AddFont(fontFamily);
+            }
+
+            if (_nativeDefaultCharacterFormat?.FontSize is { } nativeFontSize)
+            {
+                _ = GetHalfPointSize(nativeFontSize);
+            }
+
+            AddColor(_nativeDefaultCharacterFormat?.ForegroundColor);
             AddCharacterFormatColors(_document.DefaultCharacterFormat);
             AddParagraphFormatColors(_document.DefaultParagraphFormat);
             if (_document.DefaultCharacterFormat.FontSize is { } defaultFontSize)
@@ -509,6 +540,11 @@ internal static class RtfCodec
         private void WriteParagraph(int start, int end, bool hasParagraphBreak)
         {
             _output.Append(@"{\pard\plain");
+            if (_nativeDefaultCharacterFormat is not null)
+            {
+                WriteNativeDefaultAppearance(_document.DefaultCharacterFormat);
+            }
+
             var paragraphFormat = _document.GetParagraphFormat(start);
             WriteParagraphFormatControls(paragraphFormat, _document.DefaultParagraphFormat);
 
@@ -993,6 +1029,28 @@ internal static class RtfCodec
             _output.Append('}');
         }
 
+        private void WriteNativeDefaultAppearance(RichTextCharacterFormat format)
+        {
+            var nativeDefaultCharacterFormat = _nativeDefaultCharacterFormat ??
+                throw new InvalidOperationException("A native default format is required.");
+            var fontFamily = format.FontFamily ?? nativeDefaultCharacterFormat.FontFamily;
+            if (fontFamily is not null)
+            {
+                _output.Append(@"\f").Append(_fontIndices[fontFamily]);
+            }
+
+            var fontSize = format.FontSize ?? nativeDefaultCharacterFormat.FontSize;
+            if (fontSize is not null)
+            {
+                _output.Append(@"\fs").Append(GetHalfPointSize(fontSize.Value));
+            }
+
+            WriteColorControl(
+                @"\cf",
+                format.ForegroundColor ?? nativeDefaultCharacterFormat.ForegroundColor,
+                null);
+        }
+
         private void WriteFormatControls(
             RichTextCharacterFormat format,
             RichTextCharacterFormat baseline)
@@ -1012,15 +1070,20 @@ internal static class RtfCodec
                 WriteUnderlineControl(format.Underline);
             }
 
-            if (!string.Equals(format.FontFamily, baseline.FontFamily, StringComparison.Ordinal) &&
-                format.FontFamily is not null)
+            var fontFamily = format.FontFamily ?? _nativeDefaultCharacterFormat?.FontFamily;
+            var baselineFontFamily = baseline.FontFamily ??
+                _nativeDefaultCharacterFormat?.FontFamily;
+            if (!string.Equals(fontFamily, baselineFontFamily, StringComparison.Ordinal) &&
+                fontFamily is not null)
             {
-                _output.Append(@"\f").Append(_fontIndices[format.FontFamily]);
+                _output.Append(@"\f").Append(_fontIndices[fontFamily]);
             }
 
-            if (format.FontSize != baseline.FontSize && format.FontSize is { } fontSize)
+            var fontSize = format.FontSize ?? _nativeDefaultCharacterFormat?.FontSize;
+            var baselineFontSize = baseline.FontSize ?? _nativeDefaultCharacterFormat?.FontSize;
+            if (fontSize != baselineFontSize && fontSize is not null)
             {
-                _output.Append(@"\fs").Append(GetHalfPointSize(fontSize));
+                _output.Append(@"\fs").Append(GetHalfPointSize(fontSize.Value));
             }
 
             if (format.Script != baseline.Script)
@@ -1033,7 +1096,10 @@ internal static class RtfCodec
                 });
             }
 
-            WriteColorControl(@"\cf", format.ForegroundColor, baseline.ForegroundColor);
+            WriteColorControl(
+                @"\cf",
+                format.ForegroundColor ?? _nativeDefaultCharacterFormat?.ForegroundColor,
+                baseline.ForegroundColor ?? _nativeDefaultCharacterFormat?.ForegroundColor);
             WriteColorControl(@"\highlight", format.BackgroundColor, baseline.BackgroundColor);
             WriteColorControl(@"\ulc", format.UnderlineColor, baseline.UnderlineColor);
 

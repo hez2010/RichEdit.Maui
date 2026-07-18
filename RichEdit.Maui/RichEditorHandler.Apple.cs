@@ -12,6 +12,7 @@ namespace RichEdit.Maui.Platforms.Apple
 {
     public class RichTextView : UITextView
     {
+        private readonly UIColor _defaultPlaceholderColor;
         private readonly UILabel _placeholderLabel;
 
         public RichTextView()
@@ -22,19 +23,23 @@ namespace RichEdit.Maui.Platforms.Apple
                 Lines = 0,
                 UserInteractionEnabled = false,
             };
+            _defaultPlaceholderColor = _placeholderLabel.TextColor ?? UIColor.Label;
 
             AddSubview(_placeholderLabel);
             TextContainerInset = new UIEdgeInsets(10, 8, 10, 8);
         }
 
-        public void SetPlaceholder(string? text, UIColor color, UIFont font)
+        public void SetPlaceholder(string? text)
         {
             _placeholderLabel.Text = text;
-            _placeholderLabel.TextColor = color;
-            _placeholderLabel.Font = font;
             UpdatePlaceholderVisibility();
             SetNeedsLayout();
         }
+
+        public void SetPlaceholderColor(UIColor? color) =>
+            _placeholderLabel.TextColor = color ?? _defaultPlaceholderColor;
+
+        public void SetPlaceholderFont(UIFont font) => _placeholderLabel.Font = font;
 
         public void UpdatePlaceholderVisibility() =>
             _placeholderLabel.Hidden = !string.IsNullOrEmpty(Text);
@@ -75,18 +80,28 @@ namespace RichEdit.Maui
             new("RichEdit.Maui.Image");
 
         private bool _applyingDocument;
+        private UIFont _defaultFont = UIFont.SystemFontOfSize(UIFont.SystemFontSize)!;
+        private UIColor _defaultTextColor = UIColor.Label;
+        private UIColor _defaultTintColor = UIColor.SystemBlue;
         private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
         private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
         private RichTextViewDelegate? _textViewDelegate;
 
-        protected override RichTextView CreatePlatformView() => new()
+        protected override RichTextView CreatePlatformView()
         {
-            AllowsEditingTextAttributes = true,
-            AutocorrectionType = UITextAutocorrectionType.Yes,
-            Editable = true,
-            ScrollEnabled = true,
-            SpellCheckingType = UITextSpellCheckingType.Yes,
-        };
+            var textView = new RichTextView
+            {
+                AllowsEditingTextAttributes = true,
+                AutocorrectionType = UITextAutocorrectionType.Yes,
+                Editable = true,
+                ScrollEnabled = true,
+                SpellCheckingType = UITextSpellCheckingType.Yes,
+            };
+            _defaultFont = textView.Font ?? UIFont.SystemFontOfSize(UIFont.SystemFontSize)!;
+            _defaultTextColor = textView.TextColor ?? UIColor.Label;
+            _defaultTintColor = textView.TintColor ?? UIColor.SystemBlue;
+            return textView;
+        }
 
         protected override void ConnectHandler(RichTextView platformView)
         {
@@ -221,18 +236,35 @@ namespace RichEdit.Maui
             PlatformView.SelectedRange = new NSRange(start, length);
         }
 
-        private partial void UpdatePlaceholder(RichEditor editor) =>
-            PlatformView.SetPlaceholder(
-                editor.Placeholder,
-                editor.PlaceholderColor.ToPlatform(),
-                ResolveFont(RichTextCharacterFormat.Default));
+        private partial void UpdatePlaceholder(RichEditor editor)
+        {
+            if (editor.IsSet(RichEditor.PlaceholderProperty))
+            {
+                PlatformView.SetPlaceholder(editor.Placeholder);
+            }
+
+            if (editor.IsSet(RichEditor.PlaceholderColorProperty))
+            {
+                PlatformView.SetPlaceholderColor(editor.PlaceholderColor?.ToPlatform());
+            }
+        }
 
         private partial void UpdateAppearance(RichEditor editor)
         {
-            PlatformView.Font = ResolveFont(RichTextCharacterFormat.Default);
-            PlatformView.TextColor = editor.TextColor.ToPlatform();
-            PlatformView.TintColor = editor.TextColor.ToPlatform();
-            UpdatePlaceholder(editor);
+            if (editor.IsSet(RichEditor.FontFamilyProperty) ||
+                editor.IsSet(RichEditor.FontSizeProperty))
+            {
+                var font = ResolveFont(RichTextCharacterFormat.Default);
+                PlatformView.Font = font;
+                PlatformView.SetPlaceholderFont(font);
+            }
+
+            if (editor.IsSet(RichEditor.TextColorProperty))
+            {
+                var textColor = editor.TextColor?.ToPlatform();
+                PlatformView.TextColor = textColor ?? _defaultTextColor;
+                PlatformView.TintColor = textColor ?? _defaultTintColor;
+            }
 
             if (!_applyingDocument)
             {
@@ -251,10 +283,14 @@ namespace RichEdit.Maui
         {
             var foreground = format.Hidden
                 ? UIColor.Clear
-                : (format.ForegroundColor ?? VirtualView.TextColor).ToPlatform();
+                : format.ForegroundColor?.ToPlatform() ??
+                  VirtualView.TextColor?.ToPlatform() ??
+                  PlatformView.TextColor ??
+                  UIColor.Label;
+            var font = ResolveFont(format);
             var attributes = new UIStringAttributes
             {
-                Font = ResolveFont(format),
+                Font = font,
                 ForegroundColor = foreground,
                 UnderlineStyle = ToNativeUnderline(format.Underline),
                 StrikethroughStyle = format.Strikethrough switch
@@ -263,7 +299,7 @@ namespace RichEdit.Maui
                     RichTextStrikethroughStyle.Single => NSUnderlineStyle.Single,
                     _ => NSUnderlineStyle.None,
                 },
-                BaselineOffset = (float)GetNativeBaselineOffset(format),
+                BaselineOffset = (float)GetNativeBaselineOffset(format, font.PointSize),
                 KerningAdjustment = (float)format.CharacterSpacing,
                 Expansion = (float)(format.HorizontalScale - 1d),
             };
@@ -466,12 +502,7 @@ namespace RichEdit.Maui
             var attributed = PlatformView.AttributedText ?? new NSAttributedString(string.Empty);
             var text = attributed.Value ?? string.Empty;
             var previous = VirtualView.Document;
-            var defaultCharacterFormat = previous.DefaultCharacterFormat with
-            {
-                FontFamily = previous.DefaultCharacterFormat.FontFamily ?? VirtualView.FontFamily,
-                FontSize = previous.DefaultCharacterFormat.FontSize ?? VirtualView.FontSize,
-                ForegroundColor = previous.DefaultCharacterFormat.ForegroundColor ?? VirtualView.TextColor,
-            };
+            var defaultCharacterFormat = previous.DefaultCharacterFormat;
 
             var runs = new List<RichTextRun>();
             var links = new List<RichTextLink>();
@@ -607,8 +638,12 @@ namespace RichEdit.Maui
                 var traits = font.FontDescriptor.SymbolicTraits;
                 format = format with
                 {
-                    FontFamily = font.FamilyName,
-                    FontSize = font.PointSize,
+                    FontFamily = metadata is null || metadata.Format.FontFamily is not null
+                        ? font.FamilyName
+                        : format.FontFamily,
+                    FontSize = metadata is null || metadata.Format.FontSize is not null
+                        ? font.PointSize
+                        : format.FontSize,
                     FontWeight = traits.HasFlag(UIFontDescriptorSymbolicTraits.Bold)
                         ? Math.Max(format.FontWeight, 700)
                         : metadata is null ? 400 : format.FontWeight,
@@ -616,7 +651,8 @@ namespace RichEdit.Maui
                 };
             }
 
-            if (attributes.ForegroundColor is { } foreground && !format.Hidden)
+            if (attributes.ForegroundColor is { } foreground && !format.Hidden &&
+                (metadata is null || metadata.Format.ForegroundColor is not null))
             {
                 format = format with { ForegroundColor = FromUIColor(foreground) };
             }
@@ -1031,9 +1067,9 @@ namespace RichEdit.Maui
         private UIFont ResolveFont(RichTextCharacterFormat format)
         {
             var family = format.FontFamily ?? VirtualView.FontFamily;
-            var size = (nfloat)(format.FontSize ?? VirtualView.FontSize);
+            var size = (nfloat)(format.FontSize ?? VirtualView.FontSize ?? _defaultFont.PointSize);
             var font = (string.IsNullOrWhiteSpace(family)
-                ? UIFont.SystemFontOfSize(size)
+                ? UIFont.FromDescriptor(_defaultFont.FontDescriptor, size) ?? _defaultFont
                 : UIFont.FromName(family, size) ?? UIFont.SystemFontOfSize(size))!;
 
             var traits = (UIFontDescriptorSymbolicTraits)0;
@@ -1126,11 +1162,13 @@ namespace RichEdit.Maui
                 : RichTextUnderlineStyle.Single;
         }
 
-        private static double GetNativeBaselineOffset(RichTextCharacterFormat format) =>
+        private static double GetNativeBaselineOffset(
+            RichTextCharacterFormat format,
+            double defaultFontSize) =>
             format.BaselineOffset + format.Script switch
             {
-                RichTextScript.Superscript => (format.FontSize ?? 12d) * 0.35d,
-                RichTextScript.Subscript => (format.FontSize ?? 12d) * -0.15d,
+                RichTextScript.Superscript => (format.FontSize ?? defaultFontSize) * 0.35d,
+                RichTextScript.Subscript => (format.FontSize ?? defaultFontSize) * -0.15d,
                 _ => 0,
             };
 

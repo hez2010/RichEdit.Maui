@@ -670,6 +670,38 @@ public sealed class RtfArchitectureTests
     }
 
     [Fact]
+    public void NativeProjectionUsesTheViewAppearanceForUnformattedText()
+    {
+        var document = new RichTextDocument(
+            "AB",
+            runs:
+            [
+                new RichTextRun(0, 1, RichTextCharacterFormat.Default),
+                new RichTextRun(
+                    1,
+                    1,
+                    RichTextCharacterFormat.Default with { ForegroundColor = Colors.Red }),
+            ]);
+
+        var nativeDefaults = RichTextCharacterFormat.Default with
+        {
+            FontFamily = "Segoe UI",
+            FontSize = 15,
+            ForegroundColor = Colors.White,
+        };
+        var rtf = RtfCodec.SerializeForNativeProjection(document, nativeDefaults);
+        var parsed = RichTextDocument.FromRtf(rtf);
+
+        AssertColor(Colors.White, parsed.GetCharacterFormat(0).ForegroundColor);
+        AssertColor(Colors.Red, parsed.GetCharacterFormat(1).ForegroundColor);
+        Assert.Equal("Segoe UI", parsed.GetCharacterFormat(0).FontFamily);
+        Assert.Equal(15, parsed.GetCharacterFormat(0).FontSize);
+        Assert.Null(document.GetCharacterFormat(0).ForegroundColor);
+        Assert.Null(document.GetCharacterFormat(0).FontFamily);
+        Assert.Null(document.GetCharacterFormat(0).FontSize);
+    }
+
+    [Fact]
     public void BinaryPictureDataIsImported()
     {
         var rtf = "{\\rtf1{\\pict\\jpegblip\\picwgoal200\\pichgoal100\\bin3 " +
