@@ -704,11 +704,15 @@ namespace RichEdit.Maui
             }
 
             RichTextListFormat? list = format.List;
-            if (metadata is null &&
-                (OperatingSystem.IsIOSVersionAtLeast(16) ||
-                 OperatingSystem.IsMacCatalystVersionAtLeast(16)))
+            if (OperatingSystem.IsIOSVersionAtLeast(16) ||
+                OperatingSystem.IsMacCatalystVersionAtLeast(16))
             {
-                list = ReadNativeTextList(style);
+                var nativeList = ReadNativeTextList(style);
+                // A paragraph can retain inherited metadata after its native list is removed.
+                // Native list membership is authoritative; metadata preserves richer details.
+                list = nativeList is null
+                    ? null
+                    : list ?? nativeList;
             }
 
             var lineSpacingRule = RichTextLineSpacingRule.Automatic;
@@ -1142,6 +1146,86 @@ namespace RichEdit.Maui
             return newline < 0 ? text.Length : newline + 1;
         }
 
+        // UIKit continues NSTextList formatting indefinitely, including on empty items.
+        private bool TryExitEmptyListParagraph(
+            UITextView textView,
+            NSRange range,
+            string replacementText)
+        {
+            if (_applyingDocument || VirtualView is null ||
+                range.Length != 0 || range.Location < 0 || range.Location > int.MaxValue ||
+                !string.Equals(replacementText, "\n", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var document = VirtualView.Document;
+            var text = document.Text;
+            var textStorage = textView.TextStorage;
+            var paragraphStart = (int)range.Location;
+            if (textStorage.Length != text.Length ||
+                paragraphStart > text.Length ||
+                (paragraphStart > 0 && text[paragraphStart - 1] != '\n') ||
+                document.GetParagraphFormat(paragraphStart).List is null)
+            {
+                return false;
+            }
+
+            var paragraphEnd = GetParagraphEnd(text, paragraphStart);
+            if (paragraphEnd > paragraphStart && text[paragraphEnd - 1] == '\n')
+            {
+                paragraphEnd--;
+            }
+
+            if (paragraphEnd != paragraphStart)
+            {
+                return false;
+            }
+
+            document = document.ApplyParagraphFormat(
+                paragraphStart..paragraphStart,
+                format => format with { List = null });
+            var paragraphFormat = document.GetParagraphFormat(paragraphStart);
+            var characterFormat = document.GetCaretFormat(paragraphStart);
+
+            _applyingDocument = true;
+            try
+            {
+                var attributedParagraphEnd = GetParagraphEnd(text, paragraphStart);
+                if (attributedParagraphEnd > paragraphStart)
+                {
+                    using var attributes = CreateParagraphAttributes(paragraphFormat);
+                    textStorage.BeginEditing();
+                    try
+                    {
+                        textStorage.AddAttributes(
+                            attributes,
+                            new NSRange(
+                                paragraphStart,
+                                attributedParagraphEnd - paragraphStart));
+                    }
+                    finally
+                    {
+                        textStorage.EndEditing();
+                    }
+                }
+
+                textView.SelectedRange = new NSRange(paragraphStart, 0);
+                ApplyTypingFormatCore(characterFormat, paragraphFormat);
+                textView.SetNeedsLayout();
+                textView.SetNeedsDisplay();
+            }
+            finally
+            {
+                _applyingDocument = false;
+            }
+
+            VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0);
+            _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+            _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+            return true;
+        }
+
         private void OnNativeDocumentChanged(UITextView textView)
         {
             if (_applyingDocument || VirtualView is null)
@@ -1184,6 +1268,13 @@ namespace RichEdit.Maui
         private sealed class RichTextViewDelegate(RichEditorHandler handler) : UITextViewDelegate
         {
             private readonly WeakReference<RichEditorHandler> _handler = new(handler);
+
+            public override bool ShouldChangeText(
+                UITextView textView,
+                NSRange range,
+                string text) =>
+                !_handler.TryGetTarget(out var target) ||
+                !target.TryExitEmptyListParagraph(textView, range, text);
 
             public override void Changed(UITextView textView)
             {
