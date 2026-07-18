@@ -44,8 +44,16 @@ Editor.ToggleUnderline();
 Editor.ToggleStrikethrough();
 Editor.ToggleSuperscript();
 Editor.ToggleSubscript();
-Editor.ToggleBulletedList();
-Editor.ToggleNumberedList();
+Editor.ToggleBulletedList("•");
+Editor.ToggleNumberedList(RichListNumberStyle.Arabic, startAt: 1);
+Editor.ToggleList(new RichTextListFormat
+{
+    Kind = RichListKind.Numbered,
+    NumberStyle = RichListNumberStyle.UpperRoman,
+    StartAt = 4,
+    Prefix = "(",
+    Suffix = ")",
+});
 Editor.UpdateSelectedCharacterFormat(format => format with
 {
     FontFamily = "Georgia",
@@ -58,6 +66,8 @@ Editor.UpdateSelectedParagraphFormat(format => format with
     Alignment = RichTextAlignment.Center,
 });
 ```
+
+List commands do not choose a marker or numbering scheme. The convenience methods require those choices, while `ToggleList` accepts the complete `RichTextListFormat`. A zero `Id` asks the editor to allocate a new list identity; a positive `Id` is preserved.
 
 `SelectedCharacterFormat` and `SelectedParagraphFormat` are `null` when the selection contains mixed formatting. `TypingCharacterFormat` and `TypingParagraphFormat` always expose the format that will be used for newly inserted text.
 
@@ -100,6 +110,8 @@ var document = new RichTextDocument(
                 {
                     Id = 1,
                     Kind = RichListKind.Bulleted,
+                    BulletText = "→",
+                    Suffix = string.Empty,
                 },
             }),
         new RichTextParagraph(
@@ -110,6 +122,9 @@ var document = new RichTextDocument(
                 {
                     Id = 2,
                     Kind = RichListKind.Numbered,
+                    NumberStyle = RichListNumberStyle.LowerLetter,
+                    StartAt = 3,
+                    Suffix = ")",
                 },
             }),
     ]);

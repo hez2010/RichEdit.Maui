@@ -200,13 +200,13 @@ public partial class MainPage : ContentPage
 
     private void OnBulletedListClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleBulletedList();
+        Editor.ToggleBulletedList("•");
         Editor.Focus();
     }
 
     private void OnNumberedListClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleNumberedList();
+        Editor.ToggleNumberedList(RichListNumberStyle.Arabic, startAt: 1);
         Editor.Focus();
     }
 

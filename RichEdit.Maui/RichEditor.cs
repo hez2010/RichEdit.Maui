@@ -300,9 +300,78 @@ public class RichEditor : View
 
     public void ToggleSubscript() => ToggleScript(RichTextScript.Subscript);
 
-    public void ToggleBulletedList() => ToggleList(RichListKind.Bulleted);
+    public void ToggleBulletedList(
+        string bulletText,
+        string prefix = "",
+        string suffix = "")
+    {
+        ArgumentException.ThrowIfNullOrEmpty(bulletText);
+        ArgumentNullException.ThrowIfNull(prefix);
+        ArgumentNullException.ThrowIfNull(suffix);
+        ToggleList(new RichTextListFormat
+        {
+            Kind = RichListKind.Bulleted,
+            Prefix = prefix,
+            Suffix = suffix,
+            BulletText = bulletText,
+        });
+    }
 
-    public void ToggleNumberedList() => ToggleList(RichListKind.Numbered);
+    public void ToggleNumberedList(
+        RichListNumberStyle numberStyle,
+        int startAt,
+        string prefix = "",
+        string suffix = ".")
+    {
+        if (!Enum.IsDefined(numberStyle))
+        {
+            throw new ArgumentOutOfRangeException(nameof(numberStyle));
+        }
+
+        if (startAt <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(startAt));
+        }
+
+        ArgumentNullException.ThrowIfNull(prefix);
+        ArgumentNullException.ThrowIfNull(suffix);
+        ToggleList(new RichTextListFormat
+        {
+            Kind = RichListKind.Numbered,
+            NumberStyle = numberStyle,
+            StartAt = startAt,
+            Prefix = prefix,
+            Suffix = suffix,
+        });
+    }
+
+    public void ToggleList(RichTextListFormat listFormat)
+    {
+        ArgumentNullException.ThrowIfNull(listFormat);
+        if (listFormat.Id < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(listFormat), "A list ID cannot be negative.");
+        }
+
+        var remove = AllSelectedParagraphFormats(format =>
+            format.List is { } list && HasSameListStyle(list, listFormat));
+        if (remove)
+        {
+            UpdateSelectedParagraphFormat(format => format with { List = null });
+            return;
+        }
+
+        var appliedListFormat = listFormat.Id == 0
+            ? listFormat with
+            {
+                Id = checked(Document.Paragraphs
+                    .Select(paragraph => paragraph.Format.List?.Id ?? 0)
+                    .DefaultIfEmpty()
+                    .Max() + 1),
+            }
+            : listFormat;
+        UpdateSelectedParagraphFormat(format => format with { List = appliedListFormat });
+    }
 
     public void SetSelectedLink(string target, string? toolTip = null)
     {
@@ -447,25 +516,19 @@ public class RichEditor : View
         });
     }
 
-    private void ToggleList(RichListKind kind)
-    {
-        var remove = AllSelectedParagraphFormats(format => format.List?.Kind == kind);
-        var listId = Document.Paragraphs
-            .Select(paragraph => paragraph.Format.List?.Id ?? 0)
-            .DefaultIfEmpty()
-            .Max() + 1;
-        UpdateSelectedParagraphFormat(format => format with
-        {
-            List = remove
-                ? null
-                : new RichTextListFormat
-                {
-                    Id = listId,
-                    Kind = kind,
-                    BulletText = "•",
-                },
-        });
-    }
+    private static bool HasSameListStyle(
+        RichTextListFormat left,
+        RichTextListFormat right) =>
+        (right.Id == 0 || left.Id == right.Id) &&
+        left.Level == right.Level &&
+        left.Kind == right.Kind &&
+        left.NumberStyle == right.NumberStyle &&
+        left.StartAt == right.StartAt &&
+        left.Restart == right.Restart &&
+        string.Equals(left.Prefix, right.Prefix, StringComparison.Ordinal) &&
+        string.Equals(left.Suffix, right.Suffix, StringComparison.Ordinal) &&
+        string.Equals(left.BulletText, right.BulletText, StringComparison.Ordinal) &&
+        string.Equals(left.PictureId, right.PictureId, StringComparison.Ordinal);
 
     private bool AllSelectedCharacterFormats(Func<RichTextCharacterFormat, bool> predicate)
     {
