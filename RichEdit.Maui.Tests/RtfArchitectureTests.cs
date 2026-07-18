@@ -1,19 +1,25 @@
 namespace RichEdit.Maui.Tests;
 
+using RichTextDocument = global::RichEdit.Maui.RichTextDocumentSnapshot;
+
 public sealed class RtfArchitectureTests
 {
     [Theory]
-    [InlineData(4, RichListNumberStyle.Arabic, "4")]
-    [InlineData(4, RichListNumberStyle.UpperRoman, "IV")]
-    [InlineData(14, RichListNumberStyle.LowerRoman, "xiv")]
-    [InlineData(27, RichListNumberStyle.UpperLetter, "AA")]
-    [InlineData(52, RichListNumberStyle.LowerLetter, "az")]
+    [InlineData(4, RichTextListNumberStyle.Arabic, "4")]
+    [InlineData(4, RichTextListNumberStyle.UpperRoman, "IV")]
+    [InlineData(14, RichTextListNumberStyle.LowerRoman, "xiv")]
+    [InlineData(27, RichTextListNumberStyle.UpperLetter, "AA")]
+    [InlineData(52, RichTextListNumberStyle.LowerLetter, "az")]
     public void SharedListNumberFormatterMatchesRtfMarkers(
         int number,
-        RichListNumberStyle style,
+        RichTextListNumberStyle style,
         string expected)
     {
-        Assert.Equal(expected, RichTextListFormatter.FormatNumber(number, style));
+        Assert.Equal(
+            expected,
+            RichTextListFormatter.FormatNumber(
+                number,
+                RichTextListConversions.ToNativeNumberStyle(style)));
     }
 
     [Fact]
@@ -46,17 +52,17 @@ public sealed class RtfArchitectureTests
             "First\nSecond",
             paragraphs:
             [
-                new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = list }),
-                new RichTextParagraph(6, RichTextParagraphFormat.Default with { List = list }),
+                new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list }),
+                new RichTextParagraph(6, RichTextParagraphFormat.Default with { NativeList = list }),
             ]);
 
         var rtf = document.ToRtf();
         var parsed = RichTextDocument.FromRtf(rtf);
 
         Assert.Equal("First\nSecond", parsed.Text);
-        Assert.Equal(2, parsed.Paragraphs.Count);
-        Assert.All(parsed.Paragraphs, paragraph => Assert.Equal(RichListKind.Numbered, paragraph.Format.List?.Kind));
-        Assert.Equal(RichListNumberStyle.UpperRoman, parsed.Paragraphs[0].Format.List?.NumberStyle);
+        Assert.Equal(2, parsed.Paragraphs.Length);
+        Assert.All(parsed.Paragraphs, paragraph => Assert.Equal(RichListKind.Numbered, paragraph.Format.NativeList?.Kind));
+        Assert.Equal(RichListNumberStyle.UpperRoman, parsed.Paragraphs[0].Format.NativeList?.NumberStyle);
         Assert.Contains("IV)", rtf, StringComparison.Ordinal);
         Assert.Contains("V)", rtf, StringComparison.Ordinal);
     }
@@ -74,13 +80,13 @@ public sealed class RtfArchitectureTests
         var document = new RichTextDocument(
             "Alpha",
             paragraphs:
-            [new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = list })]);
+            [new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list })]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
 
         Assert.Equal("Alpha", parsed.Text);
-        Assert.Equal(RichListKind.Bulleted, parsed.Paragraphs[0].Format.List?.Kind);
-        Assert.Equal("→", parsed.Paragraphs[0].Format.List?.BulletText);
+        Assert.Equal(RichListKind.Bulleted, parsed.Paragraphs[0].Format.NativeList?.Kind);
+        Assert.Equal("→", parsed.Paragraphs[0].Format.NativeList?.BulletText);
     }
 
     [Fact]
@@ -105,8 +111,8 @@ public sealed class RtfArchitectureTests
             "Alpha\nBeta",
             paragraphs:
             [
-                new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = list }),
-                new RichTextParagraph(6, RichTextParagraphFormat.Default with { List = list }),
+                new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list }),
+                new RichTextParagraph(6, RichTextParagraphFormat.Default with { NativeList = list }),
             ],
             listPictures: [picture]);
 
@@ -125,7 +131,7 @@ public sealed class RtfArchitectureTests
         Assert.Equal(picture.AlternativeText, parsedPicture.AlternativeText);
         Assert.All(
             parsed.Paragraphs,
-            paragraph => Assert.Equal(parsedPicture.Id, paragraph.Format.List?.PictureId));
+            paragraph => Assert.Equal(parsedPicture.Id, paragraph.Format.NativeList?.PictureId));
     }
 
     [Fact]
@@ -141,8 +147,8 @@ public sealed class RtfArchitectureTests
         var parsed = RichTextDocument.FromRtf(rtf);
 
         Assert.Single(parsed.ListPictures);
-        Assert.Equal(RichListKind.Numbered, parsed.GetParagraphFormat(0).List?.Kind);
-        Assert.Null(parsed.GetParagraphFormat(0).List?.PictureId);
+        Assert.Equal(RichListKind.Numbered, parsed.GetParagraphFormat(0).NativeList?.Kind);
+        Assert.Null(parsed.GetParagraphFormat(0).NativeList?.PictureId);
     }
 
     [Fact]
@@ -180,10 +186,10 @@ public sealed class RtfArchitectureTests
             "Top\nChild\nPeer\nAgain",
             paragraphs:
             [
-                new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = topLevel }),
-                new RichTextParagraph(4, RichTextParagraphFormat.Default with { List = bulletLevel }),
-                new RichTextParagraph(10, RichTextParagraphFormat.Default with { List = letterLevel }),
-                new RichTextParagraph(15, RichTextParagraphFormat.Default with { List = bulletLevel }),
+                new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = topLevel }),
+                new RichTextParagraph(4, RichTextParagraphFormat.Default with { NativeList = bulletLevel }),
+                new RichTextParagraph(10, RichTextParagraphFormat.Default with { NativeList = letterLevel }),
+                new RichTextParagraph(15, RichTextParagraphFormat.Default with { NativeList = bulletLevel }),
             ]);
 
         var rtf = document.ToRtf();
@@ -196,10 +202,10 @@ public sealed class RtfArchitectureTests
         Assert.Contains("(3)", rtf, StringComparison.Ordinal);
         Assert.Contains("[b]", rtf, StringComparison.Ordinal);
 
-        Assert.Equal(topLevel with { Id = 1 }, parsed.Paragraphs[0].Format.List);
-        Assert.Equal(bulletLevel with { Id = 1 }, parsed.Paragraphs[1].Format.List);
-        Assert.Equal(letterLevel with { Id = 1 }, parsed.Paragraphs[2].Format.List);
-        Assert.Equal(bulletLevel with { Id = 1 }, parsed.Paragraphs[3].Format.List);
+        Assert.Equal(topLevel with { Id = 1 }, parsed.Paragraphs[0].Format.NativeList);
+        Assert.Equal(bulletLevel with { Id = 1 }, parsed.Paragraphs[1].Format.NativeList);
+        Assert.Equal(letterLevel with { Id = 1 }, parsed.Paragraphs[2].Format.NativeList);
+        Assert.Equal(bulletLevel with { Id = 1 }, parsed.Paragraphs[3].Format.NativeList);
     }
 
     [Fact]
@@ -218,12 +224,12 @@ public sealed class RtfArchitectureTests
             "A\nB\nC\nD\nE\nF",
             paragraphs:
             [
-                new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = List(0) }),
-                new RichTextParagraph(2, RichTextParagraphFormat.Default with { List = List(1, 5) }),
-                new RichTextParagraph(4, RichTextParagraphFormat.Default with { List = List(1, 5) }),
-                new RichTextParagraph(6, RichTextParagraphFormat.Default with { List = List(0) }),
-                new RichTextParagraph(8, RichTextParagraphFormat.Default with { List = List(1, 5, restart: true) }),
-                new RichTextParagraph(10, RichTextParagraphFormat.Default with { List = List(0) }),
+                new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = List(0) }),
+                new RichTextParagraph(2, RichTextParagraphFormat.Default with { NativeList = List(1, 5) }),
+                new RichTextParagraph(4, RichTextParagraphFormat.Default with { NativeList = List(1, 5) }),
+                new RichTextParagraph(6, RichTextParagraphFormat.Default with { NativeList = List(0) }),
+                new RichTextParagraph(8, RichTextParagraphFormat.Default with { NativeList = List(1, 5, restart: true) }),
+                new RichTextParagraph(10, RichTextParagraphFormat.Default with { NativeList = List(0) }),
             ]);
 
         var rtf = document.ToRtf();
@@ -236,12 +242,12 @@ public sealed class RtfArchitectureTests
         Assert.Equal(1, CountOccurrences(rtf, @"{\listtext 6.\tab }"));
         Assert.Contains(@"\listoverridecount9", rtf, StringComparison.Ordinal);
         Assert.Contains(@"\listoverridestartat\levelstartat5", rtf, StringComparison.Ordinal);
-        Assert.All(parsed.Paragraphs, paragraph => Assert.Equal(1, paragraph.Format.List?.Id));
-        Assert.False(parsed.Paragraphs[1].Format.List?.Restart);
-        Assert.False(parsed.Paragraphs[2].Format.List?.Restart);
-        Assert.True(parsed.Paragraphs[4].Format.List?.Restart);
-        Assert.Equal(5, parsed.Paragraphs[4].Format.List?.StartAt);
-        Assert.False(parsed.Paragraphs[5].Format.List?.Restart);
+        Assert.All(parsed.Paragraphs, paragraph => Assert.Equal(1, paragraph.Format.NativeList?.Id));
+        Assert.False(parsed.Paragraphs[1].Format.NativeList?.Restart);
+        Assert.False(parsed.Paragraphs[2].Format.NativeList?.Restart);
+        Assert.True(parsed.Paragraphs[4].Format.NativeList?.Restart);
+        Assert.Equal(5, parsed.Paragraphs[4].Format.NativeList?.StartAt);
+        Assert.False(parsed.Paragraphs[5].Format.NativeList?.Restart);
     }
 
     private static int CountOccurrences(string text, string value)

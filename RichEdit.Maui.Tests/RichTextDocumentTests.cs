@@ -1,5 +1,7 @@
 namespace RichEdit.Maui.Tests;
 
+using RichTextDocument = global::RichEdit.Maui.RichTextDocumentSnapshot;
+
 public sealed class RichTextDocumentTests
 {
     private static readonly RichTextCharacterFormat Bold = new() { FontWeight = 700 };
@@ -80,7 +82,7 @@ public sealed class RichTextDocumentTests
         var document = new RichTextDocument(
             "item",
             paragraphs:
-            [new RichTextParagraph(0, RichTextParagraphFormat.Default with { List = list })],
+            [new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list })],
             listPictures: [picture]);
 
         var replaced = document.Replace(4..4, "!");
@@ -91,7 +93,7 @@ public sealed class RichTextDocumentTests
                 0,
                 RichTextParagraphFormat.Default with
                 {
-                    List = list with { PictureId = null },
+                    NativeList = list with { PictureId = null },
                 })],
             links: null,
             images: null,
@@ -102,19 +104,19 @@ public sealed class RichTextDocumentTests
 
         Assert.Same(picture, replaced.ListPictures[picture.Id]);
         Assert.Same(picture, merged.ListPictures[picture.Id]);
-        Assert.Equal(picture.Id, merged.GetParagraphFormat(0).List?.PictureId);
+        Assert.Equal(picture.Id, merged.GetParagraphFormat(0).NativeList?.PictureId);
 
         var switchedToNumbering = RichEditorHandler.MergeWindowsParagraphFormat(
             RichTextParagraphFormat.Default with
             {
-                List = new RichTextListFormat
+                NativeList = new RichTextListFormat
                 {
                     Id = 1,
                     Kind = RichListKind.Numbered,
                 },
             },
             replaced.GetParagraphFormat(0));
-        Assert.Null(switchedToNumbering.List?.PictureId);
+        Assert.Null(switchedToNumbering.NativeList?.PictureId);
     }
 
     [Fact]
@@ -122,7 +124,7 @@ public sealed class RichTextDocumentTests
     {
         var missingPictureList = RichTextParagraphFormat.Default with
         {
-            List = new RichTextListFormat
+            NativeList = new RichTextListFormat
             {
                 Id = 1,
                 Kind = RichListKind.Bulleted,
@@ -135,7 +137,7 @@ public sealed class RichTextDocumentTests
 
         var numberedPictureList = missingPictureList with
         {
-            List = missingPictureList.List! with { Kind = RichListKind.Numbered },
+            NativeList = missingPictureList.NativeList! with { Kind = RichListKind.Numbered },
         };
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "item",
@@ -317,14 +319,14 @@ public sealed class RichTextDocumentTests
                 1,
                 background),
             StyleName = "Body",
-            List = previousList,
+            NativeList = previousList,
         };
         var nativeParagraph = RichTextParagraphFormat.Default with
         {
             Alignment = RichTextAlignment.Justified,
             Direction = RichTextDirection.LeftToRight,
             SpaceAfter = 6,
-            List = new RichTextListFormat
+            NativeList = new RichTextListFormat
             {
                 Id = 1,
                 Kind = RichListKind.Numbered,
@@ -347,11 +349,11 @@ public sealed class RichTextDocumentTests
         Assert.Equal(background, paragraph.BackgroundColor);
         Assert.Equal(previousParagraph.Border, paragraph.Border);
         Assert.Equal("Body", paragraph.StyleName);
-        Assert.Equal(23, paragraph.List?.Id);
-        Assert.True(paragraph.List?.Restart);
-        Assert.Equal("(", paragraph.List?.Prefix);
-        Assert.Equal(").", paragraph.List?.Suffix);
-        Assert.Null(paragraph.List?.PictureId);
+        Assert.Equal(23, paragraph.NativeList?.Id);
+        Assert.True(paragraph.NativeList?.Restart);
+        Assert.Equal("(", paragraph.NativeList?.Prefix);
+        Assert.Equal(").", paragraph.NativeList?.Suffix);
+        Assert.Null(paragraph.NativeList?.PictureId);
     }
 
     [Theory]

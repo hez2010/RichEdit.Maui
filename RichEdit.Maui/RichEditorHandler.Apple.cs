@@ -10,11 +10,17 @@ using UIKit;
 
 namespace RichEdit.Maui.Platforms.Apple
 {
+    /// <summary>Provides the Apple native text view used by <see cref="RichEditorHandler"/>.</summary>
     public class RichTextView : UITextView
     {
         private readonly UIColor _defaultPlaceholderColor;
         private readonly UILabel _placeholderLabel;
 
+        internal Func<Task>? PasteRequested { get; set; }
+
+        internal Action? NativeAppearanceChanged { get; set; }
+
+        /// <summary>Initializes the native rich-text view.</summary>
         public RichTextView()
         {
             _placeholderLabel = new UILabel
@@ -29,6 +35,8 @@ namespace RichEdit.Maui.Platforms.Apple
             TextContainerInset = new UIEdgeInsets(10, 8, 10, 8);
         }
 
+        /// <summary>Sets placeholder text.</summary>
+        /// <param name="text">The placeholder text.</param>
         public void SetPlaceholder(string? text)
         {
             _placeholderLabel.Text = text;
@@ -36,14 +44,20 @@ namespace RichEdit.Maui.Platforms.Apple
             SetNeedsLayout();
         }
 
+        /// <summary>Sets the placeholder color.</summary>
+        /// <param name="color">The color, or null for the native default.</param>
         public void SetPlaceholderColor(UIColor? color) =>
             _placeholderLabel.TextColor = color ?? _defaultPlaceholderColor;
 
+        /// <summary>Sets the placeholder font.</summary>
+        /// <param name="font">The native font.</param>
         public void SetPlaceholderFont(UIFont font) => _placeholderLabel.Font = font;
 
+        /// <summary>Updates placeholder visibility from current content.</summary>
         public void UpdatePlaceholderVisibility() =>
             _placeholderLabel.Hidden = !string.IsNullOrEmpty(Text);
 
+        /// <inheritdoc />
         public override void LayoutSubviews()
         {
             base.LayoutSubviews();
@@ -54,10 +68,38 @@ namespace RichEdit.Maui.Platforms.Apple
             _placeholderLabel.Frame = new CGRect(x, inset.Top, width, size.Height);
         }
 
+        /// <inheritdoc />
+        public override async void Paste(NSObject? sender)
+        {
+            if (PasteRequested is { } pasteRequested)
+            {
+                await pasteRequested();
+                return;
+            }
+
+            base.Paste(sender);
+        }
+
+#pragma warning disable CA1422 // Required on iOS 15-16; the callback remains valid on 17+.
+        /// <inheritdoc />
+        public override void TraitCollectionDidChange(UITraitCollection? previousTraitCollection)
+        {
+            base.TraitCollectionDidChange(previousTraitCollection);
+            if (previousTraitCollection is not null &&
+                previousTraitCollection.UserInterfaceStyle != TraitCollection.UserInterfaceStyle)
+            {
+                NativeAppearanceChanged?.Invoke();
+            }
+        }
+#pragma warning restore CA1422
+
+        /// <inheritdoc />
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                PasteRequested = null;
+                NativeAppearanceChanged = null;
                 _placeholderLabel.Dispose();
             }
 
@@ -86,7 +128,9 @@ namespace RichEdit.Maui
         private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
         private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
         private RichTextViewDelegate? _textViewDelegate;
+        private PendingNativeChange? _pendingNativeChange;
 
+        /// <inheritdoc />
         protected override RichTextView CreatePlatformView()
         {
             var textView = new RichTextView
@@ -103,15 +147,22 @@ namespace RichEdit.Maui
             return textView;
         }
 
+        /// <inheritdoc />
         protected override void ConnectHandler(RichTextView platformView)
         {
             base.ConnectHandler(platformView);
             _textViewDelegate = new RichTextViewDelegate(this);
             platformView.Delegate = _textViewDelegate;
+            platformView.PasteRequested = OnPlatformPasteAsync;
+            platformView.NativeAppearanceChanged = OnNativeAppearanceChanged;
         }
 
+        /// <inheritdoc />
         protected override void DisconnectHandler(RichTextView platformView)
         {
+            _pendingNativeChange = null;
+            platformView.PasteRequested = null;
+            platformView.NativeAppearanceChanged = null;
             platformView.Delegate = null!;
             _textViewDelegate?.Dispose();
             _textViewDelegate = null;
@@ -119,7 +170,7 @@ namespace RichEdit.Maui
         }
 
         private partial void ApplyDocumentCore(
-            RichTextDocument document,
+            RichTextDocumentSnapshot document,
             int selectionStart,
             int selectionLength)
         {
@@ -128,6 +179,7 @@ namespace RichEdit.Maui
                 return;
             }
 
+            _pendingNativeChange = null;
             _applyingDocument = true;
             List<NSTextList>? ownedTextLists = null;
             try
@@ -151,7 +203,9 @@ namespace RichEdit.Maui
 
                     foreach (var run in document.Runs)
                     {
-                        using var attributes = CreateCharacterAttributes(run.Format);
+                        using var attributes = CreateCharacterAttributes(
+                            run.Format,
+                            document.DefaultCharacterFormat);
                         attributed.SetAttributes(
                             attributes,
                             new NSRange(run.Start, run.Length));
@@ -205,6 +259,296 @@ namespace RichEdit.Maui
             }
         }
 
+        private partial void ApplyIncrementalChangesCore(
+            RichTextChangeSet changes,
+            RichTextRange selection)
+        {
+            if (PlatformView is null)
+            {
+                return;
+            }
+
+            var snapshot = VirtualView.Document.CurrentSnapshot;
+            if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
+            {
+                ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+                return;
+            }
+
+            _applyingDocument = true;
+            List<NSTextList>? ownedTextLists = null;
+            PlatformView.TextStorage.BeginEditing();
+            try
+            {
+                foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
+                {
+                    PlatformView.TextStorage.Replace(
+                        new NSRange(textChange.OldRange.Start, textChange.OldRange.Length),
+                        textChange.InsertedText);
+                }
+
+                var affected = GetAffectedRange(changes, snapshot.Length);
+                var refreshCharacters = changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or
+                    RichTextChangeKind.CharacterFormat or
+                    RichTextChangeKind.DefaultFormat);
+                if (refreshCharacters)
+                {
+                    affected = ExpandToCharacterRuns(snapshot, affected);
+                    ApplyCharacterFormatsIncrementally(snapshot, affected);
+                }
+
+                var refreshParagraphs = refreshCharacters ||
+                    changes.Changes.Any(static change => change.Kind is
+                        RichTextChangeKind.ParagraphFormat or
+                        RichTextChangeKind.List or
+                        RichTextChangeKind.DefaultFormat);
+                if (refreshParagraphs)
+                {
+                    var paragraphRange = GetAffectedParagraphRange(affected, snapshot.Text);
+                    Dictionary<int, NSTextList[]>? textListsByParagraph = null;
+                    if (OperatingSystem.IsIOSVersionAtLeast(16) ||
+                        OperatingSystem.IsMacCatalystVersionAtLeast(16))
+                    {
+                        var listIds = GetListIds(snapshot, paragraphRange);
+                        if (listIds.Count != 0)
+                        {
+                            paragraphRange = ExpandToLists(snapshot, paragraphRange, listIds);
+                            ownedTextLists = [];
+                            textListsByParagraph = CreateNativeTextLists(
+                                snapshot,
+                                ownedTextLists,
+                                listIds);
+                        }
+                    }
+
+                    ApplyParagraphFormatsIncrementally(
+                        snapshot,
+                        paragraphRange,
+                        textListsByParagraph);
+                }
+
+                if (refreshCharacters || changes.Changes.Any(static change =>
+                        change.Kind == RichTextChangeKind.Link))
+                {
+                    ApplyLinksIncrementally(snapshot, affected);
+                }
+
+                if (refreshCharacters || changes.Changes.Any(static change =>
+                        change.Kind == RichTextChangeKind.Image))
+                {
+                    ApplyImagesIncrementally(snapshot, affected);
+                }
+
+                SetSelectionCore(selection.Start, selection.Length);
+                PlatformView.UpdatePlaceholderVisibility();
+            }
+            finally
+            {
+                PlatformView.TextStorage.EndEditing();
+                if (ownedTextLists is not null)
+                {
+                    foreach (var textList in ownedTextLists)
+                    {
+                        textList.Dispose();
+                    }
+                }
+
+                _applyingDocument = false;
+            }
+        }
+
+        private void ApplyCharacterFormatsIncrementally(
+            RichTextDocumentSnapshot snapshot,
+            RichTextRange range)
+        {
+            if (range.IsEmpty || snapshot.Length == 0)
+            {
+                return;
+            }
+
+            for (var index = snapshot.FindRunIndex(range.Start);
+                 index < snapshot.Runs.Length;
+                 index++)
+            {
+                var run = snapshot.Runs[index];
+                if (run.Start >= range.End)
+                {
+                    break;
+                }
+
+                var start = Math.Max(run.Start, range.Start);
+                var end = Math.Min(run.End, range.End);
+                if (end <= start)
+                {
+                    continue;
+                }
+
+                using var attributes = CreateCharacterAttributes(
+                    run.Format,
+                    snapshot.DefaultCharacterFormat);
+                PlatformView.TextStorage.SetAttributes(
+                    attributes,
+                    new NSRange(start, end - start));
+            }
+        }
+
+        private void ApplyParagraphFormatsIncrementally(
+            RichTextDocumentSnapshot snapshot,
+            RichTextRange range,
+            Dictionary<int, NSTextList[]>? textListsByParagraph)
+        {
+            var paragraphStart = range.Start == 0
+                ? 0
+                : snapshot.Text.LastIndexOf('\n', range.Start - 1) + 1;
+            for (var index = snapshot.FindParagraphIndex(paragraphStart);
+                 index < snapshot.Paragraphs.Length;
+                 index++)
+            {
+                var paragraph = snapshot.Paragraphs[index];
+                if (paragraph.Range.Start > range.End)
+                {
+                    break;
+                }
+
+                if (paragraph.Range.End < range.Start || paragraph.Range.Start > range.End)
+                {
+                    continue;
+                }
+
+                var end = GetParagraphEnd(snapshot.Text, paragraph.Start);
+                if (end <= paragraph.Start)
+                {
+                    continue;
+                }
+
+                NSTextList[]? textLists = null;
+                textListsByParagraph?.TryGetValue(paragraph.Start, out textLists);
+                using var attributes = CreateParagraphAttributes(paragraph.Format, textLists);
+                PlatformView.TextStorage.AddAttributes(
+                    attributes,
+                    new NSRange(paragraph.Start, end - paragraph.Start));
+            }
+        }
+
+        private void ApplyLinksIncrementally(
+            RichTextDocumentSnapshot snapshot,
+            RichTextRange range)
+        {
+            if (range.IsEmpty)
+            {
+                return;
+            }
+
+            PlatformView.TextStorage.RemoveAttribute(
+                UIStringAttributeKey.Link,
+                new NSRange(range.Start, range.Length));
+            foreach (var link in snapshot.Links.Where(link =>
+                         link.End > range.Start && link.Start < range.End))
+            {
+                PlatformView.TextStorage.AddAttribute(
+                    UIStringAttributeKey.Link,
+                    new NSString(link.Target),
+                    new NSRange(link.Start, link.Length));
+            }
+        }
+
+        private void ApplyImagesIncrementally(
+            RichTextDocumentSnapshot snapshot,
+            RichTextRange range)
+        {
+            if (range.IsEmpty)
+            {
+                return;
+            }
+
+            var nativeRange = new NSRange(range.Start, range.Length);
+            PlatformView.TextStorage.RemoveAttribute(
+                UIStringAttributeKey.Attachment,
+                nativeRange);
+            PlatformView.TextStorage.RemoveAttribute(ImageMetadataKey, nativeRange);
+            foreach (var image in snapshot.Images.Where(image =>
+                         image.Position >= range.Start && image.Position < range.End))
+            {
+                ApplyImage(PlatformView.TextStorage, image);
+            }
+        }
+
+        private static RichTextRange GetAffectedRange(
+            RichTextChangeSet changes,
+            int documentLength) =>
+            changes.GetAffectedRange(documentLength);
+
+        private static RichTextRange ExpandToCharacterRuns(
+            RichTextDocumentSnapshot snapshot,
+            RichTextRange range)
+        {
+            if (range.IsEmpty || snapshot.Runs.IsDefaultOrEmpty)
+            {
+                return range;
+            }
+
+            var firstIndex = snapshot.FindRunIndex(range.Start);
+            var lastPosition = Math.Max(range.End - 1, range.Start);
+            var lastIndex = snapshot.FindRunIndex(lastPosition);
+            return firstIndex >= snapshot.Runs.Length
+                ? range
+                : new RichTextRange(
+                    snapshot.Runs[firstIndex].Start,
+                    snapshot.Runs[lastIndex].End - snapshot.Runs[firstIndex].Start);
+        }
+
+        private static HashSet<int> GetListIds(
+            RichTextDocumentSnapshot snapshot,
+            RichTextRange range)
+        {
+            var result = new HashSet<int>();
+            var start = range.Start == 0
+                ? 0
+                : snapshot.Text.LastIndexOf('\n', range.Start - 1) + 1;
+            for (var index = snapshot.FindParagraphIndex(start);
+                 index < snapshot.Paragraphs.Length &&
+                 snapshot.Paragraphs[index].Range.Start <= range.End;
+                 index++)
+            {
+                if (snapshot.Paragraphs[index].Format.NativeList is { } list)
+                {
+                    result.Add(list.Id);
+                }
+            }
+
+            return result;
+        }
+
+        private static RichTextRange ExpandToLists(
+            RichTextDocumentSnapshot snapshot,
+            RichTextRange range,
+            HashSet<int> listIds)
+        {
+            var start = range.Start;
+            var end = range.End;
+            foreach (var paragraph in snapshot.Paragraphs)
+            {
+                if (paragraph.Format.NativeList is { } list && listIds.Contains(list.Id))
+                {
+                    start = Math.Min(start, paragraph.Range.Start);
+                    end = Math.Max(end, paragraph.Range.End);
+                }
+            }
+
+            return new RichTextRange(start, end - start);
+        }
+
+        private static RichTextRange GetAffectedParagraphRange(
+            RichTextRange range,
+            string text)
+        {
+            var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
+            var newline = text.IndexOf('\n', range.End);
+            var end = newline < 0 ? text.Length : newline + 1;
+            return new RichTextRange(start, end - start);
+        }
+
         private partial void ApplyTypingFormatCore(
             RichTextCharacterFormat characterFormat,
             RichTextParagraphFormat paragraphFormat)
@@ -216,7 +560,9 @@ namespace RichEdit.Maui
                 return;
             }
 
-            using var characterAttributes = CreateCharacterAttributes(characterFormat);
+            using var characterAttributes = CreateCharacterAttributes(
+                characterFormat,
+                VirtualView?.Document.DefaultCharacterFormat);
             using var paragraphAttributes = CreateParagraphAttributes(paragraphFormat);
             var attributes = new NSMutableDictionary(characterAttributes);
             attributes.AddEntries(paragraphAttributes);
@@ -268,19 +614,62 @@ namespace RichEdit.Maui
 
             if (!_applyingDocument)
             {
-                ApplyDocumentCore(editor.Document, editor.SelectionStart, editor.SelectionLength);
+                var snapshot = editor.Document.CurrentSnapshot;
+                _applyingDocument = true;
+                PlatformView.TextStorage.BeginEditing();
+                try
+                {
+                    ApplyCharacterFormatsIncrementally(
+                        snapshot,
+                        new RichTextRange(0, snapshot.Length));
+                    SetSelectionCore(editor.SelectedRange.Start, editor.SelectedRange.Length);
+                }
+                finally
+                {
+                    PlatformView.TextStorage.EndEditing();
+                    _applyingDocument = false;
+                }
+
                 ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
             }
         }
 
-        private partial void UpdateIsReadOnly(RichEditor editor)
+        private partial void UpdateInputConfiguration(RichEditor editor)
         {
             PlatformView.Editable = !editor.IsReadOnly;
             PlatformView.Selectable = true;
+            PlatformView.SpellCheckingType = editor.IsSpellCheckEnabled
+                ? UITextSpellCheckingType.Yes
+                : UITextSpellCheckingType.No;
+            PlatformView.AutocorrectionType = editor.IsTextPredictionEnabled
+                ? UITextAutocorrectionType.Yes
+                : UITextAutocorrectionType.No;
+            PlatformView.KeyboardType = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
+                ? UIKeyboardType.DecimalPad
+                : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
+                    ? UIKeyboardType.PhonePad
+                    : ReferenceEquals(editor.Keyboard, Keyboard.Email)
+                        ? UIKeyboardType.EmailAddress
+                        : ReferenceEquals(editor.Keyboard, Keyboard.Url)
+                            ? UIKeyboardType.Url
+                            : UIKeyboardType.Default;
         }
 
-        private NSMutableDictionary CreateCharacterAttributes(RichTextCharacterFormat format)
+        private NSMutableDictionary CreateCharacterAttributes(
+            RichTextCharacterFormat format,
+            RichTextCharacterFormat? inheritedFormat = null)
         {
+            var authoredFormat = format;
+            if (inheritedFormat is not null)
+            {
+                format = format with
+                {
+                    FontFamily = format.FontFamily ?? inheritedFormat.FontFamily,
+                    FontSize = format.FontSize ?? inheritedFormat.FontSize,
+                    ForegroundColor = format.ForegroundColor ?? inheritedFormat.ForegroundColor,
+                };
+            }
+
             var foreground = format.Hidden
                 ? UIColor.Clear
                 : format.ForegroundColor?.ToPlatform() ??
@@ -353,7 +742,7 @@ namespace RichEdit.Maui
             }
 
             var dictionary = new NSMutableDictionary(attributes.Dictionary);
-            dictionary[CharacterMetadataKey] = new CharacterMetadata(format);
+            dictionary[CharacterMetadataKey] = new CharacterMetadata(authoredFormat);
             return dictionary;
         }
 
@@ -426,7 +815,7 @@ namespace RichEdit.Maui
                     .ToArray();
             }
 
-            if (format.List is { } list)
+            if (format.NativeList is { } list)
             {
                 if (OperatingSystem.IsIOSVersionAtLeast(16) ||
                     OperatingSystem.IsMacCatalystVersionAtLeast(16))
@@ -497,11 +886,11 @@ namespace RichEdit.Maui
             attributed.AddAttributes(dictionary, new NSRange(image.Position, 1));
         }
 
-        private RichTextDocument ReadDocumentFromPlatform()
+        private RichTextDocumentSnapshot ReadDocumentFromPlatform()
         {
             var attributed = PlatformView.AttributedText ?? new NSAttributedString(string.Empty);
             var text = attributed.Value ?? string.Empty;
-            var previous = VirtualView.Document;
+            var previous = VirtualView.Document.CurrentSnapshot;
             var defaultCharacterFormat = previous.DefaultCharacterFormat;
 
             var runs = new List<RichTextRun>();
@@ -588,7 +977,7 @@ namespace RichEdit.Maui
                         previous.DefaultParagraphFormat);
                 }
 
-                if (format.List is { } list)
+                if (format.NativeList is { } list)
                 {
                     if (list.Id <= 0)
                     {
@@ -596,7 +985,7 @@ namespace RichEdit.Maui
                             previousList.Kind == list.Kind &&
                             previousList.Level == list.Level;
                         list = list with { Id = continues ? previousList!.Id : nextListId++ };
-                        format = format with { List = list };
+                        format = format with { NativeList = list };
                     }
 
                     previousList = list;
@@ -739,7 +1128,7 @@ namespace RichEdit.Maui
                 return format;
             }
 
-            RichTextListFormat? list = format.List;
+            RichTextListFormat? list = format.NativeList;
             if (OperatingSystem.IsIOSVersionAtLeast(16) ||
                 OperatingSystem.IsMacCatalystVersionAtLeast(16))
             {
@@ -808,20 +1197,22 @@ namespace RichEdit.Maui
                         }))
                     .ToImmutableArray(),
                 Hyphenation = style.HyphenationFactor > 0,
-                List = list,
+                NativeList = list,
             };
         }
 
         [SupportedOSPlatform("ios16.0")]
         [SupportedOSPlatform("maccatalyst16.0")]
         private static Dictionary<int, NSTextList[]> CreateNativeTextLists(
-            RichTextDocument document,
-            List<NSTextList> ownedTextLists)
+            RichTextDocumentSnapshot document,
+            List<NSTextList> ownedTextLists,
+            HashSet<int>? includedListIds = null)
         {
             var definitions = new Dictionary<(int Id, int Level), RichTextListFormat>();
             foreach (var paragraph in document.Paragraphs)
             {
-                if (paragraph.Format.List is { } list)
+                if (paragraph.Format.NativeList is { } list &&
+                    (includedListIds is null || includedListIds.Contains(list.Id)))
                 {
                     definitions.TryAdd((list.Id, list.Level), list);
                 }
@@ -831,7 +1222,8 @@ namespace RichEdit.Maui
             var activeLists = new Dictionary<int, NSTextList?[]>();
             foreach (var paragraph in document.Paragraphs)
             {
-                if (paragraph.Format.List is not { } list)
+                if (paragraph.Format.NativeList is not { } list ||
+                    includedListIds is not null && !includedListIds.Contains(list.Id))
                 {
                     continue;
                 }
@@ -1178,6 +1570,9 @@ namespace RichEdit.Maui
             return Color.FromRgba((float)red, (float)green, (float)blue, (float)alpha);
         }
 
+        private static int GetParagraphStart(string text, int position) =>
+            position == 0 ? 0 : text.LastIndexOf('\n', position - 1) + 1;
+
         private static int GetParagraphEnd(string text, int start)
         {
             var newline = text.IndexOf('\n', start);
@@ -1185,6 +1580,30 @@ namespace RichEdit.Maui
         }
 
         // UIKit continues NSTextList formatting indefinitely, including on empty items.
+        private bool ShouldAllowNativeChange(NSRange range, string replacementText)
+        {
+            if (VirtualView is null || VirtualView.IsReadOnly)
+            {
+                return false;
+            }
+
+            if (!VirtualView.AcceptsTab && string.Equals(replacementText, "\t", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (VirtualView.MaxLength < 0)
+            {
+                return true;
+            }
+
+            var currentLength = checked((int)PlatformView.TextStorage.Length);
+            var removedLength = range.Length > int.MaxValue
+                ? currentLength
+                : Math.Min((int)range.Length, currentLength);
+            return currentLength - removedLength + replacementText.Length <= VirtualView.MaxLength;
+        }
+
         private bool TryExitEmptyListParagraph(
             UITextView textView,
             NSRange range,
@@ -1197,7 +1616,7 @@ namespace RichEdit.Maui
                 return false;
             }
 
-            var document = VirtualView.Document;
+            var document = VirtualView.Document.CurrentSnapshot;
             var text = document.Text;
             var textStorage = textView.TextStorage;
             var paragraphStart = (int)range.Location;
@@ -1258,9 +1677,199 @@ namespace RichEdit.Maui
                 _applyingDocument = false;
             }
 
-            VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0);
-            _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-            _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+            VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0, _sourceToken);
+            UpdateTypingFormatsFromPlatform();
+            return true;
+        }
+
+        private void RecordPendingNativeChange(NSRange range)
+        {
+            if (range.Location < 0 || range.Location > int.MaxValue ||
+                range.Length > int.MaxValue)
+            {
+                _pendingNativeChange = null;
+                return;
+            }
+
+            _pendingNativeChange = new PendingNativeChange(
+                (int)range.Location,
+                (int)range.Length,
+                VirtualView?.Document.Version ?? -1);
+        }
+
+        private RichTextDocumentSnapshot? TryReadIncrementalNativeChange(UITextView textView)
+        {
+            if (_pendingNativeChange is not { } pending || VirtualView is null)
+            {
+                return null;
+            }
+
+            var previous = VirtualView.Document.CurrentSnapshot;
+            if (pending.Version != previous.Version ||
+                pending.Start < 0 || pending.RemovedLength < 0 ||
+                pending.Start > previous.Length - pending.RemovedLength)
+            {
+                return null;
+            }
+
+            var attributed = textView.AttributedText;
+            if (attributed is null || attributed.Length > int.MaxValue)
+            {
+                return null;
+            }
+
+            var nativeLength = (int)attributed.Length;
+            var insertedLength = nativeLength - (previous.Length - pending.RemovedLength);
+            if (insertedLength < 0 || pending.Start > nativeLength - insertedLength ||
+                !NativeAnchorsMatch(attributed, previous, pending, insertedLength))
+            {
+                return null;
+            }
+
+            using var inserted = attributed.Substring(pending.Start, insertedLength);
+            var insertedText = inserted.Value ?? string.Empty;
+            var document = previous.Replace(
+                pending.Start..(pending.Start + pending.RemovedLength),
+                insertedText,
+                insertedLength == 0 ? null : _nativeTypingFormat);
+            if (RequiresFullNativeSnapshot(
+                    attributed,
+                    document,
+                    new RichTextRange(pending.Start, insertedLength)))
+            {
+                return null;
+            }
+
+            return document;
+        }
+
+        private static bool NativeAnchorsMatch(
+            NSAttributedString attributed,
+            RichTextDocumentSnapshot previous,
+            PendingNativeChange pending,
+            int insertedLength)
+        {
+            const int AnchorLength = 16;
+            var prefixLength = Math.Min(pending.Start, AnchorLength);
+            if (prefixLength > 0)
+            {
+                using var prefix = attributed.Substring(
+                    pending.Start - prefixLength,
+                    prefixLength);
+                if (!previous.Text.AsSpan(pending.Start - prefixLength, prefixLength)
+                    .SequenceEqual((prefix.Value ?? string.Empty).AsSpan()))
+                {
+                    return false;
+                }
+            }
+
+            var oldSuffixStart = pending.Start + pending.RemovedLength;
+            var newSuffixStart = pending.Start + insertedLength;
+            var suffixLength = Math.Min(previous.Length - oldSuffixStart, AnchorLength);
+            if (suffixLength == 0)
+            {
+                return true;
+            }
+
+            using var suffix = attributed.Substring(newSuffixStart, suffixLength);
+            return previous.Text.AsSpan(oldSuffixStart, suffixLength)
+                .SequenceEqual((suffix.Value ?? string.Empty).AsSpan());
+        }
+
+        private bool RequiresFullNativeSnapshot(
+            NSAttributedString? attributed,
+            RichTextDocumentSnapshot expected,
+            RichTextRange insertedRange)
+        {
+            if (attributed is null || attributed.Length != expected.Length)
+            {
+                return true;
+            }
+
+            for (var position = insertedRange.Start; position < insertedRange.End;)
+            {
+                var dictionary = attributed.GetAttributes(position, out var effectiveRange) ??
+                    new NSDictionary();
+                var attributes = new UIStringAttributes(dictionary);
+                if (attributes.Link is not null || attributes.TextAttachment is not null ||
+                    ReadCharacterFormat(
+                        dictionary,
+                        expected.GetCharacterFormat(position)) !=
+                    expected.GetCharacterFormat(position))
+                {
+                    return true;
+                }
+
+                var nativeEnd = checked((int)(effectiveRange.Location + effectiveRange.Length));
+                position = Math.Max(position + 1, Math.Min(nativeEnd, insertedRange.End));
+            }
+
+            var paragraphStart = GetParagraphStart(expected.Text, insertedRange.Start);
+            var paragraphLimit = GetParagraphEnd(expected.Text, insertedRange.End);
+            for (var start = paragraphStart; start < paragraphLimit;)
+            {
+                if (expected.Length == 0)
+                {
+                    break;
+                }
+
+                var index = Math.Min(start, expected.Length - 1);
+                var dictionary = attributed.GetAttributes(index, out _) ?? new NSDictionary();
+                var expectedFormat = expected.GetParagraphFormat(start);
+                var nativeFormat = ReadParagraphFormat(dictionary, expectedFormat);
+                if (nativeFormat.List is null && expectedFormat.List is not null)
+                {
+                    nativeFormat = nativeFormat with { List = expectedFormat.List };
+                }
+
+                if (nativeFormat != expectedFormat)
+                {
+                    return true;
+                }
+
+                start = GetParagraphEnd(expected.Text, start);
+            }
+
+            return false;
+        }
+
+        private bool OnNativeLinkInvoked(NSUrl url, NSRange characterRange)
+        {
+            if (VirtualView is null || characterRange.Location < 0 ||
+                characterRange.Location > int.MaxValue)
+            {
+                return true;
+            }
+
+            var start = (int)characterRange.Location;
+            var length = characterRange.Length > int.MaxValue
+                ? 0
+                : (int)characterRange.Length;
+            var end = start > int.MaxValue - length ? int.MaxValue : start + length;
+            var target = url.AbsoluteString;
+            var link = VirtualView.Document.CurrentSnapshot.Links.FirstOrDefault(link =>
+                link.End > start && link.Start < end &&
+                (string.IsNullOrEmpty(target) ||
+                 string.Equals(link.Target, target, StringComparison.Ordinal)));
+            return link is null || VirtualView.RaiseLinkInvoked(link);
+        }
+
+        private bool OnNativeInlineObjectInvoked(NSRange characterRange)
+        {
+            if (VirtualView is null || characterRange.Location < 0 ||
+                characterRange.Location > int.MaxValue)
+            {
+                return true;
+            }
+
+            var position = (int)characterRange.Location;
+            var image = VirtualView.Document.CurrentSnapshot.Images.FirstOrDefault(
+                image => image.Position == position);
+            if (image is not null)
+            {
+                return VirtualView.RaiseInlineObjectInvoked(image);
+            }
+
             return true;
         }
 
@@ -1272,15 +1881,23 @@ namespace RichEdit.Maui
             }
 
             PlatformView.UpdatePlaceholderVisibility();
-            var document = ReadDocumentFromPlatform();
+            RichTextDocumentSnapshot document;
+            try
+            {
+                document = TryReadIncrementalNativeChange(textView) ?? ReadDocumentFromPlatform();
+            }
+            finally
+            {
+                _pendingNativeChange = null;
+            }
+
             var start = Math.Clamp((int)textView.SelectedRange.Location, 0, document.Text.Length);
             var length = Math.Clamp(
                 (int)textView.SelectedRange.Length,
                 0,
                 document.Text.Length - start);
-            VirtualView.UpdateDocumentFromPlatform(document, start, length);
-            _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-            _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+            VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+            UpdateTypingFormatsFromPlatform();
         }
 
         private void OnNativeSelectionChanged(UITextView textView)
@@ -1299,8 +1916,54 @@ namespace RichEdit.Maui
                 0,
                 VirtualView.Document.Text.Length - start);
             VirtualView.UpdateSelectionFromPlatform(start, length);
-            _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-            _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+            UpdateTypingFormatsFromPlatform();
+            _pendingNativeChange = null;
+        }
+
+        private Task OnPlatformPasteAsync() =>
+            VirtualView is null || VirtualView.IsReadOnly
+                ? Task.CompletedTask
+                : VirtualView.PasteAsync();
+
+        private void OnNativeAppearanceChanged()
+        {
+            if (VirtualView is null)
+            {
+                return;
+            }
+
+            UpdateAppearance(VirtualView);
+            VirtualView.NotifyNativeAppearanceChanged();
+        }
+
+        private void UpdateTypingFormatsFromPlatform()
+        {
+            if (VirtualView is null)
+            {
+                return;
+            }
+
+            var attributes = PlatformView.TypingAttributes2 ?? new NSDictionary();
+            _nativeTypingFormat = ReadCharacterFormat(
+                attributes,
+                VirtualView.TypingCharacterFormat);
+            _nativeTypingParagraphFormat = ReadParagraphFormat(
+                attributes,
+                VirtualView.TypingParagraphFormat);
+            if (_nativeTypingParagraphFormat.NativeList is { Id: <= 0 } nativeList &&
+                VirtualView.TypingParagraphFormat.NativeList is { } previousList)
+            {
+                nativeList = nativeList with { Id = previousList.Id };
+                _nativeTypingParagraphFormat = _nativeTypingParagraphFormat with
+                {
+                    NativeList = nativeList,
+                    List = RichTextListConversions.ToItem(nativeList),
+                };
+            }
+
+            VirtualView.UpdateTypingFormatsFromPlatform(
+                _nativeTypingFormat,
+                _nativeTypingParagraphFormat);
         }
 
         private sealed class RichTextViewDelegate(RichEditorHandler handler) : UITextViewDelegate
@@ -1310,9 +1973,22 @@ namespace RichEdit.Maui
             public override bool ShouldChangeText(
                 UITextView textView,
                 NSRange range,
-                string text) =>
-                !_handler.TryGetTarget(out var target) ||
-                !target.TryExitEmptyListParagraph(textView, range, text);
+                string text)
+            {
+                if (!_handler.TryGetTarget(out var target))
+                {
+                    return true;
+                }
+
+                if (!target.ShouldAllowNativeChange(range, text) ||
+                    target.TryExitEmptyListParagraph(textView, range, text))
+                {
+                    return false;
+                }
+
+                target.RecordPendingNativeChange(range);
+                return true;
+            }
 
             public override void Changed(UITextView textView)
             {
@@ -1329,7 +2005,34 @@ namespace RichEdit.Maui
                     target.OnNativeSelectionChanged(textView);
                 }
             }
+
+            public override bool ShouldInteractWithUrl(
+                UITextView textView,
+                NSUrl url,
+                NSRange characterRange,
+                UITextItemInteraction interaction) =>
+                !_handler.TryGetTarget(out var target) ||
+                target.OnNativeLinkInvoked(url, characterRange);
+
+            public override bool ShouldInteractWithTextAttachment(
+                UITextView textView,
+                NSTextAttachment textAttachment,
+                NSRange characterRange,
+                UITextItemInteraction interaction)
+            {
+                if (_handler.TryGetTarget(out var target))
+                {
+                    return target.OnNativeInlineObjectInvoked(characterRange);
+                }
+
+                return true;
+            }
         }
+
+        private readonly record struct PendingNativeChange(
+            int Start,
+            int RemovedLength,
+            long Version);
 
         private sealed class CharacterMetadata(RichTextCharacterFormat format) : NSObject
         {

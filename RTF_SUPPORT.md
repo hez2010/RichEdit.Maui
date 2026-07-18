@@ -137,7 +137,7 @@ List markers are presentation metadata and are never inserted into
 | OLE objects and file attachments | Flattened on import: `\result` text or pictures are kept, opaque `\objdata` is skipped, and a result-less object or `\objattph` becomes a readable placeholder. OLE payloads are not re-emitted. |
 | Drawing shapes, text boxes, and floating/wrapped pictures | Flattened on import: `\shptxt` becomes ordinary text and pictures in shape properties become inline images. Positioning, wrapping, and editable vector geometry are discarded. |
 | Equations and math zones | No portable math model; plain field/result text or pictures can be used as a fallback. |
-| Document information, user properties, themes, mail merge, forms, and XML/custom data | Not serialized into the portable model. Application metadata can be stored in `RichTextDocument.Metadata`, which is currently model-only. |
+| Document information, user properties, themes, mail merge, forms, and XML/custom data | Not serialized into the portable model. Application metadata can be edited with `RichTextDocumentEdit.SetMetadata` and read from `RichTextDocument.CurrentSnapshot.Metadata`; it is currently model-only. |
 | Rich clipboard paste | Supported attributes are read back from each native editor. Unsupported attributes follow the same degradation rules as programmatic documents; full cross-platform RTF clipboard equivalence is not guaranteed. |
 
 ## Native API basis

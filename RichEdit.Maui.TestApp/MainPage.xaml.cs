@@ -7,6 +7,30 @@ public partial class MainPage : ContentPage
     private static readonly Color ActiveToolbarColor = Color.FromArgb("#6750A4");
     private static readonly Color InactiveToolbarColor = Color.FromArgb("#EDE9F7");
     private static readonly Color InactiveToolbarTextColor = Color.FromArgb("#2C2440");
+    private static readonly RichTextListDefinition BulletedList = new(
+    [
+        new RichTextListLevelDefinition
+        {
+            Marker = new RichTextListMarker.Bullet("•"),
+            Prefix = string.Empty,
+            Suffix = string.Empty,
+            LeadingIndent = 18,
+            FirstLineIndent = -18,
+            MarkerTab = 18,
+        },
+    ]);
+    private static readonly RichTextListDefinition NumberedList = new(
+    [
+        new RichTextListLevelDefinition
+        {
+            Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),
+            Prefix = string.Empty,
+            Suffix = ".",
+            LeadingIndent = 36,
+            FirstLineIndent = -36,
+            MarkerTab = 36,
+        },
+    ]);
     private bool _updatingToolbar;
 
     public MainPage()
@@ -21,7 +45,7 @@ public partial class MainPage : ContentPage
         SizePicker.SelectedIndex = 1;
         _updatingToolbar = false;
 
-        Editor.LoadRtf("""
+        Editor.RtfText = """
             {\rtf1\ansi\ansicpg1252\uc1 \deff0\deflang1033\deflangfe1033{\fonttbl{\f0\froman\fcharset0\fprq2{\*\panose 02020603050405020304}Times New Roman;}{\f3\froman\fcharset2\fprq2{\*\panose 05050102010706020507}Symbol;}
             {\f6\fmodern\fcharset0\fprq1{\*\panose 00000000000000000000}Courier;}{\f10\froman\fcharset0\fprq2{\*\panose 00000000000000000000}MS Serif;}{\f11\fswiss\fcharset0\fprq2{\*\panose 00000000000000000000}MS Sans Serif;}
             {\f14\fnil\fcharset2\fprq2{\*\panose 05000000000000000000}Wingdings;}{\f37\froman\fcharset238\fprq2 Times New Roman CE;}{\f38\froman\fcharset204\fprq2 Times New Roman Cyr;}{\f40\froman\fcharset161\fprq2 Times New Roman Greek;}
@@ -164,49 +188,49 @@ public partial class MainPage : ContentPage
             }{\fs24
             \par
             \par }}
-            """);
+            """;
         UpdateToolbar();
     }
 
     private void OnBoldClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleBold();
+        Editor.Selection.ToggleBold();
         Editor.Focus();
     }
 
     private void OnItalicClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleItalic();
+        Editor.Selection.ToggleItalic();
         Editor.Focus();
     }
 
     private void OnUnderlineClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleUnderline();
+        Editor.Selection.ToggleUnderline(RichTextUnderlineStyle.Single);
         Editor.Focus();
     }
 
     private void OnSuperscriptClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleSuperscript();
+        Editor.Selection.ToggleScript(RichTextScript.Superscript);
         Editor.Focus();
     }
 
     private void OnSubscriptClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleSubscript();
+        Editor.Selection.ToggleScript(RichTextScript.Subscript);
         Editor.Focus();
     }
 
     private void OnBulletedListClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleBulletedList("•");
+        Editor.Selection.ToggleList(BulletedList);
         Editor.Focus();
     }
 
     private void OnNumberedListClicked(object? sender, EventArgs e)
     {
-        Editor.ToggleNumberedList(RichListNumberStyle.Arabic, startAt: 1);
+        Editor.Selection.ToggleList(NumberedList);
         Editor.Focus();
     }
 
@@ -217,8 +241,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        Editor.UpdateSelectedCharacterFormat(
-            format => format with { FontFamily = font == "Default" ? null : font });
+        Editor.Selection.CharacterFormat.FontFamily = font == "Default" ? null : font;
         Editor.Focus();
     }
 
@@ -230,7 +253,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        Editor.UpdateSelectedCharacterFormat(format => format with { FontSize = size });
+        Editor.Selection.CharacterFormat.FontSize = size;
         Editor.Focus();
     }
 
@@ -238,8 +261,7 @@ public partial class MainPage : ContentPage
     {
         if (sender is Button button)
         {
-            Editor.UpdateSelectedCharacterFormat(
-                format => format with { ForegroundColor = GetCommandColor(button) });
+            Editor.Selection.CharacterFormat.ForegroundColor = GetCommandColor(button);
             Editor.Focus();
         }
     }
@@ -248,48 +270,71 @@ public partial class MainPage : ContentPage
     {
         if (sender is Button button)
         {
-            Editor.UpdateSelectedCharacterFormat(
-                format => format with { BackgroundColor = GetCommandColor(button) });
+            Editor.Selection.CharacterFormat.BackgroundColor = GetCommandColor(button);
             Editor.Focus();
         }
     }
 
-    private void OnEditorSelectionChanged(object? sender, RichEditorSelectionChangedEventArgs e) =>
+    private void OnEditorSelectionChanged(object? sender, RichTextSelectionChangedEventArgs e) =>
         UpdateToolbar();
 
     private async void OnCopyRtfClicked(object? sender, EventArgs e)
     {
-        await Clipboard.Default.SetTextAsync(Editor.ToRtf());
+        await Clipboard.Default.SetTextAsync(Editor.RtfText);
         StatusLabel.Text = "RTF copied to the clipboard";
     }
 
     private void UpdateToolbar()
     {
-        var characterFormat = Editor.SelectedCharacterFormat;
-        var paragraphFormat = Editor.SelectedParagraphFormat;
-        SetToolbarState(BoldButton, Editor.IsBold == true);
-        SetToolbarState(ItalicButton, Editor.IsItalic == true);
-        SetToolbarState(UnderlineButton, Editor.IsUnderlined == true);
+        var characterFormat = Editor.Selection.CharacterFormat;
+        var paragraphFormat = Editor.Selection.ParagraphFormat;
+        var listMarker = GetSelectedListMarker(paragraphFormat);
+        SetToolbarState(BoldButton, !characterFormat.IsBoldMixed && characterFormat.Bold);
+        SetToolbarState(ItalicButton, !characterFormat.IsItalicMixed && characterFormat.Italic);
+        SetToolbarState(
+            UnderlineButton,
+            !characterFormat.IsUnderlineMixed &&
+            characterFormat.Underline != RichTextUnderlineStyle.None);
         SetToolbarState(
             SuperscriptButton,
-            characterFormat?.Script == RichTextScript.Superscript);
+            !characterFormat.IsScriptMixed &&
+            characterFormat.Script == RichTextScript.Superscript);
         SetToolbarState(
             SubscriptButton,
-            characterFormat?.Script == RichTextScript.Subscript);
-        SetToolbarState(BulletButton, paragraphFormat?.List?.Kind == RichListKind.Bulleted);
-        SetToolbarState(NumberButton, paragraphFormat?.List?.Kind == RichListKind.Numbered);
-        SetColorState(ForegroundDefaultButton, characterFormat?.ForegroundColor, null);
-        SetColorState(ForegroundCoralButton, characterFormat?.ForegroundColor, "#E06C75");
-        SetColorState(ForegroundBlueButton, characterFormat?.ForegroundColor, "#327CCB");
-        SetColorState(ForegroundGreenButton, characterFormat?.ForegroundColor, "#3A8F45");
-        SetColorState(BackgroundClearButton, characterFormat?.BackgroundColor, null);
-        SetColorState(BackgroundYellowButton, characterFormat?.BackgroundColor, "#FFF3A3");
-        SetColorState(BackgroundBlueButton, characterFormat?.BackgroundColor, "#BDE7FF");
-        SetColorState(BackgroundGreenButton, characterFormat?.BackgroundColor, "#D8F3C5");
+            !characterFormat.IsScriptMixed &&
+            characterFormat.Script == RichTextScript.Subscript);
+        SetToolbarState(
+            BulletButton,
+            !paragraphFormat.IsListMixed &&
+            listMarker is RichTextListMarker.Bullet or RichTextListMarker.Picture);
+        SetToolbarState(
+            NumberButton,
+            !paragraphFormat.IsListMixed && listMarker is RichTextListMarker.Number);
+        SetColorState(ForegroundDefaultButton, characterFormat.ForegroundColor, null);
+        SetColorState(ForegroundCoralButton, characterFormat.ForegroundColor, "#E06C75");
+        SetColorState(ForegroundBlueButton, characterFormat.ForegroundColor, "#327CCB");
+        SetColorState(ForegroundGreenButton, characterFormat.ForegroundColor, "#3A8F45");
+        SetColorState(BackgroundClearButton, characterFormat.BackgroundColor, null);
+        SetColorState(BackgroundYellowButton, characterFormat.BackgroundColor, "#FFF3A3");
+        SetColorState(BackgroundBlueButton, characterFormat.BackgroundColor, "#BDE7FF");
+        SetColorState(BackgroundGreenButton, characterFormat.BackgroundColor, "#D8F3C5");
 
-        StatusLabel.Text = Editor.SelectionLength == 0
-            ? $"Caret at {Editor.SelectionStart}"
-            : $"{Editor.SelectionLength} characters selected";
+        StatusLabel.Text = Editor.SelectedRange.IsEmpty
+            ? $"Caret at {Editor.SelectedRange.Start}"
+            : $"{Editor.SelectedRange.Length} characters selected";
+    }
+
+    private RichTextListMarker? GetSelectedListMarker(
+        RichTextSelectionParagraphFormat paragraphFormat)
+    {
+        if (paragraphFormat.IsListMixed || paragraphFormat.List is not { } item ||
+            !Editor.Document.CurrentSnapshot.Lists.TryGetValue(item.ListId, out var definition) ||
+            (uint)item.Level >= (uint)definition.Levels.Length)
+        {
+            return null;
+        }
+
+        return definition.Levels[item.Level].Marker;
     }
 
     private static void SetToolbarState(Button button, bool active)

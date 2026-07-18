@@ -26,20 +26,20 @@ internal static class RtfCodec
         LowerLetter = 4,
     }
 
-    public static string Serialize(RichTextDocument document)
+    public static string Serialize(RichTextDocumentSnapshot document)
     {
         ArgumentNullException.ThrowIfNull(document);
         return new Writer(document).Write();
     }
 
-    public static string SerializeForNativeProjection(RichTextDocument document)
+    public static string SerializeForNativeProjection(RichTextDocumentSnapshot document)
     {
         ArgumentNullException.ThrowIfNull(document);
         return new Writer(document, includeSemanticRanges: false).Write();
     }
 
     public static string SerializeForNativeProjection(
-        RichTextDocument document,
+        RichTextDocumentSnapshot document,
         RichTextCharacterFormat nativeDefaultCharacterFormat)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -50,7 +50,7 @@ internal static class RtfCodec
             nativeDefaultCharacterFormat).Write();
     }
 
-    public static RichTextDocument Parse(string rtf)
+    public static RichTextDocumentSnapshot Parse(string rtf)
     {
         ArgumentNullException.ThrowIfNull(rtf);
         return new Reader(rtf).Read();
@@ -60,7 +60,7 @@ internal static class RtfCodec
 
     private sealed class Writer
     {
-        private readonly RichTextDocument _document;
+        private readonly RichTextDocumentSnapshot _document;
         private readonly StringBuilder _output = new();
         private readonly List<string> _fontNames = [];
         private readonly Dictionary<string, int> _fontIndices = new(StringComparer.Ordinal);
@@ -82,7 +82,7 @@ internal static class RtfCodec
         private readonly RichTextCharacterFormat? _nativeDefaultCharacterFormat;
 
         public Writer(
-            RichTextDocument document,
+            RichTextDocumentSnapshot document,
             bool includeSemanticRanges = true,
             RichTextCharacterFormat? nativeDefaultCharacterFormat = null)
         {
@@ -94,7 +94,7 @@ internal static class RtfCodec
                 "Arial");
             BuildFormattingTables();
             _listPictures = document.Paragraphs
-                .Select(paragraph => paragraph.Format.List?.PictureId)
+                .Select(paragraph => paragraph.Format.NativeList?.PictureId)
                 .Where(static id => id is not null)
                 .Distinct(StringComparer.Ordinal)
                 .Select(id => document.ListPictures[id!])
@@ -701,7 +701,9 @@ internal static class RtfCodec
                 return;
             }
 
-            var hasFormatting = format != _document.DefaultCharacterFormat;
+            var hasFormatting = HasDirectCharacterFormatting(
+                format,
+                _document.DefaultCharacterFormat);
             if (hasFormatting)
             {
                 _output.Append('{');
@@ -1003,7 +1005,9 @@ internal static class RtfCodec
         private void WriteParagraphBreak(int index)
         {
             var format = GetRunAt(index).Format;
-            if (format == _document.DefaultCharacterFormat)
+            if (!HasDirectCharacterFormatting(
+                    format,
+                    _document.DefaultCharacterFormat))
             {
                 _output.Append(@"\par");
                 return;
@@ -1016,7 +1020,9 @@ internal static class RtfCodec
 
         private void WriteRun(ReadOnlySpan<char> text, RichTextCharacterFormat format)
         {
-            if (format == _document.DefaultCharacterFormat)
+            if (!HasDirectCharacterFormatting(
+                    format,
+                    _document.DefaultCharacterFormat))
             {
                 WriteText(text);
                 return;
@@ -1070,18 +1076,22 @@ internal static class RtfCodec
                 WriteUnderlineControl(format.Underline);
             }
 
-            var fontFamily = format.FontFamily ?? _nativeDefaultCharacterFormat?.FontFamily;
+            var fontFamily = format.FontFamily ?? baseline.FontFamily ??
+                _nativeDefaultCharacterFormat?.FontFamily;
             var baselineFontFamily = baseline.FontFamily ??
                 _nativeDefaultCharacterFormat?.FontFamily;
-            if (!string.Equals(fontFamily, baselineFontFamily, StringComparison.Ordinal) &&
+            if ((format.FontFamily is not null ||
+                 !string.Equals(fontFamily, baselineFontFamily, StringComparison.Ordinal)) &&
                 fontFamily is not null)
             {
                 _output.Append(@"\f").Append(_fontIndices[fontFamily]);
             }
 
-            var fontSize = format.FontSize ?? _nativeDefaultCharacterFormat?.FontSize;
+            var fontSize = format.FontSize ?? baseline.FontSize ??
+                _nativeDefaultCharacterFormat?.FontSize;
             var baselineFontSize = baseline.FontSize ?? _nativeDefaultCharacterFormat?.FontSize;
-            if (fontSize != baselineFontSize && fontSize is not null)
+            if ((format.FontSize is not null || fontSize != baselineFontSize) &&
+                fontSize is not null)
             {
                 _output.Append(@"\fs").Append(GetHalfPointSize(fontSize.Value));
             }
@@ -1098,8 +1108,10 @@ internal static class RtfCodec
 
             WriteColorControl(
                 @"\cf",
-                format.ForegroundColor ?? _nativeDefaultCharacterFormat?.ForegroundColor,
-                baseline.ForegroundColor ?? _nativeDefaultCharacterFormat?.ForegroundColor);
+                format.ForegroundColor ?? baseline.ForegroundColor ??
+                    _nativeDefaultCharacterFormat?.ForegroundColor,
+                baseline.ForegroundColor ?? _nativeDefaultCharacterFormat?.ForegroundColor,
+                force: format.ForegroundColor is not null);
             WriteColorControl(@"\highlight", format.BackgroundColor, baseline.BackgroundColor);
             WriteColorControl(@"\ulc", format.UnderlineColor, baseline.UnderlineColor);
 
@@ -1331,9 +1343,26 @@ internal static class RtfCodec
             });
         }
 
-        private void WriteColorControl(string control, Color? value, Color? baseline)
+        private static bool HasDirectCharacterFormatting(
+            RichTextCharacterFormat format,
+            RichTextCharacterFormat baseline) =>
+            format.FontFamily is not null ||
+            format.FontSize is not null ||
+            format.ForegroundColor is not null ||
+            format with
+            {
+                FontFamily = baseline.FontFamily,
+                FontSize = baseline.FontSize,
+                ForegroundColor = baseline.ForegroundColor,
+            } != baseline;
+
+        private void WriteColorControl(
+            string control,
+            Color? value,
+            Color? baseline,
+            bool force = false)
         {
-            if (Equals(value, baseline))
+            if (!force && Equals(value, baseline))
             {
                 return;
             }
@@ -1407,7 +1436,7 @@ internal static class RtfCodec
             var definitionsById = new Dictionary<int, ListDefinition>();
             foreach (var paragraph in _document.Paragraphs)
             {
-                if (paragraph.Format.List is not { } list)
+                if (paragraph.Format.NativeList is not { } list)
                 {
                     continue;
                 }
@@ -1453,7 +1482,7 @@ internal static class RtfCodec
             var nextNumbers = new Dictionary<(int ListId, int Level), int>();
             foreach (var paragraph in _document.Paragraphs)
             {
-                if (paragraph.Format.List is not { } list)
+                if (paragraph.Format.NativeList is not { } list)
                 {
                     continue;
                 }
@@ -1795,7 +1824,7 @@ internal static class RtfCodec
             _rtf = rtf;
         }
 
-        public RichTextDocument Read()
+        public RichTextDocumentSnapshot Read()
         {
             var state = new ReaderState();
             var stack = new Stack<ReaderState>();
@@ -1914,18 +1943,10 @@ internal static class RtfCodec
                 FontFamily = GetDefaultFontFamily(),
                 FontSize = GetDefaultFontSize(),
             };
-            var runs = _document.Runs.Select(run => run with
-            {
-                Format = run.Format with
-                {
-                    FontFamily = run.Format.FontFamily ?? defaultCharacterFormat.FontFamily,
-                    FontSize = run.Format.FontSize ?? defaultCharacterFormat.FontSize,
-                },
-            });
             var text = _document.Text;
-            return new RichTextDocument(
+            return new RichTextDocumentSnapshot(
                 text,
-                runs,
+                _document.Runs,
                 EnumerateParagraphs(text),
                 links: CoalesceLinks(_links),
                 fields: CoalesceFields(_fields),
@@ -1941,7 +1962,7 @@ internal static class RtfCodec
             {
                 var format = _paragraphs.GetValueOrDefault(start, _defaultParagraphFormat);
                 _listItems.TryGetValue(start, out var list);
-                yield return new RichTextParagraph(start, format with { List = list });
+                yield return new RichTextParagraph(start, format with { NativeList = list });
 
                 var newline = text.IndexOf('\n', start);
                 if (newline < 0)
@@ -4411,6 +4432,7 @@ internal static class RtfCodec
             {
                 FontFamily = null,
                 FontSize = null,
+                ForegroundColor = null,
             };
             state.FontIndex = null;
             state.CodePage = GetFontCodePage(GetDefaultCharacterFontIndex());

@@ -1,872 +1,776 @@
-using System.Collections.Immutable;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace RichEdit.Maui;
 
-public sealed class RichTextDocument
+/// <summary>
+/// Represents a stable, observable rich-text document that supports atomic range edits.
+/// </summary>
+public sealed class RichTextDocument : INotifyPropertyChanged
 {
+    /// <summary>
+    /// The object-replacement character used to reserve a logical text position for an
+    /// inline object.
+    /// </summary>
     public const char ObjectReplacementCharacter = '\uFFFC';
+
+    /// <summary>
+    /// The Unicode line-separator character used for a soft line break.
+    /// </summary>
     public const char SoftLineBreakCharacter = '\u2028';
 
-    private readonly ImmutableArray<RichTextRun> _runs;
-    private readonly ImmutableArray<RichTextParagraph> _paragraphs;
-    private readonly ImmutableArray<RichTextLink> _links;
-    private readonly ImmutableArray<RichTextField> _fields;
-    private readonly ImmutableArray<RichTextImage> _images;
-    private readonly ImmutableDictionary<string, RichTextListPicture> _listPictures;
-    private readonly ImmutableDictionary<string, string> _metadata;
+    private readonly Stack<UndoEntry> _undo = new();
+    private readonly Stack<UndoEntry> _redo = new();
+    private RichTextDocumentSnapshot _snapshot;
+    private string? _cachedRtf;
+    private long _cachedRtfVersion = -1;
+    private IDispatcher? _dispatcher;
+    private int _dispatcherAttachmentCount;
+    private long _characterSummaryVersion = -1;
+    private RichTextRange _characterSummaryRange;
+    private RichTextCharacterFormatSummary? _characterSummary;
+    private long _paragraphSummaryVersion = -1;
+    private RichTextRange _paragraphSummaryRange;
+    private RichTextParagraphFormatSummary? _paragraphSummary;
+    private long _lastNativeEditTick;
+    private object? _lastNativeSourceToken;
+    private RichTextTextChange? _lastNativeTextChange;
 
-    public RichTextDocument(
-        string? text,
-        IEnumerable<RichTextRun>? runs = null,
-        IEnumerable<RichTextParagraph>? paragraphs = null,
-        IEnumerable<RichTextLink>? links = null,
-        IEnumerable<RichTextField>? fields = null,
-        IEnumerable<RichTextImage>? images = null,
-        RichTextCharacterFormat? defaultCharacterFormat = null,
-        RichTextParagraphFormat? defaultParagraphFormat = null,
-        IEnumerable<KeyValuePair<string, string>>? metadata = null,
-        IEnumerable<RichTextListPicture>? listPictures = null)
+    /// <summary>
+    /// Initializes an empty rich-text document.
+    /// </summary>
+    public RichTextDocument()
+        : this(new RichTextDocumentSnapshot(string.Empty))
     {
-        Text = NormalizeText(text);
-        DefaultCharacterFormat = Validate(defaultCharacterFormat ?? RichTextCharacterFormat.Default);
-        DefaultParagraphFormat = Validate(defaultParagraphFormat ?? RichTextParagraphFormat.Default);
-        _runs = NormalizeRuns(Text.Length, runs, DefaultCharacterFormat);
-        _listPictures = NormalizeListPictures(listPictures);
-        _paragraphs = NormalizeParagraphs(Text, paragraphs, DefaultParagraphFormat);
-        ValidateListPictureReferences(_paragraphs, _listPictures, nameof(listPictures));
-        _links = NormalizeLinks(Text.Length, links);
-        _fields = NormalizeFields(Text.Length, fields);
-        _images = NormalizeImages(Text, images);
-        _metadata = metadata?.ToImmutableDictionary(StringComparer.Ordinal) ??
-            ImmutableDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
     }
 
-    public string Text { get; }
-
-    public IReadOnlyList<RichTextRun> Runs => _runs;
-
-    public IReadOnlyList<RichTextParagraph> Paragraphs => _paragraphs;
-
-    public IReadOnlyList<RichTextLink> Links => _links;
-
-    public IReadOnlyList<RichTextField> Fields => _fields;
-
-    public IReadOnlyList<RichTextImage> Images => _images;
-
-    public IReadOnlyDictionary<string, RichTextListPicture> ListPictures => _listPictures;
-
-    public IReadOnlyDictionary<string, string> Metadata => _metadata;
-
-    public RichTextCharacterFormat DefaultCharacterFormat { get; }
-
-    public RichTextParagraphFormat DefaultParagraphFormat { get; }
-
-    public static RichTextDocument FromPlainText(string? text) => new(text);
-
-    public static RichTextDocument FromRtf(string rtf) => RtfCodec.Parse(rtf);
-
-    public string ToRtf() => RtfCodec.Serialize(this);
-
-    public RichTextCharacterFormat GetCharacterFormat(int position)
+    internal RichTextDocument(RichTextDocumentSnapshot snapshot)
     {
-        if (Text.Length == 0)
-        {
-            return DefaultCharacterFormat;
-        }
-
-        var index = Math.Clamp(position, 0, Text.Length - 1);
-        foreach (var run in _runs)
-        {
-            if (index < run.End)
-            {
-                return run.Format;
-            }
-        }
-
-        return _runs[^1].Format;
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _snapshot = snapshot.WithVersion(0);
     }
 
-    public RichTextCharacterFormat GetCaretFormat(int position)
-    {
-        if (Text.Length == 0)
-        {
-            return DefaultCharacterFormat;
-        }
+    /// <summary>
+    /// Occurs after an atomic document transaction is committed.
+    /// </summary>
+    public event EventHandler<RichTextDocumentChangedEventArgs>? Changed;
 
-        var index = position == 0 ? 0 : Math.Clamp(position - 1, 0, Text.Length - 1);
-        return GetCharacterFormat(index);
+    /// <inheritdoc />
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal event EventHandler? UndoStateChanged;
+
+    /// <summary>
+    /// Gets the monotonically increasing document version.
+    /// </summary>
+    public long Version => _snapshot.Version;
+
+    /// <summary>
+    /// Gets the number of UTF-16 code units in the logical text.
+    /// </summary>
+    public int Length => _snapshot.Text.Length;
+
+    /// <summary>
+    /// Gets the plain-text projection of the document.
+    /// </summary>
+    public string Text => _snapshot.Text;
+
+    /// <summary>
+    /// Gets or sets the canonical RTF representation of the complete document.
+    /// </summary>
+    /// <remarks>
+    /// The getter serializes lazily and caches the result by <see cref="Version"/>.
+    /// The setter parses and validates the complete value before committing one atomic
+    /// reset. View appearance and native theme defaults are never serialized.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">The assigned value is null.</exception>
+    /// <exception cref="FormatException">The assigned value is not valid supported RTF.</exception>
+    public string RtfText
+    {
+        get
+        {
+            if (_cachedRtfVersion != Version)
+            {
+                _cachedRtf = RtfCodec.Serialize(_snapshot);
+                _cachedRtfVersion = Version;
+            }
+
+            return _cachedRtf!;
+        }
+        set
+        {
+            VerifyMutationAccess();
+            ArgumentNullException.ThrowIfNull(value);
+            var parsed = RtfCodec.Parse(value);
+            ReplaceSnapshot(
+                parsed,
+                RichTextChangeOrigin.Binding,
+                RichTextUndoBehavior.ClearHistory,
+                sourceToken: null);
+        }
     }
 
-    public RichTextCharacterFormat? GetUniformCharacterFormat(Range range)
+    /// <summary>
+    /// Gets the declared default character format.
+    /// </summary>
+    public RichTextCharacterFormat DefaultCharacterFormat => _snapshot.DefaultCharacterFormat;
+
+    /// <summary>
+    /// Gets the declared default paragraph format.
+    /// </summary>
+    public RichTextParagraphFormat DefaultParagraphFormat => _snapshot.DefaultParagraphFormat;
+
+    /// <summary>
+    /// Gets the immutable snapshot for the current document version.
+    /// </summary>
+    public RichTextDocumentSnapshot CurrentSnapshot => _snapshot;
+
+    internal bool CanUndo => _undo.Count != 0;
+
+    internal bool CanRedo => _redo.Count != 0;
+
+    /// <summary>
+    /// Applies an atomic set of incremental document edits.
+    /// </summary>
+    /// <param name="edit">A callback that describes the edits in transaction order.</param>
+    /// <param name="options">Undo and application metadata for the transaction.</param>
+    /// <returns>The committed change set, or an empty change set when no edit was made.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="edit"/> is null.</exception>
+    public RichTextChangeSet Edit(
+        Action<RichTextDocumentEdit> edit,
+        RichTextEditOptions options = default)
     {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
-        if (length == 0)
-        {
-            return GetCaretFormat(start);
-        }
-
-        var end = start + length;
-        RichTextCharacterFormat? result = null;
-        foreach (var run in _runs)
-        {
-            if (run.End <= start)
-            {
-                continue;
-            }
-
-            if (run.Start >= end)
-            {
-                break;
-            }
-
-            if (result is null)
-            {
-                result = run.Format;
-            }
-            else if (result != run.Format)
-            {
-                return null;
-            }
-        }
-
-        return result ?? DefaultCharacterFormat;
+        VerifyMutationAccess();
+        ArgumentNullException.ThrowIfNull(edit);
+        var transaction = new RichTextDocumentEdit(_snapshot);
+        edit(transaction);
+        return Commit(
+            transaction.Snapshot,
+            transaction.Changes,
+            RichTextChangeOrigin.Programmatic,
+            options,
+            sourceToken: null);
     }
 
-    public RichTextParagraphFormat GetParagraphFormat(int position)
+    /// <summary>
+    /// Returns the plain text in a bounded document range.
+    /// </summary>
+    /// <param name="range">The range to read.</param>
+    /// <returns>The selected plain text.</returns>
+    public string GetText(RichTextRange range)
     {
-        var lineStart = GetParagraphStart(Text, Math.Clamp(position, 0, Text.Length));
-        foreach (var paragraph in _paragraphs)
-        {
-            if (paragraph.Start == lineStart)
-            {
-                return paragraph.Format;
-            }
-        }
-
-        return DefaultParagraphFormat;
+        range.Validate(Length, nameof(range));
+        return Text.Substring(range.Start, range.Length);
     }
 
-    public RichTextParagraphFormat? GetUniformParagraphFormat(Range range)
+    /// <summary>
+    /// Summarizes declared character formatting in a document range.
+    /// </summary>
+    /// <param name="range">The range to inspect.</param>
+    /// <returns>A character-format summary.</returns>
+    public RichTextCharacterFormatSummary GetCharacterFormat(RichTextRange range)
     {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
-        var lastPosition = length == 0 ? start : start + length - 1;
-        var firstParagraph = GetParagraphStart(Text, start);
-        var lastParagraph = GetParagraphStart(Text, lastPosition);
-        RichTextParagraphFormat? result = null;
-        foreach (var paragraph in _paragraphs)
+        range.Validate(Length, nameof(range));
+        if (_characterSummaryVersion != Version || _characterSummaryRange != range)
         {
-            if (paragraph.Start < firstParagraph)
-            {
-                continue;
-            }
-
-            if (paragraph.Start > lastParagraph)
-            {
-                break;
-            }
-
-            if (result is null)
-            {
-                result = paragraph.Format;
-            }
-            else if (result != paragraph.Format)
-            {
-                return null;
-            }
+            _characterSummary = RichTextCharacterFormatSummary.Create(_snapshot, range);
+            _characterSummaryVersion = Version;
+            _characterSummaryRange = range;
         }
 
-        return result ?? DefaultParagraphFormat;
+        return _characterSummary!;
     }
 
-    public RichTextDocument ApplyCharacterFormat(
-        Range range,
-        Func<RichTextCharacterFormat, RichTextCharacterFormat> transform)
+    /// <summary>
+    /// Summarizes declared paragraph formatting in a document range.
+    /// </summary>
+    /// <param name="range">The range to inspect.</param>
+    /// <returns>A paragraph-format summary.</returns>
+    public RichTextParagraphFormatSummary GetParagraphFormat(RichTextRange range)
     {
-        ArgumentNullException.ThrowIfNull(transform);
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
-        if (length == 0)
+        range.Validate(Length, nameof(range));
+        if (_paragraphSummaryVersion != Version || _paragraphSummaryRange != range)
         {
-            return this;
+            _paragraphSummary = RichTextParagraphFormatSummary.Create(_snapshot, range);
+            _paragraphSummaryVersion = Version;
+            _paragraphSummaryRange = range;
         }
 
-        var end = start + length;
-        var runs = new List<RichTextRun>(_runs.Length + 2);
-        foreach (var run in _runs)
-        {
-            if (run.End <= start || run.Start >= end)
-            {
-                runs.Add(run);
-                continue;
-            }
-
-            if (run.Start < start)
-            {
-                runs.Add(run with { Length = start - run.Start });
-            }
-
-            var transformedStart = Math.Max(run.Start, start);
-            var transformedEnd = Math.Min(run.End, end);
-            runs.Add(new RichTextRun(
-                transformedStart,
-                transformedEnd - transformedStart,
-                Validate(transform(run.Format))));
-
-            if (run.End > end)
-            {
-                runs.Add(new RichTextRun(end, run.End - end, run.Format));
-            }
-        }
-
-        return With(runs: runs);
+        return _paragraphSummary!;
     }
 
-    public RichTextDocument ApplyParagraphFormat(
-        Range range,
-        Func<RichTextParagraphFormat, RichTextParagraphFormat> transform)
+    internal RichTextChangeSet Edit(
+        Action<RichTextDocumentEdit> edit,
+        RichTextEditOptions options,
+        RichTextChangeOrigin origin,
+        object? sourceToken)
     {
-        ArgumentNullException.ThrowIfNull(transform);
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
-        var lastPosition = length == 0 ? start : start + length - 1;
-        var firstParagraph = GetParagraphStart(Text, start);
-        var lastParagraph = GetParagraphStart(Text, lastPosition);
-        var paragraphs = _paragraphs
-            .Select(paragraph => paragraph.Start >= firstParagraph && paragraph.Start <= lastParagraph
-                ? paragraph with { Format = Validate(transform(paragraph.Format)) }
-                : paragraph);
-        return With(paragraphs: paragraphs);
+        VerifyMutationAccess();
+        ArgumentNullException.ThrowIfNull(edit);
+        var transaction = new RichTextDocumentEdit(_snapshot);
+        edit(transaction);
+        return Commit(transaction.Snapshot, transaction.Changes, origin, options, sourceToken);
     }
 
-    public RichTextDocument Replace(
-        Range range,
-        string? replacement,
-        RichTextCharacterFormat? replacementFormat = null)
+    internal RichTextChangeSet ReplaceSnapshotFromNative(
+        RichTextDocumentSnapshot snapshot,
+        object sourceToken)
     {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
-        replacement = NormalizeText(replacement);
-        var oldEnd = start + length;
-        var delta = replacement.Length - length;
-        var text = string.Concat(Text.AsSpan(0, start), replacement, Text.AsSpan(oldEnd));
-        var insertionFormat = Validate(replacementFormat ?? GetCaretFormat(start));
-        var runs = new List<RichTextRun>(_runs.Length + 2);
-
-        foreach (var run in _runs)
+        VerifyMutationAccess();
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(sourceToken);
+        var changes = CreateDelta(_snapshot, snapshot);
+        var undoBehavior = CanMergeNativeEdit(changes, sourceToken)
+            ? RichTextUndoBehavior.MergeWithPrevious
+            : RichTextUndoBehavior.CreateUnit;
+        var result = Commit(
+            snapshot,
+            changes,
+            RichTextChangeOrigin.User,
+            new RichTextEditOptions(undoBehavior),
+            sourceToken);
+        if (!result.IsEmpty)
         {
-            if (run.End <= start)
-            {
-                runs.Add(run);
-            }
-            else if (run.Start >= oldEnd)
-            {
-                runs.Add(run with { Start = run.Start + delta });
-            }
-            else
-            {
-                if (run.Start < start)
-                {
-                    runs.Add(run with { Length = start - run.Start });
-                }
-
-                if (run.End > oldEnd)
-                {
-                    runs.Add(new RichTextRun(
-                        start + replacement.Length,
-                        run.End - oldEnd,
-                        run.Format));
-                }
-            }
+            _lastNativeSourceToken = sourceToken;
+            _lastNativeEditTick = Environment.TickCount64;
+            _lastNativeTextChange = GetMergeableTextChange(changes);
         }
 
-        if (replacement.Length > 0)
-        {
-            runs.Add(new RichTextRun(start, replacement.Length, insertionFormat));
-        }
+        return result;
+    }
 
-        var insertionParagraphFormat = GetParagraphFormat(start);
-        var paragraphs = EnumerateParagraphStarts(text).Select(paragraphStart =>
-        {
-            RichTextParagraphFormat format;
-            if (paragraphStart <= start)
-            {
-                format = GetParagraphFormat(paragraphStart);
-            }
-            else if (paragraphStart < start + replacement.Length)
-            {
-                format = insertionParagraphFormat;
-            }
-            else
-            {
-                format = GetParagraphFormat(Math.Clamp(paragraphStart - delta, 0, Text.Length));
-            }
-
-            return new RichTextParagraph(paragraphStart, format);
-        });
-
-        return new RichTextDocument(
+    internal RichTextChangeSet ReplacePlainText(string? text)
+    {
+        VerifyMutationAccess();
+        var snapshot = new RichTextDocumentSnapshot(
             text,
-            runs,
-            paragraphs,
-            RemapRanges(_links, start, oldEnd, replacement.Length),
-            RemapRanges(_fields, start, oldEnd, replacement.Length),
-            _images
-                .Where(image => image.Position < start || image.Position >= oldEnd)
-                .Select(image => image.Position >= oldEnd
-                    ? image with { Position = image.Position + delta }
-                    : image),
-            DefaultCharacterFormat,
-            DefaultParagraphFormat,
-            _metadata,
-            _listPictures.Values);
+            defaultCharacterFormat: DefaultCharacterFormat,
+            defaultParagraphFormat: DefaultParagraphFormat,
+            metadata: _snapshot.Metadata);
+        return ReplaceSnapshot(
+            snapshot,
+            RichTextChangeOrigin.Binding,
+            RichTextUndoBehavior.ClearHistory,
+            sourceToken: null);
     }
 
-    public RichTextDocument SetLink(Range range, string target, string? toolTip = null)
+    internal void Undo()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(target);
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
-        if (length == 0)
-        {
-            throw new ArgumentException("A hyperlink must cover at least one character.", nameof(range));
-        }
-
-        var end = start + length;
-        var links = _links
-            .Where(link => link.End <= start || link.Start >= end)
-            .Append(new RichTextLink(start, length, target, toolTip));
-        return With(links: links);
-    }
-
-    public RichTextDocument RemoveLinks(Range range)
-    {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
-        var end = start + length;
-        return With(links: _links.Where(link => link.End <= start || link.Start >= end));
-    }
-
-    public RichTextDocument InsertImage(int position, RichTextImage image)
-    {
-        ArgumentNullException.ThrowIfNull(image);
-        if ((uint)position > (uint)Text.Length)
-        {
-            throw new ArgumentOutOfRangeException(nameof(position));
-        }
-
-        var document = Replace(position..position, ObjectReplacementCharacter.ToString());
-        var images = document._images.Append(image with { Position = position });
-        return document.With(images: images);
-    }
-
-    public RichTextDocument SetMetadata(string name, string? value)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        var metadata = value is null ? _metadata.Remove(name) : _metadata.SetItem(name, value);
-        return With(metadata: metadata);
-    }
-
-    internal RichTextDocument With(
-        string? text = null,
-        IEnumerable<RichTextRun>? runs = null,
-        IEnumerable<RichTextParagraph>? paragraphs = null,
-        IEnumerable<RichTextLink>? links = null,
-        IEnumerable<RichTextField>? fields = null,
-        IEnumerable<RichTextImage>? images = null,
-        RichTextCharacterFormat? defaultCharacterFormat = null,
-        RichTextParagraphFormat? defaultParagraphFormat = null,
-        IEnumerable<KeyValuePair<string, string>>? metadata = null,
-        IEnumerable<RichTextListPicture>? listPictures = null) =>
-        new(
-            text ?? Text,
-            runs ?? _runs,
-            paragraphs ?? _paragraphs,
-            links ?? _links,
-            fields ?? _fields,
-            images ?? _images,
-            defaultCharacterFormat ?? DefaultCharacterFormat,
-            defaultParagraphFormat ?? DefaultParagraphFormat,
-            metadata ?? _metadata,
-            listPictures ?? _listPictures.Values);
-
-    internal RichTextDocument MergeNativeSnapshot(
-        string text,
-        IEnumerable<RichTextRun> runs,
-        IEnumerable<RichTextParagraph> paragraphs,
-        IEnumerable<RichTextLink>? links,
-        IEnumerable<RichTextImage>? images,
-        RichTextCharacterFormat defaultCharacterFormat,
-        RichTextParagraphFormat defaultParagraphFormat,
-        Func<RichTextCharacterFormat, RichTextCharacterFormat, RichTextCharacterFormat>?
-            mergeCharacterFormat = null,
-        Func<RichTextParagraphFormat, RichTextParagraphFormat, RichTextParagraphFormat>?
-            mergeParagraphFormat = null)
-    {
-        ArgumentNullException.ThrowIfNull(text);
-        var remapped = this;
-        if (!string.Equals(Text, text, StringComparison.Ordinal))
-        {
-            var prefixLength = Text.AsSpan().CommonPrefixLength(text);
-            var suffixLength = 0;
-            var maximumSuffixLength = Math.Min(Text.Length, text.Length) - prefixLength;
-            while (suffixLength < maximumSuffixLength &&
-                   Text[^(suffixLength + 1)] == text[^(suffixLength + 1)])
-            {
-                suffixLength++;
-            }
-
-            var oldEnd = Text.Length - suffixLength;
-            var newEnd = text.Length - suffixLength;
-            remapped = Replace(
-                prefixLength..oldEnd,
-                text[prefixLength..newEnd]);
-        }
-
-        var nativeRuns = NormalizeRuns(text.Length, runs, defaultCharacterFormat);
-        var nativeParagraphs = NormalizeParagraphs(text, paragraphs, defaultParagraphFormat);
-        if (mergeCharacterFormat is not null)
-        {
-            defaultCharacterFormat = mergeCharacterFormat(
-                defaultCharacterFormat,
-                remapped.DefaultCharacterFormat);
-            nativeRuns = MergeCharacterFormats(
-                nativeRuns,
-                remapped._runs,
-                mergeCharacterFormat);
-        }
-
-        if (mergeParagraphFormat is not null)
-        {
-            defaultParagraphFormat = mergeParagraphFormat(
-                defaultParagraphFormat,
-                remapped.DefaultParagraphFormat);
-            nativeParagraphs =
-            [
-                .. nativeParagraphs.Select(paragraph => paragraph with
-                {
-                    Format = mergeParagraphFormat(
-                        paragraph.Format,
-                        remapped.GetParagraphFormat(paragraph.Start)),
-                }),
-            ];
-        }
-
-        var linksWithToolTips = links is null
-            ? remapped._links
-            : links.Select(link =>
-            {
-                var prior = remapped._links.FirstOrDefault(candidate =>
-                    candidate.Start == link.Start &&
-                    candidate.Length == link.Length &&
-                    string.Equals(candidate.Target, link.Target, StringComparison.Ordinal));
-                return prior is null ? link : link with { ToolTip = prior.ToolTip };
-            });
-        return new RichTextDocument(
-            text,
-            nativeRuns,
-            nativeParagraphs,
-            linksWithToolTips,
-            remapped._fields,
-            images ?? remapped._images,
-            defaultCharacterFormat,
-            defaultParagraphFormat,
-            _metadata,
-            remapped._listPictures.Values);
-    }
-
-    private static ImmutableArray<RichTextRun> MergeCharacterFormats(
-        ImmutableArray<RichTextRun> nativeRuns,
-        ImmutableArray<RichTextRun> previousRuns,
-        Func<RichTextCharacterFormat, RichTextCharacterFormat, RichTextCharacterFormat> merge)
-    {
-        var result = new List<RichTextRun>(nativeRuns.Length + previousRuns.Length);
-        var nativeIndex = 0;
-        var previousIndex = 0;
-        while (nativeIndex < nativeRuns.Length && previousIndex < previousRuns.Length)
-        {
-            var native = nativeRuns[nativeIndex];
-            var previous = previousRuns[previousIndex];
-            var start = Math.Max(native.Start, previous.Start);
-            var end = Math.Min(native.End, previous.End);
-            if (end > start)
-            {
-                AddRun(result, new RichTextRun(
-                    start,
-                    end - start,
-                    merge(native.Format, previous.Format)));
-            }
-
-            if (native.End <= end)
-            {
-                nativeIndex++;
-            }
-
-            if (previous.End <= end)
-            {
-                previousIndex++;
-            }
-        }
-
-        return [.. result];
-    }
-
-    private static string NormalizeText(string? text) =>
-        (text ?? string.Empty)
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n');
-
-    private static ImmutableArray<RichTextRun> NormalizeRuns(
-        int textLength,
-        IEnumerable<RichTextRun>? source,
-        RichTextCharacterFormat defaultFormat)
-    {
-        if (textLength == 0)
-        {
-            if (source?.Any() == true)
-            {
-                throw new ArgumentException("An empty document cannot contain character runs.", nameof(source));
-            }
-
-            return [];
-        }
-
-        var ordered = source?.OrderBy(run => run.Start).ToArray() ?? [];
-        var result = new List<RichTextRun>(ordered.Length + 1);
-        var position = 0;
-        foreach (var run in ordered)
-        {
-            ArgumentNullException.ThrowIfNull(run.Format);
-            if (run.Start < position || run.Start < 0 || run.Length <= 0 || run.End > textLength)
-            {
-                throw new ArgumentException("Character runs must be positive, ordered, non-overlapping, and inside the text.", nameof(source));
-            }
-
-            if (run.Start > position)
-            {
-                AddRun(result, new RichTextRun(position, run.Start - position, defaultFormat));
-            }
-
-            AddRun(result, run with { Format = Validate(run.Format) });
-            position = run.End;
-        }
-
-        if (position < textLength)
-        {
-            AddRun(result, new RichTextRun(position, textLength - position, defaultFormat));
-        }
-
-        return result.ToImmutableArray();
-    }
-
-    private static void AddRun(List<RichTextRun> runs, RichTextRun run)
-    {
-        if (run.Length == 0)
+        VerifyMutationAccess();
+        if (!_undo.TryPop(out var entry))
         {
             return;
         }
 
-        if (runs.Count > 0 && runs[^1].End == run.Start && runs[^1].Format == run.Format)
+        _redo.Push(entry);
+        TransitionTo(entry.Before, RichTextChangeOrigin.Undo);
+        UndoStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal void Redo()
+    {
+        VerifyMutationAccess();
+        if (!_redo.TryPop(out var entry))
         {
-            runs[^1] = runs[^1] with { Length = runs[^1].Length + run.Length };
+            return;
         }
-        else
+
+        _undo.Push(entry);
+        TransitionTo(entry.After, RichTextChangeOrigin.Redo);
+        UndoStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal void ClearUndoHistory()
+    {
+        VerifyMutationAccess();
+        if (_undo.Count == 0 && _redo.Count == 0)
         {
-            runs.Add(run);
+            return;
+        }
+
+        _undo.Clear();
+        _redo.Clear();
+        UndoStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal void AttachDispatcher(IDispatcher dispatcher)
+    {
+        ArgumentNullException.ThrowIfNull(dispatcher);
+        if (_dispatcher is not null && !ReferenceEquals(_dispatcher, dispatcher))
+        {
+            throw new InvalidOperationException(
+                "A rich-text document cannot be attached to editors on different dispatchers.");
+        }
+
+        _dispatcher = dispatcher;
+        _dispatcherAttachmentCount++;
+    }
+
+    internal void DetachDispatcher(IDispatcher dispatcher)
+    {
+        if (!ReferenceEquals(_dispatcher, dispatcher) || _dispatcherAttachmentCount == 0)
+        {
+            return;
+        }
+
+        if (--_dispatcherAttachmentCount == 0)
+        {
+            _dispatcher = null;
         }
     }
 
-    private static ImmutableArray<RichTextParagraph> NormalizeParagraphs(
-        string text,
-        IEnumerable<RichTextParagraph>? source,
-        RichTextParagraphFormat defaultFormat)
+    private RichTextChangeSet ReplaceSnapshot(
+        RichTextDocumentSnapshot snapshot,
+        RichTextChangeOrigin origin,
+        RichTextUndoBehavior undoBehavior,
+        object? sourceToken)
     {
-        var sourceArray = source?.ToArray() ?? [];
-        if (sourceArray.DistinctBy(paragraph => paragraph.Start).Count() != sourceArray.Length)
+        var oldRange = new RichTextRange(0, Length);
+        var changes = new List<RichTextChange>(2);
+        if (!string.Equals(Text, snapshot.Text, StringComparison.Ordinal))
         {
-            throw new ArgumentException("A document cannot contain multiple formats for one paragraph.", nameof(source));
+            var prefixLength = Text.AsSpan().CommonPrefixLength(snapshot.Text);
+            var suffixLength = 0;
+            var maximumSuffixLength = Math.Min(Text.Length, snapshot.Text.Length) - prefixLength;
+            while (suffixLength < maximumSuffixLength &&
+                   Text[^(suffixLength + 1)] == snapshot.Text[^(suffixLength + 1)])
+            {
+                suffixLength++;
+            }
+
+            changes.Add(new RichTextTextChange(
+                new RichTextRange(
+                    prefixLength,
+                    Text.Length - prefixLength - suffixLength),
+                snapshot.Text.Substring(
+                    prefixLength,
+                    snapshot.Text.Length - prefixLength - suffixLength)));
         }
 
-        var supplied = sourceArray.ToDictionary(paragraph => paragraph.Start);
-
-        var starts = EnumerateParagraphStarts(text).ToArray();
-        var validStarts = starts.ToHashSet();
-        if (supplied.Keys.Any(start => !validStarts.Contains(start)))
-        {
-            throw new ArgumentException("Paragraph formats must start at a paragraph boundary.", nameof(source));
-        }
-
-        return starts
-            .Select(start => new RichTextParagraph(
-                start,
-                supplied.TryGetValue(start, out var paragraph)
-                    ? Validate(paragraph.Format)
-                    : defaultFormat))
-            .ToImmutableArray();
+        changes.Add(new RichTextRangeChange(
+            RichTextChangeKind.Reset,
+            oldRange,
+            new RichTextRange(0, snapshot.Text.Length)));
+        return Commit(
+            snapshot,
+            changes,
+            origin,
+            new RichTextEditOptions(undoBehavior),
+            sourceToken);
     }
 
-    private static ImmutableArray<RichTextLink> NormalizeLinks(
-        int textLength,
-        IEnumerable<RichTextLink>? source)
+    private RichTextChangeSet Commit(
+        RichTextDocumentSnapshot snapshot,
+        IReadOnlyList<RichTextChange> changes,
+        RichTextChangeOrigin origin,
+        RichTextEditOptions options,
+        object? sourceToken)
     {
-        var links = source?.OrderBy(link => link.Start).ToArray() ?? [];
-        var previousEnd = 0;
-        foreach (var link in links)
+        if (_snapshot.ContentEquals(snapshot))
         {
-            if (link.Start < previousEnd || link.Start < 0 || link.Length <= 0 || link.End > textLength)
-            {
-                throw new ArgumentException("Hyperlinks must be positive, non-overlapping ranges inside the text.", nameof(source));
-            }
-
-            ArgumentException.ThrowIfNullOrWhiteSpace(link.Target);
-            previousEnd = link.End;
+            return new RichTextChangeSet(
+                Version,
+                Version,
+                origin,
+                [],
+                options.Tag,
+                sourceToken);
         }
 
-        return [.. links];
-    }
-
-    private static ImmutableArray<RichTextField> NormalizeFields(
-        int textLength,
-        IEnumerable<RichTextField>? source)
-    {
-        var fields = source?.OrderBy(field => field.Start).ToArray() ?? [];
-        var previousEnd = 0;
-        foreach (var field in fields)
+        if (origin != RichTextChangeOrigin.User)
         {
-            if (field.Start < previousEnd || field.Start < 0 || field.Length < 0 || field.End > textLength)
-            {
-                throw new ArgumentException("Fields must be non-overlapping ranges inside the text.", nameof(source));
-            }
-
-            ArgumentException.ThrowIfNullOrWhiteSpace(field.Instruction);
-            previousEnd = field.End;
+            ResetNativeEditCoalescing();
         }
 
-        return [.. fields];
-    }
+        var before = _snapshot;
+        var versionBefore = Version;
+        var after = snapshot.WithVersion(checked(versionBefore + 1));
 
-    private static ImmutableArray<RichTextImage> NormalizeImages(
-        string text,
-        IEnumerable<RichTextImage>? source)
-    {
-        var images = source?.OrderBy(image => image.Position).ToArray() ?? [];
-        var positions = new HashSet<int>();
-        foreach (var image in images)
+        switch (options.UndoBehavior)
         {
-            if ((uint)image.Position >= (uint)text.Length ||
-                text[image.Position] != ObjectReplacementCharacter ||
-                !positions.Add(image.Position))
-            {
-                throw new ArgumentException("Each image must occupy a unique object-replacement character in the text.", nameof(source));
-            }
-
-            if (string.IsNullOrWhiteSpace(image.MediaType) ||
-                !double.IsFinite(image.Width) || image.Width < 0 ||
-                !double.IsFinite(image.Height) || image.Height < 0 ||
-                !double.IsFinite(image.Rotation))
-            {
-                throw new ArgumentException("Image metadata is invalid.", nameof(source));
-            }
-        }
-
-        return [.. images];
-    }
-
-    private static ImmutableDictionary<string, RichTextListPicture> NormalizeListPictures(
-        IEnumerable<RichTextListPicture>? source)
-    {
-        var result = ImmutableDictionary.CreateBuilder<string, RichTextListPicture>(
-            StringComparer.Ordinal);
-        foreach (var picture in source ?? [])
-        {
-            ArgumentNullException.ThrowIfNull(picture);
-            if (string.IsNullOrWhiteSpace(picture.Id) ||
-                string.IsNullOrWhiteSpace(picture.MediaType) ||
-                !double.IsFinite(picture.Width) || picture.Width < 0 ||
-                !double.IsFinite(picture.Height) || picture.Height < 0)
-            {
-                throw new ArgumentException("List picture metadata is invalid.", nameof(source));
-            }
-
-            if (!result.TryAdd(
-                    picture.Id,
-                    picture.Data.IsDefault ? picture with { Data = [] } : picture))
-            {
-                throw new ArgumentException(
-                    "List picture identifiers must be unique.",
-                    nameof(source));
-            }
-        }
-
-        return result.ToImmutable();
-    }
-
-    private static void ValidateListPictureReferences(
-        ImmutableArray<RichTextParagraph> paragraphs,
-        ImmutableDictionary<string, RichTextListPicture> pictures,
-        string parameterName)
-    {
-        var missingId = paragraphs
-            .Select(paragraph => paragraph.Format.List?.PictureId)
-            .FirstOrDefault(id => id is not null && !pictures.ContainsKey(id));
-        if (missingId is not null)
-        {
-            throw new ArgumentException(
-                $"List picture '{missingId}' is not present in the document.",
-                parameterName);
-        }
-    }
-
-    private static RichTextCharacterFormat Validate(RichTextCharacterFormat format)
-    {
-        ArgumentNullException.ThrowIfNull(format);
-        if (format.FontSize is { } size && (!double.IsFinite(size) || size <= 0) ||
-            format.FontWeight is < 1 or > 1000 ||
-            !double.IsFinite(format.BaselineOffset) ||
-            !double.IsFinite(format.CharacterSpacing) ||
-            !double.IsFinite(format.HorizontalScale) || format.HorizontalScale <= 0 ||
-            format.Shading is < 0 or > 10000)
-        {
-            throw new ArgumentException("Character formatting contains an invalid numeric value.", nameof(format));
-        }
-
-        return format with
-        {
-            BackgroundColor = NormalizeVisibleColor(format.BackgroundColor),
-            UnderlineColor = NormalizeVisibleColor(format.UnderlineColor),
-            StrikethroughColor = NormalizeVisibleColor(format.StrikethroughColor),
-            ShadingForegroundColor = NormalizeVisibleColor(format.ShadingForegroundColor),
-            ShadingBackgroundColor = NormalizeVisibleColor(format.ShadingBackgroundColor),
-        };
-    }
-
-    private static RichTextParagraphFormat Validate(RichTextParagraphFormat format)
-    {
-        ArgumentNullException.ThrowIfNull(format);
-        if (!double.IsFinite(format.LeadingIndent) ||
-            !double.IsFinite(format.TrailingIndent) ||
-            !double.IsFinite(format.FirstLineIndent) ||
-            !double.IsFinite(format.SpaceBefore) || format.SpaceBefore < 0 ||
-            !double.IsFinite(format.SpaceAfter) || format.SpaceAfter < 0 ||
-            !double.IsFinite(format.LineSpacing) || format.LineSpacing < 0 ||
-            format.MinimumLineHeight is { } minimum && (!double.IsFinite(minimum) || minimum < 0) ||
-            format.MaximumLineHeight is { } maximum && (!double.IsFinite(maximum) || maximum < 0) ||
-            format.MinimumLineHeight is { } min && format.MaximumLineHeight is { } max && min > max ||
-            format.Shading is < 0 or > 10000)
-        {
-            throw new ArgumentException("Paragraph formatting contains an invalid numeric value.", nameof(format));
-        }
-
-        var tabs = format.TabStops.IsDefault ? [] : format.TabStops;
-        if (tabs.Any(tab => !double.IsFinite(tab.Position) || tab.Position < 0))
-        {
-            throw new ArgumentException("Tab positions must be finite and nonnegative.", nameof(format));
-        }
-
-        var list = format.List;
-        if (list is not null &&
-            (list.Id <= 0 || list.Level is < 0 or > 8 || list.StartAt <= 0 ||
-             string.IsNullOrEmpty(list.BulletText) ||
-             (string.IsNullOrWhiteSpace(list.PictureId) && list.PictureId is not null) ||
-             (list.PictureId is not null && list.Kind != RichListKind.Bulleted)))
-        {
-            throw new ArgumentException("List formatting is invalid.", nameof(format));
-        }
-
-        if (format.Border is { } border &&
-            (!double.IsFinite(border.Width) || border.Width < 0 ||
-             border.Style == RichTextBorderStyle.None && border.Sides != RichTextBorderSides.None))
-        {
-            throw new ArgumentException("Paragraph border formatting is invalid.", nameof(format));
-        }
-
-        return format with
-        {
-            TabStops = [.. tabs.OrderBy(tab => tab.Position).DistinctBy(tab => tab.Position)],
-            BackgroundColor = NormalizeVisibleColor(format.BackgroundColor),
-            ShadingForegroundColor = NormalizeVisibleColor(format.ShadingForegroundColor),
-            ShadingBackgroundColor = NormalizeVisibleColor(format.ShadingBackgroundColor),
-        };
-    }
-
-    private static Color? NormalizeVisibleColor(Color? color) =>
-        color is { Alpha: <= 0 } ? null : color;
-
-    private static int GetParagraphStart(string text, int position) =>
-        position == 0 ? 0 : text.LastIndexOf('\n', position - 1) + 1;
-
-    private static IEnumerable<int> EnumerateParagraphStarts(string text)
-    {
-        yield return 0;
-        for (var index = text.IndexOf('\n'); index >= 0; index = text.IndexOf('\n', index + 1))
-        {
-            yield return index + 1;
-        }
-    }
-
-    private static IEnumerable<RichTextLink> RemapRanges(
-        IEnumerable<RichTextLink> ranges,
-        int editStart,
-        int oldEnd,
-        int replacementLength)
-    {
-        var delta = replacementLength - (oldEnd - editStart);
-        foreach (var range in ranges)
-        {
-            if (range.End <= editStart)
-            {
-                yield return range;
-            }
-            else if (range.Start >= oldEnd)
-            {
-                yield return range with { Start = range.Start + delta };
-            }
-            else if (range.Start < editStart && range.End > oldEnd)
-            {
-                yield return range with { Length = range.Length + delta };
-            }
-            else if (range.Start < editStart)
-            {
-                yield return range with { Length = editStart - range.Start };
-            }
-            else if (range.End > oldEnd)
-            {
-                yield return range with
+            case RichTextUndoBehavior.CreateUnit:
+                _undo.Push(new UndoEntry(before, after, options.UndoDescription));
+                _redo.Clear();
+                break;
+            case RichTextUndoBehavior.MergeWithPrevious:
+                if (_undo.TryPop(out var preceding))
                 {
-                    Start = editStart + replacementLength,
-                    Length = range.End - oldEnd,
-                };
+                    _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription));
+                }
+                else
+                {
+                    _undo.Push(new UndoEntry(before, after, options.UndoDescription));
+                }
+
+                _redo.Clear();
+                break;
+            case RichTextUndoBehavior.DoNotRecord:
+                break;
+            case RichTextUndoBehavior.ClearHistory:
+                _undo.Clear();
+                _redo.Clear();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(options));
+        }
+
+        _snapshot = after;
+        InvalidateRtfCache();
+        var changeSet = new RichTextChangeSet(
+            versionBefore,
+            after.Version,
+            origin,
+            [.. changes],
+            options.Tag,
+            sourceToken);
+        RaiseChanged(changeSet, before);
+        UndoStateChanged?.Invoke(this, EventArgs.Empty);
+        return changeSet;
+    }
+
+    private void TransitionTo(RichTextDocumentSnapshot snapshot, RichTextChangeOrigin origin)
+    {
+        ResetNativeEditCoalescing();
+        var before = _snapshot;
+        var versionBefore = Version;
+        _snapshot = snapshot.WithVersion(checked(versionBefore + 1));
+        InvalidateRtfCache();
+        var changes = CreateDelta(before, _snapshot);
+
+        var changeSet = new RichTextChangeSet(
+            versionBefore,
+            Version,
+            origin,
+            [.. changes],
+            tag: null);
+        RaiseChanged(changeSet, before);
+    }
+
+    internal static IReadOnlyList<RichTextChange> CreateDelta(
+        RichTextDocumentSnapshot before,
+        RichTextDocumentSnapshot after)
+    {
+        if (before.ContentEquals(after))
+        {
+            return [];
+        }
+
+        var changes = new List<RichTextChange>();
+        RichTextRange? textOldRange = null;
+        RichTextRange? textNewRange = null;
+        if (!string.Equals(before.Text, after.Text, StringComparison.Ordinal))
+        {
+            var prefixLength = before.Text.AsSpan().CommonPrefixLength(after.Text);
+            var suffixLength = 0;
+            var maximumSuffixLength = Math.Min(before.Length, after.Length) - prefixLength;
+            while (suffixLength < maximumSuffixLength &&
+                   before.Text[^(suffixLength + 1)] == after.Text[^(suffixLength + 1)])
+            {
+                suffixLength++;
             }
+
+            textOldRange = new RichTextRange(
+                prefixLength,
+                before.Length - prefixLength - suffixLength);
+            textNewRange = new RichTextRange(
+                prefixLength,
+                after.Length - prefixLength - suffixLength);
+            changes.Add(new RichTextTextChange(
+                textOldRange.Value,
+                after.Text.Substring(textNewRange.Value.Start, textNewRange.Value.Length)));
+        }
+
+        if (!before.Runs.AsSpan().SequenceEqual(after.Runs.AsSpan()))
+        {
+            var range = textNewRange ?? FindRunDifference(after, before);
+            changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.CharacterFormat,
+                textOldRange ?? range,
+                range));
+        }
+
+        if (!before.Paragraphs.AsSpan().SequenceEqual(after.Paragraphs.AsSpan()) ||
+            before.DefaultParagraphFormat != after.DefaultParagraphFormat)
+        {
+            var newRange = ExpandToParagraphs(after.Text, textNewRange ??
+                FindParagraphDifference(after, before));
+            var oldRange = ExpandToParagraphs(before.Text, textOldRange ?? newRange.Clamp(before.Length));
+            changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.ParagraphFormat,
+                oldRange,
+                newRange));
+        }
+
+        if (before.DefaultCharacterFormat != after.DefaultCharacterFormat ||
+            before.DefaultParagraphFormat != after.DefaultParagraphFormat)
+        {
+            changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.DefaultFormat,
+                new RichTextRange(0, before.Length),
+                new RichTextRange(0, after.Length)));
+        }
+
+        AddSemanticDelta(changes, RichTextChangeKind.Link, before.Links, after.Links,
+            static link => link.Range, before.Length, after.Length);
+        AddSemanticDelta(changes, RichTextChangeKind.Field, before.Fields, after.Fields,
+            static field => field.Range, before.Length, after.Length);
+        AddSemanticDelta(changes, RichTextChangeKind.Image, before.Images, after.Images,
+            static image => new RichTextRange(image.Position, 1), before.Length, after.Length,
+            ImagesEqual);
+
+        if (!DictionaryEqual(before.Lists, after.Lists) ||
+            !ListPicturesEqual(before.ListPictures, after.ListPictures))
+        {
+            changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.List,
+                new RichTextRange(0, before.Length),
+                new RichTextRange(0, after.Length)));
+        }
+
+        if (!DictionaryEqual(before.Metadata, after.Metadata))
+        {
+            changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.Metadata,
+                new RichTextRange(0, before.Length),
+                new RichTextRange(0, after.Length)));
+        }
+
+        if (changes.Count == 1 && changes[0] is RichTextTextChange && textNewRange is { } inserted)
+        {
+            var paragraphRange = ExpandToParagraphs(after.Text, inserted);
+            changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.CharacterFormat,
+                textOldRange!.Value,
+                inserted));
+            changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.ParagraphFormat,
+                ExpandToParagraphs(before.Text, textOldRange.Value),
+                paragraphRange));
+        }
+
+        return changes;
+    }
+
+    private static RichTextRange FindRunDifference(
+        RichTextDocumentSnapshot first,
+        RichTextDocumentSnapshot second)
+    {
+        var start = first.Runs
+            .Where(run => second.GetCharacterFormat(Math.Min(run.Start, second.Length)) != run.Format)
+            .Select(static run => run.Start)
+            .DefaultIfEmpty(0)
+            .Min();
+        var end = first.Runs
+            .Where(run => second.GetCharacterFormat(Math.Min(run.Start, second.Length)) != run.Format)
+            .Select(static run => run.End)
+            .DefaultIfEmpty(first.Length)
+            .Max();
+        return new RichTextRange(start, Math.Max(end - start, 0));
+    }
+
+    private static RichTextRange FindParagraphDifference(
+        RichTextDocumentSnapshot first,
+        RichTextDocumentSnapshot second)
+    {
+        var changed = first.Paragraphs
+            .Where(paragraph =>
+                second.GetParagraphFormat(Math.Min(paragraph.Start, second.Length)) != paragraph.Format)
+            .ToArray();
+        return changed.Length == 0
+            ? new RichTextRange(0, first.Length)
+            : new RichTextRange(changed[0].Range.Start, changed[^1].Range.End - changed[0].Range.Start);
+    }
+
+    private static RichTextRange ExpandToParagraphs(string text, RichTextRange range)
+    {
+        var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
+        var inspectedEnd = Math.Clamp(range.End, 0, text.Length);
+        var newline = text.IndexOf('\n', inspectedEnd);
+        var end = newline < 0 ? text.Length : newline + 1;
+        return new RichTextRange(start, end - start);
+    }
+
+    private static void AddSemanticDelta<T>(
+        List<RichTextChange> changes,
+        RichTextChangeKind kind,
+        IReadOnlyList<T> before,
+        IReadOnlyList<T> after,
+        Func<T, RichTextRange> getRange,
+        int beforeLength,
+        int afterLength,
+        Func<IReadOnlyList<T>, IReadOnlyList<T>, bool>? equals = null)
+    {
+        if (equals?.Invoke(before, after) ?? before.SequenceEqual(after))
+        {
+            return;
+        }
+
+        changes.Add(new RichTextRangeChange(
+            kind,
+            UnionRanges(before, getRange, beforeLength),
+            UnionRanges(after, getRange, afterLength)));
+    }
+
+    private static RichTextRange UnionRanges<T>(
+        IReadOnlyList<T> values,
+        Func<T, RichTextRange> getRange,
+        int documentLength)
+    {
+        if (values.Count == 0)
+        {
+            return new RichTextRange(0, 0);
+        }
+
+        var start = values.Min(value => getRange(value).Start);
+        var end = values.Max(value => getRange(value).End);
+        return new RichTextRange(start, Math.Min(end, documentLength) - start);
+    }
+
+    private static bool DictionaryEqual<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue> first,
+        IReadOnlyDictionary<TKey, TValue> second)
+        where TKey : notnull =>
+        first.Count == second.Count &&
+        first.All(pair => second.TryGetValue(pair.Key, out var value) &&
+            EqualityComparer<TValue>.Default.Equals(pair.Value, value));
+
+    private static bool ImagesEqual(
+        IReadOnlyList<RichTextImage> first,
+        IReadOnlyList<RichTextImage> second)
+    {
+        if (first.Count != second.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < first.Count; index++)
+        {
+            if (first[index] with { Data = [] } != second[index] with { Data = [] } ||
+                !first[index].Data.AsSpan().SequenceEqual(second[index].Data.AsSpan()))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ListPicturesEqual(
+        IReadOnlyDictionary<string, RichTextListPicture> first,
+        IReadOnlyDictionary<string, RichTextListPicture> second)
+    {
+        if (first.Count != second.Count)
+        {
+            return false;
+        }
+
+        foreach (var pair in first)
+        {
+            if (!second.TryGetValue(pair.Key, out var value) ||
+                pair.Value with { Data = [] } != value with { Data = [] } ||
+                !pair.Value.Data.AsSpan().SequenceEqual(value.Data.AsSpan()))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool CanMergeNativeEdit(
+        IReadOnlyList<RichTextChange> changes,
+        object sourceToken)
+    {
+        var current = GetMergeableTextChange(changes);
+        var previous = _lastNativeTextChange;
+        if (current is null || previous is null ||
+            !ReferenceEquals(sourceToken, _lastNativeSourceToken) ||
+            unchecked(Environment.TickCount64 - _lastNativeEditTick) > 1_000)
+        {
+            return false;
+        }
+
+        var bothInsertions = previous.RemovedLength == 0 && current.RemovedLength == 0 &&
+            previous.InsertedText.Length != 0 && current.InsertedText.Length != 0 &&
+            current.OldRange.Start == previous.NewRange.End;
+        var bothBackspaces = previous.InsertedText.Length == 0 &&
+            current.InsertedText.Length == 0 &&
+            previous.RemovedLength != 0 && current.RemovedLength != 0 &&
+            current.OldRange.End == previous.OldRange.Start;
+        var bothForwardDeletes = previous.InsertedText.Length == 0 &&
+            current.InsertedText.Length == 0 &&
+            previous.RemovedLength != 0 && current.RemovedLength != 0 &&
+            current.OldRange.Start == previous.OldRange.Start;
+        return bothInsertions || bothBackspaces || bothForwardDeletes;
+    }
+
+    private static RichTextTextChange? GetMergeableTextChange(
+        IReadOnlyList<RichTextChange> changes)
+    {
+        if (changes.Any(static change => change.Kind is not (
+                RichTextChangeKind.Text or
+                RichTextChangeKind.CharacterFormat or
+                RichTextChangeKind.ParagraphFormat)))
+        {
+            return null;
+        }
+
+        var textChanges = changes.OfType<RichTextTextChange>().ToArray();
+        return textChanges.Length == 1 ? textChanges[0] : null;
+    }
+
+    private void ResetNativeEditCoalescing()
+    {
+        _lastNativeEditTick = 0;
+        _lastNativeSourceToken = null;
+        _lastNativeTextChange = null;
+    }
+
+    private void RaiseChanged(
+        RichTextChangeSet changeSet,
+        RichTextDocumentSnapshot previousSnapshot)
+    {
+        Changed?.Invoke(this, new RichTextDocumentChangedEventArgs(changeSet));
+        OnPropertyChanged(nameof(Version));
+        OnPropertyChanged(nameof(CurrentSnapshot));
+        OnPropertyChanged(nameof(RtfText));
+        if (!string.Equals(previousSnapshot.Text, Text, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(Length));
+            OnPropertyChanged(nameof(Text));
+        }
+
+        if (previousSnapshot.DefaultCharacterFormat != DefaultCharacterFormat)
+        {
+            OnPropertyChanged(nameof(DefaultCharacterFormat));
+        }
+
+        if (previousSnapshot.DefaultParagraphFormat != DefaultParagraphFormat)
+        {
+            OnPropertyChanged(nameof(DefaultParagraphFormat));
         }
     }
 
-    private static IEnumerable<RichTextField> RemapRanges(
-        IEnumerable<RichTextField> ranges,
-        int editStart,
-        int oldEnd,
-        int replacementLength)
+    private void InvalidateRtfCache()
     {
-        var delta = replacementLength - (oldEnd - editStart);
-        foreach (var range in ranges)
+        _cachedRtf = null;
+        _cachedRtfVersion = -1;
+    }
+
+    private void VerifyMutationAccess()
+    {
+        if (_dispatcher?.IsDispatchRequired == true)
         {
-            if (range.End <= editStart)
-            {
-                yield return range;
-            }
-            else if (range.Start >= oldEnd)
-            {
-                yield return range with { Start = range.Start + delta };
-            }
-            else if (range.Start < editStart && range.End > oldEnd)
-            {
-                yield return range with { Length = range.Length + delta };
-            }
-            else if (range.Start < editStart)
-            {
-                yield return range with { Length = editStart - range.Start };
-            }
-            else if (range.End > oldEnd)
-            {
-                yield return range with
-                {
-                    Start = editStart + replacementLength,
-                    Length = range.End - oldEnd,
-                };
-            }
+            throw new InvalidOperationException(
+                "Mutating an attached rich-text document requires its owning dispatcher thread.");
         }
     }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    private sealed record UndoEntry(
+        RichTextDocumentSnapshot Before,
+        RichTextDocumentSnapshot After,
+        string? Description);
 }

@@ -1,14 +1,14 @@
 # RichEdit.Maui
 
-`RichEdit.Maui` is a native-handler rich text editor for .NET MAUI. Its immutable `RichTextDocument` is the source of truth for text, character runs, paragraph formatting, lists, hyperlinks, fields, and inline images. The control exposes two-way `Document` and plain-text `Text` bindings and reads native edits and formatting back into the document model.
+`RichEdit.Maui` is a native-handler rich-text editor for .NET MAUI. It combines a bindable editor control, a stable live document, immutable versioned snapshots, and atomic range edits.
 
-The editor renders with each platform's native text stack:
+The editor uses each platform's native text stack:
 
-- Android: `AppCompatEditText` with `SpannableStringBuilder` spans
-- iOS and Mac Catalyst: `UITextView` with `NSAttributedString`
-- Windows: `RichEditBox` and `ITextDocument`
+- Android 26+: `AppCompatEditText` and editable spans
+- iOS and Mac Catalyst: `UITextView`, `NSTextStorage`, and attributed strings
+- Windows: WinUI 3 `RichEditBox` and the Text Object Model
 
-The model deliberately keeps formatting that a particular native stack cannot render exactly. For example, Android preserves justified alignment and advanced list metadata while using a simpler visual fallback. Moving the same document to another platform or saving it as RTF does not discard those values.
+Formatting that cannot be rendered exactly on a platform remains in the document and its RTF representation. See the [portable RTF support matrix](RTF_SUPPORT.md) for the exact native, adapted, degraded, preserved, and unsupported behavior.
 
 ## Register the handler
 
@@ -20,7 +20,9 @@ builder
     .UseRichEdit();
 ```
 
-## Add the editor
+## Bind editor content
+
+`RtfText` is the canonical persistence property and supports two-way binding directly:
 
 ```xml
 <ContentPage
@@ -28,107 +30,162 @@ builder
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui">
     <rich:RichEditor x:Name="Editor"
-                     Text="{Binding PlainText, Mode=TwoWay}"
+                     RtfText="{Binding RtfText, Mode=TwoWay}"
+                     SelectedRange="{Binding Selection, Mode=TwoWay}"
+                     IsReadOnly="{Binding IsReadOnly}"
+                     IsSpellCheckEnabled="True"
                      Placeholder="Start writing…"
                      FontSize="17"
                      MinimumHeightRequest="240" />
 </ContentPage>
 ```
 
-Formatting commands apply to the current selection. With a collapsed selection they update the typing style:
+Reading `RtfText` returns canonical serialized RTF. Serialization is lazy and cached by document version. Setting it parses and validates the complete value before atomically replacing the document; invalid RTF does not partially modify content.
+
+`Text` is a two-way plain-text projection. Setting it intentionally replaces rich content with plain text. Applications should choose `RtfText`, `Text`, or `Document` as their authoritative input rather than binding several of them as competing sources.
+
+Control appearance properties such as `FontFamily`, `FontSize`, and `TextColor` are rendering fallbacks. They are not authored document formatting and are never serialized into `RtfText`.
+
+## Selection and formatting
+
+`Selection` is a stable live facade. Formatting a nonempty selection updates only that range; formatting a caret changes the typing format:
 
 ```csharp
-Editor.ToggleBold();
-Editor.ToggleItalic();
-Editor.ToggleUnderline();
-Editor.ToggleStrikethrough();
-Editor.ToggleSuperscript();
-Editor.ToggleSubscript();
-Editor.ToggleBulletedList("•");
-Editor.ToggleNumberedList(RichListNumberStyle.Arabic, startAt: 1);
-Editor.ToggleList(new RichTextListFormat
+Editor.Selection.ToggleBold();
+Editor.Selection.ToggleItalic();
+Editor.Selection.ToggleUnderline(RichTextUnderlineStyle.Single);
+Editor.Selection.ToggleStrikethrough(RichTextStrikethroughStyle.Single);
+Editor.Selection.ToggleScript(RichTextScript.Superscript);
+
+Editor.Selection.CharacterFormat.FontFamily = "Georgia";
+Editor.Selection.CharacterFormat.FontSize = 20;
+Editor.Selection.CharacterFormat.ForegroundColor = Color.FromArgb("#E06C75");
+Editor.Selection.CharacterFormat.BackgroundColor = Color.FromArgb("#FFF3A3");
+Editor.Selection.ParagraphFormat.Alignment = RichTextAlignment.Center;
+```
+
+Each selection-format property has a corresponding mixed-state property, such as `IsFontFamilyMixed`. Authored values remain distinct from effective rendering values:
+
+```csharp
+var authoredFont = Editor.Selection.CharacterFormat.FontFamily;
+var visibleFont = Editor.Selection.CharacterFormat.EffectiveFontFamily;
+var isInherited = Editor.Selection.CharacterFormat.IsFontFamilyInherited;
+
+// Remove explicit run formatting and resume document/view/native inheritance.
+Editor.Selection.CharacterFormat.FontFamily = null;
+```
+
+The same selection facade provides range replacement, links, fields, images, and list operations.
+
+## Caller-defined lists
+
+The library does not choose a bullet glyph, number style, prefix, suffix, start value, or indentation. Define the complete list in application code:
+
+```csharp
+var checklist = new RichTextListDefinition(
+[
+    new RichTextListLevelDefinition
+    {
+        Marker = new RichTextListMarker.Bullet("✓"),
+        Prefix = string.Empty,
+        Suffix = string.Empty,
+        LeadingIndent = 24,
+        FirstLineIndent = -18,
+        MarkerTab = 24,
+    },
+]);
+
+var outline = new RichTextListDefinition(
+[
+    new RichTextListLevelDefinition
+    {
+        Marker = new RichTextListMarker.Number(RichTextListNumberStyle.UpperRoman, 4),
+        Prefix = "(",
+        Suffix = ")",
+        LeadingIndent = 36,
+        FirstLineIndent = -24,
+        MarkerTab = 36,
+    },
+]);
+
+Editor.Selection.ToggleList(checklist);
+Editor.Selection.ToggleList(outline);
+```
+
+Document transactions can create one list identity and apply it to several ranges without duplicating its definition:
+
+```csharp
+Editor.Document.Edit(edit =>
 {
-    Kind = RichListKind.Numbered,
-    NumberStyle = RichListNumberStyle.UpperRoman,
-    StartAt = 4,
-    Prefix = "(",
-    Suffix = ")",
-});
-Editor.UpdateSelectedCharacterFormat(format => format with
-{
-    FontFamily = "Georgia",
-    FontSize = 20,
-    ForegroundColor = Color.FromArgb("#E06C75"),
-    BackgroundColor = Color.FromArgb("#FFF3A3"),
-});
-Editor.UpdateSelectedParagraphFormat(format => format with
-{
-    Alignment = RichTextAlignment.Center,
+    var listId = edit.CreateList(outline);
+    edit.ApplyList(new RichTextRange(0, 10), listId);
+    edit.ApplyList(new RichTextRange(30, 15), listId);
 });
 ```
 
-List commands do not choose a marker or numbering scheme. The convenience methods require those choices, while `ToggleList` accepts the complete `RichTextListFormat`. A zero `Id` asks the editor to allocate a new list identity; a positive `Id` is preserved.
+Lists support up to nine independently defined levels, caller-selected bullet text or pictures, numbering style and start value, prefixes and suffixes, nesting, continuation, and explicit restarts.
 
-`SelectedCharacterFormat` and `SelectedParagraphFormat` are `null` when the selection contains mixed formatting. `TypingCharacterFormat` and `TypingParagraphFormat` always expose the format that will be used for newly inserted text.
+## Atomic incremental document edits
 
-## RTF persistence
-
-The [Microsoft RTF 1.9.1 specification](https://go.microsoft.com/fwlink/?LinkId=120924) is the editor's canonical persistence format:
+`RichTextDocument` keeps a stable identity and emits one `Changed` event for each committed transaction:
 
 ```csharp
-var rtf = Editor.ToRtf();
-Editor.LoadRtf(rtf);
-
-var document = RichTextDocument.FromRtf(rtf);
-var sameRtf = document.ToRtf();
+Editor.Document.Edit(
+    edit =>
+    {
+        edit.ReplaceText(new RichTextRange(20, 5), "replacement");
+        edit.UpdateCharacterFormat(
+            new RichTextRange(20, 11),
+            format => format with { FontWeight = 700 });
+        edit.SetLink(new RichTextRange(20, 11), "https://example.com");
+    },
+    new RichTextEditOptions(
+        undoBehavior: RichTextUndoBehavior.CreateUnit,
+        undoDescription: "Replace title"));
 ```
 
-The reader follows RTF group scoping, Unicode fallback, code-page, paragraph-default, and ignorable-destination rules. It accepts ANSI, Mac, PC 437, PC 850, and font-specific `\fcharset`/`\cpg` text. Table cells are flattened to tab/newline text rather than concatenated. `\line` is represented as U+2028, while `\par` is represented as `\n`, so soft and paragraph breaks remain distinct.
+The transaction produces one version change, native batch, undo unit, and binding notification. The edit builder supports:
 
-RTF uses opaque 8-bit RGB colors and half-point font sizes. Serialization rounds model values to those wire-format units. Nonzero alpha is degraded to opaque RGB; a fully transparent formatting color means unset/reset rather than an alpha-zero native color.
+- insert, delete, and replace text or rich fragments
+- set, update, or clear character and paragraph formats
+- document default formats
+- list definitions, application, nesting, restart, and picture markers
+- links, fields, images, and metadata
 
-See the [portable RTF support matrix](RTF_SUPPORT.md) for the exact iOS,
-Mac Catalyst, Android 26, and WinUI 3 behavior, including documented visual
-fallbacks and model-only properties.
+`CurrentSnapshot` exposes an immutable view of the current version for safe enumeration. Range-bearing values use `RichTextRange`, whose offsets and lengths are UTF-16 code units.
 
-## Document model
+## MVVM commands
 
-Runs are normalized to cover the complete text without gaps or overlaps. Every paragraph has a format entry, semantic ranges cannot overlap, and every image occupies one U+FFFC object-replacement character. Input line endings are normalized to `\n`.
+`Commands` exposes `ICommand` instances with editor-aware `CanExecute` state:
 
-List labels are presentation metadata, not characters in `Text`. For example, plain `- foo` and `1. foo` lines remain plain text. Lists are created through the list APIs or imported RTF metadata:
+```xml
+<Button Text="B"
+        Command="{Binding Source={x:Reference Editor}, Path=Commands.ToggleBold}" />
+
+<Button Text="Underline"
+        Command="{Binding Source={x:Reference Editor}, Path=Commands.ToggleUnderline}"
+        CommandParameter="{x:Static rich:RichTextUnderlineStyle.Single}" />
+```
+
+Parameterized commands accept `RichTextListCommandRequest`, `RichTextLinkRequest`, `RichTextFieldRequest`, and image values. Advanced toolbars can bind directly to `Selection.CharacterFormat` and `Selection.ParagraphFormat`.
+
+## Events and editor operations
+
+The control exposes `ContentChanged`, `TextChanged`, `SelectionChanged`, `SelectionFormatChanged`, `EffectiveAppearanceChanged`, `LinkInvoked`, `InlineObjectInvoked`, `Pasting`, and `Completed` events. `ContentChanged` includes the atomic `RichTextChangeSet`, including its origin, old and new versions, and bounded changes.
+
+Undo, redo, selection, and portable clipboard operations are available directly:
 
 ```csharp
-var document = new RichTextDocument(
-    "First item\nFirst step",
-    paragraphs:
-    [
-        new RichTextParagraph(
-            0,
-            RichTextParagraphFormat.Default with
-            {
-                List = new RichTextListFormat
-                {
-                    Id = 1,
-                    Kind = RichListKind.Bulleted,
-                    BulletText = "→",
-                    Suffix = string.Empty,
-                },
-            }),
-        new RichTextParagraph(
-            11,
-            RichTextParagraphFormat.Default with
-            {
-                List = new RichTextListFormat
-                {
-                    Id = 2,
-                    Kind = RichListKind.Numbered,
-                    NumberStyle = RichListNumberStyle.LowerLetter,
-                    StartAt = 3,
-                    Suffix = ")",
-                },
-            }),
-    ]);
-Editor.LoadDocument(document);
+Editor.Undo();
+Editor.Redo();
+Editor.SelectAll();
+await Editor.CopyAsync();
+await Editor.CutAsync();
+await Editor.PasteAsync();
 ```
 
-`Text` is the plain-text representation for ordinary two-way binding. Use `Document`, `ToRtf()`, or `LoadRtf()` when formatting must be persisted.
+## RTF behavior
+
+The reader follows RTF group scoping, Unicode fallback, code-page, paragraph-default, and ignorable-destination rules. It accepts ANSI, Mac, PC 437, PC 850, and font-specific `\fcharset`/`\cpg` text. Table cells are flattened to tab/newline text. `\line` is represented as U+2028 and `\par` as `\n`, so soft and paragraph breaks remain distinct.
+
+RTF uses opaque 8-bit RGB colors and half-point font sizes. Serialization rounds model values to those wire-format units. Nonzero alpha is degraded to opaque RGB; a fully transparent formatting color means unset/reset instead of an alpha-zero native color.

@@ -26,6 +26,7 @@ public partial class RichEditorHandler
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private IKeyListener? _editableKeyListener;
 
+    /// <inheritdoc />
     protected override RichEditText CreatePlatformView()
     {
         var editor = new RichEditText(MauiContext!.Context!)
@@ -55,22 +56,89 @@ public partial class RichEditorHandler
         return editor;
     }
 
+    /// <inheritdoc />
     protected override void ConnectHandler(RichEditText platformView)
     {
         base.ConnectHandler(platformView);
         platformView.TextChanged += OnNativeDocumentChanged;
         platformView.NativeSelectionChanged += OnNativeSelectionChanged;
+        platformView.EditingCompleted += OnNativeEditingCompleted;
+        platformView.PasteRequested = OnPlatformPasteAsync;
+        platformView.UndoRequested = OnPlatformUndo;
+        platformView.RedoRequested = OnPlatformRedo;
+        platformView.LinkInvoked = OnPlatformLinkInvoked;
+        platformView.InlineObjectInvoked = OnPlatformInlineObjectInvoked;
     }
 
+    /// <inheritdoc />
     protected override void DisconnectHandler(RichEditText platformView)
     {
         platformView.TextChanged -= OnNativeDocumentChanged;
         platformView.NativeSelectionChanged -= OnNativeSelectionChanged;
+        platformView.EditingCompleted -= OnNativeEditingCompleted;
+        platformView.PasteRequested = null;
+        platformView.UndoRequested = null;
+        platformView.RedoRequested = null;
+        platformView.LinkInvoked = null;
+        platformView.InlineObjectInvoked = null;
         base.DisconnectHandler(platformView);
     }
 
+    private Task OnPlatformPasteAsync() =>
+        VirtualView is null || VirtualView.IsReadOnly
+            ? Task.CompletedTask
+            : VirtualView.PasteAsync();
+
+    private void OnPlatformUndo()
+    {
+        if (VirtualView is { IsReadOnly: false })
+        {
+            VirtualView.Undo();
+        }
+    }
+
+    private void OnPlatformRedo()
+    {
+        if (VirtualView is { IsReadOnly: false })
+        {
+            VirtualView.Redo();
+        }
+    }
+
+    private bool OnPlatformLinkInvoked(string target)
+    {
+        if (VirtualView is null)
+        {
+            return true;
+        }
+
+        var position = Math.Clamp(PlatformView.SelectionStart, 0, VirtualView.Document.Length);
+        var link = VirtualView.Document.CurrentSnapshot.Links.FirstOrDefault(candidate =>
+            candidate.Start <= position && position < candidate.End &&
+            string.Equals(candidate.Target, target, StringComparison.Ordinal));
+        if (link is null)
+        {
+            link = VirtualView.Document.CurrentSnapshot.Links.FirstOrDefault(candidate =>
+                string.Equals(candidate.Target, target, StringComparison.Ordinal));
+        }
+
+        return link is null || VirtualView.RaiseLinkInvoked(link);
+    }
+
+    private bool OnPlatformInlineObjectInvoked(int position)
+    {
+        if (VirtualView is null)
+        {
+            return true;
+        }
+
+        var image = VirtualView.Document.CurrentSnapshot.Images.FirstOrDefault(candidate =>
+            candidate.Position == position);
+        return image is null || VirtualView.RaiseInlineObjectInvoked(image);
+    }
+
     private partial void ApplyDocumentCore(
-        RichTextDocument document,
+        RichTextDocumentSnapshot document,
         int selectionStart,
         int selectionLength)
     {
@@ -85,7 +153,12 @@ public partial class RichEditorHandler
             var builder = new SpannableStringBuilder(document.Text);
             foreach (var run in document.Runs)
             {
-                ApplyCharacterFormat(builder, run.Start, run.End, run.Format);
+                ApplyCharacterFormat(
+                    builder,
+                    run.Start,
+                    run.End,
+                    run.Format,
+                    document.DefaultCharacterFormat);
             }
 
             var listPictures = new Dictionary<string, Drawable?>(StringComparer.Ordinal);
@@ -104,7 +177,7 @@ public partial class RichEditorHandler
                 allRightToLeft &= paragraph.Format.Direction == RichTextDirection.RightToLeft;
                 var end = GetParagraphEnd(document.Text, paragraph.Start);
                 string? listMarker = null;
-                if (paragraph.Format.List is { } list)
+                if (paragraph.Format.NativeList is { } list)
                 {
                     if (list.Kind == RichListKind.Bulleted)
                     {
@@ -124,7 +197,7 @@ public partial class RichEditorHandler
                 }
 
                 Drawable? listPicture = null;
-                if (paragraph.Format.List?.PictureId is { } pictureId &&
+                if (paragraph.Format.NativeList?.PictureId is { } pictureId &&
                     !listPictures.TryGetValue(pictureId, out listPicture))
                 {
                     var picture = document.ListPictures[pictureId];
@@ -175,6 +248,353 @@ public partial class RichEditorHandler
         finally
         {
             _applyingDocument = false;
+        }
+    }
+
+    private partial void ApplyIncrementalChangesCore(
+        RichTextChangeSet changes,
+        RichTextRange selection)
+    {
+        if (PlatformView?.EditableText is not { } editable)
+        {
+            return;
+        }
+
+        if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
+        {
+            ApplyDocumentCore(
+                VirtualView.Document.CurrentSnapshot,
+                selection.Start,
+                selection.Length);
+            return;
+        }
+
+        var snapshot = VirtualView.Document.CurrentSnapshot;
+        _applyingDocument = true;
+        try
+        {
+            foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
+            {
+                using var replacement = new Java.Lang.String(textChange.InsertedText);
+                editable.Replace(
+                    textChange.OldRange.Start,
+                    textChange.OldRange.End,
+                    replacement);
+            }
+
+            var characterRange = GetAffectedRange(changes, snapshot.Length);
+            if (changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or
+                    RichTextChangeKind.CharacterFormat or
+                    RichTextChangeKind.DefaultFormat))
+            {
+                ApplyCharacterFormatsIncrementally(editable, snapshot, characterRange);
+            }
+
+            var paragraphRange = GetAffectedParagraphRange(changes, snapshot.Text);
+            if (changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or
+                    RichTextChangeKind.ParagraphFormat or
+                    RichTextChangeKind.List or
+                    RichTextChangeKind.DefaultFormat))
+            {
+                ApplyParagraphFormatsIncrementally(editable, snapshot, paragraphRange);
+                UpdateGlobalParagraphProjection(snapshot);
+            }
+
+            if (changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or RichTextChangeKind.Link))
+            {
+                RemoveSpans<URLSpan>(editable, characterRange.Start, characterRange.End);
+                foreach (var link in snapshot.Links.Where(link =>
+                             link.End > characterRange.Start &&
+                             link.Start < characterRange.End))
+                {
+                    editable.SetSpan(
+                        new URLSpan(link.Target),
+                        link.Start,
+                        link.End,
+                        SpanTypes.ExclusiveExclusive);
+                }
+            }
+
+            if (changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or RichTextChangeKind.Image))
+            {
+                RemoveSpans<RichImageMetadataSpan>(
+                    editable,
+                    characterRange.Start,
+                    characterRange.End);
+                RemoveSpans<ImageSpan>(editable, characterRange.Start, characterRange.End);
+                foreach (var image in snapshot.Images.Where(image =>
+                             image.Position >= characterRange.Start &&
+                             image.Position < characterRange.End))
+                {
+                    ApplyImage(editable, image);
+                }
+            }
+
+            SetSelectionCore(selection.Start, selection.Length);
+            PlatformView.RequestLayout();
+            PlatformView.Invalidate();
+        }
+        finally
+        {
+            _applyingDocument = false;
+        }
+    }
+
+    private void ApplyCharacterFormatsIncrementally(
+        ISpannable editable,
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange range)
+    {
+        if (range.IsEmpty || snapshot.Length == 0)
+        {
+            return;
+        }
+
+        range = ExpandCharacterSpanRange(editable, range, snapshot.Length);
+        RemoveCharacterSpans(editable, range.Start, range.End);
+        for (var index = snapshot.FindRunIndex(range.Start);
+             index < snapshot.Runs.Length;
+             index++)
+        {
+            var run = snapshot.Runs[index];
+            if (run.Start >= range.End)
+            {
+                break;
+            }
+
+            var start = Math.Max(run.Start, range.Start);
+            var end = Math.Min(run.End, range.End);
+            if (end > start)
+            {
+                ApplyCharacterFormat(
+                    editable,
+                    start,
+                    end,
+                    run.Format,
+                    snapshot.DefaultCharacterFormat);
+            }
+        }
+    }
+
+    private void ApplyParagraphFormatsIncrementally(
+        ISpannable editable,
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange range)
+    {
+        RemoveParagraphSpans(editable, range.Start, range.End);
+        for (var index = snapshot.FindParagraphIndex(range.Start);
+             index < snapshot.Paragraphs.Length;
+             index++)
+        {
+            var paragraph = snapshot.Paragraphs[index];
+            if (paragraph.Range.Start > range.End)
+            {
+                break;
+            }
+
+            if (paragraph.Range.End < range.Start)
+            {
+                continue;
+            }
+
+            var end = GetParagraphEnd(snapshot.Text, paragraph.Start);
+            var (marker, picture) = ResolveListMarker(snapshot, paragraph.Start);
+            ApplyParagraphFormat(
+                editable,
+                paragraph.Start,
+                end,
+                paragraph.Format,
+                marker,
+                picture);
+        }
+    }
+
+    private (string? Marker, Drawable? Picture) ResolveListMarker(
+        RichTextDocumentSnapshot snapshot,
+        int targetParagraphStart)
+    {
+        var counters = new Dictionary<(int Id, int Level), int>();
+        foreach (var paragraph in snapshot.Paragraphs)
+        {
+            if (paragraph.Format.NativeList is not { } list)
+            {
+                if (paragraph.Start == targetParagraphStart)
+                {
+                    return (null, null);
+                }
+
+                continue;
+            }
+
+            string marker;
+            if (list.Kind == RichListKind.Bulleted)
+            {
+                marker = list.BulletText;
+            }
+            else
+            {
+                var key = (list.Id, list.Level);
+                if (list.Restart || !counters.TryGetValue(key, out var number))
+                {
+                    number = list.StartAt;
+                }
+
+                marker = RichTextListFormatter.FormatMarker(list, number);
+                counters[key] = number == int.MaxValue ? number : number + 1;
+            }
+
+            if (paragraph.Start != targetParagraphStart)
+            {
+                continue;
+            }
+
+            Drawable? picture = null;
+            if (list.PictureId is { } pictureId &&
+                snapshot.ListPictures.TryGetValue(pictureId, out var modelPicture))
+            {
+                picture = CreateBitmapDrawable(
+                    modelPicture.Data,
+                    modelPicture.Width,
+                    modelPicture.Height);
+            }
+
+            return (marker, picture);
+        }
+
+        return (null, null);
+    }
+
+    private void UpdateGlobalParagraphProjection(RichTextDocumentSnapshot snapshot)
+    {
+        var allJustified = snapshot.Paragraphs.All(paragraph =>
+            paragraph.Format.Alignment is RichTextAlignment.Justified or
+                RichTextAlignment.Distributed);
+        var allHyphenated = snapshot.Paragraphs.All(static paragraph =>
+            paragraph.Format.Hyphenation);
+        var allLeftToRight = snapshot.Paragraphs.All(static paragraph =>
+            paragraph.Format.Direction == RichTextDirection.LeftToRight);
+        var allRightToLeft = snapshot.Paragraphs.All(static paragraph =>
+            paragraph.Format.Direction == RichTextDirection.RightToLeft);
+        PlatformView.JustificationMode = allJustified
+            ? JustificationMode.InterWord
+            : JustificationMode.None;
+        PlatformView.HyphenationFrequency = allHyphenated
+            ? global::Android.Text.HyphenationFrequency.Normal
+            : global::Android.Text.HyphenationFrequency.None;
+        PlatformView.TextDirection = allRightToLeft
+            ? TextDirection.Rtl
+            : allLeftToRight
+                ? TextDirection.Ltr
+                : TextDirection.FirstStrong;
+    }
+
+    private static RichTextRange GetAffectedRange(
+        RichTextChangeSet changes,
+        int documentLength) =>
+        changes.GetAffectedRange(documentLength);
+
+    private static RichTextRange GetAffectedParagraphRange(
+        RichTextChangeSet changes,
+        string text)
+    {
+        var range = GetAffectedRange(changes, text.Length);
+        var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
+        var newline = text.IndexOf('\n', range.End);
+        var end = newline < 0 ? text.Length : newline + 1;
+        return new RichTextRange(start, end - start);
+    }
+
+    private static RichTextRange ExpandCharacterSpanRange(
+        ISpanned text,
+        RichTextRange range,
+        int documentLength)
+    {
+        var start = range.Start;
+        var end = range.End;
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var span in EnumerateCharacterSpans(text, start, end))
+            {
+                var spanStart = text.GetSpanStart(span);
+                var spanEnd = text.GetSpanEnd(span);
+                if (spanStart >= 0 && spanStart < start)
+                {
+                    start = spanStart;
+                    changed = true;
+                }
+
+                if (spanEnd > end)
+                {
+                    end = spanEnd;
+                    changed = true;
+                }
+            }
+        }
+
+        start = Math.Clamp(start, 0, documentLength);
+        end = Math.Clamp(end, start, documentLength);
+        return new RichTextRange(start, end - start);
+    }
+
+    private static IEnumerable<Java.Lang.Object> EnumerateCharacterSpans(
+        ISpanned text,
+        int start,
+        int end) =>
+        GetSpans<CharacterStyle>(text, start, end)
+            .Where(static span => span is
+                RichCharacterMetadataSpan or
+                StyleSpan or
+                UnderlineSpan or
+                StrikethroughSpan or
+                TypefaceSpan or
+                AbsoluteSizeSpan or
+                RelativeSizeSpan or
+                SuperscriptSpan or
+                SubscriptSpan or
+                ForegroundColorSpan or
+                BackgroundColorSpan or
+                ScaleXSpan or
+                RichLetterSpacingSpan or
+                RichBaselineOffsetSpan or
+                LocaleSpan)
+            .Cast<Java.Lang.Object>();
+
+    private static void RemoveCharacterSpans(ISpannable text, int start, int end)
+    {
+        foreach (var span in EnumerateCharacterSpans(text, start, end).ToArray())
+        {
+            text.RemoveSpan(span);
+        }
+    }
+
+    private static void RemoveParagraphSpans(ISpannable text, int start, int end)
+    {
+        RemoveSpans<RichParagraphMetadataSpan>(text, start, end);
+        RemoveSpans<AlignmentSpanStandard>(text, start, end);
+        RemoveSpans<LeadingMarginSpanStandard>(text, start, end);
+        RemoveSpans<RichLineHeightSpan>(text, start, end);
+        if (OperatingSystem.IsAndroidVersionAtLeast(29))
+        {
+            RemoveSpans<LineHeightSpanStandard>(text, start, end);
+        }
+        RemoveSpans<TabStopSpanStandard>(text, start, end);
+        RemoveSpans<RichListMarkerSpan>(text, start, end);
+        RemoveSpans<BulletSpan>(text, start, end);
+        RemoveSpans<RichParagraphDecorationSpan>(text, start, end);
+    }
+
+    private static void RemoveSpans<T>(ISpannable text, int start, int end)
+        where T : Java.Lang.Object
+    {
+        foreach (var span in GetSpans<T>(text, start, end).ToArray())
+        {
+            text.RemoveSpan(span);
         }
     }
 
@@ -251,12 +671,31 @@ public partial class RichEditorHandler
 
         if (!_applyingDocument)
         {
-            ApplyDocumentCore(editor.Document, editor.SelectionStart, editor.SelectionLength);
+            _applyingDocument = true;
+            try
+            {
+                if (PlatformView.EditableText is { } editable)
+                {
+                    ApplyCharacterFormatsIncrementally(
+                        editable,
+                        editor.Document.CurrentSnapshot,
+                        new RichTextRange(0, editor.Document.Length));
+                }
+
+                SetSelectionCore(editor.SelectedRange.Start, editor.SelectedRange.Length);
+                PlatformView.RequestLayout();
+                PlatformView.Invalidate();
+            }
+            finally
+            {
+                _applyingDocument = false;
+            }
+
             ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
         }
     }
 
-    private partial void UpdateIsReadOnly(RichEditor editor)
+    private partial void UpdateInputConfiguration(RichEditor editor)
     {
         if (_editableKeyListener is null && PlatformView.KeyListener is not null)
         {
@@ -266,21 +705,57 @@ public partial class RichEditorHandler
         PlatformView.KeyListener = editor.IsReadOnly ? null : _editableKeyListener;
         PlatformView.SetTextIsSelectable(editor.IsReadOnly);
         PlatformView.SetCursorVisible(!editor.IsReadOnly);
+        var inputType = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
+            ? InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned
+            : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
+                ? InputTypes.ClassPhone
+                : ReferenceEquals(editor.Keyboard, Keyboard.Email)
+                    ? InputTypes.ClassText | InputTypes.TextVariationEmailAddress
+                    : ReferenceEquals(editor.Keyboard, Keyboard.Url)
+                        ? InputTypes.ClassText | InputTypes.TextVariationUri
+                        : InputTypes.ClassText | InputTypes.TextFlagMultiLine;
+        if (editor.IsTextPredictionEnabled)
+        {
+            inputType |= InputTypes.TextFlagCapSentences;
+        }
+
+        if (editor.IsSpellCheckEnabled)
+        {
+            inputType |= InputTypes.TextFlagAutoCorrect;
+        }
+
+        PlatformView.InputType = inputType;
+        PlatformView.AcceptsTab = editor.AcceptsTab;
+        PlatformView.SetFilters(editor.MaxLength < 0
+            ? []
+            : [new InputFilterLengthFilter(editor.MaxLength)]);
     }
 
     private void ApplyCharacterFormat(
         ISpannable text,
         int start,
         int end,
-        RichTextCharacterFormat format)
+        RichTextCharacterFormat format,
+        RichTextCharacterFormat? inheritedFormat = null)
     {
         if (end <= start)
         {
             return;
         }
 
+        var authoredFormat = format;
+        if (inheritedFormat is not null)
+        {
+            format = format with
+            {
+                FontFamily = format.FontFamily ?? inheritedFormat.FontFamily,
+                FontSize = format.FontSize ?? inheritedFormat.FontSize,
+                ForegroundColor = format.ForegroundColor ?? inheritedFormat.ForegroundColor,
+            };
+        }
+
         text.SetSpan(
-            new RichCharacterMetadataSpan(format),
+            new RichCharacterMetadataSpan(authoredFormat),
             start,
             end,
             SpanTypes.ExclusiveExclusive);
@@ -469,7 +944,7 @@ public partial class RichEditorHandler
                 SpanTypes.Paragraph);
         }
 
-        if (format.List is { } list && !string.IsNullOrEmpty(listMarker))
+        if (format.NativeList is { } list && !string.IsNullOrEmpty(listMarker))
         {
             ApplyListMarkerSpan(text, start, end, list, listMarker, listPicture);
         }
@@ -597,15 +1072,17 @@ public partial class RichEditorHandler
         return drawable;
     }
 
-    private RichTextDocument ReadDocumentFromPlatform(string text)
+    private RichTextDocumentSnapshot ReadDocumentFromPlatform(string text)
     {
         if (PlatformView.EditableText is not { } editable)
         {
-            return RichTextDocument.FromPlainText(text);
+            return RichTextDocumentSnapshot.FromPlainText(text);
         }
 
-        var previous = VirtualView.Document;
+        var previous = VirtualView.Document.CurrentSnapshot;
         var defaultCharacterFormat = previous.DefaultCharacterFormat;
+        var inheritedCharacterFormat =
+            RichTextDocumentSnapshot.CreateInheritedCharacterFormat(defaultCharacterFormat);
         var runs = new List<RichTextRun>();
         for (var position = 0; position < text.Length;)
         {
@@ -618,7 +1095,7 @@ public partial class RichEditorHandler
                 end = position + 1;
             }
 
-            var format = ReadCharacterFormat(editable, position, defaultCharacterFormat);
+            var format = ReadCharacterFormat(editable, position, inheritedCharacterFormat);
             if (runs.Count > 0 && runs[^1].Format == format)
             {
                 runs[^1] = runs[^1] with { Length = runs[^1].Length + end - position };
@@ -642,7 +1119,7 @@ public partial class RichEditorHandler
                 start,
                 end,
                 previous.DefaultParagraphFormat);
-            if (format.List is { } list)
+            if (format.NativeList is { } list)
             {
                 if (list.Id <= 0)
                 {
@@ -650,7 +1127,7 @@ public partial class RichEditorHandler
                         previousList.Kind == list.Kind &&
                         previousList.Level == list.Level;
                     list = list with { Id = continues ? previousList!.Id : nextListId++ };
-                    format = format with { List = list };
+                    format = format with { NativeList = list };
                 }
 
                 previousList = list;
@@ -893,13 +1370,17 @@ public partial class RichEditorHandler
         var listMarker = GetSpans<RichListMarkerSpan>(text, start, end).LastOrDefault();
         if (listMarker is not null)
         {
-            format = format with { List = listMarker.ListFormat };
+            format = format with
+            {
+                NativeList = listMarker.ListFormat,
+                List = RichTextListConversions.ToItem(listMarker.ListFormat),
+            };
         }
         else if (GetSpans<BulletSpan>(text, start, end).Any())
         {
             format = format with
             {
-                List = (format.List ?? new RichTextListFormat { Id = 0 }) with
+                NativeList = (format.NativeList ?? new RichTextListFormat { Id = 0 }) with
                 {
                     Kind = RichListKind.Bulleted,
                 },
@@ -977,52 +1458,58 @@ public partial class RichEditorHandler
             return;
         }
 
-        var previousDocument = VirtualView.Document;
+        var previousDocument = VirtualView.Document.CurrentSnapshot;
         var previousText = previousDocument.Text;
         var removedStart = Math.Clamp(eventArgs.Start, 0, previousText.Length);
         var removedLength = Math.Clamp(
             eventArgs.BeforeCount,
             0,
             previousText.Length - removedStart);
-        var nativeText = PlatformView.Text ?? string.Empty;
-        var insertedStart = Math.Clamp(eventArgs.Start, 0, nativeText.Length);
-        var insertedLength = Math.Clamp(eventArgs.AfterCount, 0, nativeText.Length - insertedStart);
+        var nativeLength = editable.Length();
+        var insertedStart = Math.Clamp(eventArgs.Start, 0, nativeLength);
+        var insertedLength = Math.Clamp(eventArgs.AfterCount, 0, nativeLength - insertedStart);
+        var insertedText = Java.Lang.ICharSequenceExtensions.SubSequence(
+            editable,
+            insertedStart,
+            insertedStart + insertedLength);
         if (IsEmptyListParagraphBreak(
                 previousDocument,
-                nativeText,
                 removedStart,
                 removedLength,
                 insertedStart,
-                insertedLength))
+                insertedText))
         {
             ExitEmptyListParagraph(editable, previousDocument, removedStart);
             return;
         }
 
-        var paragraphStructureChanged = previousText
-            .AsSpan(removedStart, removedLength)
-            .Contains('\n');
-
-        var document = ReadDocumentFromPlatform(nativeText);
-        insertedStart = Math.Clamp(insertedStart, 0, document.Text.Length);
-        insertedLength = Math.Clamp(insertedLength, 0, document.Text.Length - insertedStart);
-        paragraphStructureChanged |= document.Text
-            .AsSpan(insertedStart, insertedLength)
-            .Contains('\n');
         var containsPastedRichContent = insertedLength > 0 &&
             ContainsPastedRichContent(editable, insertedStart, insertedStart + insertedLength);
         var containsPastedListContent = insertedLength > 0 &&
             ContainsPastedListContent(editable, insertedStart, insertedStart + insertedLength);
-        var replacedTypingFormat = insertedLength > 0 &&
-            !containsPastedRichContent &&
-            document.GetUniformCharacterFormat(
-                insertedStart..(insertedStart + insertedLength)) != _nativeTypingFormat;
-        if (replacedTypingFormat)
+        var requiresRichSnapshot = containsPastedRichContent || containsPastedListContent;
+        RichTextDocumentSnapshot document;
+        if (requiresRichSnapshot)
         {
-            document = document.ApplyCharacterFormat(
-                insertedStart..(insertedStart + insertedLength),
-                _ => _nativeTypingFormat);
+            // Android does not expose a bounded description of every foreign span
+            // introduced by a rich clipboard payload. This is the explicit rich-
+            // paste recovery path; ordinary typing and deletion stay incremental.
+            document = ReadDocumentFromPlatform(editable.ToString() ?? string.Empty);
         }
+        else
+        {
+            document = previousDocument.Replace(
+                removedStart..(removedStart + removedLength),
+                insertedText,
+                insertedLength == 0 ? null : _nativeTypingFormat);
+        }
+
+        insertedStart = Math.Clamp(insertedStart, 0, document.Text.Length);
+        insertedLength = Math.Clamp(insertedLength, 0, document.Text.Length - insertedStart);
+        var paragraphStructureChanged = previousText
+            .AsSpan(removedStart, removedLength)
+            .Contains('\n') ||
+            document.Text.AsSpan(insertedStart, insertedLength).Contains('\n');
 
         var touchesList = TouchesList(
             previousDocument,
@@ -1031,12 +1518,12 @@ public partial class RichEditorHandler
             removedLength,
             insertedStart,
             insertedLength);
-        if (touchesList && !containsPastedListContent)
+        if (touchesList && requiresRichSnapshot && !containsPastedListContent)
         {
             var expected = previousDocument.Replace(
                 removedStart..(removedStart + removedLength),
-                document.Text.Substring(insertedStart, insertedLength),
-                replacedTypingFormat ? _nativeTypingFormat : null);
+                insertedText,
+                replacementFormat: null);
             if (string.Equals(expected.Text, document.Text, StringComparison.Ordinal))
             {
                 document = document.With(paragraphs: document.Paragraphs.Select(paragraph =>
@@ -1045,6 +1532,7 @@ public partial class RichEditorHandler
                         Format = paragraph.Format with
                         {
                             List = expected.GetParagraphFormat(paragraph.Start).List,
+                            NativeList = null,
                         },
                     }));
             }
@@ -1055,31 +1543,33 @@ public partial class RichEditorHandler
              insertedLength > 0 &&
              removedStart == GetParagraphStart(previousText, removedStart));
 
-        var start = Math.Clamp(PlatformView.SelectionStart, 0, document.Text.Length);
-        var end = Math.Clamp(PlatformView.SelectionEnd, start, document.Text.Length);
-        VirtualView.UpdateDocumentFromPlatform(document, start, end - start);
-        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+        if (!requiresRichSnapshot && insertedLength > 0)
+        {
+            ApplyInsertedTypingFormat(
+                editable,
+                document,
+                new RichTextRange(insertedStart, insertedLength));
+        }
+
         if (repairListMarkers)
         {
-            RebuildListMarkerSpans(editable, document);
+            RepairListMarkerSpans(editable, document, insertedStart);
         }
-        else if (replacedTypingFormat && !paragraphStructureChanged)
-        {
-            ApplyDocumentCore(document, start, end - start);
-        }
+
+        var start = Math.Clamp(PlatformView.SelectionStart, 0, document.Text.Length);
+        var end = Math.Clamp(PlatformView.SelectionEnd, start, document.Text.Length);
+        VirtualView.UpdateDocumentFromPlatform(document, start, end - start, _sourceToken);
+        UpdateTypingFormatsFromPlatform();
     }
 
     private static bool IsEmptyListParagraphBreak(
-        RichTextDocument previous,
-        string currentText,
+        RichTextDocumentSnapshot previous,
         int removedStart,
         int removedLength,
         int insertedStart,
-        int insertedLength)
+        string insertedText)
     {
-        if (removedLength != 0 || insertedLength != 1 || insertedStart != removedStart ||
-            currentText[insertedStart] != '\n')
+        if (removedLength != 0 || insertedStart != removedStart || insertedText != "\n")
         {
             return false;
         }
@@ -1102,7 +1592,7 @@ public partial class RichEditorHandler
 
     private void ExitEmptyListParagraph(
         IEditable text,
-        RichTextDocument previous,
+        RichTextDocumentSnapshot previous,
         int paragraphStart)
     {
         var document = previous.ApplyParagraphFormat(
@@ -1153,9 +1643,8 @@ public partial class RichEditorHandler
             _applyingDocument = false;
         }
 
-        VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0);
-        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+        VirtualView.UpdateDocumentFromPlatform(document, paragraphStart, 0, _sourceToken);
+        UpdateTypingFormatsFromPlatform();
     }
 
     private void OnNativeSelectionChanged(object? sender, NativeSelectionChangedEventArgs eventArgs)
@@ -1174,8 +1663,54 @@ public partial class RichEditorHandler
             start,
             VirtualView.Document.Text.Length);
         VirtualView.UpdateSelectionFromPlatform(start, end - start);
-        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+        UpdateTypingFormatsFromPlatform();
+    }
+
+    private void OnNativeEditingCompleted(object? sender, EventArgs eventArgs) =>
+        VirtualView?.RaiseCompleted();
+
+    private void UpdateTypingFormatsFromPlatform()
+    {
+        if (VirtualView is null || PlatformView.EditableText is not { } editable)
+        {
+            return;
+        }
+
+        if (editable.Length() == 0)
+        {
+            _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+            _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+        }
+        else
+        {
+            var caret = Math.Clamp(PlatformView.SelectionStart, 0, editable.Length());
+            var characterPosition = caret == editable.Length() ? caret - 1 : caret;
+            _nativeTypingFormat = ReadCharacterFormat(
+                editable,
+                characterPosition,
+                VirtualView.TypingCharacterFormat);
+            var paragraphStart = GetParagraphStart(editable, caret);
+            var paragraphEnd = GetParagraphEnd(editable, paragraphStart);
+            _nativeTypingParagraphFormat = ReadParagraphFormat(
+                editable,
+                paragraphStart,
+                paragraphEnd,
+                VirtualView.TypingParagraphFormat);
+            if (_nativeTypingParagraphFormat.NativeList is { Id: <= 0 } nativeList &&
+                VirtualView.TypingParagraphFormat.NativeList is { } previousList)
+            {
+                nativeList = nativeList with { Id = previousList.Id };
+                _nativeTypingParagraphFormat = _nativeTypingParagraphFormat with
+                {
+                    NativeList = nativeList,
+                    List = RichTextListConversions.ToItem(nativeList),
+                };
+            }
+        }
+
+        VirtualView.UpdateTypingFormatsFromPlatform(
+            _nativeTypingFormat,
+            _nativeTypingParagraphFormat);
     }
 
     private static bool ContainsPastedRichContent(ISpanned text, int start, int end)
@@ -1196,68 +1731,76 @@ public partial class RichEditorHandler
         GetSpans<BulletSpan>(text, start, end)
             .Any(span => text.GetSpanStart(span) >= start && text.GetSpanEnd(span) <= end);
 
-    private void RebuildListMarkerSpans(ISpannable text, RichTextDocument document)
+    private static int GetParagraphStart(Java.Lang.ICharSequence text, int position)
+    {
+        position = Math.Clamp(position, 0, text.Length());
+        while (position > 0 && text.CharAt(position - 1) != '\n')
+        {
+            position--;
+        }
+
+        return position;
+    }
+
+    private static int GetParagraphEnd(Java.Lang.ICharSequence text, int start)
+    {
+        var length = text.Length();
+        start = Math.Clamp(start, 0, length);
+        while (start < length && text.CharAt(start++) != '\n')
+        {
+        }
+
+        return start;
+    }
+
+    private void ApplyInsertedTypingFormat(
+        ISpannable text,
+        RichTextDocumentSnapshot document,
+        RichTextRange range)
     {
         _applyingDocument = true;
         try
         {
-            foreach (var span in GetSpans<RichListMarkerSpan>(text, 0, text.Length()).ToArray())
-            {
-                text.RemoveSpan(span);
-            }
+            ApplyCharacterFormatsIncrementally(text, document, range);
+        }
+        finally
+        {
+            _applyingDocument = false;
+        }
+    }
 
-            foreach (var span in GetSpans<BulletSpan>(text, 0, text.Length()).ToArray())
-            {
-                text.RemoveSpan(span);
-            }
-
-            var listPictures = new Dictionary<string, Drawable?>(StringComparer.Ordinal);
-            var listNumbers = new Dictionary<(int Id, int Level), int>();
+    private void RepairListMarkerSpans(
+        ISpannable text,
+        RichTextDocumentSnapshot document,
+        int changedPosition)
+    {
+        var paragraphStart = GetParagraphStart(
+            document.Text,
+            Math.Clamp(changedPosition, 0, document.Length));
+        var paragraphEnd = GetParagraphEnd(document.Text, paragraphStart);
+        var listId = document.GetParagraphFormat(paragraphStart).NativeList?.Id;
+        if (listId is not null)
+        {
             foreach (var paragraph in document.Paragraphs)
             {
-                if (paragraph.Format.List is not { } list)
+                if (paragraph.Start >= paragraphStart &&
+                    paragraph.Format.NativeList?.Id == listId)
                 {
-                    continue;
+                    paragraphEnd = Math.Max(
+                        paragraphEnd,
+                        GetParagraphEnd(document.Text, paragraph.Start));
                 }
-
-                string marker;
-                if (list.Kind == RichListKind.Bulleted)
-                {
-                    marker = list.BulletText;
-                }
-                else
-                {
-                    var key = (list.Id, list.Level);
-                    if (list.Restart || !listNumbers.TryGetValue(key, out var number))
-                    {
-                        number = list.StartAt;
-                    }
-
-                    marker = RichTextListFormatter.FormatMarker(list, number);
-                    listNumbers[key] = number == int.MaxValue ? number : number + 1;
-                }
-
-                Drawable? pictureDrawable = null;
-                if (list.PictureId is { } pictureId &&
-                    !listPictures.TryGetValue(pictureId, out pictureDrawable) &&
-                    document.ListPictures.TryGetValue(pictureId, out var picture))
-                {
-                    pictureDrawable = CreateBitmapDrawable(
-                        picture.Data,
-                        picture.Width,
-                        picture.Height);
-                    listPictures.Add(pictureId, pictureDrawable);
-                }
-
-                ApplyListMarkerSpan(
-                    text,
-                    paragraph.Start,
-                    GetParagraphEnd(document.Text, paragraph.Start),
-                    list,
-                    marker,
-                    pictureDrawable);
             }
+        }
 
+        _applyingDocument = true;
+        try
+        {
+            ApplyParagraphFormatsIncrementally(
+                text,
+                document,
+                new RichTextRange(paragraphStart, paragraphEnd - paragraphStart));
+            UpdateGlobalParagraphProjection(document);
             PlatformView.RequestLayout();
             PlatformView.Invalidate();
         }
@@ -1268,8 +1811,8 @@ public partial class RichEditorHandler
     }
 
     private static bool TouchesList(
-        RichTextDocument previous,
-        RichTextDocument current,
+        RichTextDocumentSnapshot previous,
+        RichTextDocumentSnapshot current,
         int removedStart,
         int removedLength,
         int insertedStart,
@@ -1282,11 +1825,11 @@ public partial class RichEditorHandler
         return previous.Paragraphs.Any(paragraph =>
                 paragraph.Start >= previousParagraphStart &&
                 paragraph.Start <= removedEnd &&
-                paragraph.Format.List is not null) ||
+                paragraph.Format.NativeList is not null) ||
             current.Paragraphs.Any(paragraph =>
                 paragraph.Start >= currentParagraphStart &&
                 paragraph.Start <= insertedEnd &&
-                paragraph.Format.List is not null);
+                paragraph.Format.NativeList is not null);
     }
 
     private static IEnumerable<T> GetSpans<T>(ISpanned text, int start, int end)

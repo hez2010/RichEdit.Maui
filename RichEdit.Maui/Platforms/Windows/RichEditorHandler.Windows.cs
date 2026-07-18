@@ -3,9 +3,11 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Storage.Streams;
 
@@ -19,10 +21,12 @@ public partial class RichEditorHandler
     private bool _suppressingNativeEvents;
     private int _nativeEventSuppressionVersion;
     private DispatcherQueueTimer? _nativeReadbackTimer;
+    private InputKeyboardSource? _inputKeyboardSource;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private NativeTextSnapshot? _nativeTextSnapshot;
 
+    /// <inheritdoc />
     protected override RichEditBox CreatePlatformView() => new()
     {
         AcceptsReturn = true,
@@ -35,6 +39,7 @@ public partial class RichEditorHandler
         VerticalContentAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch,
     };
 
+    /// <inheritdoc />
     protected override void ConnectHandler(RichEditBox platformView)
     {
         base.ConnectHandler(platformView);
@@ -42,18 +47,26 @@ public partial class RichEditorHandler
         platformView.SelectionChanged += OnNativeSelectionChanged;
         platformView.ActualThemeChanged += OnPlatformThemeChanged;
         platformView.Loaded += OnPlatformViewLoaded;
+        platformView.KeyDown += OnPlatformKeyDown;
+        platformView.Paste += OnPlatformPaste;
+        platformView.Tapped += OnPlatformTapped;
+        platformView.Document.UndoLimit = 0;
         _nativeReadbackTimer = platformView.DispatcherQueue.CreateTimer();
         _nativeReadbackTimer.Interval = TimeSpan.FromMilliseconds(16);
         _nativeReadbackTimer.IsRepeating = false;
         _nativeReadbackTimer.Tick += OnNativeReadbackTimerTick;
     }
 
+    /// <inheritdoc />
     protected override void DisconnectHandler(RichEditBox platformView)
     {
         platformView.TextChanged -= OnNativeDocumentChanged;
         platformView.SelectionChanged -= OnNativeSelectionChanged;
         platformView.ActualThemeChanged -= OnPlatformThemeChanged;
         platformView.Loaded -= OnPlatformViewLoaded;
+        platformView.KeyDown -= OnPlatformKeyDown;
+        platformView.Paste -= OnPlatformPaste;
+        platformView.Tapped -= OnPlatformTapped;
         if (_nativeReadbackTimer is not null)
         {
             _nativeReadbackTimer.Stop();
@@ -65,12 +78,13 @@ public partial class RichEditorHandler
         _suppressingNativeEvents = false;
         _hasNativeLinks = false;
         _nativeTextSnapshot = null;
+        _inputKeyboardSource = null;
 
         base.DisconnectHandler(platformView);
     }
 
     private partial void ApplyDocumentCore(
-        RichTextDocument document,
+        RichTextDocumentSnapshot document,
         int selectionStart,
         int selectionLength)
     {
@@ -88,8 +102,8 @@ public partial class RichEditorHandler
             {
                 _hasNativeLinks = false;
                 _nativeTextSnapshot = null;
-                var useNativeRtf = document.Images.Count > 0 ||
-                    document.Paragraphs.Any(paragraph => paragraph.Format.List is not null);
+                var useNativeRtf = document.Images.Length > 0 ||
+                    document.Paragraphs.Any(paragraph => paragraph.Format.NativeList is not null);
                 var loadedNativeRtf = false;
                 if (!useNativeRtf)
                 {
@@ -134,19 +148,20 @@ public partial class RichEditorHandler
                     var characterFormats = new Dictionary<RichTextCharacterFormat, ITextCharacterFormat>();
                     foreach (var run in document.Runs)
                     {
-                        if (run.Format == document.DefaultCharacterFormat)
+                        var effectiveFormat = document.ResolveCharacterFormat(run.Format);
+                        if (effectiveFormat == document.DefaultCharacterFormat)
                         {
                             continue;
                         }
 
-                        if (!characterFormats.TryGetValue(run.Format, out var nativeFormat))
+                        if (!characterFormats.TryGetValue(effectiveFormat, out var nativeFormat))
                         {
-                            // Runs are fully resolved model formats, not deltas from the
-                            // document default. Start from the pristine native format so
-                            // a null/transparent background actively clears highlighting.
+                            // Start from the pristine native format so a null/transparent
+                            // background actively clears highlighting. Inheritable values
+                            // have already been resolved through the document default.
                             nativeFormat = resetCharacterFormat.GetClone();
-                            ApplyCharacterFormat(nativeFormat, run.Format);
-                            characterFormats.Add(run.Format, nativeFormat);
+                            ApplyCharacterFormat(nativeFormat, effectiveFormat);
+                            characterFormats.Add(effectiveFormat, nativeFormat);
                         }
 
                         formattingRange.SetRange(run.Start, run.End);
@@ -206,6 +221,226 @@ public partial class RichEditorHandler
         }
     }
 
+    private partial void ApplyIncrementalChangesCore(
+        RichTextChangeSet changes,
+        RichTextRange selection)
+    {
+        if (PlatformView is null)
+        {
+            return;
+        }
+
+        var snapshot = VirtualView.Document.CurrentSnapshot;
+        var affectedRange = changes.GetAffectedRange(snapshot.Length);
+        if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset) ||
+            changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Image) ||
+            changes.Changes.Any(static change => change.Kind == RichTextChangeKind.List) &&
+                snapshot.Paragraphs.Any(paragraph =>
+                    paragraph.Range.End > affectedRange.Start &&
+                    paragraph.Range.Start < affectedRange.End &&
+                    paragraph.Format.NativeList?.PictureId is not null))
+        {
+            // WinUI TOM has no bounded API for inserting or replacing picture
+            // payloads. Keep this explicit object-edit recovery path separate from
+            // ordinary text, format, and list-item changes.
+            ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+            return;
+        }
+
+        _applyingDocument = true;
+        var nativeDocument = PlatformView.Document;
+        nativeDocument.BatchDisplayUpdates();
+        try
+        {
+            foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
+            {
+                var positions = GetNativeTextSnapshot();
+                var range = nativeDocument.GetRange(
+                    positions.ToNativePosition(textChange.OldRange.Start),
+                    positions.ToNativePosition(textChange.OldRange.End));
+                range.SetText(TextSetOptions.None, textChange.InsertedText);
+                _nativeTextSnapshot = null;
+            }
+
+            if (changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or
+                    RichTextChangeKind.CharacterFormat or
+                    RichTextChangeKind.DefaultFormat))
+            {
+                ApplyCharacterFormatsIncrementally(
+                    snapshot,
+                    affectedRange);
+            }
+
+            if (changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or
+                    RichTextChangeKind.ParagraphFormat or
+                    RichTextChangeKind.List or
+                    RichTextChangeKind.DefaultFormat))
+            {
+                ApplyParagraphFormatsIncrementally(
+                    snapshot,
+                    GetAffectedParagraphRange(changes, snapshot.Text));
+            }
+
+            if (changes.Changes.Any(static change => change.Kind is
+                    RichTextChangeKind.Text or RichTextChangeKind.Link))
+            {
+                ApplyLinksIncrementally(snapshot, affectedRange);
+            }
+
+            _nativeTextSnapshot = null;
+            SetSelectionCore(selection.Start, selection.Length);
+        }
+        finally
+        {
+            nativeDocument.ApplyDisplayUpdates();
+            _applyingDocument = false;
+            SuppressNativeEventsUntilIdle();
+        }
+    }
+
+    private void ApplyCharacterFormatsIncrementally(
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange affectedRange)
+    {
+        if (snapshot.Length == 0 || affectedRange.IsEmpty)
+        {
+            return;
+        }
+
+        var positions = GetNativeTextSnapshot();
+        var nativeDocument = PlatformView.Document;
+        var reset = nativeDocument.GetDefaultCharacterFormat();
+        for (var index = snapshot.FindRunIndex(affectedRange.Start);
+             index < snapshot.Runs.Length;
+             index++)
+        {
+            var run = snapshot.Runs[index];
+            if (run.Start >= affectedRange.End)
+            {
+                break;
+            }
+
+            var start = Math.Max(run.Start, affectedRange.Start);
+            var end = Math.Min(run.End, affectedRange.End);
+            if (end <= start)
+            {
+                continue;
+            }
+
+            var nativeFormat = reset.GetClone();
+            ApplyCharacterFormat(nativeFormat, snapshot.ResolveCharacterFormat(run.Format));
+            var nativeRange = nativeDocument.GetRange(
+                positions.ToNativePosition(start),
+                positions.ToNativePosition(end));
+            nativeRange.CharacterFormat.SetClone(nativeFormat);
+        }
+    }
+
+    private void ApplyParagraphFormatsIncrementally(
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange affectedRange)
+    {
+        var positions = GetNativeTextSnapshot();
+        var nativeDocument = PlatformView.Document;
+        var reset = nativeDocument.GetDefaultParagraphFormat();
+        for (var index = snapshot.FindParagraphIndex(affectedRange.Start);
+             index < snapshot.Paragraphs.Length;
+             index++)
+        {
+            var paragraph = snapshot.Paragraphs[index];
+            if (paragraph.Range.Start > affectedRange.End)
+            {
+                break;
+            }
+
+            if (paragraph.Range.End < affectedRange.Start)
+            {
+                continue;
+            }
+
+            var end = GetParagraphEnd(snapshot.Text, paragraph.Start);
+            var nativeFormat = reset.GetClone();
+            ApplyParagraphFormat(nativeFormat, paragraph.Format);
+            var nativeRange = nativeDocument.GetRange(
+                positions.ToNativePosition(paragraph.Start),
+                positions.ToNativePosition(end));
+            nativeRange.ParagraphFormat.SetClone(nativeFormat);
+        }
+    }
+
+    private void ApplyLinksIncrementally(
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange affectedRange)
+    {
+        var positions = GetNativeTextSnapshot();
+        var nativeDocument = PlatformView.Document;
+        if (!affectedRange.IsEmpty)
+        {
+            var affected = nativeDocument.GetRange(
+                positions.ToNativePosition(affectedRange.Start),
+                positions.ToNativePosition(affectedRange.End));
+            try
+            {
+                affected.Link = string.Empty;
+            }
+            catch (Exception exception) when (exception is ArgumentException or COMException)
+            {
+                // Some TOM versions reject clearing a range that only partially
+                // intersects a field. Individual surviving links are still applied.
+            }
+
+            // Adding or removing a TOM link can insert or remove hidden field
+            // instruction text, invalidating both position maps.
+            _nativeTextSnapshot = null;
+        }
+
+        foreach (var link in snapshot.Links.Where(link =>
+                     link.End > affectedRange.Start && link.Start < affectedRange.End))
+        {
+            positions = GetNativeTextSnapshot();
+            var range = nativeDocument.GetRange(
+                positions.ToNativePosition(link.Start),
+                positions.ToNativePosition(link.End));
+            try
+            {
+                range.Link = ToNativeLink(link.Target);
+            }
+            catch (Exception exception) when (exception is ArgumentException or COMException)
+            {
+                // Preserve the managed link when TOM rejects its target.
+            }
+
+            _nativeTextSnapshot = null;
+        }
+
+        _hasNativeLinks = snapshot.Links.Length != 0;
+    }
+
+    private static RichTextRange GetAffectedRange(
+        RichTextChangeSet changes,
+        int documentLength) =>
+        changes.GetAffectedRange(documentLength);
+
+    private static RichTextRange GetAffectedParagraphRange(
+        RichTextChangeSet changes,
+        string text)
+    {
+        return GetAffectedParagraphRange(GetAffectedRange(changes, text.Length), text);
+    }
+
+    private static RichTextRange GetAffectedParagraphRange(
+        RichTextRange range,
+        string text)
+    {
+        range = range.Clamp(text.Length);
+        var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
+        var newline = text.IndexOf('\n', range.End);
+        var end = newline < 0 ? text.Length : newline + 1;
+        return new RichTextRange(start, end - start);
+    }
+
     private partial void ApplyTypingFormatCore(
         RichTextCharacterFormat characterFormat,
         RichTextParagraphFormat paragraphFormat)
@@ -222,7 +457,9 @@ public partial class RichEditorHandler
         {
             var nativeDocument = PlatformView.Document;
             var nativeCharacterFormat = nativeDocument.GetDefaultCharacterFormat().GetClone();
-            ApplyCharacterFormat(nativeCharacterFormat, characterFormat);
+            ApplyCharacterFormat(
+                nativeCharacterFormat,
+                VirtualView.Document.CurrentSnapshot.ResolveCharacterFormat(characterFormat));
             nativeDocument.Selection.CharacterFormat.SetClone(nativeCharacterFormat);
             var nativeParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
             ApplyParagraphFormat(nativeParagraphFormat, paragraphFormat);
@@ -330,13 +567,158 @@ public partial class RichEditorHandler
 
         if (!_applyingDocument)
         {
-            ApplyDocumentCore(editor.Document, editor.SelectionStart, editor.SelectionLength);
+            _applyingDocument = true;
+            var nativeDocument = PlatformView.Document;
+            nativeDocument.BatchDisplayUpdates();
+            try
+            {
+                ApplyCharacterFormatsIncrementally(
+                    editor.Document.CurrentSnapshot,
+                    new RichTextRange(0, editor.Document.Length));
+                SetSelectionCore(editor.SelectedRange.Start, editor.SelectedRange.Length);
+            }
+            finally
+            {
+                nativeDocument.ApplyDisplayUpdates();
+                _applyingDocument = false;
+                SuppressNativeEventsUntilIdle();
+            }
+
             ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
         }
     }
 
-    private partial void UpdateIsReadOnly(RichEditor editor) =>
+    private partial void UpdateInputConfiguration(RichEditor editor)
+    {
         PlatformView.IsReadOnly = editor.IsReadOnly;
+        PlatformView.IsSpellCheckEnabled = editor.IsSpellCheckEnabled;
+        PlatformView.AcceptsReturn = true;
+        PlatformView.MaxLength = editor.MaxLength < 0 ? 0 : editor.MaxLength;
+        var scope = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
+            ? InputScopeNameValue.Number
+            : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
+                ? InputScopeNameValue.TelephoneNumber
+                : ReferenceEquals(editor.Keyboard, Keyboard.Email)
+                    ? InputScopeNameValue.EmailSmtpAddress
+                    : ReferenceEquals(editor.Keyboard, Keyboard.Url)
+                        ? InputScopeNameValue.Url
+                        : InputScopeNameValue.Default;
+        PlatformView.InputScope = new InputScope
+        {
+            Names = { new InputScopeName(scope) },
+        };
+    }
+
+    private void OnPlatformKeyDown(object sender, KeyRoutedEventArgs eventArgs)
+    {
+        if (VirtualView is null)
+        {
+            return;
+        }
+
+        var controlDown = IsControlKeyDown();
+        if (controlDown && eventArgs.Key == Windows.System.VirtualKey.Z)
+        {
+            if (!VirtualView.IsReadOnly)
+            {
+                VirtualView.Undo();
+            }
+
+            eventArgs.Handled = true;
+            return;
+        }
+
+        if (controlDown && eventArgs.Key == Windows.System.VirtualKey.Y)
+        {
+            if (!VirtualView.IsReadOnly)
+            {
+                VirtualView.Redo();
+            }
+
+            eventArgs.Handled = true;
+            return;
+        }
+
+        if (eventArgs.Key == Windows.System.VirtualKey.Tab &&
+            VirtualView.AcceptsTab && !VirtualView.IsReadOnly)
+        {
+            PlatformView.Document.Selection.SetText(TextSetOptions.None, "\t");
+            eventArgs.Handled = true;
+        }
+    }
+
+    private async void OnPlatformPaste(object sender, TextControlPasteEventArgs eventArgs)
+    {
+        if (_applyingDocument || VirtualView is null || VirtualView.IsReadOnly)
+        {
+            return;
+        }
+
+        // Route every user paste through the portable fragment and cancellable
+        // Pasting event. Marking the native event handled also keeps WinUI's own
+        // undo stack from competing with the live document undo manager.
+        eventArgs.Handled = true;
+        await VirtualView.PasteAsync();
+    }
+
+    private void OnPlatformTapped(object sender, TappedRoutedEventArgs eventArgs)
+    {
+        if (VirtualView is null)
+        {
+            return;
+        }
+
+        var point = eventArgs.GetPosition(PlatformView);
+        ITextRange nativeRange;
+        try
+        {
+            nativeRange = PlatformView.Document.GetRangeFromPoint(
+                new Windows.Foundation.Point(point.X, point.Y),
+                PointOptions.ClientCoordinates | PointOptions.AllowOffClient);
+        }
+        catch (COMException)
+        {
+            return;
+        }
+
+        var position = Math.Min(nativeRange.StartPosition, nativeRange.EndPosition);
+        if (_hasNativeLinks)
+        {
+            position = GetNativeTextSnapshot().ToLogicalPosition(position);
+        }
+
+        position = Math.Clamp(position, 0, VirtualView.Document.Length);
+        var snapshot = VirtualView.Document.CurrentSnapshot;
+        var image = snapshot.Images.FirstOrDefault(candidate => candidate.Position == position);
+        if (image is not null)
+        {
+            eventArgs.Handled = !VirtualView.RaiseInlineObjectInvoked(image);
+            return;
+        }
+
+        var controlDown = IsControlKeyDown();
+        if (!VirtualView.IsReadOnly && !controlDown)
+        {
+            return;
+        }
+
+        var link = snapshot.Links.FirstOrDefault(candidate =>
+            candidate.Start <= position && position < candidate.End);
+        if (link is not null)
+        {
+            eventArgs.Handled = !VirtualView.RaiseLinkInvoked(link);
+        }
+    }
+
+    private bool IsControlKeyDown()
+    {
+        _inputKeyboardSource ??= PlatformView.XamlRoot is { } xamlRoot
+            ? InputKeyboardSource.GetForIsland(xamlRoot.ContentIsland)
+            : null;
+        return _inputKeyboardSource is not null &&
+            (_inputKeyboardSource.GetKeyState(Windows.System.VirtualKey.Control) &
+             VirtualKeyStates.Down) != 0;
+    }
 
     private void ApplyCharacterFormat(
         ITextCharacterFormat native,
@@ -433,7 +815,7 @@ public partial class RichEditorHandler
             }
         }
 
-        if (format.List is not { } list)
+        if (format.NativeList is not { } list)
         {
             native.ListType = MarkerType.None;
             native.ListLevelIndex = 0;
@@ -457,12 +839,12 @@ public partial class RichEditorHandler
         native.ListLevelIndex = list.Level + 1;
     }
 
-    private RichTextDocument ReadDocumentFromPlatform()
+    private RichTextDocumentSnapshot ReadDocumentFromPlatform()
     {
         var snapshot = GetNativeTextSnapshot();
         var text = snapshot.Text;
         var nativeDocument = PlatformView.Document;
-        var previous = VirtualView.Document;
+        var previous = VirtualView.Document.CurrentSnapshot;
         var defaultCharacterFormat = ReadCharacterFormat(
             nativeDocument.GetDefaultCharacterFormat()) with
         {
@@ -484,14 +866,14 @@ public partial class RichEditorHandler
                 snapshot.ToNativePosition(end));
             var native = scanRange.ParagraphFormat;
             var paragraphFormat = ReadParagraphFormat(native, previousList);
-            if (paragraphFormat.List is { } list)
+            if (paragraphFormat.NativeList is { } list)
             {
                 var continues = previousList is not null &&
                     previousList.Kind == list.Kind &&
                     previousList.NumberStyle == list.NumberStyle &&
                     previousList.Level == list.Level;
                 list = list with { Id = continues ? previousList!.Id : nextListId++ };
-                paragraphFormat = paragraphFormat with { List = list };
+                paragraphFormat = paragraphFormat with { NativeList = list };
                 previousList = list;
             }
             else
@@ -509,9 +891,9 @@ public partial class RichEditorHandler
             start = newline + 1;
         }
 
-        var fontFamily = ResolveFontFamily();
-        var fontSize = ResolveFontSize();
-        var textColor = ResolveTextColor();
+        var fontFamily = previous.DefaultCharacterFormat.FontFamily ?? ResolveFontFamily();
+        var fontSize = previous.DefaultCharacterFormat.FontSize ?? ResolveFontSize();
+        var textColor = previous.DefaultCharacterFormat.ForegroundColor ?? ResolveTextColor();
         return previous.MergeNativeSnapshot(
             text,
             snapshot.Runs,
@@ -736,8 +1118,8 @@ public partial class RichEditorHandler
             previous.Direction == RichTextDirection.Automatic
                 ? RichTextDirection.Automatic
                 : native.Direction;
-        RichTextListFormat? list = native.List;
-        if (list is not null && previous.List is { } previousList)
+        RichTextListFormat? list = native.NativeList;
+        if (list is not null && previous.NativeList is { } previousList)
         {
             list = list with
             {
@@ -767,7 +1149,7 @@ public partial class RichEditorHandler
             ShadingBackgroundColor = previous.ShadingBackgroundColor,
             Border = previous.Border,
             StyleName = previous.StyleName,
-            List = list,
+            NativeList = list,
         };
     }
 
@@ -856,7 +1238,7 @@ public partial class RichEditorHandler
             LineSpacingRule = FromNativeLineSpacing(native.LineSpacingRule),
             LineSpacing = Math.Max(native.LineSpacing, 0),
             TabStops = tabs.DrainToImmutable(),
-            List = list,
+            NativeList = list,
         };
     }
 
@@ -915,6 +1297,8 @@ public partial class RichEditorHandler
         _ => RichTextLineSpacingRule.Automatic,
     };
 
+    // Microsoft.UI.Text.ITextCharacterFormat exposes this Windows SDK value type;
+    // WinAppSDK 1.8 does not define a Microsoft.UI.Text.FontStretch replacement.
     private static Windows.UI.Text.FontStretch ToNativeFontStretch(double scale) => scale switch
     {
         < 0.5625d => Windows.UI.Text.FontStretch.UltraCondensed,
@@ -977,6 +1361,7 @@ public partial class RichEditorHandler
         _ => RichTextTabLeader.None,
     };
 
+    // WinUI 3 text-format color properties likewise use the Windows SDK Color value type.
     private static Windows.UI.Color ToWindowsColor(Color color) => Windows.UI.Color.FromArgb(
         (byte)Math.Round(color.Alpha * byte.MaxValue),
         (byte)Math.Round(color.Red * byte.MaxValue),
@@ -1040,7 +1425,10 @@ public partial class RichEditorHandler
             return;
         }
 
-        ApplyDocumentCore(VirtualView.Document, VirtualView.SelectionStart, VirtualView.SelectionLength);
+        ApplyDocumentCore(
+            VirtualView.Document.CurrentSnapshot,
+            VirtualView.SelectedRange.Start,
+            VirtualView.SelectedRange.Length);
         ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
     }
 
@@ -1051,8 +1439,8 @@ public partial class RichEditorHandler
             return;
         }
 
-        ApplyDocumentCore(VirtualView.Document, VirtualView.SelectionStart, VirtualView.SelectionLength);
-        ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
+        UpdateAppearance(VirtualView);
+        VirtualView.NotifyNativeAppearanceChanged();
     }
 
     private void OnNativeDocumentChanged(object sender, RoutedEventArgs eventArgs)
@@ -1116,14 +1504,211 @@ public partial class RichEditorHandler
         var selection = PlatformView.Document.Selection;
         var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
         var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
-        var document = ReadDocumentFromPlatform();
-        var snapshot = GetNativeTextSnapshot();
-        var start = snapshot.ToLogicalPosition(nativeStart);
-        var end = snapshot.ToLogicalPosition(nativeEnd);
+        RichTextDocumentSnapshot document;
+        int start;
+        int end;
+        if (!_hasNativeLinks &&
+            TryReadIncrementalNativeDocument(nativeStart, nativeEnd, out document, out start, out end))
+        {
+            _nativeTextSnapshot = null;
+        }
+        else
+        {
+            document = ReadDocumentFromPlatform();
+            var snapshot = GetNativeTextSnapshot();
+            start = snapshot.ToLogicalPosition(nativeStart);
+            end = snapshot.ToLogicalPosition(nativeEnd);
+        }
+
         var length = end - start;
-        VirtualView.UpdateDocumentFromPlatform(document, start, length);
-        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+        VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+        UpdateTypingFormatsFromPlatform();
+    }
+
+    private bool TryReadIncrementalNativeDocument(
+        int nativeSelectionStart,
+        int nativeSelectionEnd,
+        out RichTextDocumentSnapshot document,
+        out int selectionStart,
+        out int selectionEnd)
+    {
+        var previous = VirtualView.Document.CurrentSnapshot;
+        var text = ReadNativePlainText();
+        selectionStart = Math.Clamp(nativeSelectionStart, 0, text.Length);
+        selectionEnd = Math.Clamp(nativeSelectionEnd, selectionStart, text.Length);
+
+        var prefixLength = previous.Text.AsSpan().CommonPrefixLength(text);
+        var suffixLength = 0;
+        var maximumSuffixLength = Math.Min(previous.Length, text.Length) - prefixLength;
+        while (suffixLength < maximumSuffixLength &&
+               previous.Text[^(suffixLength + 1)] == text[^(suffixLength + 1)])
+        {
+            suffixLength++;
+        }
+
+        var oldEnd = previous.Length - suffixLength;
+        var newEnd = text.Length - suffixLength;
+        var insertedText = text.Substring(prefixLength, newEnd - prefixLength);
+        document = string.Equals(previous.Text, text, StringComparison.Ordinal)
+            ? previous
+            : previous.Replace(prefixLength..oldEnd, insertedText, _nativeTypingFormat);
+
+        // A content callback with unchanged text can represent a native formatting
+        // command. In that case inspect only the current selection (or its caret
+        // neighbor), never the complete story.
+        var characterRange = new RichTextRange(prefixLength, insertedText.Length);
+        if (characterRange.IsEmpty)
+        {
+            characterRange = selectionEnd > selectionStart
+                ? new RichTextRange(selectionStart, selectionEnd - selectionStart)
+                : GetCaretInspectionRange(selectionStart, text.Length);
+        }
+
+        if (!TryOverlayNativeCharacterFormats(document, characterRange, out document))
+        {
+            return false;
+        }
+
+        var paragraphSeed = insertedText.Length == 0
+            ? new RichTextRange(Math.Min(prefixLength, text.Length), 0)
+            : characterRange;
+        var paragraphRange = GetAffectedParagraphRange(paragraphSeed, text);
+        return TryOverlayNativeParagraphFormats(document, paragraphRange, out document);
+    }
+
+    private string ReadNativePlainText()
+    {
+        PlatformView.Document.GetText(TextGetOptions.None, out var rawText);
+        var length = rawText.EndsWith('\r') ? rawText.Length - 1 : rawText.Length;
+        var content = rawText.AsSpan(0, length);
+        if (content.IndexOfAny('\r', '\v') < 0)
+        {
+            return length == rawText.Length ? rawText : rawText[..length];
+        }
+
+        return string.Create(length, rawText, static (destination, source) =>
+        {
+            for (var index = 0; index < destination.Length; index++)
+            {
+                destination[index] = source[index] switch
+                {
+                    '\r' => '\n',
+                    '\v' => RichTextDocument.SoftLineBreakCharacter,
+                    var character => character,
+                };
+            }
+        });
+    }
+
+    private bool TryOverlayNativeCharacterFormats(
+        RichTextDocumentSnapshot source,
+        RichTextRange range,
+        out RichTextDocumentSnapshot result)
+    {
+        result = source;
+        range = range.Clamp(source.Length);
+        if (range.IsEmpty)
+        {
+            return true;
+        }
+
+        var nativeRange = PlatformView.Document.GetRange(0, 0);
+        var fontFamily = source.DefaultCharacterFormat.FontFamily ?? ResolveFontFamily();
+        var fontSize = source.DefaultCharacterFormat.FontSize ?? ResolveFontSize();
+        var textColor = source.DefaultCharacterFormat.ForegroundColor ?? ResolveTextColor();
+        for (var position = range.Start; position < range.End;)
+        {
+            nativeRange.SetRange(position, position + 1);
+            nativeRange.Expand(TextRangeUnit.CharacterFormat);
+            var end = Math.Clamp(nativeRange.EndPosition, position + 1, range.End);
+            var nativeFormat = nativeRange.CharacterFormat;
+            if (IsHiddenLinkInstruction(nativeRange, nativeFormat))
+            {
+                return false;
+            }
+
+            var previousFormat = result.GetCharacterFormat(position);
+            var merged = MergeWindowsCharacterFormat(
+                ReadCharacterFormat(nativeFormat),
+                previousFormat,
+                fontFamily,
+                fontSize,
+                textColor);
+            result = result.ApplyCharacterFormat(position..end, _ => merged);
+            position = end;
+        }
+
+        return true;
+    }
+
+    private bool TryOverlayNativeParagraphFormats(
+        RichTextDocumentSnapshot source,
+        RichTextRange range,
+        out RichTextDocumentSnapshot result)
+    {
+        result = source;
+        var text = source.Text;
+        var scanRange = PlatformView.Document.GetRange(0, 0);
+        var lastParagraphStart = range.End == 0
+            ? 0
+            : text.LastIndexOf('\n', Math.Min(range.End, text.Length) - 1) + 1;
+        for (var start = range.Start; ;)
+        {
+            var end = GetParagraphEnd(text, start);
+            var previousFormat = result.GetParagraphFormat(start);
+            scanRange.SetRange(start, end);
+            var nativeFormat = ReadParagraphFormat(
+                scanRange.ParagraphFormat,
+                previousFormat.NativeList);
+            var merged = MergeWindowsParagraphFormat(nativeFormat, previousFormat);
+
+            RichTextListItemFormat? item = null;
+            if (nativeFormat.NativeList is { } nativeList)
+            {
+                if (previousFormat.List is not { } previousItem ||
+                    !result.Lists.TryGetValue(previousItem.ListId, out var definition) ||
+                    (uint)nativeList.Level >= (uint)definition.Levels.Length)
+                {
+                    // A newly introduced native list needs the full list-definition
+                    // discovery path. Ordinary continuation, termination, level, and
+                    // restart edits remain bounded here.
+                    return false;
+                }
+
+                item = new RichTextListItemFormat(
+                    previousItem.ListId,
+                    nativeList.Level,
+                    nativeList.Restart ? nativeList.StartAt : null);
+            }
+
+            merged = merged with { List = item };
+            var paragraphRange = end == start ? start..start : start..end;
+            result = result.ApplyParagraphFormat(paragraphRange, _ => merged);
+            if (start >= lastParagraphStart)
+            {
+                break;
+            }
+
+            if (end == start)
+            {
+                break;
+            }
+
+            start = end;
+        }
+
+        return true;
+    }
+
+    private static RichTextRange GetCaretInspectionRange(int position, int textLength)
+    {
+        if (textLength == 0)
+        {
+            return RichTextRange.Empty;
+        }
+
+        var start = position == textLength ? textLength - 1 : position;
+        return new RichTextRange(start, 1);
     }
 
     private void OnNativeSelectionChanged(object sender, RoutedEventArgs eventArgs)
@@ -1149,8 +1734,35 @@ public partial class RichEditorHandler
         end = Math.Clamp(end, start, VirtualView.Document.Text.Length);
         var length = end - start;
         VirtualView.UpdateSelectionFromPlatform(start, length);
-        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
-        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
+        UpdateTypingFormatsFromPlatform();
+    }
+
+    private void UpdateTypingFormatsFromPlatform()
+    {
+        if (VirtualView is null)
+        {
+            return;
+        }
+
+        var previousCharacter = VirtualView.TypingCharacterFormat;
+        var nativeCharacter = ReadCharacterFormat(PlatformView.Document.Selection.CharacterFormat);
+        var defaultCharacter = VirtualView.Document.DefaultCharacterFormat;
+        _nativeTypingFormat = MergeWindowsCharacterFormat(
+            nativeCharacter,
+            previousCharacter,
+            defaultCharacter.FontFamily ?? ResolveFontFamily(),
+            defaultCharacter.FontSize ?? ResolveFontSize(),
+            defaultCharacter.ForegroundColor ?? ResolveTextColor());
+        var previousParagraph = VirtualView.TypingParagraphFormat;
+        var nativeParagraph = ReadParagraphFormat(
+            PlatformView.Document.Selection.ParagraphFormat,
+            previousParagraph.NativeList);
+        _nativeTypingParagraphFormat = MergeWindowsParagraphFormat(
+            nativeParagraph,
+            previousParagraph);
+        VirtualView.UpdateTypingFormatsFromPlatform(
+            _nativeTypingFormat,
+            _nativeTypingParagraphFormat);
     }
 
     private sealed class NativeTextSnapshot(

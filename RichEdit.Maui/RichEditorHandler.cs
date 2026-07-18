@@ -10,19 +10,39 @@ using Microsoft.Maui.Handlers;
 
 namespace RichEdit.Maui;
 
-internal interface IRichEditorHandler
+[Flags]
+internal enum RichTextAppearanceChange
 {
-    void ApplyDocument(RichTextDocument document, int selectionStart, int selectionLength);
-
-    void ApplyTypingFormat(
-        RichTextCharacterFormat characterFormat,
-        RichTextParagraphFormat paragraphFormat);
-
-    void SetSelection(int start, int length);
+    None = 0,
+    TextColor = 1,
+    FontFamily = 2,
+    FontSize = 4,
+    Placeholder = 8,
+    PlaceholderColor = 16,
+    NativeTheme = 32,
 }
 
+internal interface IRichEditorHandler
+{
+    object SourceToken { get; }
+
+    void ApplySnapshot(RichTextDocumentSnapshot snapshot, RichTextRange selection);
+
+    void ApplyChanges(RichTextChangeSet changes, RichTextRange selection);
+
+    void ApplyAppearance(RichTextAppearanceChange changes);
+
+    void SetSelection(RichTextRange selection);
+}
+
+/// <summary>
+/// Connects <see cref="RichEditor"/> to the native rich editor for the current target.
+/// </summary>
 public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEditor>, IRichEditorHandler
 {
+    /// <summary>
+    /// Gets the default property mapper used by rich-editor handlers.
+    /// </summary>
     public static IPropertyMapper<RichEditor, RichEditorHandler> Mapper =
         new PropertyMapper<RichEditor, RichEditorHandler>(ViewMapper)
         {
@@ -32,28 +52,89 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             [nameof(RichEditor.TextColor)] = MapAppearance,
             [nameof(RichEditor.FontFamily)] = MapAppearance,
             [nameof(RichEditor.FontSize)] = MapAppearance,
-            [nameof(RichEditor.IsReadOnly)] = MapIsReadOnly,
+            [nameof(RichEditor.IsReadOnly)] = MapInputConfiguration,
+            [nameof(RichEditor.IsSpellCheckEnabled)] = MapInputConfiguration,
+            [nameof(RichEditor.IsTextPredictionEnabled)] = MapInputConfiguration,
+            [nameof(RichEditor.Keyboard)] = MapInputConfiguration,
+            [nameof(RichEditor.MaxLength)] = MapInputConfiguration,
+            [nameof(RichEditor.AutoSize)] = MapInputConfiguration,
+            [nameof(RichEditor.AcceptsTab)] = MapInputConfiguration,
         };
 
-    public RichEditorHandler() : base(Mapper)
+    private readonly object _sourceToken = new();
+
+    /// <summary>
+    /// Initializes a handler with the default mapper.
+    /// </summary>
+    public RichEditorHandler()
+        : base(Mapper)
     {
     }
 
-    public RichEditorHandler(IPropertyMapper? mapper) : base(mapper ?? Mapper)
+    /// <summary>
+    /// Initializes a handler with a custom property mapper.
+    /// </summary>
+    /// <param name="mapper">The mapper to use, or null for <see cref="Mapper"/>.</param>
+    public RichEditorHandler(IPropertyMapper? mapper)
+        : base(mapper ?? Mapper)
     {
     }
 
-    void IRichEditorHandler.ApplyDocument(RichTextDocument document, int selectionStart, int selectionLength) =>
-        ApplyDocumentCore(document, selectionStart, selectionLength);
+    object IRichEditorHandler.SourceToken => _sourceToken;
 
-    void IRichEditorHandler.ApplyTypingFormat(
-        RichTextCharacterFormat characterFormat,
-        RichTextParagraphFormat paragraphFormat) =>
-        ApplyTypingFormatCore(characterFormat, paragraphFormat);
+    void IRichEditorHandler.ApplySnapshot(
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange selection) =>
+        ApplyDocumentCore(snapshot, selection.Start, selection.Length);
 
-    void IRichEditorHandler.SetSelection(int start, int length) => SetSelectionCore(start, length);
+    void IRichEditorHandler.ApplyChanges(
+        RichTextChangeSet changes,
+        RichTextRange selection) =>
+        ApplyChangesCore(changes, selection);
 
-    private partial void ApplyDocumentCore(RichTextDocument document, int selectionStart, int selectionLength);
+    void IRichEditorHandler.ApplyAppearance(RichTextAppearanceChange changes)
+    {
+        if ((changes & (RichTextAppearanceChange.Placeholder |
+                        RichTextAppearanceChange.PlaceholderColor)) != 0)
+        {
+            UpdatePlaceholder(VirtualView);
+        }
+
+        if ((changes & (RichTextAppearanceChange.TextColor |
+                        RichTextAppearanceChange.FontFamily |
+                        RichTextAppearanceChange.FontSize |
+                        RichTextAppearanceChange.NativeTheme)) != 0)
+        {
+            UpdateAppearance(VirtualView);
+        }
+    }
+
+    void IRichEditorHandler.SetSelection(RichTextRange selection)
+    {
+        SetSelectionCore(selection.Start, selection.Length);
+        ApplyTypingFormatCore(
+            VirtualView.Selection.TypingCharacterFormat,
+            VirtualView.Selection.TypingParagraphFormat);
+    }
+
+    private void ApplyChangesCore(RichTextChangeSet changes, RichTextRange selection)
+    {
+        if (ReferenceEquals(changes.SourceToken, _sourceToken))
+        {
+            return;
+        }
+
+        ApplyIncrementalChangesCore(changes, selection);
+    }
+
+    private partial void ApplyDocumentCore(
+        RichTextDocumentSnapshot document,
+        int selectionStart,
+        int selectionLength);
+
+    private partial void ApplyIncrementalChangesCore(
+        RichTextChangeSet changes,
+        RichTextRange selection);
 
     private partial void ApplyTypingFormatCore(
         RichTextCharacterFormat characterFormat,
@@ -63,27 +144,32 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     private static void MapDocument(RichEditorHandler handler, RichEditor editor)
     {
-        if (!editor.IsUpdatingFromPlatform)
-        {
-            handler.ApplyDocumentCore(editor.Document, editor.SelectionStart, editor.SelectionLength);
-            handler.ApplyTypingFormatCore(
-                editor.TypingCharacterFormat,
-                editor.TypingParagraphFormat);
-        }
+        handler.ApplyDocumentCore(
+            editor.Document.CurrentSnapshot,
+            editor.SelectedRange.Start,
+            editor.SelectedRange.Length);
+        handler.ApplyTypingFormatCore(
+            editor.Selection.TypingCharacterFormat,
+            editor.Selection.TypingParagraphFormat);
     }
 
     private static void MapPlaceholder(RichEditorHandler handler, RichEditor editor) =>
-        handler.UpdatePlaceholder(editor);
+        ((IRichEditorHandler)handler).ApplyAppearance(
+            RichTextAppearanceChange.Placeholder |
+            RichTextAppearanceChange.PlaceholderColor);
 
     private static void MapAppearance(RichEditorHandler handler, RichEditor editor) =>
-        handler.UpdateAppearance(editor);
+        ((IRichEditorHandler)handler).ApplyAppearance(
+            RichTextAppearanceChange.TextColor |
+            RichTextAppearanceChange.FontFamily |
+            RichTextAppearanceChange.FontSize);
 
-    private static void MapIsReadOnly(RichEditorHandler handler, RichEditor editor) =>
-        handler.UpdateIsReadOnly(editor);
+    private static void MapInputConfiguration(RichEditorHandler handler, RichEditor editor) =>
+        handler.UpdateInputConfiguration(editor);
 
     private partial void UpdatePlaceholder(RichEditor editor);
 
     private partial void UpdateAppearance(RichEditor editor);
 
-    private partial void UpdateIsReadOnly(RichEditor editor);
+    private partial void UpdateInputConfiguration(RichEditor editor);
 }
