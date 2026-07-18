@@ -1145,6 +1145,8 @@ namespace RichEdit.Maui
                 0,
                 document.Text.Length - start);
             VirtualView.UpdateDocumentFromPlatform(document, start, length);
+            _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+            _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
         }
 
         private void OnNativeSelectionChanged(UITextView textView)
@@ -1163,6 +1165,8 @@ namespace RichEdit.Maui
                 0,
                 VirtualView.Document.Text.Length - start);
             VirtualView.UpdateSelectionFromPlatform(start, length);
+            _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+            _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
         }
 
         private sealed class RichTextViewDelegate(RichEditorHandler handler) : UITextViewDelegate

@@ -361,12 +361,9 @@ public class RichEditor : View
 
         SelectionStart = start;
         SelectionLength = length;
+        // Platform-originated selection changes are observations. Native rich editors
+        // already update their typing attributes, so only mirror them into the model here.
         UpdateTypingFormats();
-        if (length == 0)
-        {
-            ApplyTypingFormatToPlatform();
-        }
-
         RaiseSelectionChanged();
     }
 

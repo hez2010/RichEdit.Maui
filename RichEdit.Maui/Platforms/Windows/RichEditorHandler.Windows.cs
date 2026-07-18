@@ -973,6 +973,8 @@ public partial class RichEditorHandler
         var end = snapshot.ToLogicalPosition(nativeEnd);
         var length = end - start;
         VirtualView.UpdateDocumentFromPlatform(document, start, length);
+        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
     }
 
     private void OnNativeSelectionChanged(object sender, RoutedEventArgs eventArgs)
@@ -998,6 +1000,8 @@ public partial class RichEditorHandler
         end = Math.Clamp(end, start, VirtualView.Document.Text.Length);
         var length = end - start;
         VirtualView.UpdateSelectionFromPlatform(start, length);
+        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
     }
 
     private sealed class NativeTextSnapshot(

@@ -938,6 +938,8 @@ public partial class RichEditorHandler
         var start = Math.Clamp(PlatformView.SelectionStart, 0, document.Text.Length);
         var end = Math.Clamp(PlatformView.SelectionEnd, start, document.Text.Length);
         VirtualView.UpdateDocumentFromPlatform(document, start, end - start);
+        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
         if (replacedTypingFormat)
         {
             ApplyDocumentCore(document, start, end - start);
@@ -960,6 +962,8 @@ public partial class RichEditorHandler
             start,
             VirtualView.Document.Text.Length);
         VirtualView.UpdateSelectionFromPlatform(start, end - start);
+        _nativeTypingFormat = VirtualView.TypingCharacterFormat;
+        _nativeTypingParagraphFormat = VirtualView.TypingParagraphFormat;
     }
 
     private static bool ContainsPastedRichContent(ISpanned text, int start, int end)
