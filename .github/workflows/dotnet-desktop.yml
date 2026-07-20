@@ -1,0 +1,48 @@
+name: .NET
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to NuGet"
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write  # enable GitHub OIDC token issuance for this job
+    
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 11.0.x
+        dotnet-quality: 'preview'
+    - name: Restore workloads
+      run: dotnet workload restore
+    - name: Build
+      run: dotnet build -c Release
+    - name: Pack
+      if: success()
+      run: dotnet pack RichEdit.Maui -c Release -o artifacts
+
+    - name: NuGet login
+      if: success() && github.event_name == 'workflow_dispatch' && inputs.publish
+      uses: NuGet/login@v1
+      id: login
+      with:
+        user: ${{ secrets.NUGET_USER }}
+
+    - name: NuGet push
+      if: success() && github.event_name == 'workflow_dispatch' && inputs.publish
+      run: dotnet nuget push artifacts/*.nupkg --api-key ${{steps.login.outputs.NUGET_API_KEY}} --source https://api.nuget.org/v3/index.json
