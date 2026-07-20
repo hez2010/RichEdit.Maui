@@ -83,7 +83,7 @@ public partial class MainPage : ContentPage
         SizePicker.SelectedIndex = 1;
         _updatingToolbar = false;
 
-        Editor.RtfText = """
+        Editor.Document = RichTextDocument.FromRtf("""
             {\rtf1\ansi\ansicpg1252\uc1 \deff0\deflang1033\deflangfe1033{\fonttbl{\f0\froman\fcharset0\fprq2{\*\panose 02020603050405020304}Times New Roman;}{\f3\froman\fcharset2\fprq2{\*\panose 05050102010706020507}Symbol;}
             {\f6\fmodern\fcharset0\fprq1{\*\panose 00000000000000000000}Courier;}{\f10\froman\fcharset0\fprq2{\*\panose 00000000000000000000}MS Serif;}{\f11\fswiss\fcharset0\fprq2{\*\panose 00000000000000000000}MS Sans Serif;}
             {\f14\fnil\fcharset2\fprq2{\*\panose 05000000000000000000}Wingdings;}{\f37\froman\fcharset238\fprq2 Times New Roman CE;}{\f38\froman\fcharset204\fprq2 Times New Roman Cyr;}{\f40\froman\fcharset161\fprq2 Times New Roman Greek;}
@@ -226,13 +226,14 @@ public partial class MainPage : ContentPage
             }{\fs24
             \par
             \par }}
-            """;
+            """);
         _sampleImage = Editor.Document.CurrentSnapshot.Images.FirstOrDefault();
         UpdateToolbar();
     }
 
     private void OnNewDocumentClicked(object? sender, EventArgs e) =>
-        Editor.Text = string.Empty;
+        Editor.Document.Edit(edit =>
+            edit.DeleteText(new RichTextRange(0, Editor.Document.Length)));
 
     private void OnBoldClicked(object? sender, EventArgs e)
     {
@@ -433,7 +434,7 @@ public partial class MainPage : ContentPage
 
     private async void OnCopyRtfClicked(object? sender, EventArgs e)
     {
-        await Clipboard.Default.SetTextAsync(Editor.RtfText);
+        await Clipboard.Default.SetTextAsync(Editor.Document.RtfText);
         StatusLabel.Text = "RTF copied to the clipboard";
     }
 

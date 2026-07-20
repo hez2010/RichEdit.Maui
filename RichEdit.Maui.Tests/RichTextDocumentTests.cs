@@ -490,6 +490,19 @@ public sealed class RichTextDocumentTests
             RichEditorHandler.TryConvertWindowsTabPosition(position, out _));
     }
 
+    [Theory]
+    [InlineData(null, "\uFFFC")]
+    [InlineData("", "\uFFFC")]
+    [InlineData("Chart", "Chart")]
+    public void WindowsImageInsertionAlwaysUsesNonemptyAlternativeText(
+        string? alternativeText,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            RichEditorHandler.GetWindowsImageAlternativeText(alternativeText));
+    }
+
     [Fact]
     public void InsertImageCreatesExactlyOneObjectCharacter()
     {

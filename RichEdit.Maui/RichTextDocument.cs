@@ -77,15 +77,12 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     public string Text => _snapshot.Text;
 
     /// <summary>
-    /// Gets or sets the canonical RTF representation of the complete document.
+    /// Gets the canonical RTF representation of the complete document.
     /// </summary>
     /// <remarks>
-    /// The getter serializes lazily and caches the result by <see cref="Version"/>.
-    /// The setter parses and validates the complete value before committing one atomic
-    /// reset. View appearance and native theme defaults are never serialized.
+    /// The value is serialized lazily and cached by <see cref="Version"/>. View
+    /// appearance and native theme defaults are never serialized.
     /// </remarks>
-    /// <exception cref="ArgumentNullException">The assigned value is null.</exception>
-    /// <exception cref="FormatException">The assigned value is not valid supported RTF.</exception>
     public string RtfText
     {
         get
@@ -98,17 +95,19 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
             return _cachedRtf!;
         }
-        set
-        {
-            ArgumentNullException.ThrowIfNull(value);
-            VerifyNoActiveEdit();
-            var parsed = RtfCodec.Parse(value);
-            ReplaceSnapshot(
-                parsed,
-                RichTextChangeOrigin.Binding,
-                RichTextUndoBehavior.ClearHistory,
-                sourceToken: null);
-        }
+    }
+
+    /// <summary>
+    /// Creates a document by parsing a complete RTF value.
+    /// </summary>
+    /// <param name="rtfText">The RTF value to parse.</param>
+    /// <returns>A new rich-text document containing the parsed content.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="rtfText"/> is null.</exception>
+    /// <exception cref="FormatException"><paramref name="rtfText"/> is not valid supported RTF.</exception>
+    public static RichTextDocument FromRtf(string rtfText)
+    {
+        ArgumentNullException.ThrowIfNull(rtfText);
+        return new RichTextDocument(RtfCodec.Parse(rtfText));
     }
 
     /// <summary>
@@ -239,21 +238,6 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         return result;
     }
 
-    internal RichTextChangeSet ReplacePlainText(string? text)
-    {
-        VerifyNoActiveEdit();
-        var snapshot = new RichTextDocumentSnapshot(
-            text,
-            defaultCharacterFormat: DefaultCharacterFormat,
-            defaultParagraphFormat: DefaultParagraphFormat,
-            metadata: _snapshot.Metadata);
-        return ReplaceSnapshot(
-            snapshot,
-            RichTextChangeOrigin.Binding,
-            RichTextUndoBehavior.ClearHistory,
-            sourceToken: null);
-    }
-
     internal void Undo()
     {
         VerifyNoActiveEdit();
@@ -341,46 +325,6 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         }
 
         return Commit(transaction.Snapshot, transaction.Changes, origin, options, sourceToken);
-    }
-
-    private RichTextChangeSet ReplaceSnapshot(
-        RichTextDocumentSnapshot snapshot,
-        RichTextChangeOrigin origin,
-        RichTextUndoBehavior undoBehavior,
-        object? sourceToken)
-    {
-        var oldRange = new RichTextRange(0, Length);
-        var changes = new List<RichTextChange>(2);
-        if (!string.Equals(Text, snapshot.Text, StringComparison.Ordinal))
-        {
-            var prefixLength = Text.AsSpan().CommonPrefixLength(snapshot.Text);
-            var suffixLength = 0;
-            var maximumSuffixLength = Math.Min(Text.Length, snapshot.Text.Length) - prefixLength;
-            while (suffixLength < maximumSuffixLength &&
-                   Text[^(suffixLength + 1)] == snapshot.Text[^(suffixLength + 1)])
-            {
-                suffixLength++;
-            }
-
-            changes.Add(new RichTextTextChange(
-                new RichTextRange(
-                    prefixLength,
-                    Text.Length - prefixLength - suffixLength),
-                snapshot.Text.Substring(
-                    prefixLength,
-                    snapshot.Text.Length - prefixLength - suffixLength)));
-        }
-
-        changes.Add(new RichTextRangeChange(
-            RichTextChangeKind.Reset,
-            oldRange,
-            new RichTextRange(0, snapshot.Text.Length)));
-        return Commit(
-            snapshot,
-            changes,
-            origin,
-            new RichTextEditOptions(undoBehavior),
-            sourceToken);
     }
 
     private RichTextChangeSet Commit(

@@ -253,7 +253,9 @@ public partial class RichEditorHandler
 
     private partial void ApplyIncrementalChangesCore(
         RichTextChangeSet changes,
-        RichTextRange selection)
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat)
     {
         if (PlatformView?.EditableText is not { } editable)
         {
@@ -266,6 +268,7 @@ public partial class RichEditorHandler
                 VirtualView.Document.CurrentSnapshot,
                 selection.Start,
                 selection.Length);
+            ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
             return;
         }
 
@@ -335,6 +338,7 @@ public partial class RichEditorHandler
             }
 
             SetSelectionCore(selection.Start, selection.Length);
+            ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
             PlatformView.RequestLayout();
             PlatformView.Invalidate();
         }
@@ -638,6 +642,8 @@ public partial class RichEditorHandler
         length = Math.Clamp(length, 0, textLength - start);
         PlatformView.SetSelection(start, start + length);
     }
+
+    private partial bool TryCutCore() => false;
 
     // Android's public TextView API does not expose its internal undo manager or
     // CanUndo/CanRedo state, so the portable document history remains the fallback.

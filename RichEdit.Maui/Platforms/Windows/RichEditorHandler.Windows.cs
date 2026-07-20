@@ -201,7 +201,9 @@ public partial class RichEditorHandler
 
     private partial void ApplyIncrementalChangesCore(
         RichTextChangeSet changes,
-        RichTextRange selection)
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat)
     {
         if (PlatformView is null)
         {
@@ -211,26 +213,30 @@ public partial class RichEditorHandler
         var snapshot = VirtualView.Document.CurrentSnapshot;
         var affectedRange = changes.GetAffectedRange(snapshot.Length);
         if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset) ||
-            changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Image) ||
             changes.Changes.Any(static change => change.Kind == RichTextChangeKind.List) &&
                 snapshot.Paragraphs.Any(paragraph =>
                     paragraph.Range.End > affectedRange.Start &&
                     paragraph.Range.Start < affectedRange.End &&
                     paragraph.Format.NativeList?.PictureId is not null))
         {
-            // WinUI TOM has no bounded API for inserting or replacing picture
-            // payloads. Keep this required full object projection separate from
-            // ordinary text, format, and list-item changes.
+            // Picture list markers have no bounded TOM editing API. Keep this
+            // required full projection separate from ordinary range changes.
             ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+            ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
             return;
         }
 
         _applyingDocument = true;
         var nativeDocument = PlatformView.Document;
-        nativeDocument.BatchDisplayUpdates();
-        nativeDocument.BeginUndoGroup();
+        var displayUpdatesBatched = false;
+        var undoGroupStarted = false;
         try
         {
+            nativeDocument.BatchDisplayUpdates();
+            displayUpdatesBatched = true;
+            nativeDocument.BeginUndoGroup();
+            undoGroupStarted = true;
+
             foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
             {
                 var positions = GetNativeTextSnapshot();
@@ -241,9 +247,16 @@ public partial class RichEditorHandler
                 _nativeTextSnapshot = null;
             }
 
+            if (changes.Changes.Any(static change =>
+                    change.Kind == RichTextChangeKind.Image))
+            {
+                ApplyImagesIncrementally(snapshot, changes, affectedRange);
+            }
+
             if (changes.Changes.Any(static change => change.Kind is
                     RichTextChangeKind.Text or
                     RichTextChangeKind.CharacterFormat or
+                    RichTextChangeKind.Image or
                     RichTextChangeKind.DefaultFormat))
             {
                 ApplyCharacterFormatsIncrementally(
@@ -255,6 +268,7 @@ public partial class RichEditorHandler
                     RichTextChangeKind.Text or
                     RichTextChangeKind.ParagraphFormat or
                     RichTextChangeKind.List or
+                    RichTextChangeKind.Image or
                     RichTextChangeKind.DefaultFormat))
             {
                 ApplyParagraphFormatsIncrementally(
@@ -270,20 +284,159 @@ public partial class RichEditorHandler
 
             _nativeTextSnapshot = null;
             SetSelectionCore(selection.Start, selection.Length);
+            ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
         }
         finally
         {
             try
             {
-                nativeDocument.EndUndoGroup();
+                if (undoGroupStarted)
+                {
+                    nativeDocument.EndUndoGroup();
+                }
             }
             finally
             {
-                nativeDocument.ApplyDisplayUpdates();
-                _applyingDocument = false;
+                try
+                {
+                    if (displayUpdatesBatched)
+                    {
+                        nativeDocument.ApplyDisplayUpdates();
+                    }
+                }
+                finally
+                {
+                    _applyingDocument = false;
+                }
             }
         }
     }
+
+    private void ApplyImagesIncrementally(
+        RichTextDocumentSnapshot snapshot,
+        RichTextChangeSet changes,
+        RichTextRange affectedRange)
+    {
+        var imageChanges = changes.Changes
+            .Where(static change => change.Kind == RichTextChangeKind.Image)
+            .ToArray();
+        foreach (var image in snapshot.Images.Where(image =>
+                     image.Position >= affectedRange.Start &&
+                     image.Position < affectedRange.End))
+        {
+            ApplyImageIncrementally(image);
+        }
+
+        if (changes.IsTextChanged)
+        {
+            return;
+        }
+
+        // An image can be removed while its logical U+FFFC position remains. In
+        // that case replace the native object itself with the literal placeholder.
+        var imagesByPosition = snapshot.Images
+            .Select(static image => image.Position)
+            .ToHashSet();
+        foreach (var change in imageChanges)
+        {
+            var range = change.OldRange.Clamp(snapshot.Length);
+            for (var position = range.Start; position < range.End; position++)
+            {
+                if (snapshot.Text[position] == RichTextDocument.ObjectReplacementCharacter &&
+                    !imagesByPosition.Contains(position))
+                {
+                    ReplaceNativeImageWithPlaceholder(position);
+                }
+            }
+        }
+    }
+
+    private void ApplyImageIncrementally(RichTextImage image)
+    {
+        var positions = GetNativeTextSnapshot();
+        var range = PlatformView.Document.GetRange(
+            positions.ToNativePosition(image.Position),
+            positions.ToNativePosition(image.Position + 1));
+        if (image.Data.IsDefaultOrEmpty)
+        {
+            range.SetText(
+                TextSetOptions.None,
+                RichTextDocument.ObjectReplacementCharacter.ToString());
+            _nativeTextSnapshot = null;
+            return;
+        }
+
+        using var stream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+        {
+            writer.WriteBytes(ImmutableCollectionsMarshal.AsArray(image.Data) ?? []);
+            writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+            writer.DetachStream();
+        }
+
+        stream.Seek(0);
+        var insertionPosition = range.StartPosition;
+        range.SetText(TextSetOptions.None, string.Empty);
+        range.SetRange(insertionPosition, insertionPosition);
+        try
+        {
+            range.InsertImage(
+                ToNativeImageSize(image.Width),
+                ToNativeImageSize(image.Height),
+                0,
+                image.VerticalAlignment switch
+                {
+                    RichTextImageVerticalAlignment.Top => VerticalCharacterAlignment.Top,
+                    RichTextImageVerticalAlignment.Bottom => VerticalCharacterAlignment.Bottom,
+                    _ => VerticalCharacterAlignment.Baseline,
+                },
+                GetWindowsImageAlternativeText(image.AlternativeText),
+                stream);
+        }
+        catch (Exception exception) when (exception is ArgumentException or COMException)
+        {
+            // Preserve unsupported payloads in the managed document while keeping
+            // their logical position visible and editable in the native control.
+            range.SetRange(insertionPosition, insertionPosition);
+            range.SetText(
+                TextSetOptions.None,
+                RichTextDocument.ObjectReplacementCharacter.ToString());
+        }
+
+        _nativeTextSnapshot = null;
+    }
+
+    private void ReplaceNativeImageWithPlaceholder(int position)
+    {
+        var positions = GetNativeTextSnapshot();
+        PlatformView.Document.GetRange(
+                positions.ToNativePosition(position),
+                positions.ToNativePosition(position + 1))
+            .SetText(
+                TextSetOptions.None,
+                RichTextDocument.ObjectReplacementCharacter.ToString());
+        _nativeTextSnapshot = null;
+    }
+
+    private static int ToNativeImageSize(double points)
+    {
+        if (points <= 0)
+        {
+            return 0;
+        }
+
+        // WinUI's projected ITextRange API takes DIPs, while the document model
+        // uses the RTF unit of points.
+        var deviceIndependentPixels = Math.Round(points * 96d / 72d);
+        return (int)Math.Clamp(deviceIndependentPixels, 1d, int.MaxValue);
+    }
+
+    // WinUI returns E_INVALIDARG for an empty alternate-text HSTRING. Use the
+    // same neutral character that represents the inline object in logical text.
+    internal static string GetWindowsImageAlternativeText(string? alternativeText) =>
+        string.IsNullOrEmpty(alternativeText)
+            ? RichTextDocument.ObjectReplacementCharacter.ToString()
+            : alternativeText;
 
     private void ApplyCharacterFormatsIncrementally(
         RichTextDocumentSnapshot snapshot,
@@ -437,6 +590,7 @@ public partial class RichEditorHandler
             return;
         }
 
+        var wasApplyingDocument = _applyingDocument;
         _applyingDocument = true;
         try
         {
@@ -452,7 +606,7 @@ public partial class RichEditorHandler
         }
         finally
         {
-            _applyingDocument = false;
+            _applyingDocument = wasApplyingDocument;
         }
     }
 
@@ -491,6 +645,24 @@ public partial class RichEditorHandler
         {
             PlatformView.Document.Selection.SetRange(start, start + length);
         }
+    }
+
+    private partial bool TryCutCore()
+    {
+        if (PlatformView is null || VirtualView.IsReadOnly)
+        {
+            return false;
+        }
+
+        var selection = PlatformView.Document.Selection;
+        if (selection.Length == 0)
+        {
+            return false;
+        }
+
+        selection.Cut();
+        VirtualView.UpdateUndoStateFromPlatform();
+        return true;
     }
 
     private partial bool SupportsNativeUndoCore() => true;
@@ -633,6 +805,31 @@ public partial class RichEditorHandler
             return;
         }
 
+        if (IsControlKeyDown() && !VirtualView.IsReadOnly)
+        {
+            if (eventArgs.Key == Windows.System.VirtualKey.Z)
+            {
+                if (IsShiftKeyDown())
+                {
+                    RedoCore();
+                }
+                else
+                {
+                    UndoCore();
+                }
+
+                eventArgs.Handled = true;
+                return;
+            }
+
+            if (eventArgs.Key == Windows.System.VirtualKey.Y)
+            {
+                RedoCore();
+                eventArgs.Handled = true;
+                return;
+            }
+        }
+
         if (eventArgs.Key == Windows.System.VirtualKey.Tab &&
             VirtualView.AcceptsTab && !VirtualView.IsReadOnly)
         {
@@ -707,7 +904,11 @@ public partial class RichEditorHandler
     private static bool IsControlKeyDown() =>
         (GetNativeKeyState(VirtualKeyControl) & KeyPressedMask) != 0;
 
+    private static bool IsShiftKeyDown() =>
+        (GetNativeKeyState(VirtualKeyShift) & KeyPressedMask) != 0;
+
     private const int VirtualKeyControl = 0x11;
+    private const int VirtualKeyShift = 0x10;
     private const int KeyPressedMask = 0x8000;
 
     [DllImport("user32.dll", EntryPoint = "GetKeyState")]
@@ -1450,6 +1651,7 @@ public partial class RichEditorHandler
             VirtualView.SelectedRange.Start,
             VirtualView.SelectedRange.Length);
         ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
+        ClearUndoHistoryCore();
     }
 
     private void OnPlatformThemeChanged(FrameworkElement sender, object args)

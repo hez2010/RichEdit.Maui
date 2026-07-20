@@ -62,9 +62,9 @@ public sealed class RichTextSelection : INotifyPropertyChanged
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n');
         var start = Range.Start;
-        _editor.Document.Edit(edit =>
-            edit.ReplaceText(Range, normalized, TypingCharacterFormat));
-        _editor.SelectedRange = new RichTextRange(start + normalized.Length, 0);
+        _editor.EditDocument(
+            edit => edit.ReplaceText(Range, normalized, TypingCharacterFormat),
+            new RichTextRange(start + normalized.Length, 0));
     }
 
     /// <summary>Replaces selected content with a portable rich fragment.</summary>
@@ -78,8 +78,9 @@ public sealed class RichTextSelection : INotifyPropertyChanged
         }
 
         var start = Range.Start;
-        _editor.Document.Edit(edit => edit.ReplaceFragment(Range, fragment));
-        _editor.SelectedRange = new RichTextRange(start + fragment.Text.Length, 0);
+        _editor.EditDocument(
+            edit => edit.ReplaceFragment(Range, fragment),
+            new RichTextRange(start + fragment.Text.Length, 0));
     }
 
     /// <summary>Updates character formatting across the selection.</summary>
@@ -338,12 +339,13 @@ public sealed class RichTextSelection : INotifyPropertyChanged
         }
 
         var start = Range.Start;
-        _editor.Document.Edit(edit =>
-        {
-            edit.DeleteText(Range);
-            edit.InsertImage(start, image);
-        });
-        _editor.SelectedRange = new RichTextRange(start + 1, 0);
+        _editor.EditDocument(
+            edit =>
+            {
+                edit.DeleteText(Range);
+                edit.InsertImage(start, image);
+            },
+            new RichTextRange(start + 1, 0));
     }
 
     /// <summary>Replaces selected content with a field result.</summary>
@@ -357,16 +359,17 @@ public sealed class RichTextSelection : INotifyPropertyChanged
         }
 
         var start = Range.Start;
-        _editor.Document.Edit(edit =>
-        {
-            edit.DeleteText(Range);
-            edit.InsertField(start, instruction, result, TypingCharacterFormat);
-        });
         var insertedLength = result
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')
             .Length;
-        _editor.SelectedRange = new RichTextRange(start + insertedLength, 0);
+        _editor.EditDocument(
+            edit =>
+            {
+                edit.DeleteText(Range);
+                edit.InsertField(start, instruction, result, TypingCharacterFormat);
+            },
+            new RichTextRange(start + insertedLength, 0));
     }
 
     internal IReadOnlyList<RichTextCharacterFormat> GetCharacterFormats()

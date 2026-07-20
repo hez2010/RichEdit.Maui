@@ -13,9 +13,6 @@ public enum RichTextChangeOrigin
     /// <summary>The change originated in a native editor interaction.</summary>
     User,
 
-    /// <summary>The change was caused by assigning a bindable content property.</summary>
-    Binding,
-
     /// <summary>The change restores an earlier undo state.</summary>
     Undo,
 

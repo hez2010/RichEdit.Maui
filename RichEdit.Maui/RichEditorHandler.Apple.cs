@@ -261,7 +261,9 @@ namespace RichEdit.Maui
 
         private partial void ApplyIncrementalChangesCore(
             RichTextChangeSet changes,
-            RichTextRange selection)
+            RichTextRange selection,
+            RichTextCharacterFormat typingCharacterFormat,
+            RichTextParagraphFormat typingParagraphFormat)
         {
             if (PlatformView is null)
             {
@@ -271,6 +273,7 @@ namespace RichEdit.Maui
             if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
             {
                 ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+                ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
                 return;
             }
 
@@ -340,6 +343,7 @@ namespace RichEdit.Maui
                 }
 
                 SetSelectionCore(selection.Start, selection.Length);
+                ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
                 PlatformView.UpdatePlaceholderVisibility();
             }
             finally
@@ -595,6 +599,20 @@ namespace RichEdit.Maui
             start = Math.Clamp(start, 0, textLength);
             length = Math.Clamp(length, 0, textLength - start);
             PlatformView.SelectedRange = new NSRange(start, length);
+        }
+
+        private partial bool TryCutCore()
+        {
+            if (PlatformView is null ||
+                VirtualView.IsReadOnly ||
+                PlatformView.SelectedRange.Length == 0)
+            {
+                return false;
+            }
+
+            PlatformView.Cut(null);
+            VirtualView.UpdateUndoStateFromPlatform();
+            return true;
         }
 
         private partial bool SupportsNativeUndoCore() => true;

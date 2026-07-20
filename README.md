@@ -20,9 +20,11 @@ builder
     .UseRichEdit();
 ```
 
-## Bind editor content
+## Own editor content
 
-`RtfText` is the canonical persistence property and supports two-way binding directly:
+Bind one stable `RichTextDocument` to the control. The editor deliberately has no
+`Text` or `RtfText` content properties, so native input and application code cannot
+compete through projection bindings:
 
 ```xml
 <ContentPage
@@ -30,7 +32,7 @@ builder
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui">
     <rich:RichEditor x:Name="Editor"
-                     RtfText="{Binding RtfText, Mode=TwoWay}"
+                     Document="{Binding Document}"
                      SelectedRange="{Binding Selection, Mode=TwoWay}"
                      IsReadOnly="{Binding IsReadOnly}"
                      IsSpellCheckEnabled="True"
@@ -40,9 +42,18 @@ builder
 </ContentPage>
 ```
 
-Reading `RtfText` returns canonical serialized RTF. Serialization is lazy and cached by document version. Setting it parses and validates the complete value before atomically replacing the document; invalid RTF does not partially modify content.
+Create an initial document from RTF and assign it as a whole. Read-only `Text` and
+`RtfText` projections remain on the document for inspection and persistence:
 
-`Text` is a two-way plain-text projection. Setting it intentionally replaces rich content with plain text. Applications should choose `RtfText`, `Text`, or `Document` as their authoritative input rather than binding several of them as competing sources.
+```csharp
+Editor.Document = RichTextDocument.FromRtf(rtfText);
+
+var plainText = Editor.Document.Text;
+var canonicalRtf = Editor.Document.RtfText;
+```
+
+After construction, change content only through `Document.Edit(...)` or selection
+operations. RTF serialization is lazy and cached by document version.
 
 Control appearance properties such as `FontFamily`, `FontSize`, and `TextColor` are rendering fallbacks. They are not authored document formatting and are never serialized into `RtfText`.
 
@@ -144,7 +155,7 @@ Editor.Document.Edit(
         undoDescription: "Replace title"));
 ```
 
-The transaction produces one version change, native batch, undo unit, and binding notification. The edit builder supports:
+The transaction produces one version change, native batch, undo unit, and change notification. The edit builder supports:
 
 - insert, delete, and replace text or rich fragments
 - set, update, or clear character and paragraph formats

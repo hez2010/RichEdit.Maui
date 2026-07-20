@@ -7,31 +7,6 @@ namespace RichEdit.Maui;
 /// </summary>
 public sealed class RichEditor : View
 {
-    private static readonly string EmptyRtfTextValue =
-        RtfCodec.Serialize(new RichTextDocumentSnapshot(string.Empty));
-
-    /// <summary>Identifies the <see cref="RtfText"/> bindable property.</summary>
-    public static readonly BindableProperty RtfTextProperty = BindableProperty.Create(
-        nameof(RtfText),
-        typeof(string),
-        typeof(RichEditor),
-        EmptyRtfTextValue,
-        BindingMode.TwoWay,
-        coerceValue: static (_, value) => value ?? string.Empty,
-        propertyChanged: static (bindable, _, value) =>
-            ((RichEditor)bindable).OnRtfTextPropertyChanged((string)value));
-
-    /// <summary>Identifies the <see cref="Text"/> bindable property.</summary>
-    public static readonly BindableProperty TextProperty = BindableProperty.Create(
-        nameof(Text),
-        typeof(string),
-        typeof(RichEditor),
-        string.Empty,
-        BindingMode.TwoWay,
-        coerceValue: static (_, value) => value ?? string.Empty,
-        propertyChanged: static (bindable, _, value) =>
-            ((RichEditor)bindable).OnTextPropertyChanged((string)value));
-
     /// <summary>Identifies the <see cref="Document"/> bindable property.</summary>
     public static readonly BindableProperty DocumentProperty = BindableProperty.Create(
         nameof(Document),
@@ -184,12 +159,12 @@ public sealed class RichEditor : View
     /// <summary>Identifies the read-only <see cref="CanRedo"/> bindable property.</summary>
     public static readonly BindableProperty CanRedoProperty = CanRedoPropertyKey.BindableProperty;
 
-    private bool _synchronizingContentProperties;
     private bool _synchronizingSelection;
     private RichTextDocument? _attachedDocument;
     private EventHandler<RichTextDocumentChangedEventArgs>? _documentChangedSubscription;
     private EventHandler? _undoStateChangedSubscription;
     private RichTextRange? _pendingPlatformSelection;
+    private RichTextRange? _pendingProgrammaticSelection;
     private RichTextCharacterFormat _typingCharacterFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _typingParagraphFormat = RichTextParagraphFormat.Default;
 
@@ -201,7 +176,6 @@ public sealed class RichEditor : View
         Selection = new RichTextSelection(this);
         Commands = new RichEditorCommands(this);
         AttachDocument(Document);
-        SynchronizeContentProperties();
         RefreshTypingFormats();
         RefreshUndoState();
     }
@@ -227,7 +201,6 @@ public sealed class RichEditor : View
         }
 
         Commands.Connect();
-        SynchronizeContentProperties();
         ClampSelectionToDocument();
         RefreshTypingFormats();
         RefreshUndoState();
@@ -259,42 +232,6 @@ public sealed class RichEditor : View
 
     /// <summary>Occurs when the native input system reports an editing completion action.</summary>
     public event EventHandler? Completed;
-
-    /// <summary>Gets or sets the canonical RTF projection of <see cref="Document"/>.</summary>
-    public string RtfText
-    {
-        get => Document.RtfText;
-        set
-        {
-            value ??= string.Empty;
-            if (Equals(GetValue(RtfTextProperty), value))
-            {
-                OnRtfTextPropertyChanged(value);
-            }
-            else
-            {
-                SetValue(RtfTextProperty, value);
-            }
-        }
-    }
-
-    /// <summary>Gets or sets the plain-text projection of <see cref="Document"/>.</summary>
-    public string Text
-    {
-        get => Document.Text;
-        set
-        {
-            value ??= string.Empty;
-            if (Equals(GetValue(TextProperty), value))
-            {
-                OnTextPropertyChanged(value);
-            }
-            else
-            {
-                SetValue(TextProperty, value);
-            }
-        }
-    }
 
     /// <summary>
     /// Gets or sets the stable live rich-text document. A document can be attached to
@@ -489,7 +426,16 @@ public sealed class RichEditor : View
             return;
         }
 
-        await RichTextClipboard.SetAsync(RichTextDocumentFragment.FromRange(snapshot, range));
+        var fragment = RichTextDocumentFragment.FromRange(snapshot, range);
+        if (Handler is IRichEditorHandler handler && handler.TryCut())
+        {
+            // Keep the portable fragment (including fields and library metadata)
+            // while the platform performs the actual cut and owns its undo unit.
+            await RichTextClipboard.SetAsync(fragment);
+            return;
+        }
+
+        await RichTextClipboard.SetAsync(fragment);
         if (IsReadOnly ||
             !ReferenceEquals(Document, document) ||
             document.Version != snapshot.Version ||
@@ -575,6 +521,32 @@ public sealed class RichEditor : View
 
     internal void UpdateUndoStateFromPlatform() => RefreshUndoState();
 
+    internal RichTextChangeSet EditDocument(
+        Action<RichTextDocumentEdit> edit,
+        RichTextRange resultingSelection)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        var previousPendingSelection = _pendingProgrammaticSelection;
+        _pendingProgrammaticSelection = resultingSelection;
+        RichTextChangeSet changes;
+        try
+        {
+            changes = Document.Edit(edit);
+        }
+        finally
+        {
+            _pendingProgrammaticSelection = previousPendingSelection;
+        }
+
+        resultingSelection.Validate(Document.Length, nameof(resultingSelection));
+        if (changes.IsEmpty)
+        {
+            SelectedRange = resultingSelection;
+        }
+
+        return changes;
+    }
+
     internal void SetTypingCharacterFormat(RichTextCharacterFormat format)
     {
         _typingCharacterFormat = format ?? throw new ArgumentNullException(nameof(format));
@@ -640,22 +612,6 @@ public sealed class RichEditor : View
         Commands.Refresh();
     }
 
-    private void OnRtfTextPropertyChanged(string rtfText)
-    {
-        if (!_synchronizingContentProperties)
-        {
-            Document.RtfText = rtfText;
-        }
-    }
-
-    private void OnTextPropertyChanged(string text)
-    {
-        if (!_synchronizingContentProperties)
-        {
-            Document.ReplacePlainText(text);
-        }
-    }
-
     private void OnDocumentPropertyChanged(
         RichTextDocument? oldDocument,
         RichTextDocument newDocument)
@@ -676,7 +632,6 @@ public sealed class RichEditor : View
         var selection = new RichTextRange(clampedStart, clampedLength);
         var selectionChanged = SelectedRange != selection;
         SetSelectionCore(selection, fromPlatform: false);
-        SynchronizeContentProperties();
         RefreshTypingFormats();
         RefreshUndoState();
         if (!selectionChanged)
@@ -780,7 +735,12 @@ public sealed class RichEditor : View
     {
         var changeSet = eventArgs.ChangeSet;
         var resultingSelection = _pendingPlatformSelection ??
+            _pendingProgrammaticSelection ??
             MapSelection(SelectedRange, changeSet, Document.Length);
+
+        var snapshot = Document.CurrentSnapshot;
+        var typingCharacterFormat = snapshot.GetCaretFormat(resultingSelection.Start);
+        var typingParagraphFormat = snapshot.GetParagraphFormat(resultingSelection.Start);
 
         var handler = Handler as IRichEditorHandler;
         var appliedToPlatform = handler is not null &&
@@ -789,29 +749,28 @@ public sealed class RichEditor : View
         {
             if (changeSet.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
             {
-                handler!.ApplySnapshot(Document.CurrentSnapshot, resultingSelection);
+                handler!.ApplySnapshot(
+                    snapshot,
+                    resultingSelection,
+                    typingCharacterFormat,
+                    typingParagraphFormat);
             }
             else
             {
-                handler!.ApplyChanges(changeSet, resultingSelection);
+                handler!.ApplyChanges(
+                    changeSet,
+                    resultingSelection,
+                    typingCharacterFormat,
+                    typingParagraphFormat);
             }
         }
 
         var selectionChanged = SelectedRange != resultingSelection;
         SetSelectionCore(
             resultingSelection,
-            fromPlatform: changeSet.Origin == RichTextChangeOrigin.User);
-        if (appliedToPlatform && !selectionChanged)
-        {
-            // A document-format edit at a stationary caret refreshes the managed
-            // typing format without raising SelectedRange.PropertyChanged. Apply
-            // it without assigning the native selection again: selection changes
-            // are native callbacks on some platforms and must not be synthesized
-            // merely to update typing attributes.
-            handler!.ApplyTypingFormat(_typingCharacterFormat, _typingParagraphFormat);
-        }
+            fromPlatform: appliedToPlatform ||
+                changeSet.Origin == RichTextChangeOrigin.User);
 
-        SynchronizeContentProperties();
         RefreshUndoState();
         if (AutoSize == EditorAutoSizeOption.TextChanges && changeSet.IsTextChanged)
         {
@@ -825,8 +784,8 @@ public sealed class RichEditor : View
 
         // Public observers must see one coherent committed state. In particular,
         // a destructive edit can make the previous selection invalid, so publish
-        // content events only after the selection and bindable projections have
-        // been advanced to the new document version.
+        // content events only after the selection has been advanced to the new
+        // document version.
         ContentChanged?.Invoke(this, new RichTextContentChangedEventArgs(changeSet));
         if (changeSet.IsTextChanged)
         {
@@ -859,47 +818,6 @@ public sealed class RichEditor : View
         finally
         {
             _synchronizingSelection = false;
-        }
-    }
-
-    private void SynchronizeContentProperties()
-    {
-        _synchronizingContentProperties = true;
-        try
-        {
-            SynchronizeProjection(TextProperty, nameof(Text), Document.Text);
-
-            // Editors bound to the live Document do not pay the full-document
-            // serialization cost. Once RtfText has a local value or binding, keep
-            // its BindableProperty slot current so assigning an earlier RTF value
-            // through a TwoWay binding cannot be suppressed as an apparent no-op.
-            if (IsSet(RtfTextProperty))
-            {
-                SetValue(RtfTextProperty, Document.RtfText);
-            }
-            else
-            {
-                OnPropertyChanged(nameof(RtfText));
-            }
-        }
-        finally
-        {
-            _synchronizingContentProperties = false;
-        }
-    }
-
-    private void SynchronizeProjection(
-        BindableProperty property,
-        string propertyName,
-        object value)
-    {
-        if (IsSet(property))
-        {
-            SetValue(property, value);
-        }
-        else
-        {
-            OnPropertyChanged(propertyName);
         }
     }
 

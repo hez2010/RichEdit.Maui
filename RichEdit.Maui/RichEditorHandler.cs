@@ -32,9 +32,17 @@ internal interface IRichEditorHandler
 
     bool CanRedo { get; }
 
-    void ApplySnapshot(RichTextDocumentSnapshot snapshot, RichTextRange selection);
+    void ApplySnapshot(
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat);
 
-    void ApplyChanges(RichTextChangeSet changes, RichTextRange selection);
+    void ApplyChanges(
+        RichTextChangeSet changes,
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat);
 
     void ApplyAppearance(RichTextAppearanceChange changes);
 
@@ -43,6 +51,8 @@ internal interface IRichEditorHandler
     void ApplyTypingFormat(
         RichTextCharacterFormat characterFormat,
         RichTextParagraphFormat paragraphFormat);
+
+    bool TryCut();
 
     void Undo();
 
@@ -106,9 +116,12 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     void IRichEditorHandler.ApplySnapshot(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange selection)
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat)
     {
         ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+        ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
         if (SupportsNativeUndoCore())
         {
             ClearUndoHistoryCore();
@@ -119,8 +132,14 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     void IRichEditorHandler.ApplyChanges(
         RichTextChangeSet changes,
-        RichTextRange selection) =>
-        ApplyChangesCore(changes, selection);
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat) =>
+        ApplyChangesCore(
+            changes,
+            selection,
+            typingCharacterFormat,
+            typingParagraphFormat);
 
     void IRichEditorHandler.ApplyAppearance(RichTextAppearanceChange changes)
     {
@@ -147,20 +166,30 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         RichTextParagraphFormat paragraphFormat) =>
         ApplyTypingFormatCore(characterFormat, paragraphFormat);
 
+    bool IRichEditorHandler.TryCut() => TryCutCore();
+
     void IRichEditorHandler.Undo() => UndoCore();
 
     void IRichEditorHandler.Redo() => RedoCore();
 
     void IRichEditorHandler.ClearUndoHistory() => ClearUndoHistoryCore();
 
-    private void ApplyChangesCore(RichTextChangeSet changes, RichTextRange selection)
+    private void ApplyChangesCore(
+        RichTextChangeSet changes,
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat)
     {
         if (ReferenceEquals(changes.SourceToken, _sourceToken))
         {
             return;
         }
 
-        ApplyIncrementalChangesCore(changes, selection);
+        ApplyIncrementalChangesCore(
+            changes,
+            selection,
+            typingCharacterFormat,
+            typingParagraphFormat);
     }
 
     private partial void ApplyDocumentCore(
@@ -170,13 +199,17 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     private partial void ApplyIncrementalChangesCore(
         RichTextChangeSet changes,
-        RichTextRange selection);
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat);
 
     private partial void ApplyTypingFormatCore(
         RichTextCharacterFormat characterFormat,
         RichTextParagraphFormat paragraphFormat);
 
     private partial void SetSelectionCore(int start, int length);
+
+    private partial bool TryCutCore();
 
     private partial bool SupportsNativeUndoCore();
 

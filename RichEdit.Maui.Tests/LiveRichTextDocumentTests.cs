@@ -188,7 +188,7 @@ public sealed class LiveRichTextDocumentTests
         Assert.Equal(17, summary.EffectiveFontSize.Value);
         Assert.Equal(foreground, summary.EffectiveForegroundColor.Value);
 
-        var parsed = new RichTextDocument { RtfText = document.RtfText };
+        var parsed = RichTextDocument.FromRtf(document.RtfText);
         var parsedRun = Assert.Single(parsed.CurrentSnapshot.Runs).Format;
         Assert.Null(parsedRun.FontFamily);
         Assert.Null(parsedRun.FontSize);
@@ -214,7 +214,7 @@ public sealed class LiveRichTextDocumentTests
                 format => format with { FontFamily = "Georgia" });
         });
 
-        var parsed = new RichTextDocument { RtfText = document.RtfText };
+        var parsed = RichTextDocument.FromRtf(document.RtfText);
         Assert.Equal("Georgia", Assert.Single(parsed.CurrentSnapshot.Runs).Format.FontFamily);
 
         parsed.Edit(edit => edit.ClearCharacterFormat(new RichTextRange(0, parsed.Length)));
@@ -222,18 +222,9 @@ public sealed class LiveRichTextDocumentTests
     }
 
     [Fact]
-    public void InvalidRtfAssignmentIsAtomic()
+    public void InvalidRtfFactoryRejectsInput()
     {
-        var document = new RichTextDocument();
-        document.Edit(edit => edit.InsertText(0, "preserved"));
-        var snapshot = document.CurrentSnapshot;
-        var version = document.Version;
-
-        Assert.Throws<FormatException>(() => document.RtfText = "not RTF");
-
-        Assert.Equal(version, document.Version);
-        Assert.Same(snapshot, document.CurrentSnapshot);
-        Assert.Equal("preserved", document.Text);
+        Assert.Throws<FormatException>(() => RichTextDocument.FromRtf("not RTF"));
     }
 
     [Fact]
@@ -415,6 +406,7 @@ public sealed class LiveRichTextDocumentTests
         document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), 1));
         Assert.Equal(0, document.CurrentSnapshot.Paragraphs[0].Format.List?.Level);
         Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
+        Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.NativeList?.Level);
 
         document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MinValue));
         Assert.Equal(0, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
@@ -735,8 +727,14 @@ public sealed class LiveRichTextDocumentTests
     public void PublicSurfaceContainsOnlyTheNewContentAndListApis()
     {
         var editorType = typeof(RichEditor);
-        Assert.NotNull(editorType.GetProperty(nameof(RichEditor.RtfText)));
+        Assert.Null(editorType.GetProperty("RtfText"));
+        Assert.Null(editorType.GetProperty("Text"));
+        Assert.Null(editorType.GetField("RtfTextProperty", BindingFlags.Public | BindingFlags.Static));
+        Assert.Null(editorType.GetField("TextProperty", BindingFlags.Public | BindingFlags.Static));
+        Assert.NotNull(editorType.GetProperty(nameof(RichEditor.Document)));
         Assert.NotNull(editorType.GetProperty(nameof(RichEditor.Selection)));
+        Assert.False(typeof(RichTextDocument).GetProperty(nameof(RichTextDocument.RtfText))!.CanWrite);
+        Assert.DoesNotContain("Binding", Enum.GetNames<RichTextChangeOrigin>());
         Assert.Null(editorType.GetMethod("LoadRtf", BindingFlags.Public | BindingFlags.Instance));
         Assert.Null(editorType.GetMethod("ToRtf", BindingFlags.Public | BindingFlags.Instance));
         Assert.Null(editorType.GetMethod("ToggleBulletedList", BindingFlags.Public | BindingFlags.Instance));
