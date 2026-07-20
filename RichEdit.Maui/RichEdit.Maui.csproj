@@ -40,7 +40,7 @@
         <RepositoryUrl>https://github.com/hez2010/RichEdit.Maui</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
-        <Version>0.1.0</Version>
+        <Version>0.1.0-preview.1</Version>
         <PackageTags>richtext;editor;maui;richtexteditor</PackageTags>
     </PropertyGroup>
 
