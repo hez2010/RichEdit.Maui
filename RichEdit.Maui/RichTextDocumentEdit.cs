@@ -347,18 +347,29 @@ public sealed class RichTextDocumentEdit
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.List, range, range));
     }
 
-    /// <summary>Removes list-item state from intersecting paragraphs.</summary>
+    /// <summary>
+    /// Removes list-item state and list-owned indentation from intersecting paragraphs.
+    /// </summary>
     /// <param name="range">The range whose paragraphs leave their lists.</param>
     public void RemoveList(RichTextRange range)
     {
         range.Validate(Snapshot.Length, nameof(range));
+        var defaultFormat = Snapshot.DefaultParagraphFormat;
         Snapshot = Snapshot.ApplyParagraphFormat(
             range.ToRange(),
-            static format => format with { List = null, NativeList = null });
+            format => RemoveListFormat(
+                format,
+                defaultFormat,
+                Snapshot.Lists));
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.List, range, range));
     }
 
-    /// <summary>Changes list nesting for intersecting list paragraphs.</summary>
+    /// <summary>
+    /// Changes list nesting for intersecting list paragraphs. Outdenting above the
+    /// first level removes list state. Indenting beyond the defined levels extends
+    /// the document-local definition by repeating its final marker style and layout
+    /// progression, up to the RTF limit of nine levels.
+    /// </summary>
     /// <param name="range">The range whose list items are changed.</param>
     /// <param name="delta">The signed level adjustment.</param>
     public void ChangeListLevel(RichTextRange range, int delta)
@@ -369,6 +380,35 @@ public sealed class RichTextDocumentEdit
             return;
         }
 
+        var affectedParagraphs = GetAffectedParagraphs(range);
+        var lists = Snapshot.Lists;
+        foreach (var group in affectedParagraphs
+            .Select(static paragraph => paragraph.Format.List)
+            .OfType<RichTextListItemFormat>()
+            .GroupBy(static item => item.ListId))
+        {
+            if (!lists.TryGetValue(group.Key, out var definition))
+            {
+                continue;
+            }
+
+            var requiredLevel = group
+                .Select(item => Math.Clamp((long)item.Level + delta, 0, 8))
+                .Max();
+            if (requiredLevel >= definition.Levels.Length)
+            {
+                lists = lists.SetItem(
+                    group.Key,
+                    ExtendListDefinition(definition, checked((int)requiredLevel + 1)));
+            }
+        }
+
+        if (!ReferenceEquals(lists, Snapshot.Lists))
+        {
+            Snapshot = Snapshot.With(lists: lists);
+        }
+
+        var defaultFormat = Snapshot.DefaultParagraphFormat;
         Snapshot = Snapshot.ApplyParagraphFormat(range.ToRange(), format =>
         {
             if (format.List is not { } item ||
@@ -377,10 +417,13 @@ public sealed class RichTextDocumentEdit
                 return format;
             }
 
-            var level = (int)Math.Clamp(
-                (long)item.Level + delta,
-                0,
-                definition.Levels.Length - 1);
+            var requestedLevel = (long)item.Level + delta;
+            if (requestedLevel < 0)
+            {
+                return RemoveListFormat(format, defaultFormat, Snapshot.Lists);
+            }
+
+            var level = (int)Math.Min(requestedLevel, definition.Levels.Length - 1L);
             var levelDefinition = definition.Levels[level];
             return format with
             {
@@ -393,6 +436,100 @@ public sealed class RichTextDocumentEdit
             };
         });
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.List, range, range));
+    }
+
+    private IReadOnlyList<RichTextParagraph> GetAffectedParagraphs(RichTextRange range)
+    {
+        var lastPosition = range.IsEmpty ? range.Start : range.End - 1;
+        var firstParagraph = range.Start == 0
+            ? 0
+            : Snapshot.Text.LastIndexOf('\n', range.Start - 1) + 1;
+        var lastParagraph = lastPosition == 0
+            ? 0
+            : Snapshot.Text.LastIndexOf('\n', lastPosition - 1) + 1;
+        return Snapshot.Paragraphs
+            .Where(paragraph =>
+                paragraph.Start >= firstParagraph && paragraph.Start <= lastParagraph)
+            .ToArray();
+    }
+
+    private static RichTextListDefinition ExtendListDefinition(
+        RichTextListDefinition definition,
+        int levelCount)
+    {
+        var levels = definition.Levels.ToList();
+        while (levels.Count < levelCount)
+        {
+            var previous = levels[^1];
+            var step = GetListIndentStep(levels);
+            levels.Add(previous with
+            {
+                LeadingIndent = AddRtfIndent(previous.LeadingIndent, step),
+                MarkerTab = previous.MarkerTab > 0
+                    ? AddRtfIndent(previous.MarkerTab, step)
+                    : 0,
+            });
+        }
+
+        return new RichTextListDefinition(levels);
+    }
+
+    private static double GetListIndentStep(
+        IReadOnlyList<RichTextListLevelDefinition> levels)
+    {
+        var last = levels[^1];
+        if (levels.Count > 1)
+        {
+            var preceding = levels[^2];
+            var progression = last.LeadingIndent - preceding.LeadingIndent;
+            if (progression > 0)
+            {
+                return progression;
+            }
+        }
+
+        if (Math.Abs(last.FirstLineIndent) > 0)
+        {
+            return Math.Abs(last.FirstLineIndent);
+        }
+
+        if (last.LeadingIndent > 0)
+        {
+            return last.LeadingIndent;
+        }
+
+        return last.MarkerTab;
+    }
+
+    private static RichTextParagraphFormat RemoveListFormat(
+        RichTextParagraphFormat format,
+        RichTextParagraphFormat defaultFormat,
+        IReadOnlyDictionary<RichTextListId, RichTextListDefinition> lists)
+    {
+        if (format.List is not { } item)
+        {
+            return format;
+        }
+
+        var resetTabStops = lists.TryGetValue(item.ListId, out var definition) &&
+            (uint)item.Level < (uint)definition.Levels.Length &&
+            definition.Levels[item.Level].MarkerTab > 0;
+        return format with
+        {
+            LeadingIndent = defaultFormat.LeadingIndent,
+            FirstLineIndent = defaultFormat.FirstLineIndent,
+            TabStops = resetTabStops ? defaultFormat.TabStops : format.TabStops,
+            List = null,
+            NativeList = null,
+        };
+    }
+
+    private static double AddRtfIndent(double value, double increment)
+    {
+        var result = value + increment;
+        return double.IsFinite(result) && result * 20d is >= int.MinValue and <= int.MaxValue
+            ? result
+            : value;
     }
 
     /// <summary>Restarts intersecting numbered-list items at a positive value.</summary>

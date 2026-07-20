@@ -280,7 +280,11 @@ public sealed class RichTextSelection : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Changes selected list levels by a signed delta.</summary>
+    /// <summary>
+    /// Changes selected list levels by a signed delta. Outdenting the first level
+    /// removes list state; indenting past the final definition level repeats its
+    /// caller-defined marker style and layout progression.
+    /// </summary>
     /// <param name="delta">The signed nesting-level adjustment.</param>
     public void ChangeListLevel(int delta)
     {

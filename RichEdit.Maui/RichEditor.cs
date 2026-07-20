@@ -521,6 +521,31 @@ public sealed class RichEditor : View
 
     internal void UpdateUndoStateFromPlatform() => RefreshUndoState();
 
+    internal void RestoreDocumentFromNativeUndo(
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange selection,
+        RichTextChangeOrigin origin)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        selection.Validate(snapshot.Length, nameof(selection));
+        var previousPendingSelection = _pendingProgrammaticSelection;
+        _pendingProgrammaticSelection = selection;
+        RichTextChangeSet changes;
+        try
+        {
+            changes = Document.RestoreSnapshotFromNativeUndo(snapshot, origin);
+        }
+        finally
+        {
+            _pendingProgrammaticSelection = previousPendingSelection;
+        }
+
+        if (changes.IsEmpty)
+        {
+            SelectedRange = selection;
+        }
+    }
+
     internal RichTextChangeSet EditDocument(
         Action<RichTextDocumentEdit> edit,
         RichTextRange resultingSelection)

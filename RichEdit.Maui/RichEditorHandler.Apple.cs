@@ -129,6 +129,11 @@ namespace RichEdit.Maui
         private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
         private RichTextViewDelegate? _textViewDelegate;
         private PendingNativeChange? _pendingNativeChange;
+        private NSUndoManager? _observedUndoManager;
+        private NSObject? _undoGroupClosedObserver;
+        private NSObject? _didUndoObserver;
+        private NSObject? _didRedoObserver;
+        private bool _restoringNativeUndo;
 
         /// <inheritdoc />
         protected override RichTextView CreatePlatformView()
@@ -155,12 +160,14 @@ namespace RichEdit.Maui
             platformView.Delegate = _textViewDelegate;
             platformView.PasteRequested = OnPlatformPasteAsync;
             platformView.NativeAppearanceChanged = OnNativeAppearanceChanged;
+            EnsureUndoManagerNotifications(platformView.UndoManager);
         }
 
         /// <inheritdoc />
         protected override void DisconnectHandler(RichTextView platformView)
         {
             _pendingNativeChange = null;
+            StopObservingUndoManager();
             platformView.PasteRequested = null;
             platformView.NativeAppearanceChanged = null;
             platformView.Delegate = null!;
@@ -269,6 +276,52 @@ namespace RichEdit.Maui
             {
                 return;
             }
+            var undoManager = PlatformView.UndoManager;
+            EnsureUndoManagerNotifications(undoManager);
+            var previousSelection = GetNativeSelection(
+                changes.BeforeSnapshot?.Length ?? checked((int)PlatformView.TextStorage.Length));
+            var undoRegistrationWasEnabled =
+                undoManager?.IsUndoRegistrationEnabled == true;
+            if (undoRegistrationWasEnabled)
+            {
+                undoManager!.DisableUndoRegistration();
+            }
+
+            var applied = false;
+            try
+            {
+                ApplyIncrementalChangesWithoutUndo(
+                    changes,
+                    selection,
+                    typingCharacterFormat,
+                    typingParagraphFormat);
+                applied = true;
+            }
+            finally
+            {
+                if (undoRegistrationWasEnabled)
+                {
+                    undoManager!.EnableUndoRegistration();
+                }
+            }
+
+            if (applied)
+            {
+                CompleteNativeUndoTransaction(
+                    undoManager,
+                    changes,
+                    previousSelection,
+                    selection,
+                    undoRegistrationWasEnabled);
+            }
+        }
+
+        private void ApplyIncrementalChangesWithoutUndo(
+            RichTextChangeSet changes,
+            RichTextRange selection,
+            RichTextCharacterFormat typingCharacterFormat,
+            RichTextParagraphFormat typingParagraphFormat)
+        {
             var snapshot = VirtualView.Document.CurrentSnapshot;
             if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
             {
@@ -359,6 +412,132 @@ namespace RichEdit.Maui
 
                 _applyingDocument = false;
             }
+        }
+
+        private RichTextRange GetNativeSelection(int documentLength)
+        {
+            var start = Math.Clamp(
+                (int)PlatformView.SelectedRange.Location,
+                0,
+                documentLength);
+            var length = Math.Clamp(
+                (int)PlatformView.SelectedRange.Length,
+                0,
+                documentLength - start);
+            return new RichTextRange(start, length);
+        }
+
+        private void CompleteNativeUndoTransaction(
+            NSUndoManager? manager,
+            RichTextChangeSet changes,
+            RichTextRange previousSelection,
+            RichTextRange resultingSelection,
+            bool undoRegistrationWasEnabled)
+        {
+            if (manager is null || _restoringNativeUndo)
+            {
+                return;
+            }
+
+            if (changes.UndoBehavior is RichTextUndoBehavior.DoNotRecord or
+                RichTextUndoBehavior.ClearHistory)
+            {
+                manager.RemoveAllActions();
+                VirtualView.UpdateUndoStateFromPlatform();
+                return;
+            }
+
+            if (!undoRegistrationWasEnabled ||
+                changes.BeforeSnapshot is not { } before ||
+                changes.AfterSnapshot is not { } after)
+            {
+                return;
+            }
+
+            RegisterNativeUndoAction(
+                manager,
+                new NativeUndoTransition(
+                    before,
+                    previousSelection,
+                    after,
+                    resultingSelection,
+                    changes.UndoDescription));
+            VirtualView.UpdateUndoStateFromPlatform();
+        }
+
+        private void RegisterNativeUndoAction(
+            NSUndoManager manager,
+            NativeUndoTransition transition)
+        {
+            var weakHandler = new WeakReference<RichEditorHandler>(this);
+            manager.RegisterUndo(PlatformView, _ =>
+            {
+                if (weakHandler.TryGetTarget(out var handler))
+                {
+                    handler.ApplyNativeUndoTransition(transition);
+                }
+            });
+            if (!string.IsNullOrWhiteSpace(transition.ActionName))
+            {
+                manager.SetActionName(transition.ActionName);
+            }
+        }
+
+        private void ApplyNativeUndoTransition(NativeUndoTransition transition)
+        {
+            if (PlatformView?.UndoManager is not { } manager || VirtualView is null)
+            {
+                return;
+            }
+
+            var origin = manager.IsRedoing
+                ? RichTextChangeOrigin.Redo
+                : RichTextChangeOrigin.Undo;
+            _restoringNativeUndo = true;
+            try
+            {
+                VirtualView.RestoreDocumentFromNativeUndo(
+                    transition.TargetSnapshot,
+                    transition.TargetSelection,
+                    origin);
+            }
+            finally
+            {
+                _restoringNativeUndo = false;
+            }
+
+            RegisterNativeUndoAction(manager, transition.Reverse());
+        }
+
+        private void EnsureUndoManagerNotifications(NSUndoManager? manager)
+        {
+            if (manager is null || _observedUndoManager?.Handle == manager.Handle)
+            {
+                return;
+            }
+
+            StopObservingUndoManager();
+            _observedUndoManager = manager;
+            _undoGroupClosedObserver = NSUndoManager.Notifications.ObserveDidCloseUndoGroup(
+                manager,
+                (_, _) => VirtualView?.UpdateUndoStateFromPlatform());
+            _didUndoObserver = NSUndoManager.Notifications.ObserveDidUndoChange(
+                manager,
+                (_, _) => VirtualView?.UpdateUndoStateFromPlatform());
+            _didRedoObserver = NSUndoManager.Notifications.ObserveDidRedoChange(
+                manager,
+                (_, _) => VirtualView?.UpdateUndoStateFromPlatform());
+        }
+
+        private void StopObservingUndoManager()
+        {
+            _undoGroupClosedObserver?.Dispose();
+            _undoGroupClosedObserver = null;
+            _didUndoObserver?.Dispose();
+            _didUndoObserver = null;
+            _didRedoObserver?.Dispose();
+            _didRedoObserver = null;
+            _observedUndoManager = null;
         }
 
         private void ApplyCharacterFormatsIncrementally(
@@ -617,9 +796,19 @@ namespace RichEdit.Maui
 
         private partial bool SupportsNativeUndoCore() => true;
 
-        private partial bool CanUndoCore() => PlatformView?.UndoManager?.CanUndo == true;
+        private partial bool CanUndoCore()
+        {
+            var manager = PlatformView?.UndoManager;
+            EnsureUndoManagerNotifications(manager);
+            return manager?.CanUndo == true;
+        }
 
-        private partial bool CanRedoCore() => PlatformView?.UndoManager?.CanRedo == true;
+        private partial bool CanRedoCore()
+        {
+            var manager = PlatformView?.UndoManager;
+            EnsureUndoManagerNotifications(manager);
+            return manager?.CanRedo == true;
+        }
 
         private partial void UndoCore()
         {
@@ -2053,6 +2242,22 @@ namespace RichEdit.Maui
             int Start,
             int RemovedLength,
             long Version);
+
+        private sealed record NativeUndoTransition(
+            RichTextDocumentSnapshot TargetSnapshot,
+            RichTextRange TargetSelection,
+            RichTextDocumentSnapshot InverseSnapshot,
+            RichTextRange InverseSelection,
+            string? ActionName)
+        {
+            public NativeUndoTransition Reverse() =>
+                new(
+                    InverseSnapshot,
+                    InverseSelection,
+                    TargetSnapshot,
+                    TargetSelection,
+                    ActionName);
+        }
 
         private sealed class CharacterMetadata(RichTextCharacterFormat format) : NSObject
         {

@@ -199,7 +199,11 @@ public sealed class RichTextChangeSet
         RichTextChangeOrigin origin,
         ImmutableArray<RichTextChange> changes,
         object? tag,
-        object? sourceToken = null)
+        object? sourceToken = null,
+        RichTextDocumentSnapshot? beforeSnapshot = null,
+        RichTextDocumentSnapshot? afterSnapshot = null,
+        RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit,
+        string? undoDescription = null)
     {
         VersionBefore = versionBefore;
         VersionAfter = versionAfter;
@@ -207,6 +211,10 @@ public sealed class RichTextChangeSet
         Changes = changes;
         Tag = tag;
         SourceToken = sourceToken;
+        BeforeSnapshot = beforeSnapshot;
+        AfterSnapshot = afterSnapshot;
+        UndoBehavior = undoBehavior;
+        UndoDescription = undoDescription;
     }
 
     /// <summary>Gets the document version before the transaction.</summary>
@@ -302,6 +310,14 @@ public sealed class RichTextChangeSet
     }
 
     internal object? SourceToken { get; }
+
+    internal RichTextDocumentSnapshot? BeforeSnapshot { get; }
+
+    internal RichTextDocumentSnapshot? AfterSnapshot { get; }
+
+    internal RichTextUndoBehavior UndoBehavior { get; }
+
+    internal string? UndoDescription { get; }
 }
 
 /// <summary>

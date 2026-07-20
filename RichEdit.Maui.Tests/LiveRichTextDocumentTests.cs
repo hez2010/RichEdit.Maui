@@ -386,6 +386,50 @@ public sealed class LiveRichTextDocumentTests
     }
 
     [Fact]
+    public void NativeUndoTransitionCarriesSnapshotsAndRestoresComplexContent()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit => edit.InsertText(0, "before"));
+        document.ClearUndoHistory();
+        var before = document.CurrentSnapshot;
+
+        var committed = document.Edit(
+            edit => edit.InsertImage(
+                document.Length,
+                RichTextImage.FromBytes(
+                    document.Length,
+                    "image/png",
+                    [1, 2, 3],
+                    12,
+                    12)),
+            new RichTextEditOptions(
+                RichTextUndoBehavior.CreateUnit,
+                "Insert image"));
+        var after = document.CurrentSnapshot;
+
+        Assert.Same(before, committed.BeforeSnapshot);
+        Assert.Same(after, committed.AfterSnapshot);
+        Assert.Equal(RichTextUndoBehavior.CreateUnit, committed.UndoBehavior);
+        Assert.Equal("Insert image", committed.UndoDescription);
+
+        var undone = document.RestoreSnapshotFromNativeUndo(
+            before,
+            RichTextChangeOrigin.Undo);
+        Assert.Equal(RichTextChangeOrigin.Undo, undone.Origin);
+        Assert.Empty(document.CurrentSnapshot.Images);
+        Assert.False(document.CanUndo);
+        Assert.False(document.CanRedo);
+
+        var redone = document.RestoreSnapshotFromNativeUndo(
+            after,
+            RichTextChangeOrigin.Redo);
+        Assert.Equal(RichTextChangeOrigin.Redo, redone.Origin);
+        Assert.Single(document.CurrentSnapshot.Images);
+        Assert.False(document.CanUndo);
+        Assert.False(document.CanRedo);
+    }
+
+    [Fact]
     public void ListDefinitionsAreStoredOnceAndReferencedByParagraphs()
     {
         var document = new RichTextDocument();
@@ -408,10 +452,59 @@ public sealed class LiveRichTextDocumentTests
         Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
         Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.NativeList?.Level);
 
-        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MinValue));
-        Assert.Equal(0, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
         document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MaxValue));
-        Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
+        Assert.Equal(8, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
+        Assert.Equal(9, document.CurrentSnapshot.Lists[listId].Levels.Length);
+        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MinValue));
+        Assert.Null(document.CurrentSnapshot.Paragraphs[1].Format.List);
+    }
+
+    [Fact]
+    public void SingleLevelListExtendsItsCallerDefinedStyleAndOutdentsToPlainText()
+    {
+        var list = new RichTextListDefinition(
+        [
+            new RichTextListLevelDefinition
+            {
+                Marker = new RichTextListMarker.Bullet("-"),
+                Prefix = "[",
+                Suffix = "]",
+                LeadingIndent = 18,
+                FirstLineIndent = -18,
+                MarkerTab = 18,
+            },
+        ]);
+        var document = new RichTextDocument();
+        RichTextListId listId = default;
+        document.Edit(edit =>
+        {
+            edit.InsertText(0, "item");
+            listId = edit.CreateList(list);
+            edit.ApplyList(new RichTextRange(0, 4), listId);
+        });
+
+        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(0, 4), 1));
+
+        var definition = document.CurrentSnapshot.Lists[listId];
+        Assert.Equal(2, definition.Levels.Length);
+        Assert.Equal(list.Levels[0].Marker, definition.Levels[1].Marker);
+        Assert.Equal("[", definition.Levels[1].Prefix);
+        Assert.Equal("]", definition.Levels[1].Suffix);
+        Assert.Equal(36, definition.Levels[1].LeadingIndent);
+        Assert.Equal(-18, definition.Levels[1].FirstLineIndent);
+        Assert.Equal(36, definition.Levels[1].MarkerTab);
+        Assert.Equal(1, document.CurrentSnapshot.Paragraphs[0].Format.List?.Level);
+
+        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(0, 4), -1));
+        Assert.Equal(0, document.CurrentSnapshot.Paragraphs[0].Format.List?.Level);
+
+        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(0, 4), -1));
+        var paragraph = document.CurrentSnapshot.Paragraphs[0].Format;
+        Assert.Null(paragraph.List);
+        Assert.Null(paragraph.NativeList);
+        Assert.Equal(document.DefaultParagraphFormat.LeadingIndent, paragraph.LeadingIndent);
+        Assert.Equal(document.DefaultParagraphFormat.FirstLineIndent, paragraph.FirstLineIndent);
+        Assert.Equal(document.DefaultParagraphFormat.TabStops, paragraph.TabStops);
     }
 
     [Fact]

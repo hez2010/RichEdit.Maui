@@ -342,7 +342,11 @@ public sealed class RichTextDocument : INotifyPropertyChanged
                 origin,
                 [],
                 options.Tag,
-                sourceToken);
+                sourceToken,
+                _snapshot,
+                _snapshot,
+                options.UndoBehavior,
+                options.UndoDescription);
         }
 
         if (origin != RichTextChangeOrigin.User)
@@ -392,12 +396,52 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             origin,
             [.. changes],
             options.Tag,
-            sourceToken);
+            sourceToken,
+            before,
+            after,
+            options.UndoBehavior,
+            options.UndoDescription);
         RaiseChanged(changeSet, before, undoStateChanged: true);
         return changeSet;
     }
 
-    private void TransitionTo(RichTextDocumentSnapshot snapshot, RichTextChangeOrigin origin)
+    internal RichTextChangeSet RestoreSnapshotFromNativeUndo(
+        RichTextDocumentSnapshot snapshot,
+        RichTextChangeOrigin origin)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (origin is not (RichTextChangeOrigin.Undo or RichTextChangeOrigin.Redo))
+        {
+            throw new ArgumentOutOfRangeException(nameof(origin));
+        }
+
+        VerifyNoActiveEdit();
+        _undo.Clear();
+        _redo.Clear();
+        if (_snapshot.ContentEquals(snapshot))
+        {
+            RaiseUndoStateChanged();
+            return new RichTextChangeSet(
+                Version,
+                Version,
+                origin,
+                [],
+                tag: null,
+                beforeSnapshot: _snapshot,
+                afterSnapshot: _snapshot,
+                undoBehavior: RichTextUndoBehavior.DoNotRecord);
+        }
+
+        return TransitionTo(
+            snapshot,
+            origin,
+            RichTextUndoBehavior.DoNotRecord);
+    }
+
+    private RichTextChangeSet TransitionTo(
+        RichTextDocumentSnapshot snapshot,
+        RichTextChangeOrigin origin,
+        RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit)
     {
         ResetNativeEditCoalescing();
         var before = _snapshot;
@@ -411,8 +455,12 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             Version,
             origin,
             [.. changes],
-            tag: null);
+            tag: null,
+            beforeSnapshot: before,
+            afterSnapshot: _snapshot,
+            undoBehavior: undoBehavior);
         RaiseChanged(changeSet, before, undoStateChanged: true);
+        return changeSet;
     }
 
     internal static IReadOnlyList<RichTextChange> CreateDelta(
