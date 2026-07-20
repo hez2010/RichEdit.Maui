@@ -221,12 +221,23 @@ public sealed class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
+        var existingId = FindEquivalentListId(
+            _editor.Document.CurrentSnapshot,
+            definition);
         _editor.Document.Edit(edit =>
         {
-            var listId = edit.CreateList(definition);
+            var listId = existingId ?? edit.CreateList(definition);
             edit.ApplyList(Range, listId, level);
         });
     }
+
+    internal static RichTextListId? FindEquivalentListId(
+        RichTextDocumentSnapshot snapshot,
+        RichTextListDefinition definition) =>
+        snapshot.Lists
+            .Where(pair => pair.Value == definition)
+            .Select(static pair => (RichTextListId?)pair.Key)
+            .FirstOrDefault();
 
     /// <summary>Continues an existing document list at a nesting level.</summary>
     /// <param name="listId">The existing document-local list identifier.</param>

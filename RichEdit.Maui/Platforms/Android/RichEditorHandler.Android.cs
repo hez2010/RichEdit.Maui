@@ -386,7 +386,15 @@ public partial class RichEditorHandler
         RichTextRange range)
     {
         RemoveParagraphSpans(editable, range.Start, range.End);
-        for (var index = snapshot.FindParagraphIndex(range.Start);
+        var firstIndex = snapshot.FindParagraphIndex(range.Start);
+        var counters = new Dictionary<(int Id, int Level), int>();
+        for (var index = 0; index < firstIndex; index++)
+        {
+            _ = AdvanceListMarker(snapshot.Paragraphs[index].Format.NativeList, counters);
+        }
+
+        var pictures = new Dictionary<string, Drawable?>(StringComparer.Ordinal);
+        for (var index = firstIndex;
              index < snapshot.Paragraphs.Length;
              index++)
         {
@@ -403,7 +411,20 @@ public partial class RichEditorHandler
             }
 
             var end = GetParagraphEnd(snapshot.Text, paragraph.Start);
-            var (marker, picture) = ResolveListMarker(snapshot, paragraph.Start);
+            var list = paragraph.Format.NativeList;
+            var marker = AdvanceListMarker(list, counters);
+            Drawable? picture = null;
+            if (list?.PictureId is { } pictureId &&
+                !pictures.TryGetValue(pictureId, out picture) &&
+                snapshot.ListPictures.TryGetValue(pictureId, out var modelPicture))
+            {
+                picture = CreateBitmapDrawable(
+                    modelPicture.Data,
+                    modelPicture.Width,
+                    modelPicture.Height);
+                pictures.Add(pictureId, picture);
+            }
+
             ApplyParagraphFormat(
                 editable,
                 paragraph.Start,
@@ -414,59 +435,29 @@ public partial class RichEditorHandler
         }
     }
 
-    private (string? Marker, Drawable? Picture) ResolveListMarker(
-        RichTextDocumentSnapshot snapshot,
-        int targetParagraphStart)
+    private static string? AdvanceListMarker(
+        RichTextListFormat? list,
+        Dictionary<(int Id, int Level), int> counters)
     {
-        var counters = new Dictionary<(int Id, int Level), int>();
-        foreach (var paragraph in snapshot.Paragraphs)
+        if (list is null)
         {
-            if (paragraph.Format.NativeList is not { } list)
-            {
-                if (paragraph.Start == targetParagraphStart)
-                {
-                    return (null, null);
-                }
-
-                continue;
-            }
-
-            string marker;
-            if (list.Kind == RichListKind.Bulleted)
-            {
-                marker = list.BulletText;
-            }
-            else
-            {
-                var key = (list.Id, list.Level);
-                if (list.Restart || !counters.TryGetValue(key, out var number))
-                {
-                    number = list.StartAt;
-                }
-
-                marker = RichTextListFormatter.FormatMarker(list, number);
-                counters[key] = number == int.MaxValue ? number : number + 1;
-            }
-
-            if (paragraph.Start != targetParagraphStart)
-            {
-                continue;
-            }
-
-            Drawable? picture = null;
-            if (list.PictureId is { } pictureId &&
-                snapshot.ListPictures.TryGetValue(pictureId, out var modelPicture))
-            {
-                picture = CreateBitmapDrawable(
-                    modelPicture.Data,
-                    modelPicture.Width,
-                    modelPicture.Height);
-            }
-
-            return (marker, picture);
+            return null;
         }
 
-        return (null, null);
+        if (list.Kind == RichListKind.Bulleted)
+        {
+            return list.BulletText;
+        }
+
+        var key = (list.Id, list.Level);
+        if (list.Restart || !counters.TryGetValue(key, out var number))
+        {
+            number = list.StartAt;
+        }
+
+        var marker = RichTextListFormatter.FormatMarker(list, number);
+        counters[key] = number == int.MaxValue ? number : number + 1;
+        return marker;
     }
 
     private void UpdateGlobalParagraphProjection(RichTextDocumentSnapshot snapshot)
@@ -500,9 +491,14 @@ public partial class RichEditorHandler
 
     private static RichTextRange GetAffectedParagraphRange(
         RichTextChangeSet changes,
+        string text) =>
+        GetAffectedParagraphRange(GetAffectedRange(changes, text.Length), text);
+
+    private static RichTextRange GetAffectedParagraphRange(
+        RichTextRange range,
         string text)
     {
-        var range = GetAffectedRange(changes, text.Length);
+        range = range.Clamp(text.Length);
         var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
         var newline = text.IndexOf('\n', range.End);
         var end = newline < 0 ? text.Length : newline + 1;
@@ -840,7 +836,9 @@ public partial class RichEditorHandler
         if (format.FontSize is > 0)
         {
             text.SetSpan(
-                new AbsoluteSizeSpan(checked((int)Math.Round(format.FontSize.Value)), true),
+                new AbsoluteSizeSpan(
+                    Math.Max(checked((int)Math.Round(format.FontSize.Value)), 1),
+                    true),
                 start,
                 end,
                 SpanTypes.ExclusiveExclusive);
@@ -1030,7 +1028,7 @@ public partial class RichEditorHandler
 
         var markerWidth = picture?.Bounds.Width() ??
             (PlatformView is { Paint: { } paint }
-                ? checked((int)Math.Ceiling(paint.MeasureText(marker)))
+                ? (int)Math.Min(Math.Ceiling(paint.MeasureText(marker)), int.MaxValue)
                 : 16);
         text.SetSpan(
             new RichListMarkerSpan(
@@ -1122,6 +1120,7 @@ public partial class RichEditorHandler
         }
 
         var previous = VirtualView.Document.CurrentSnapshot;
+        var remappedPrevious = previous.RemapText(text);
         var defaultCharacterFormat = previous.DefaultCharacterFormat;
         var inheritedCharacterFormat =
             RichTextDocumentSnapshot.CreateInheritedCharacterFormat(defaultCharacterFormat);
@@ -1152,7 +1151,11 @@ public partial class RichEditorHandler
 
         var paragraphs = new List<RichTextParagraph>();
         RichTextListFormat? previousList = null;
-        var nextListId = 1;
+        var assignedListIds = new HashSet<int>();
+        var nextListId = checked(previous.Lists.Keys
+            .Select(static id => id.Value)
+            .DefaultIfEmpty()
+            .Max() + 1);
         for (var start = 0; ;)
         {
             var end = GetParagraphEnd(text, start);
@@ -1168,8 +1171,20 @@ public partial class RichEditorHandler
                     var continues = previousList is not null &&
                         previousList.Kind == list.Kind &&
                         previousList.Level == list.Level;
-                    list = list with { Id = continues ? previousList!.Id : nextListId++ };
+                    var priorId = remappedPrevious.GetParagraphFormat(
+                        Math.Min(start, remappedPrevious.Length)).List?.ListId.Value;
+                    var id = continues
+                        ? previousList!.Id
+                        : priorId is > 0 && assignedListIds.Add(priorId.Value)
+                            ? priorId.Value
+                            : nextListId++;
+                    assignedListIds.Add(id);
+                    list = list with { Id = id };
                     format = format with { NativeList = list };
+                }
+                else
+                {
+                    assignedListIds.Add(list.Id);
                 }
 
                 previousList = list;
@@ -1198,7 +1213,8 @@ public partial class RichEditorHandler
             links,
             images,
             defaultCharacterFormat,
-            previous.DefaultParagraphFormat);
+            previous.DefaultParagraphFormat,
+            remappedSnapshot: remappedPrevious);
     }
 
     private RichTextCharacterFormat ReadCharacterFormat(
@@ -1427,6 +1443,14 @@ public partial class RichEditorHandler
                     Kind = RichListKind.Bulleted,
                 },
             };
+        }
+        else
+        {
+            // RichParagraphMetadataSpan preserves model-only paragraph values,
+            // but the marker span is the native authority for active list state.
+            // Android removes or splits that marker as the user edits paragraph
+            // boundaries, so never resurrect a list from stale metadata.
+            format = format with { List = null, NativeList = null };
         }
 
         return format;
@@ -1675,6 +1699,24 @@ public partial class RichEditorHandler
         try
         {
             ApplyCharacterFormatsIncrementally(text, document, range);
+            if (!GetSpans<RichParagraphMetadataSpan>(text, range.Start, range.End)
+                    .Any(span =>
+                    {
+                        var spanStart = text.GetSpanStart(span);
+                        var spanEnd = text.GetSpanEnd(span);
+                        return spanStart <= range.Start && spanEnd >= range.End;
+                    }))
+            {
+                // A final empty paragraph has no character on which Android can
+                // retain a Paragraph span. Materialize its document format once
+                // the first character arrives; existing paragraphs remain wholly
+                // under Android's native span-editing behavior.
+                ApplyParagraphFormatsIncrementally(
+                    text,
+                    document,
+                    GetAffectedParagraphRange(range, document.Text));
+                UpdateGlobalParagraphProjection(document);
+            }
         }
         finally
         {
@@ -1746,8 +1788,17 @@ public partial class RichEditorHandler
         return newline < 0 ? text.Length : newline + 1;
     }
 
-    private int ToPixels(double value) =>
-        checked((int)Math.Round(value * (PlatformView.Resources?.DisplayMetrics?.Density ?? 1f)));
+    private int ToPixels(double value)
+    {
+        var pixels = Math.Round(
+            value * (PlatformView.Resources?.DisplayMetrics?.Density ?? 1f));
+        return pixels switch
+        {
+            >= int.MaxValue => int.MaxValue,
+            <= int.MinValue => int.MinValue,
+            _ => (int)pixels,
+        };
+    }
 
     private double FromPixels(double value) =>
         value / (PlatformView.Resources?.DisplayMetrics?.Density ?? 1f);

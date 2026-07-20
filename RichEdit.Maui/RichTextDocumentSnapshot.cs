@@ -7,6 +7,7 @@ namespace RichEdit.Maui;
 /// </summary>
 public sealed class RichTextDocumentSnapshot
 {
+    private const int MaximumRtfListOverrideCount = 2000;
     internal const char ObjectReplacementCharacter = RichTextDocument.ObjectReplacementCharacter;
     internal const char SoftLineBreakCharacter = RichTextDocument.SoftLineBreakCharacter;
 
@@ -32,7 +33,8 @@ public sealed class RichTextDocumentSnapshot
         IEnumerable<KeyValuePair<string, string>>? metadata = null,
         IEnumerable<RichTextListPicture>? listPictures = null,
         IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>>? lists = null,
-        long version = 0)
+        long version = 0,
+        bool nativeListsAuthoritative = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(version);
         Version = version;
@@ -42,8 +44,9 @@ public sealed class RichTextDocumentSnapshot
         _runs = NormalizeRuns(Text.Length, runs, DefaultCharacterFormat);
         _listPictures = NormalizeListPictures(listPictures);
         var normalizedParagraphs = NormalizeParagraphs(Text, paragraphs, DefaultParagraphFormat);
-        _lists = NormalizeLists(lists, normalizedParagraphs);
+        _lists = NormalizeLists(lists, normalizedParagraphs, nativeListsAuthoritative);
         _paragraphs = BindParagraphLists(normalizedParagraphs, _lists);
+        ValidateRtfListCapacity(_paragraphs);
         ValidateListPictureReferences(_lists, _listPictures, nameof(listPictures));
         _links = NormalizeLinks(Text.Length, links);
         _fields = NormalizeFields(Text.Length, fields);
@@ -493,6 +496,23 @@ public sealed class RichTextDocumentSnapshot
             _lists,
             version);
 
+    internal RichTextDocumentSnapshot PruneUnreferencedListResources()
+    {
+        var usedListIds = _paragraphs
+            .Select(static paragraph => paragraph.Format.List?.ListId)
+            .OfType<RichTextListId>()
+            .ToHashSet();
+        var lists = _lists.Where(pair => usedListIds.Contains(pair.Key)).ToArray();
+        var usedPictureIds = lists
+            .SelectMany(static pair => pair.Value.Levels)
+            .Select(static level => (level.Marker as RichTextListMarker.Picture)?.PictureId)
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        return With(
+            lists: lists,
+            listPictures: _listPictures.Values.Where(picture => usedPictureIds.Contains(picture.Id)));
+    }
+
     internal bool ContentEquals(RichTextDocumentSnapshot other)
     {
         ArgumentNullException.ThrowIfNull(other);
@@ -509,6 +529,28 @@ public sealed class RichTextDocumentSnapshot
             DictionariesEqual(_metadata, other._metadata);
     }
 
+    internal RichTextDocumentSnapshot RemapText(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (string.Equals(Text, text, StringComparison.Ordinal))
+        {
+            return this;
+        }
+
+        var prefixLength = Text.AsSpan().CommonPrefixLength(text);
+        var suffixLength = 0;
+        var maximumSuffixLength = Math.Min(Text.Length, text.Length) - prefixLength;
+        while (suffixLength < maximumSuffixLength &&
+               Text[^(suffixLength + 1)] == text[^(suffixLength + 1)])
+        {
+            suffixLength++;
+        }
+
+        var oldEnd = Text.Length - suffixLength;
+        var newEnd = text.Length - suffixLength;
+        return Replace(prefixLength..oldEnd, text[prefixLength..newEnd]);
+    }
+
     internal RichTextDocumentSnapshot MergeNativeSnapshot(
         string text,
         IEnumerable<RichTextRun> runs,
@@ -520,26 +562,16 @@ public sealed class RichTextDocumentSnapshot
         Func<RichTextCharacterFormat, RichTextCharacterFormat, RichTextCharacterFormat>?
             mergeCharacterFormat = null,
         Func<RichTextParagraphFormat, RichTextParagraphFormat, RichTextParagraphFormat>?
-            mergeParagraphFormat = null)
+            mergeParagraphFormat = null,
+        RichTextDocumentSnapshot? remappedSnapshot = null)
     {
         ArgumentNullException.ThrowIfNull(text);
-        var remapped = this;
-        if (!string.Equals(Text, text, StringComparison.Ordinal))
+        var remapped = remappedSnapshot ?? RemapText(text);
+        if (!string.Equals(remapped.Text, text, StringComparison.Ordinal))
         {
-            var prefixLength = Text.AsSpan().CommonPrefixLength(text);
-            var suffixLength = 0;
-            var maximumSuffixLength = Math.Min(Text.Length, text.Length) - prefixLength;
-            while (suffixLength < maximumSuffixLength &&
-                   Text[^(suffixLength + 1)] == text[^(suffixLength + 1)])
-            {
-                suffixLength++;
-            }
-
-            var oldEnd = Text.Length - suffixLength;
-            var newEnd = text.Length - suffixLength;
-            remapped = Replace(
-                prefixLength..oldEnd,
-                text[prefixLength..newEnd]);
+            throw new ArgumentException(
+                "The remapped snapshot text must match the native text.",
+                nameof(remappedSnapshot));
         }
 
         var nativeRuns = NormalizeRuns(text.Length, runs, defaultCharacterFormat);
@@ -592,7 +624,8 @@ public sealed class RichTextDocumentSnapshot
             defaultParagraphFormat,
             _metadata,
             remapped._listPictures.Values,
-            remapped._lists);
+            remapped._lists,
+            nativeListsAuthoritative: true);
     }
 
     private static ImmutableArray<RichTextRun> MergeCharacterFormats(
@@ -811,7 +844,41 @@ public sealed class RichTextDocumentSnapshot
         int textLength,
         IEnumerable<RichTextField>? source)
     {
-        var fields = source?.OrderBy(field => field.Start).ToArray() ?? [];
+        var fields = source?.ToArray() ?? [];
+        var usedIds = new HashSet<RichTextFieldId>();
+        var nextId = fields
+            .Select(static field => field.Id.Value)
+            .Where(static value => value > 0)
+            .DefaultIfEmpty()
+            .Max();
+        for (var index = 0; index < fields.Length; index++)
+        {
+            var field = fields[index];
+            if (field.Id.Value <= 0)
+            {
+                do
+                {
+                    nextId = checked(nextId + 1);
+                }
+                while (usedIds.Contains(new RichTextFieldId(nextId)));
+
+                field = field with { Id = new RichTextFieldId(nextId) };
+                fields[index] = field;
+            }
+
+            if (!usedIds.Add(field.Id))
+            {
+                throw new ArgumentException(
+                    "Field identifiers must be positive and unique.",
+                    nameof(source));
+            }
+        }
+
+        Array.Sort(fields, static (first, second) =>
+        {
+            var position = first.Start.CompareTo(second.Start);
+            return position != 0 ? position : first.Id.Value.CompareTo(second.Id.Value);
+        });
         var previousEnd = 0;
         foreach (var field in fields)
         {
@@ -843,9 +910,14 @@ public sealed class RichTextDocumentSnapshot
             }
 
             if (string.IsNullOrWhiteSpace(image.MediaType) ||
-                !double.IsFinite(image.Width) || image.Width < 0 ||
-                !double.IsFinite(image.Height) || image.Height < 0 ||
-                !double.IsFinite(image.Rotation))
+                !IsNonnegativeRtfTwips(image.Width) ||
+                !IsNonnegativeRtfTwips(image.Height) ||
+                !IsRtfTwips(image.Crop.Left) ||
+                !IsRtfTwips(image.Crop.Top) ||
+                !IsRtfTwips(image.Crop.Right) ||
+                !IsRtfTwips(image.Crop.Bottom) ||
+                !double.IsFinite(image.Rotation) ||
+                !Enum.IsDefined(image.VerticalAlignment))
             {
                 throw new ArgumentException("Image metadata is invalid.", nameof(source));
             }
@@ -864,8 +936,8 @@ public sealed class RichTextDocumentSnapshot
             ArgumentNullException.ThrowIfNull(picture);
             if (string.IsNullOrWhiteSpace(picture.Id) ||
                 string.IsNullOrWhiteSpace(picture.MediaType) ||
-                !double.IsFinite(picture.Width) || picture.Width < 0 ||
-                !double.IsFinite(picture.Height) || picture.Height < 0)
+                !IsNonnegativeRtfTwips(picture.Width) ||
+                !IsNonnegativeRtfTwips(picture.Height))
             {
                 throw new ArgumentException("List picture metadata is invalid.", nameof(source));
             }
@@ -885,7 +957,8 @@ public sealed class RichTextDocumentSnapshot
 
     private static ImmutableDictionary<RichTextListId, RichTextListDefinition> NormalizeLists(
         IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>>? source,
-        ImmutableArray<RichTextParagraph> paragraphs)
+        ImmutableArray<RichTextParagraph> paragraphs,
+        bool nativeListsAuthoritative)
     {
         var result = ImmutableDictionary.CreateBuilder<RichTextListId, RichTextListDefinition>();
         foreach (var pair in source ?? [])
@@ -903,7 +976,7 @@ public sealed class RichTextDocumentSnapshot
                      .GroupBy(static paragraph => paragraph.Format.NativeList!.Id))
         {
             var id = new RichTextListId(group.Key);
-            if (result.ContainsKey(id))
+            if (!nativeListsAuthoritative && result.ContainsKey(id))
             {
                 continue;
             }
@@ -916,10 +989,22 @@ public sealed class RichTextDocumentSnapshot
                         !paragraph.Format.NativeList!.Restart) ?? level.First());
             var maximumLevel = nativeLevels.Keys.Max();
             var fallback = nativeLevels.Values.First();
-            var levels = new RichTextListLevelDefinition[maximumLevel + 1];
-            for (var level = 0; level <= maximumLevel; level++)
+            result.TryGetValue(id, out var existingDefinition);
+            var levelCount = Math.Max(
+                maximumLevel + 1,
+                existingDefinition?.Levels.Length ?? 0);
+            var levels = new RichTextListLevelDefinition[levelCount];
+            for (var level = 0; level < levelCount; level++)
             {
-                var paragraph = nativeLevels.GetValueOrDefault(level, fallback);
+                if (!nativeLevels.TryGetValue(level, out var paragraph) &&
+                    existingDefinition is not null &&
+                    level < existingDefinition.Levels.Length)
+                {
+                    levels[level] = existingDefinition.Levels[level];
+                    continue;
+                }
+
+                paragraph ??= fallback;
                 var native = paragraph.Format.NativeList!;
                 var converted = RichTextListConversions.ToLevel(native);
                 levels[level] = converted with
@@ -932,7 +1017,10 @@ public sealed class RichTextDocumentSnapshot
                 };
             }
 
-            result.Add(id, new RichTextListDefinition(levels));
+            // Native list state is authoritative during readback. Reusing a stable
+            // managed identifier must update its definition rather than silently
+            // restoring an older marker style associated with that identifier.
+            result[id] = new RichTextListDefinition(levels);
         }
 
         return result.ToImmutable();
@@ -999,17 +1087,51 @@ public sealed class RichTextDocumentSnapshot
         }
     }
 
+    private static void ValidateRtfListCapacity(ImmutableArray<RichTextParagraph> paragraphs)
+    {
+        var definitionCount = paragraphs
+            .Select(static paragraph => paragraph.Format.NativeList?.Id)
+            .OfType<int>()
+            .Distinct()
+            .Count();
+        var restartCount = paragraphs.Count(static paragraph =>
+            paragraph.Format.NativeList is
+            {
+                Kind: RichListKind.Numbered,
+                Restart: true,
+            });
+        if ((long)definitionCount + restartCount > MaximumRtfListOverrideCount)
+        {
+            throw new ArgumentException(
+                $"RTF supports at most {MaximumRtfListOverrideCount} list definitions and numbered-list restarts in one document.",
+                nameof(paragraphs));
+        }
+    }
+
     private static RichTextCharacterFormat Validate(RichTextCharacterFormat format)
     {
         ArgumentNullException.ThrowIfNull(format);
-        if (format.FontSize is { } size && (!double.IsFinite(size) || size <= 0) ||
+        ValidateColor(format.ForegroundColor);
+        if (format.FontSize is { } size &&
+                (size <= 0 ||
+                 !IsRtfScaledInteger(size, 2d) ||
+                 Math.Round(size * 2d) < 1d) ||
             format.FontWeight is < 1 or > 1000 ||
-            !double.IsFinite(format.BaselineOffset) ||
-            !double.IsFinite(format.CharacterSpacing) ||
-            !double.IsFinite(format.HorizontalScale) || format.HorizontalScale <= 0 ||
-            format.Shading is < 0 or > 10000)
+            !IsRtfScaledInteger(Math.Abs(format.BaselineOffset), 2d) ||
+            !IsRtfTwips(format.CharacterSpacing) ||
+            !IsRtfScaledInteger(format.CharacterSpacing, 4d) ||
+            format.HorizontalScale <= 0 ||
+            !IsRtfScaledInteger(format.HorizontalScale, 100d) ||
+            Math.Round(format.HorizontalScale * 100d) < 1d ||
+            format.Shading is < 0 or > 10000 ||
+            !Enum.IsDefined(format.Underline) ||
+            !Enum.IsDefined(format.Strikethrough) ||
+            !Enum.IsDefined(format.Script) ||
+            !Enum.IsDefined(format.Direction) ||
+            !Enum.IsDefined(format.Kerning) ||
+            !Enum.IsDefined(format.Ligatures))
         {
-            throw new ArgumentException("Character formatting contains an invalid numeric value.", nameof(format));
+            throw new ArgumentException("Character formatting contains an invalid value.", nameof(format));
         }
 
         return format with
@@ -1025,29 +1147,37 @@ public sealed class RichTextDocumentSnapshot
     private static RichTextParagraphFormat Validate(RichTextParagraphFormat format)
     {
         ArgumentNullException.ThrowIfNull(format);
-        if (!double.IsFinite(format.LeadingIndent) ||
-            !double.IsFinite(format.TrailingIndent) ||
-            !double.IsFinite(format.FirstLineIndent) ||
-            !double.IsFinite(format.SpaceBefore) || format.SpaceBefore < 0 ||
-            !double.IsFinite(format.SpaceAfter) || format.SpaceAfter < 0 ||
-            !double.IsFinite(format.LineSpacing) || format.LineSpacing < 0 ||
-            format.MinimumLineHeight is { } minimum && (!double.IsFinite(minimum) || minimum < 0) ||
-            format.MaximumLineHeight is { } maximum && (!double.IsFinite(maximum) || maximum < 0) ||
+        if (!IsRtfTwips(format.LeadingIndent) ||
+            !IsRtfTwips(format.TrailingIndent) ||
+            !IsRtfTwips(format.FirstLineIndent) ||
+            !IsNonnegativeRtfTwips(format.SpaceBefore) ||
+            !IsNonnegativeRtfTwips(format.SpaceAfter) ||
+            !IsValidLineSpacing(format.LineSpacingRule, format.LineSpacing) ||
+            format.MinimumLineHeight is { } minimum && !IsNonnegativeRtfTwips(minimum) ||
+            format.MaximumLineHeight is { } maximum && !IsNonnegativeRtfTwips(maximum) ||
             format.MinimumLineHeight is { } min && format.MaximumLineHeight is { } max && min > max ||
-            format.Shading is < 0 or > 10000)
+            format.Shading is < 0 or > 10000 ||
+            !Enum.IsDefined(format.Alignment) ||
+            !Enum.IsDefined(format.Direction) ||
+            !Enum.IsDefined(format.LineSpacingRule))
         {
-            throw new ArgumentException("Paragraph formatting contains an invalid numeric value.", nameof(format));
+            throw new ArgumentException("Paragraph formatting contains an invalid value.", nameof(format));
         }
 
         var tabs = format.TabStops.IsDefault ? [] : format.TabStops;
-        if (tabs.Any(tab => !double.IsFinite(tab.Position) || tab.Position < 0))
+        if (tabs.Any(tab =>
+                !IsNonnegativeRtfTwips(tab.Position) ||
+                !Enum.IsDefined(tab.Alignment) ||
+                !Enum.IsDefined(tab.Leader)))
         {
-            throw new ArgumentException("Tab positions must be finite and nonnegative.", nameof(format));
+            throw new ArgumentException("Paragraph tab formatting is invalid.", nameof(format));
         }
 
         var nativeList = format.NativeList;
         if (nativeList is not null &&
             (nativeList.Id <= 0 || nativeList.Level is < 0 or > 8 || nativeList.StartAt <= 0 ||
+             !Enum.IsDefined(nativeList.Kind) ||
+             !Enum.IsDefined(nativeList.NumberStyle) ||
              string.IsNullOrEmpty(nativeList.BulletText) ||
              (string.IsNullOrWhiteSpace(nativeList.PictureId) && nativeList.PictureId is not null) ||
              (nativeList.PictureId is not null && nativeList.Kind != RichListKind.Bulleted)))
@@ -1056,11 +1186,15 @@ public sealed class RichTextDocumentSnapshot
         }
 
         if (format.Border is { } border &&
-            (!double.IsFinite(border.Width) || border.Width < 0 ||
+            (!IsNonnegativeRtfTwips(border.Width) ||
+             (border.Sides & ~RichTextBorderSides.All) != 0 ||
+             !Enum.IsDefined(border.Style) ||
              border.Style == RichTextBorderStyle.None && border.Sides != RichTextBorderSides.None))
         {
             throw new ArgumentException("Paragraph border formatting is invalid.", nameof(format));
         }
+
+        ValidateColor(format.Border?.Color);
 
         return format with
         {
@@ -1071,8 +1205,47 @@ public sealed class RichTextDocumentSnapshot
         };
     }
 
-    private static Color? NormalizeVisibleColor(Color? color) =>
-        color is { Alpha: <= 0 } ? null : color;
+    private static Color? NormalizeVisibleColor(Color? color)
+    {
+        ValidateColor(color);
+
+        return color is { Alpha: <= 0 } ? null : color;
+    }
+
+    private static void ValidateColor(Color? color)
+    {
+        if (color is not null &&
+            (!float.IsFinite(color.Red) ||
+             !float.IsFinite(color.Green) ||
+             !float.IsFinite(color.Blue) ||
+             !float.IsFinite(color.Alpha)))
+        {
+            throw new ArgumentException("A formatting color contains a non-finite channel.");
+        }
+    }
+
+    private static bool IsValidLineSpacing(RichTextLineSpacingRule rule, double value) =>
+        value >= 0 && rule switch
+        {
+            RichTextLineSpacingRule.Multiple => IsRtfScaledInteger(value, 240d),
+            RichTextLineSpacingRule.AtLeast or RichTextLineSpacingRule.Exactly =>
+                IsRtfTwips(value),
+            _ => double.IsFinite(value),
+        };
+
+    private static bool IsNonnegativeRtfTwips(double value) =>
+        value >= 0 && IsRtfTwips(value);
+
+    private static bool IsRtfTwips(double value) =>
+        IsRtfScaledInteger(value, 20d);
+
+    private static bool IsRtfScaledInteger(double value, double scale)
+    {
+        var scaled = value * scale;
+        return double.IsFinite(value) &&
+            scaled >= int.MinValue &&
+            scaled <= int.MaxValue;
+    }
 
     private static int GetParagraphStart(string text, int position) =>
         position == 0 ? 0 : text.LastIndexOf('\n', position - 1) + 1;
@@ -1131,7 +1304,11 @@ public sealed class RichTextDocumentSnapshot
         var delta = replacementLength - (oldEnd - editStart);
         foreach (var range in ranges)
         {
-            if (range.End <= editStart)
+            if (range.Length == 0 && oldEnd == editStart && range.Start == editStart)
+            {
+                yield return range with { Start = editStart + replacementLength };
+            }
+            else if (range.End <= editStart)
             {
                 yield return range;
             }

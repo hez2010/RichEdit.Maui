@@ -74,13 +74,43 @@ public sealed class RichTextDocumentEdit
         var source = fragment.Snapshot;
         var insertionStart = range.Start;
         ReplaceText(range, source.Text, source.DefaultCharacterFormat);
+
+        if (!source.Fields.IsDefaultOrEmpty)
+        {
+            var nextFieldId = GetNextFieldId();
+            var importedFields = source.Fields.Select(field => field with
+            {
+                Id = new RichTextFieldId(nextFieldId++),
+                Range = new RichTextRange(
+                    insertionStart + field.Range.Start,
+                    field.Range.Length),
+            });
+            Snapshot = Snapshot.With(fields: Snapshot.Fields.Concat(importedFields));
+            _changes.Add(new RichTextRangeChange(
+                RichTextChangeKind.Field,
+                new RichTextRange(insertionStart, 0),
+                new RichTextRange(insertionStart, source.Length)));
+        }
+
         if (source.Length == 0)
         {
             return;
         }
 
+        var usedListIds = source.Paragraphs
+            .Select(static paragraph => paragraph.Format.List?.ListId)
+            .OfType<RichTextListId>()
+            .ToHashSet();
+        var usedPictureIds = source.Lists
+            .Where(pair => usedListIds.Contains(pair.Key))
+            .SelectMany(static pair => pair.Value.Levels)
+            .Select(static level => (level.Marker as RichTextListMarker.Picture)?.PictureId)
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
         var pictureIds = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var picture in source.ListPictures.Values)
+        foreach (var picture in source.ListPictures.Values.Where(picture =>
+                     usedPictureIds.Contains(picture.Id)))
         {
             var id = GetAvailablePictureId(picture.Id);
             pictureIds.Add(picture.Id, id);
@@ -88,7 +118,9 @@ public sealed class RichTextDocumentEdit
         }
 
         var listIds = new Dictionary<RichTextListId, RichTextListId>();
-        foreach (var pair in source.Lists.OrderBy(static pair => pair.Key.Value))
+        foreach (var pair in source.Lists
+                     .Where(pair => usedListIds.Contains(pair.Key))
+                     .OrderBy(static pair => pair.Key.Value))
         {
             var levels = pair.Value.Levels.Select(level => level.Marker switch
             {
@@ -134,21 +166,6 @@ public sealed class RichTextDocumentEdit
                 new RichTextRange(insertionStart + link.Range.Start, link.Range.Length),
                 link.Target,
                 link.ToolTip);
-        }
-
-        if (!source.Fields.IsDefaultOrEmpty)
-        {
-            Snapshot = Snapshot.With(fields: Snapshot.Fields.Concat(source.Fields.Select(field =>
-                field with
-                {
-                    Range = new RichTextRange(
-                        insertionStart + field.Range.Start,
-                        field.Range.Length),
-                })));
-            _changes.Add(new RichTextRangeChange(
-                RichTextChangeKind.Field,
-                new RichTextRange(insertionStart, 0),
-                new RichTextRange(insertionStart, source.Length)));
         }
 
         if (!source.Images.IsDefaultOrEmpty)
@@ -360,7 +377,10 @@ public sealed class RichTextDocumentEdit
                 return format;
             }
 
-            var level = Math.Clamp(item.Level + delta, 0, definition.Levels.Length - 1);
+            var level = (int)Math.Clamp(
+                (long)item.Level + delta,
+                0,
+                definition.Levels.Length - 1);
             var levelDefinition = definition.Levels[level];
             return format with
             {
@@ -444,8 +464,9 @@ public sealed class RichTextDocumentEdit
     public void SetLink(RichTextRange range, string target, string? toolTip = null)
     {
         range.Validate(Snapshot.Text.Length, nameof(range));
+        var affected = GetAffectedLinkRange(range);
         Snapshot = Snapshot.SetLink(range.ToRange(), target, toolTip);
-        _changes.Add(new RichTextRangeChange(RichTextChangeKind.Link, range, range));
+        _changes.Add(new RichTextRangeChange(RichTextChangeKind.Link, affected, affected));
     }
 
     /// <summary>
@@ -455,8 +476,9 @@ public sealed class RichTextDocumentEdit
     public void RemoveLinks(RichTextRange range)
     {
         range.Validate(Snapshot.Text.Length, nameof(range));
+        var affected = GetAffectedLinkRange(range);
         Snapshot = Snapshot.RemoveLinks(range.ToRange());
-        _changes.Add(new RichTextRangeChange(RichTextChangeKind.Link, range, range));
+        _changes.Add(new RichTextRangeChange(RichTextChangeKind.Link, affected, affected));
     }
 
     /// <summary>
@@ -519,7 +541,8 @@ public sealed class RichTextDocumentEdit
     /// <param name="instruction">The RTF field instruction.</param>
     /// <param name="result">The visible field result.</param>
     /// <param name="format">An optional character format for the result.</param>
-    public void InsertField(
+    /// <returns>The stable document-local identity allocated for the field.</returns>
+    public RichTextFieldId InsertField(
         int position,
         string instruction,
         string? result,
@@ -530,12 +553,36 @@ public sealed class RichTextDocumentEdit
         var beforeLength = Snapshot.Length;
         InsertText(position, result, format);
         var insertedLength = Snapshot.Length - beforeLength;
-        var field = new RichTextField(position, insertedLength, instruction);
+        var id = new RichTextFieldId(GetNextFieldId());
+        var field = new RichTextField(
+            id,
+            new RichTextRange(position, insertedLength),
+            instruction);
         Snapshot = Snapshot.With(fields: Snapshot.Fields.Append(field));
         _changes.Add(new RichTextRangeChange(
             RichTextChangeKind.Field,
             new RichTextRange(position, 0),
             new RichTextRange(position, insertedLength)));
+        return id;
+    }
+
+    /// <summary>
+    /// Updates one identified field and replaces its visible result atomically.
+    /// </summary>
+    /// <param name="fieldId">The stable document-local field identity.</param>
+    /// <param name="instruction">The replacement RTF field instruction.</param>
+    /// <param name="result">The replacement visible result. Null is treated as empty.</param>
+    /// <param name="format">An optional character format for the replacement result.</param>
+    public void UpdateField(
+        RichTextFieldId fieldId,
+        string instruction,
+        string? result,
+        RichTextCharacterFormat? format = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
+        var original = Snapshot.Fields.FirstOrDefault(field => field.Id == fieldId) ??
+            throw new ArgumentException("The field does not exist in this document.", nameof(fieldId));
+        UpdateFieldCore(original, instruction, result, format);
     }
 
     /// <summary>
@@ -561,8 +608,17 @@ public sealed class RichTextDocumentEdit
                 nameof(range));
         }
 
+        UpdateFieldCore(matches[0], instruction, result, format);
+    }
+
+    private void UpdateFieldCore(
+        RichTextField original,
+        string instruction,
+        string? result,
+        RichTextCharacterFormat? format)
+    {
         result = NormalizeText(result);
-        var original = matches[0];
+        var range = original.Range;
         if (string.Equals(
             Snapshot.Text.Substring(range.Start, range.Length),
             result,
@@ -576,7 +632,7 @@ public sealed class RichTextDocumentEdit
             if (!string.Equals(original.Instruction, instruction, StringComparison.Ordinal))
             {
                 Snapshot = Snapshot.With(fields: Snapshot.Fields.Select(field =>
-                    field.Range == range
+                    field.Id == original.Id
                         ? field with { Instruction = instruction }
                         : field));
                 _changes.Add(new RichTextRangeChange(RichTextChangeKind.Field, range, range));
@@ -586,12 +642,23 @@ public sealed class RichTextDocumentEdit
         }
 
         var oldDocumentLength = Snapshot.Length;
+        Snapshot = Snapshot.With(fields: Snapshot.Fields.Where(field => field.Id != original.Id));
         ReplaceText(range, result, format);
         var insertedLength = Snapshot.Length - (oldDocumentLength - range.Length);
         var newRange = new RichTextRange(range.Start, insertedLength);
         Snapshot = Snapshot.With(fields: Snapshot.Fields.Append(
-            new RichTextField(newRange, instruction)));
+            original with { Range = newRange, Instruction = instruction }));
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.Field, range, newRange));
+    }
+
+    /// <summary>Removes one field while retaining its visible result text.</summary>
+    /// <param name="fieldId">The stable document-local field identity.</param>
+    public void RemoveField(RichTextFieldId fieldId)
+    {
+        var field = Snapshot.Fields.FirstOrDefault(candidate => candidate.Id == fieldId) ??
+            throw new ArgumentException("The field does not exist in this document.", nameof(fieldId));
+        Snapshot = Snapshot.With(fields: Snapshot.Fields.Where(candidate => candidate.Id != fieldId));
+        _changes.Add(new RichTextRangeChange(RichTextChangeKind.Field, field.Range, field.Range));
     }
 
     private static string NormalizeText(string? text) =>
@@ -606,9 +673,10 @@ public sealed class RichTextDocumentEdit
     public void RemoveFields(RichTextRange range)
     {
         range.Validate(Snapshot.Text.Length, nameof(range));
+        var affected = GetAffectedFieldRange(range);
         Snapshot = Snapshot.With(fields: Snapshot.Fields.Where(field =>
-            field.End <= range.Start || field.Start >= range.End));
-        _changes.Add(new RichTextRangeChange(RichTextChangeKind.Field, range, range));
+            !FieldIntersectsRange(field, range)));
+        _changes.Add(new RichTextRangeChange(RichTextChangeKind.Field, affected, affected));
     }
 
     /// <summary>
@@ -626,6 +694,55 @@ public sealed class RichTextDocumentEdit
     {
         var range = new RichTextRange(0, Snapshot.Text.Length);
         return new RichTextRangeChange(kind, range, range);
+    }
+
+    private RichTextRange GetAffectedLinkRange(RichTextRange range)
+    {
+        var intersecting = Snapshot.Links.Where(link =>
+            range.IsEmpty
+                ? link.Start < range.Start && link.End > range.Start
+                : link.End > range.Start && link.Start < range.End).ToArray();
+        if (intersecting.Length == 0)
+        {
+            return range;
+        }
+
+        var start = Math.Min(range.Start, intersecting[0].Start);
+        var end = Math.Max(range.End, intersecting[^1].End);
+        return new RichTextRange(start, end - start);
+    }
+
+    private RichTextRange GetAffectedFieldRange(RichTextRange range)
+    {
+        var intersecting = Snapshot.Fields.Where(field =>
+            FieldIntersectsRange(field, range)).ToArray();
+        if (intersecting.Length == 0)
+        {
+            return range;
+        }
+
+        var start = Math.Min(range.Start, intersecting[0].Start);
+        var end = Math.Max(range.End, intersecting[^1].End);
+        return new RichTextRange(start, end - start);
+    }
+
+    private int GetNextFieldId() => checked(Snapshot.Fields
+        .Select(static field => field.Id.Value)
+        .DefaultIfEmpty()
+        .Max() + 1);
+
+    private static bool FieldIntersectsRange(RichTextField field, RichTextRange range)
+    {
+        if (field.Range.IsEmpty)
+        {
+            return range.IsEmpty
+                ? field.Start == range.Start
+                : field.Start >= range.Start && field.Start < range.End;
+        }
+
+        return range.IsEmpty
+            ? field.Start < range.Start && field.End > range.Start
+            : field.End > range.Start && field.Start < range.End;
     }
 
     private RichTextRangeChange CreateListDefinitionChange(

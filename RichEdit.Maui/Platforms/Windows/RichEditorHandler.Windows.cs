@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Maui.Platform;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,9 +16,6 @@ public partial class RichEditorHandler
     private bool _applyingDocument;
     private bool _canReadLanguageTag = true;
     private bool _hasNativeLinks;
-    private bool _suppressingNativeEvents;
-    private int _nativeEventSuppressionVersion;
-    private DispatcherQueueTimer? _nativeReadbackTimer;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private NativeTextSnapshot? _nativeTextSnapshot;
@@ -48,10 +44,6 @@ public partial class RichEditorHandler
         platformView.PreviewKeyDown += OnPlatformKeyDown;
         platformView.Paste += OnPlatformPaste;
         platformView.Tapped += OnPlatformTapped;
-        _nativeReadbackTimer = platformView.DispatcherQueue.CreateTimer();
-        _nativeReadbackTimer.Interval = TimeSpan.FromMilliseconds(16);
-        _nativeReadbackTimer.IsRepeating = false;
-        _nativeReadbackTimer.Tick += OnNativeReadbackTimerTick;
     }
 
     /// <inheritdoc />
@@ -64,15 +56,6 @@ public partial class RichEditorHandler
         platformView.PreviewKeyDown -= OnPlatformKeyDown;
         platformView.Paste -= OnPlatformPaste;
         platformView.Tapped -= OnPlatformTapped;
-        if (_nativeReadbackTimer is not null)
-        {
-            _nativeReadbackTimer.Stop();
-            _nativeReadbackTimer.Tick -= OnNativeReadbackTimerTick;
-            _nativeReadbackTimer = null;
-        }
-
-        _nativeEventSuppressionVersion++;
-        _suppressingNativeEvents = false;
         _hasNativeLinks = false;
         _nativeTextSnapshot = null;
 
@@ -213,7 +196,6 @@ public partial class RichEditorHandler
         finally
         {
             _applyingDocument = false;
-            SuppressNativeEventsUntilIdle();
         }
     }
 
@@ -237,7 +219,7 @@ public partial class RichEditorHandler
                     paragraph.Format.NativeList?.PictureId is not null))
         {
             // WinUI TOM has no bounded API for inserting or replacing picture
-            // payloads. Keep this explicit object-edit recovery path separate from
+            // payloads. Keep this required full object projection separate from
             // ordinary text, format, and list-item changes.
             ApplyDocumentCore(snapshot, selection.Start, selection.Length);
             return;
@@ -299,7 +281,6 @@ public partial class RichEditorHandler
             {
                 nativeDocument.ApplyDisplayUpdates();
                 _applyingDocument = false;
-                SuppressNativeEventsUntilIdle();
             }
         }
     }
@@ -472,7 +453,6 @@ public partial class RichEditorHandler
         finally
         {
             _applyingDocument = false;
-            SuppressNativeEventsUntilIdle();
         }
     }
 
@@ -619,7 +599,6 @@ public partial class RichEditorHandler
             {
                 nativeDocument.ApplyDisplayUpdates();
                 _applyingDocument = false;
-                SuppressNativeEventsUntilIdle();
             }
 
             ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
@@ -872,6 +851,7 @@ public partial class RichEditorHandler
         var text = snapshot.Text;
         var nativeDocument = PlatformView.Document;
         var previous = VirtualView.Document.CurrentSnapshot;
+        var remappedPrevious = previous.RemapText(text);
         var defaultCharacterFormat = ReadCharacterFormat(
             nativeDocument.GetDefaultCharacterFormat()) with
         {
@@ -884,7 +864,11 @@ public partial class RichEditorHandler
         var scanRange = nativeDocument.GetRange(0, 0);
         var paragraphs = new List<RichTextParagraph>();
         RichTextListFormat? previousList = null;
-        var nextListId = 1;
+        var assignedListIds = new HashSet<int>();
+        var nextListId = checked(previous.Lists.Keys
+            .Select(static id => id.Value)
+            .DefaultIfEmpty()
+            .Max() + 1);
         for (var start = 0; ;)
         {
             var end = GetParagraphEnd(text, start);
@@ -899,7 +883,15 @@ public partial class RichEditorHandler
                     previousList.Kind == list.Kind &&
                     previousList.NumberStyle == list.NumberStyle &&
                     previousList.Level == list.Level;
-                list = list with { Id = continues ? previousList!.Id : nextListId++ };
+                var priorId = remappedPrevious.GetParagraphFormat(
+                    Math.Min(start, remappedPrevious.Length)).List?.ListId.Value;
+                var id = continues
+                    ? previousList!.Id
+                    : priorId is > 0 && assignedListIds.Add(priorId.Value)
+                        ? priorId.Value
+                        : nextListId++;
+                assignedListIds.Add(id);
+                list = list with { Id = id };
                 paragraphFormat = paragraphFormat with { NativeList = list };
                 previousList = list;
             }
@@ -935,7 +927,8 @@ public partial class RichEditorHandler
                 fontFamily,
                 fontSize,
                 textColor),
-            MergeWindowsParagraphFormat);
+            MergeWindowsParagraphFormat,
+            remappedPrevious);
     }
 
     private NativeTextSnapshot GetNativeTextSnapshot() =>
@@ -1472,63 +1465,24 @@ public partial class RichEditorHandler
 
     private void OnNativeDocumentChanged(object sender, RoutedEventArgs eventArgs)
     {
-        if (_applyingDocument || _suppressingNativeEvents || VirtualView is null)
+        if (_applyingDocument || VirtualView is null)
         {
             return;
         }
 
         _nativeTextSnapshot = null;
-        if (_nativeReadbackTimer is null)
-        {
-            ReadNativeDocumentChange();
-            return;
-        }
-
-        RestartNativeReadbackTimer();
-    }
-
-    private void OnNativeReadbackTimerTick(DispatcherQueueTimer sender, object args)
-    {
+        // WinUI raises TextChanged directly after updating the RichEdit backing
+        // store. Reconcile before returning so every native edit is observable
+        // immediately and in event order.
         ReadNativeDocumentChange();
-    }
-
-    private void SuppressNativeEventsUntilIdle()
-    {
-        if (PlatformView is null)
-        {
-            return;
-        }
-
-        _suppressingNativeEvents = true;
-        var version = ++_nativeEventSuppressionVersion;
-        if (!PlatformView.DispatcherQueue.TryEnqueue(
-                DispatcherQueuePriority.Low,
-                () =>
-                {
-                    if (_nativeEventSuppressionVersion == version)
-                    {
-                        _suppressingNativeEvents = false;
-                    }
-                }))
-        {
-            _suppressingNativeEvents = false;
-        }
-    }
-
-    private void RestartNativeReadbackTimer()
-    {
-        _nativeReadbackTimer!.Stop();
-        _nativeReadbackTimer.Start();
     }
 
     private void ReadNativeDocumentChange()
     {
-        if (_applyingDocument || _suppressingNativeEvents || VirtualView is null)
+        if (_applyingDocument || VirtualView is null)
         {
             return;
         }
-
-        _nativeReadbackTimer?.Stop();
 
         var selection = PlatformView.Document.Selection;
         var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
@@ -1579,9 +1533,10 @@ public partial class RichEditorHandler
         var oldEnd = previous.Length - suffixLength;
         var newEnd = text.Length - suffixLength;
         var insertedText = text.Substring(prefixLength, newEnd - prefixLength);
-        document = string.Equals(previous.Text, text, StringComparison.Ordinal)
-            ? previous
-            : previous.Replace(prefixLength..oldEnd, insertedText, _nativeTypingFormat);
+        var textChanged = !string.Equals(previous.Text, text, StringComparison.Ordinal);
+        document = textChanged
+            ? previous.Replace(prefixLength..oldEnd, insertedText, _nativeTypingFormat)
+            : previous;
 
         // A content callback with unchanged text can represent a native formatting
         // command. In that case inspect only the current selection (or its caret
@@ -1599,9 +1554,13 @@ public partial class RichEditorHandler
             return false;
         }
 
-        var paragraphSeed = insertedText.Length == 0
-            ? new RichTextRange(Math.Min(prefixLength, text.Length), 0)
-            : characterRange;
+        var paragraphSeed = insertedText.Length != 0
+            ? characterRange
+            : textChanged
+                ? new RichTextRange(Math.Min(prefixLength, text.Length), 0)
+                : selectionEnd > selectionStart
+                    ? new RichTextRange(selectionStart, selectionEnd - selectionStart)
+                    : new RichTextRange(selectionStart, 0);
         var paragraphRange = GetAffectedParagraphRange(paragraphSeed, text);
         return TryOverlayNativeParagraphFormats(document, paragraphRange, out document);
     }
@@ -1750,7 +1709,7 @@ public partial class RichEditorHandler
 
     private void OnNativeSelectionChanged(object sender, RoutedEventArgs eventArgs)
     {
-        if (_applyingDocument || _suppressingNativeEvents || VirtualView is null)
+        if (_applyingDocument || VirtualView is null)
         {
             return;
         }

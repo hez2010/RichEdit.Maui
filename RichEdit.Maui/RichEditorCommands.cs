@@ -260,17 +260,7 @@ public sealed class RichEditorCommands
         _clipboardSubscribed = false;
     }
 
-    private void OnClipboardContentChanged(object? sender, EventArgs eventArgs)
-    {
-        if (_editor.Dispatcher.IsDispatchRequired)
-        {
-            _editor.Dispatcher.Dispatch(Refresh);
-        }
-        else
-        {
-            Refresh();
-        }
-    }
+    private void OnClipboardContentChanged(object? sender, EventArgs eventArgs) => Refresh();
 
     private bool CanMutateSelection => !_editor.IsReadOnly;
 

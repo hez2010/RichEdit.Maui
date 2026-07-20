@@ -529,6 +529,21 @@ public sealed record RichTextLink
     internal int End => Range.End;
 }
 
+/// <summary>Identifies one field within a rich-text document.</summary>
+public readonly record struct RichTextFieldId
+{
+    /// <summary>Initializes a field identifier.</summary>
+    /// <param name="value">The positive document-local identifier.</param>
+    public RichTextFieldId(int value)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+        Value = value;
+    }
+
+    /// <summary>Gets the positive document-local identifier.</summary>
+    public int Value { get; }
+}
+
 /// <summary>Associates a visible result range with an RTF field instruction.</summary>
 public sealed record RichTextField
 {
@@ -536,16 +551,31 @@ public sealed record RichTextField
     /// <param name="range">The visible result range.</param>
     /// <param name="instruction">The nonempty RTF field instruction.</param>
     public RichTextField(RichTextRange range, string instruction)
+        : this(default, range, instruction)
     {
+    }
+
+    /// <summary>Initializes an identified field.</summary>
+    /// <param name="id">
+    /// A positive document-local identity, or the default value when a snapshot should
+    /// allocate one.
+    /// </param>
+    /// <param name="range">The visible result range.</param>
+    /// <param name="instruction">The nonempty RTF field instruction.</param>
+    public RichTextField(RichTextFieldId id, RichTextRange range, string instruction)
+    {
+        Id = id;
         Range = range;
         Instruction = instruction ?? throw new ArgumentNullException(nameof(instruction));
     }
 
     internal RichTextField(int start, int length, string instruction)
-        : this(new RichTextRange(start, length), instruction)
+        : this(default, new RichTextRange(start, length), instruction)
     {
     }
 
+    /// <summary>Gets the stable document-local field identity.</summary>
+    public RichTextFieldId Id { get; init; }
     /// <summary>Gets the visible result range.</summary>
     public RichTextRange Range { get; init; }
     /// <summary>Gets the RTF field instruction.</summary>
@@ -555,11 +585,11 @@ public sealed record RichTextField
     internal int End => Range.End;
 }
 
-/// <summary>Defines normalized cropping fractions for an inline image.</summary>
-/// <param name="Left">The fraction cropped from the left edge.</param>
-/// <param name="Top">The fraction cropped from the top edge.</param>
-/// <param name="Right">The fraction cropped from the right edge.</param>
-/// <param name="Bottom">The fraction cropped from the bottom edge.</param>
+/// <summary>Defines cropping amounts in points for an inline image.</summary>
+/// <param name="Left">The amount cropped from the left edge, in points.</param>
+/// <param name="Top">The amount cropped from the top edge, in points.</param>
+/// <param name="Right">The amount cropped from the right edge, in points.</param>
+/// <param name="Bottom">The amount cropped from the bottom edge, in points.</param>
 public readonly record struct RichTextImageCrop(
     double Left,
     double Top,
@@ -587,7 +617,7 @@ public sealed record RichTextImage
     public string? AlternativeText { get; init; }
     /// <summary>Gets clockwise rotation in degrees.</summary>
     public double Rotation { get; init; }
-    /// <summary>Gets normalized crop values.</summary>
+    /// <summary>Gets crop amounts in points.</summary>
     public RichTextImageCrop Crop { get; init; }
 
     /// <summary>Creates an inline image by copying encoded bytes.</summary>

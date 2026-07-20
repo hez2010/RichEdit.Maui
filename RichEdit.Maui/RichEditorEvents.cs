@@ -179,7 +179,8 @@ public sealed class RichTextDocumentFragment
             fragment = fragment.Replace(0..range.Start, string.Empty);
         }
 
-        return new RichTextDocumentFragment(fragment.WithVersion(0));
+        return new RichTextDocumentFragment(
+            fragment.PruneUnreferencedListResources().WithVersion(0));
     }
 }
 
@@ -188,17 +189,23 @@ public sealed class RichTextDocumentFragment
 /// </summary>
 public sealed class RichTextPastingEventArgs : EventArgs
 {
+    private RichTextDocumentFragment _fragment;
+
     /// <summary>
     /// Initializes paste interception data.
     /// </summary>
     /// <param name="fragment">The portable fragment selected by the handler.</param>
     public RichTextPastingEventArgs(RichTextDocumentFragment fragment)
     {
-        Fragment = fragment ?? throw new ArgumentNullException(nameof(fragment));
+        _fragment = fragment ?? throw new ArgumentNullException(nameof(fragment));
     }
 
     /// <summary>Gets or sets the portable fragment that will be inserted.</summary>
-    public RichTextDocumentFragment Fragment { get; set; }
+    public RichTextDocumentFragment Fragment
+    {
+        get => _fragment;
+        set => _fragment = value ?? throw new ArgumentNullException(nameof(value));
+    }
 
     /// <summary>Gets or sets a value indicating whether paste is canceled.</summary>
     public bool Cancel { get; set; }

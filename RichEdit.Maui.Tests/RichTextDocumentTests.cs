@@ -65,6 +65,126 @@ public sealed class RichTextDocumentTests
     }
 
     [Fact]
+    public void ConstructorRejectsValuesThatCannotBeSerializedToRtf()
+    {
+        Assert.Throws<ArgumentException>(() => new RichTextDocument(
+            "x",
+            runs:
+            [
+                new RichTextRun(
+                    0,
+                    1,
+                    RichTextCharacterFormat.Default with
+                    {
+                        CharacterSpacing = double.MaxValue,
+                    }),
+            ]));
+        Assert.Throws<ArgumentException>(() => new RichTextDocument(
+            "x",
+            paragraphs:
+            [
+                new RichTextParagraph(
+                    0,
+                    RichTextParagraphFormat.Default with
+                    {
+                        LeadingIndent = double.MaxValue,
+                    }),
+            ]));
+        Assert.Throws<ArgumentException>(() => new RichTextDocument(
+            RichTextDocument.ObjectReplacementCharacter.ToString(),
+            images:
+            [
+                RichTextImage.FromBytes(
+                    0,
+                    "image/png",
+                    [1],
+                    1,
+                    1) with
+                {
+                    Crop = new RichTextImageCrop(double.MaxValue, 0, 0, 0),
+                },
+            ]));
+        Assert.Throws<ArgumentException>(() => new RichTextDocument(
+            "x",
+            runs:
+            [
+                new RichTextRun(
+                    0,
+                    1,
+                    RichTextCharacterFormat.Default with
+                    {
+                        ForegroundColor = new Color(float.NaN, 0, 0),
+                    }),
+            ]));
+        Assert.Throws<ArgumentException>(() => new RichTextDocument(
+            "x",
+            paragraphs:
+            [
+                new RichTextParagraph(
+                    0,
+                    RichTextParagraphFormat.Default with
+                    {
+                        Border = new RichTextBorder(
+                            RichTextBorderSides.All,
+                            RichTextBorderStyle.Single,
+                            1,
+                            new Color(0, float.NaN, 0)),
+                    }),
+            ]));
+    }
+
+    [Fact]
+    public void EveryAcceptedNumericBoundarySerializesWithoutDeferredFailure()
+    {
+        const double maximumTwips = 100_000_000d;
+        var document = new RichTextDocument(
+            $"x{RichTextDocument.ObjectReplacementCharacter}",
+            runs:
+            [
+                new RichTextRun(
+                    0,
+                    2,
+                    RichTextCharacterFormat.Default with
+                    {
+                        FontSize = 1_000_000_000d,
+                        BaselineOffset = 1_000_000_000d,
+                        CharacterSpacing = maximumTwips,
+                        HorizontalScale = 20_000_000d,
+                    }),
+            ],
+            paragraphs:
+            [
+                new RichTextParagraph(
+                    0,
+                    RichTextParagraphFormat.Default with
+                    {
+                        LeadingIndent = maximumTwips,
+                        LineSpacingRule = RichTextLineSpacingRule.Multiple,
+                        LineSpacing = 8_000_000d,
+                        TabStops = [new RichTextTabStop(maximumTwips)],
+                    }),
+            ],
+            images:
+            [
+                RichTextImage.FromBytes(
+                    1,
+                    "image/png",
+                    [1],
+                    maximumTwips,
+                    maximumTwips) with
+                {
+                    Crop = new RichTextImageCrop(
+                        maximumTwips,
+                        maximumTwips,
+                        -maximumTwips,
+                        -maximumTwips),
+                },
+            ]);
+
+        Assert.StartsWith(@"{\rtf1", document.RtfText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ListPictureResourcesSurviveTextAndNativeSnapshotRemapping()
     {
         var picture = RichTextListPicture.FromBytes(
@@ -168,7 +288,9 @@ public sealed class RichTextDocumentTests
         var replaced = document.Replace(4..6, "XYZ", Bold);
 
         Assert.Equal($"ab{RichTextDocument.ObjectReplacementCharacter}cXYZf", replaced.Text);
-        Assert.Equal(new RichTextField(0, 2, "DATE"), Assert.Single(replaced.Fields));
+        Assert.Equal(
+            new RichTextField(new RichTextFieldId(1), new RichTextRange(0, 2), "DATE"),
+            Assert.Single(replaced.Fields));
         Assert.Equal(2, Assert.Single(replaced.Images).Position);
         Assert.Equal(new RichTextLink(3, 5, "https://example.test", "tip"), Assert.Single(replaced.Links));
         Assert.Equal(Bold, replaced.GetCharacterFormat(4));

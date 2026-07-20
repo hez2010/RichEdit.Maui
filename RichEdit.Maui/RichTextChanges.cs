@@ -70,7 +70,10 @@ public enum RichTextUndoBehavior
     /// <summary>Merge the transaction with the preceding compatible undo unit.</summary>
     MergeWithPrevious,
 
-    /// <summary>Commit the transaction without recording it in undo history.</summary>
+    /// <summary>
+    /// Commit the transaction without recording it and invalidate snapshot-based undo
+    /// history that cannot be safely replayed across the unrecorded state.
+    /// </summary>
     DoNotRecord,
 
     /// <summary>Commit the transaction and clear existing undo and redo history.</summary>

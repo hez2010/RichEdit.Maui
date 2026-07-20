@@ -4,6 +4,16 @@ namespace RichEdit.Maui.Tests;
 
 public sealed class LiveRichTextDocumentTests
 {
+    private static RichTextListDefinition CreateBulletList() => new(
+    [
+        new RichTextListLevelDefinition
+        {
+            Marker = new RichTextListMarker.Bullet("•"),
+            Prefix = string.Empty,
+            Suffix = string.Empty,
+        },
+    ]);
+
     private static readonly RichTextListDefinition NumberedOutline = new(
     [
         new RichTextListLevelDefinition
@@ -304,6 +314,67 @@ public sealed class LiveRichTextDocumentTests
     }
 
     [Fact]
+    public void NestedEditIsRejectedWithoutCommittingEitherTransaction()
+    {
+        var document = new RichTextDocument();
+
+        Assert.Throws<InvalidOperationException>(() => document.Edit(outer =>
+        {
+            outer.InsertText(0, "outer");
+            document.Edit(inner => inner.InsertText(0, "inner"));
+        }));
+
+        Assert.Equal(string.Empty, document.Text);
+        Assert.Equal(0, document.Version);
+    }
+
+    [Fact]
+    public void MutationFromUndoNotificationCannotInterleaveWithCommit()
+    {
+        var document = new RichTextDocument();
+        document.UndoStateChanged += (_, _) =>
+            Assert.Throws<InvalidOperationException>(() =>
+                document.Edit(edit => edit.InsertText(0, "nested")));
+
+        document.Edit(edit => edit.InsertText(0, "outer"));
+
+        Assert.Equal("outer", document.Text);
+        Assert.Equal(1, document.Version);
+    }
+
+    [Fact]
+    public void DoNotRecordInvalidatesSnapshotBasedUndoHistory()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit => edit.InsertText(0, "a"));
+        document.Undo();
+        Assert.True(document.CanRedo);
+
+        document.Edit(
+            edit => edit.InsertText(0, "b"),
+            new RichTextEditOptions(RichTextUndoBehavior.DoNotRecord));
+
+        Assert.False(document.CanUndo);
+        Assert.False(document.CanRedo);
+        document.Redo();
+        Assert.Equal("b", document.Text);
+    }
+
+    [Fact]
+    public void DocumentRejectsSimultaneousEditorOwnership()
+    {
+        var document = new RichTextDocument();
+        var first = new object();
+        var second = new object();
+        document.AttachEditor(first);
+
+        Assert.Throws<InvalidOperationException>(() => document.AttachEditor(second));
+
+        document.DetachEditor(first);
+        document.AttachEditor(second);
+    }
+
+    [Fact]
     public void ImagePayloadOnlyUndoPublishesAnImageDelta()
     {
         var document = new RichTextDocument();
@@ -344,6 +415,115 @@ public sealed class LiveRichTextDocumentTests
         document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), 1));
         Assert.Equal(0, document.CurrentSnapshot.Paragraphs[0].Format.List?.Level);
         Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
+
+        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MinValue));
+        Assert.Equal(0, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
+        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MaxValue));
+        Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
+    }
+
+    [Fact]
+    public void NativeListReadbackUpdatesAStableDefinitionInsteadOfReusingItsOldStyle()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit =>
+        {
+            edit.InsertText(0, "item");
+            var id = edit.CreateList(CreateBulletList());
+            edit.ApplyList(new RichTextRange(0, 4), id);
+        });
+
+        var previous = document.CurrentSnapshot;
+        var readback = previous.MergeNativeSnapshot(
+            previous.Text,
+            previous.Runs,
+            [
+                new RichTextParagraph(0, new RichTextParagraphFormat
+                {
+                    NativeList = new RichTextListFormat
+                    {
+                        Id = 1,
+                        Kind = RichListKind.Numbered,
+                        NumberStyle = RichListNumberStyle.UpperRoman,
+                        Suffix = ".",
+                    },
+                }),
+            ],
+            previous.Links,
+            previous.Images,
+            previous.DefaultCharacterFormat,
+            previous.DefaultParagraphFormat);
+
+        Assert.IsType<RichTextListMarker.Number>(
+            readback.Lists[new RichTextListId(1)].Levels[0].Marker);
+    }
+
+    [Fact]
+    public void NativeListReadbackPreservesDefinitionLevelsThatAreNotInUse()
+    {
+        var unusedLevel = NumberedOutline.Levels[1];
+        var document = new RichTextDocument();
+        RichTextListId listId = default;
+        document.Edit(edit =>
+        {
+            edit.InsertText(0, "item");
+            listId = edit.CreateList(NumberedOutline);
+            edit.ApplyList(new RichTextRange(0, 4), listId);
+        });
+
+        var previous = document.CurrentSnapshot;
+        var readback = previous.MergeNativeSnapshot(
+            previous.Text,
+            previous.Runs,
+            [
+                new RichTextParagraph(0, previous.GetParagraphFormat(0) with
+                {
+                    NativeList = previous.GetParagraphFormat(0).NativeList! with
+                    {
+                        NumberStyle = RichListNumberStyle.UpperRoman,
+                    },
+                }),
+            ],
+            previous.Links,
+            previous.Images,
+            previous.DefaultCharacterFormat,
+            previous.DefaultParagraphFormat);
+
+        Assert.Equal(2, readback.Lists[listId].Levels.Length);
+        Assert.Equal(unusedLevel, readback.Lists[listId].Levels[1]);
+    }
+
+    [Fact]
+    public void FragmentImportsOnlyReferencedListResources()
+    {
+        var source = new RichTextDocument();
+        source.Edit(edit =>
+        {
+            edit.InsertText(0, "plain");
+            edit.CreateList(CreateBulletList());
+        });
+        var fragment = RichTextDocumentFragment.FromRange(
+            source.CurrentSnapshot,
+            new RichTextRange(0, source.Length));
+
+        var target = new RichTextDocument();
+        target.Edit(edit => edit.ReplaceFragment(RichTextRange.Empty, fragment));
+
+        Assert.Empty(fragment.Snapshot.Lists);
+        Assert.Empty(target.CurrentSnapshot.Lists);
+    }
+
+    [Fact]
+    public void SelectionReusesAnEquivalentListDefinition()
+    {
+        var definition = CreateBulletList();
+        var document = new RichTextDocument();
+        RichTextListId id = default;
+        document.Edit(edit => id = edit.CreateList(definition));
+
+        Assert.Equal(
+            id,
+            RichTextSelection.FindEquivalentListId(document.CurrentSnapshot, definition));
     }
 
     [Fact]
@@ -446,10 +626,11 @@ public sealed class LiveRichTextDocumentTests
     public void FieldUpdateChangesInstructionAndVisibleResultAtomically()
     {
         var document = new RichTextDocument();
-        document.Edit(edit => edit.InsertField(0, "OLD", "old"));
+        RichTextFieldId fieldId = default;
+        document.Edit(edit => fieldId = edit.InsertField(0, "OLD", "old"));
 
         var changes = document.Edit(edit => edit.UpdateField(
-            new RichTextRange(0, 3),
+            fieldId,
             "NEW",
             "updated"));
 
@@ -459,6 +640,95 @@ public sealed class LiveRichTextDocumentTests
         Assert.Equal("NEW", field.Instruction);
         Assert.True(changes.IsTextChanged);
         Assert.Contains(changes.Changes, change => change.Kind == RichTextChangeKind.Field);
+    }
+
+    [Fact]
+    public void EmptyFieldsHaveStableIdentitiesAndRemainIndividuallyEditable()
+    {
+        var document = new RichTextDocument();
+        RichTextFieldId first = default;
+        RichTextFieldId second = default;
+        document.Edit(edit =>
+        {
+            first = edit.InsertField(0, "FIRST", string.Empty);
+            second = edit.InsertField(0, "SECOND", string.Empty);
+        });
+
+        document.Edit(edit => edit.UpdateField(first, "FIRST", "value"));
+
+        Assert.Equal("value", document.Text);
+        Assert.Collection(
+            document.CurrentSnapshot.Fields,
+            field =>
+            {
+                Assert.Equal(first, field.Id);
+                Assert.Equal(new RichTextRange(0, 5), field.Range);
+            },
+            field =>
+            {
+                Assert.Equal(second, field.Id);
+                Assert.Equal(new RichTextRange(5, 0), field.Range);
+            });
+
+        document.Edit(edit => edit.RemoveField(second));
+        Assert.Equal(first, Assert.Single(document.CurrentSnapshot.Fields).Id);
+    }
+
+    [Fact]
+    public void EmptyFragmentFieldsAreImportedWithoutRequiringVisibleText()
+    {
+        var fragment = RichTextDocumentFragment.FromRtf(
+            @"{\rtf1{\field{\*\fldinst PAGE}{\fldrslt }}}");
+        var document = new RichTextDocument();
+
+        document.Edit(edit => edit.ReplaceFragment(RichTextRange.Empty, fragment));
+
+        Assert.Equal(string.Empty, document.Text);
+        Assert.Equal("PAGE", Assert.Single(document.CurrentSnapshot.Fields).Instruction);
+    }
+
+    [Fact]
+    public void RemovingFieldsAtCaretReportsTheCompleteRemovedField()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit => edit.InsertField(0, "FIELD", "value"));
+
+        var changes = document.Edit(edit => edit.RemoveFields(new RichTextRange(2, 0)));
+
+        Assert.Empty(document.CurrentSnapshot.Fields);
+        Assert.Equal(new RichTextRange(0, 5), changes.GetAffectedRange(document.Length));
+    }
+
+    [Fact]
+    public void RemovingPartOfALinkRefreshesTheCompleteRemovedLink()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit =>
+        {
+            edit.InsertText(0, "0123456789");
+            edit.SetLink(new RichTextRange(0, 10), "https://example.test");
+        });
+
+        var changes = document.Edit(edit => edit.RemoveLinks(new RichTextRange(4, 2)));
+
+        Assert.Empty(document.CurrentSnapshot.Links);
+        Assert.Equal(new RichTextRange(0, 10), changes.GetAffectedRange(document.Length));
+    }
+
+    [Fact]
+    public void RemovingLinkAtCaretRefreshesTheCompleteRemovedLink()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit =>
+        {
+            edit.InsertText(0, "0123456789");
+            edit.SetLink(new RichTextRange(0, 10), "https://example.test");
+        });
+
+        var changes = document.Edit(edit => edit.RemoveLinks(new RichTextRange(4, 0)));
+
+        Assert.Empty(document.CurrentSnapshot.Links);
+        Assert.Equal(new RichTextRange(0, 10), changes.GetAffectedRange(document.Length));
     }
 
     [Fact]

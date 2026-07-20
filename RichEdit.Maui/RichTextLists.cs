@@ -78,6 +78,11 @@ public abstract record RichTextListMarker
         /// <param name="startAt">The positive initial value.</param>
         public Number(RichTextListNumberStyle style, int startAt)
         {
+            if (!Enum.IsDefined(style))
+            {
+                throw new ArgumentOutOfRangeException(nameof(style));
+            }
+
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(startAt);
             Style = style;
             StartAt = startAt;
@@ -122,10 +127,10 @@ public sealed record RichTextListLevelDefinition
     /// <summary>Gets the caller-selected marker definition.</summary>
     public required RichTextListMarker Marker { get; init; }
 
-    /// <summary>Gets the text placed before the marker value.</summary>
+    /// <summary>Gets the text placed before a numbered marker value.</summary>
     public required string Prefix { get; init; }
 
-    /// <summary>Gets the text placed after the marker value.</summary>
+    /// <summary>Gets the text placed after a numbered marker value.</summary>
     public required string Suffix { get; init; }
 
     /// <summary>Gets the leading paragraph indent in points.</summary>
@@ -166,9 +171,27 @@ public sealed record RichTextListDefinition
             if (!double.IsFinite(level.LeadingIndent) ||
                 !double.IsFinite(level.FirstLineIndent) ||
                 !double.IsFinite(level.MarkerTab) ||
-                level.MarkerTab < 0)
+                level.MarkerTab < 0 ||
+                level.LeadingIndent * 20d is < int.MinValue or > int.MaxValue ||
+                level.FirstLineIndent * 20d is < int.MinValue or > int.MaxValue ||
+                level.MarkerTab * 20d > int.MaxValue)
             {
                 throw new ArgumentException("List level layout values are invalid.", nameof(levels));
+            }
+
+            var markerLength = level.Marker switch
+            {
+                RichTextListMarker.Bullet bullet => bullet.Text.Length,
+                RichTextListMarker.Picture picture => picture.FallbackText.Length,
+                _ => 0,
+            };
+            if (markerLength > byte.MaxValue ||
+                level.Marker is RichTextListMarker.Number &&
+                (long)level.Prefix.Length + level.Suffix.Length > byte.MaxValue - 1)
+            {
+                throw new ArgumentException(
+                    "List marker text exceeds the length representable by RTF.",
+                    nameof(levels));
             }
         }
     }

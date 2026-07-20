@@ -24,8 +24,9 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     private RichTextDocumentSnapshot _snapshot;
     private string? _cachedRtf;
     private long _cachedRtfVersion = -1;
-    private IDispatcher? _dispatcher;
-    private int _dispatcherAttachmentCount;
+    private WeakReference<object>? _attachedEditor;
+    private bool _editInProgress;
+    private bool _notificationInProgress;
     private long _characterSummaryVersion = -1;
     private RichTextRange _characterSummaryRange;
     private RichTextCharacterFormatSummary? _characterSummary;
@@ -99,8 +100,8 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         }
         set
         {
-            VerifyMutationAccess();
             ArgumentNullException.ThrowIfNull(value);
+            VerifyNoActiveEdit();
             var parsed = RtfCodec.Parse(value);
             ReplaceSnapshot(
                 parsed,
@@ -136,19 +137,18 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     /// <param name="options">Undo and application metadata for the transaction.</param>
     /// <returns>The committed change set, or an empty change set when no edit was made.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The callback attempts to start another mutation on the same document.
+    /// </exception>
     public RichTextChangeSet Edit(
         Action<RichTextDocumentEdit> edit,
         RichTextEditOptions options = default)
     {
-        VerifyMutationAccess();
         ArgumentNullException.ThrowIfNull(edit);
-        var transaction = new RichTextDocumentEdit(_snapshot);
-        edit(transaction);
-        return Commit(
-            transaction.Snapshot,
-            transaction.Changes,
-            RichTextChangeOrigin.Programmatic,
+        return ExecuteEdit(
+            edit,
             options,
+            RichTextChangeOrigin.Programmatic,
             sourceToken: null);
     }
 
@@ -205,11 +205,8 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         RichTextChangeOrigin origin,
         object? sourceToken)
     {
-        VerifyMutationAccess();
         ArgumentNullException.ThrowIfNull(edit);
-        var transaction = new RichTextDocumentEdit(_snapshot);
-        edit(transaction);
-        return Commit(transaction.Snapshot, transaction.Changes, origin, options, sourceToken);
+        return ExecuteEdit(edit, options, origin, sourceToken);
     }
 
     internal RichTextChangeSet ReplaceSnapshotFromNative(
@@ -217,9 +214,9 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         object sourceToken,
         bool nativeUndoOwned)
     {
-        VerifyMutationAccess();
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(sourceToken);
+        VerifyNoActiveEdit();
         var changes = CreateDelta(_snapshot, snapshot);
         var undoBehavior = nativeUndoOwned
             ? RichTextUndoBehavior.ClearHistory
@@ -244,7 +241,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     internal RichTextChangeSet ReplacePlainText(string? text)
     {
-        VerifyMutationAccess();
+        VerifyNoActiveEdit();
         var snapshot = new RichTextDocumentSnapshot(
             text,
             defaultCharacterFormat: DefaultCharacterFormat,
@@ -259,7 +256,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     internal void Undo()
     {
-        VerifyMutationAccess();
+        VerifyNoActiveEdit();
         if (!_undo.TryPop(out var entry))
         {
             return;
@@ -267,12 +264,11 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
         _redo.Push(entry);
         TransitionTo(entry.Before, RichTextChangeOrigin.Undo);
-        UndoStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     internal void Redo()
     {
-        VerifyMutationAccess();
+        VerifyNoActiveEdit();
         if (!_redo.TryPop(out var entry))
         {
             return;
@@ -280,12 +276,11 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
         _undo.Push(entry);
         TransitionTo(entry.After, RichTextChangeOrigin.Redo);
-        UndoStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     internal void ClearUndoHistory()
     {
-        VerifyMutationAccess();
+        VerifyNoActiveEdit();
         if (_undo.Count == 0 && _redo.Count == 0)
         {
             return;
@@ -293,33 +288,59 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
         _undo.Clear();
         _redo.Clear();
-        UndoStateChanged?.Invoke(this, EventArgs.Empty);
+        RaiseUndoStateChanged();
     }
 
-    internal void AttachDispatcher(IDispatcher dispatcher)
+    internal void AttachEditor(object editor)
     {
-        ArgumentNullException.ThrowIfNull(dispatcher);
-        if (_dispatcher is not null && !ReferenceEquals(_dispatcher, dispatcher))
+        VerifyCanAttachEditor(editor);
+        _attachedEditor = new WeakReference<object>(editor);
+    }
+
+    internal void VerifyCanAttachEditor(object editor)
+    {
+        ArgumentNullException.ThrowIfNull(editor);
+        if (!CanAttachEditor(editor))
         {
             throw new InvalidOperationException(
-                "A rich-text document cannot be attached to editors on different dispatchers.");
+                "A rich-text document can be attached to only one editor at a time because native undo history is editor-local.");
         }
-
-        _dispatcher = dispatcher;
-        _dispatcherAttachmentCount++;
     }
 
-    internal void DetachDispatcher(IDispatcher dispatcher)
+    internal bool CanAttachEditor(object editor) =>
+        _attachedEditor is null ||
+        !_attachedEditor.TryGetTarget(out var owner) ||
+        ReferenceEquals(owner, editor);
+
+    internal void DetachEditor(object editor)
     {
-        if (!ReferenceEquals(_dispatcher, dispatcher) || _dispatcherAttachmentCount == 0)
+        if (_attachedEditor is not null &&
+            (!_attachedEditor.TryGetTarget(out var owner) || ReferenceEquals(owner, editor)))
         {
-            return;
+            _attachedEditor = null;
+        }
+    }
+
+    private RichTextChangeSet ExecuteEdit(
+        Action<RichTextDocumentEdit> edit,
+        RichTextEditOptions options,
+        RichTextChangeOrigin origin,
+        object? sourceToken)
+    {
+        VerifyNoActiveEdit();
+
+        var transaction = new RichTextDocumentEdit(_snapshot);
+        _editInProgress = true;
+        try
+        {
+            edit(transaction);
+        }
+        finally
+        {
+            _editInProgress = false;
         }
 
-        if (--_dispatcherAttachmentCount == 0)
-        {
-            _dispatcher = null;
-        }
+        return Commit(transaction.Snapshot, transaction.Changes, origin, options, sourceToken);
     }
 
     private RichTextChangeSet ReplaceSnapshot(
@@ -408,6 +429,8 @@ public sealed class RichTextDocument : INotifyPropertyChanged
                 _redo.Clear();
                 break;
             case RichTextUndoBehavior.DoNotRecord:
+                _undo.Clear();
+                _redo.Clear();
                 break;
             case RichTextUndoBehavior.ClearHistory:
                 _undo.Clear();
@@ -426,8 +449,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             [.. changes],
             options.Tag,
             sourceToken);
-        RaiseChanged(changeSet, before);
-        UndoStateChanged?.Invoke(this, EventArgs.Empty);
+        RaiseChanged(changeSet, before, undoStateChanged: true);
         return changeSet;
     }
 
@@ -446,7 +468,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             origin,
             [.. changes],
             tag: null);
-        RaiseChanged(changeSet, before);
+        RaiseChanged(changeSet, before, undoStateChanged: true);
     }
 
     internal static IReadOnlyList<RichTextChange> CreateDelta(
@@ -731,26 +753,54 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     private void RaiseChanged(
         RichTextChangeSet changeSet,
-        RichTextDocumentSnapshot previousSnapshot)
+        RichTextDocumentSnapshot previousSnapshot,
+        bool undoStateChanged = false)
     {
-        Changed?.Invoke(this, new RichTextDocumentChangedEventArgs(changeSet));
-        OnPropertyChanged(nameof(Version));
-        OnPropertyChanged(nameof(CurrentSnapshot));
-        OnPropertyChanged(nameof(RtfText));
-        if (!string.Equals(previousSnapshot.Text, Text, StringComparison.Ordinal))
+        _notificationInProgress = true;
+        try
         {
-            OnPropertyChanged(nameof(Length));
-            OnPropertyChanged(nameof(Text));
-        }
+            if (undoStateChanged)
+            {
+                UndoStateChanged?.Invoke(this, EventArgs.Empty);
+            }
 
-        if (previousSnapshot.DefaultCharacterFormat != DefaultCharacterFormat)
-        {
-            OnPropertyChanged(nameof(DefaultCharacterFormat));
-        }
+            OnPropertyChanged(nameof(Version));
+            OnPropertyChanged(nameof(CurrentSnapshot));
+            OnPropertyChanged(nameof(RtfText));
+            if (!string.Equals(previousSnapshot.Text, Text, StringComparison.Ordinal))
+            {
+                OnPropertyChanged(nameof(Length));
+                OnPropertyChanged(nameof(Text));
+            }
 
-        if (previousSnapshot.DefaultParagraphFormat != DefaultParagraphFormat)
+            if (previousSnapshot.DefaultCharacterFormat != DefaultCharacterFormat)
+            {
+                OnPropertyChanged(nameof(DefaultCharacterFormat));
+            }
+
+            if (previousSnapshot.DefaultParagraphFormat != DefaultParagraphFormat)
+            {
+                OnPropertyChanged(nameof(DefaultParagraphFormat));
+            }
+
+            Changed?.Invoke(this, new RichTextDocumentChangedEventArgs(changeSet));
+        }
+        finally
         {
-            OnPropertyChanged(nameof(DefaultParagraphFormat));
+            _notificationInProgress = false;
+        }
+    }
+
+    private void RaiseUndoStateChanged()
+    {
+        _notificationInProgress = true;
+        try
+        {
+            UndoStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _notificationInProgress = false;
         }
     }
 
@@ -760,12 +810,12 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         _cachedRtfVersion = -1;
     }
 
-    private void VerifyMutationAccess()
+    private void VerifyNoActiveEdit()
     {
-        if (_dispatcher?.IsDispatchRequired == true)
+        if (_editInProgress || _notificationInProgress)
         {
             throw new InvalidOperationException(
-                "Mutating an attached rich-text document requires its owning dispatcher thread.");
+                "A rich-text document cannot be mutated recursively from an edit callback or change notification.");
         }
     }
 

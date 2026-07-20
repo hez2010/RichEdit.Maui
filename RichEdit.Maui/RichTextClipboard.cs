@@ -2,8 +2,11 @@ namespace RichEdit.Maui;
 
 internal static class RichTextClipboard
 {
-    private static readonly object Gate = new();
+#if ANDROID
+    private const string RichFragmentTokenExtra = "RichEdit.Maui.FragmentToken";
+    private static string? _processFragmentToken;
     private static RichTextDocumentFragment? _processFragment;
+#endif
 
     public static bool HasContent =>
         Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default.HasText;
@@ -11,11 +14,6 @@ internal static class RichTextClipboard
     public static async Task SetAsync(RichTextDocumentFragment fragment)
     {
         ArgumentNullException.ThrowIfNull(fragment);
-        lock (Gate)
-        {
-            _processFragment = fragment;
-        }
-
 #if WINDOWS
         var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
         package.SetText(fragment.Text);
@@ -30,6 +28,26 @@ internal static class RichTextClipboard
             fragment.RtfText,
             Foundation.NSStringEncoding.UTF8);
         pasteboard.SetData(data, "public.rtf");
+        await Task.CompletedTask;
+#elif ANDROID
+        var context = Android.App.Application.Context;
+        var clipboard = (Android.Content.ClipboardManager?)context.GetSystemService(
+            Android.Content.Context.ClipboardService) ??
+            throw new InvalidOperationException("The Android clipboard service is unavailable.");
+        var token = Guid.NewGuid().ToString("N");
+        using var intent = new Android.Content.Intent();
+        intent.PutExtra(RichFragmentTokenExtra, token);
+        using var text = new Java.Lang.String(fragment.Text);
+        using var item = new Android.Content.ClipData.Item(text, null, intent, null);
+        using var label = new Java.Lang.String("RichEdit.Maui");
+        using var description = new Android.Content.ClipDescription(
+            label,
+            [Android.Content.ClipDescription.MimetypeTextPlain]);
+        using var clip = new Android.Content.ClipData(description, item);
+        clipboard.PrimaryClip = clip;
+        _processFragmentToken = token;
+        _processFragment = fragment;
+
         await Task.CompletedTask;
 #else
         await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default.SetTextAsync(
@@ -82,6 +100,21 @@ internal static class RichTextClipboard
         }
 
         var text = pasteboard.String;
+#elif ANDROID
+        var context = Android.App.Application.Context;
+        var clipboard = (Android.Content.ClipboardManager?)context.GetSystemService(
+            Android.Content.Context.ClipboardService);
+        var clip = clipboard?.PrimaryClip;
+        var item = clip is { ItemCount: > 0 } ? clip.GetItemAt(0) : null;
+        var text = item?.CoerceToText(context)?.ToString();
+        var token = item?.Intent?.GetStringExtra(RichFragmentTokenExtra);
+        if (token is not null &&
+            string.Equals(token, _processFragmentToken, StringComparison.Ordinal) &&
+            _processFragment is { } cached &&
+            string.Equals(cached.Text, text, StringComparison.Ordinal))
+        {
+            return cached;
+        }
 #else
         var clipboard = Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default;
         var text = clipboard.HasText ? await clipboard.GetTextAsync() : null;
@@ -89,15 +122,6 @@ internal static class RichTextClipboard
         if (text is null)
         {
             return null;
-        }
-
-        lock (Gate)
-        {
-            if (_processFragment is { } cached &&
-                string.Equals(cached.Text, text, StringComparison.Ordinal))
-            {
-                return cached;
-            }
         }
 
         return RichTextDocumentFragment.FromPlainText(text);

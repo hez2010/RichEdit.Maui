@@ -109,7 +109,11 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         RichTextRange selection)
     {
         ApplyDocumentCore(snapshot, selection.Start, selection.Length);
-        ClearUndoHistoryCore();
+        if (SupportsNativeUndoCore())
+        {
+            ClearUndoHistoryCore();
+        }
+
         VirtualView.UpdateUndoStateFromPlatform();
     }
 
@@ -195,7 +199,11 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         handler.ApplyTypingFormatCore(
             editor.Selection.TypingCharacterFormat,
             editor.Selection.TypingParagraphFormat);
-        handler.ClearUndoHistoryCore();
+        if (handler.SupportsNativeUndoCore())
+        {
+            handler.ClearUndoHistoryCore();
+        }
+
         editor.UpdateUndoStateFromPlatform();
     }
 

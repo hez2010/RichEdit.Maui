@@ -39,7 +39,8 @@ public sealed class RichEditor : View
         typeof(RichEditor),
         defaultValueCreator: static _ => new RichTextDocument(),
         defaultBindingMode: BindingMode.OneWay,
-        validateValue: static (_, value) => value is RichTextDocument,
+        validateValue: static (bindable, value) =>
+            value is RichTextDocument document && document.CanAttachEditor(bindable),
         propertyChanged: static (bindable, oldValue, newValue) =>
             ((RichEditor)bindable).OnDocumentPropertyChanged(
                 (RichTextDocument?)oldValue,
@@ -72,13 +73,15 @@ public sealed class RichEditor : View
         nameof(TextColor),
         typeof(Color),
         typeof(RichEditor),
+        validateValue: static (_, value) => IsValidAppearanceColor(value),
         propertyChanged: static (bindable, _, _) => ((RichEditor)bindable).OnAppearanceChanged());
 
     /// <summary>Identifies the <see cref="PlaceholderColor"/> bindable property.</summary>
     public static readonly BindableProperty PlaceholderColorProperty = BindableProperty.Create(
         nameof(PlaceholderColor),
         typeof(Color),
-        typeof(RichEditor));
+        typeof(RichEditor),
+        validateValue: static (_, value) => IsValidAppearanceColor(value));
 
     /// <summary>Identifies the <see cref="FontFamily"/> bindable property.</summary>
     public static readonly BindableProperty FontFamilyProperty = BindableProperty.Create(
@@ -93,7 +96,7 @@ public sealed class RichEditor : View
         typeof(double?),
         typeof(RichEditor),
         validateValue: static (_, value) => value is null ||
-            value is double size && double.IsFinite(size) && size > 0,
+            value is double size && double.IsFinite(size) && size > 0 && size <= float.MaxValue,
         propertyChanged: static (bindable, _, _) => ((RichEditor)bindable).OnAppearanceChanged());
 
     /// <summary>Identifies the <see cref="IsReadOnly"/> bindable property.</summary>
@@ -140,6 +143,8 @@ public sealed class RichEditor : View
         typeof(EditorAutoSizeOption),
         typeof(RichEditor),
         EditorAutoSizeOption.Disabled,
+        validateValue: static (_, value) =>
+            value is EditorAutoSizeOption option && Enum.IsDefined(option),
         propertyChanged: static (bindable, _, _) => ((RichEditor)bindable).InvalidateMeasure());
 
     /// <summary>Identifies the <see cref="AcceptsTab"/> bindable property.</summary>
@@ -181,8 +186,9 @@ public sealed class RichEditor : View
 
     private bool _synchronizingContentProperties;
     private bool _synchronizingSelection;
-    private bool _documentEventsEnabled = true;
     private RichTextDocument? _attachedDocument;
+    private EventHandler<RichTextDocumentChangedEventArgs>? _documentChangedSubscription;
+    private EventHandler? _undoStateChangedSubscription;
     private RichTextRange? _pendingPlatformSelection;
     private RichTextCharacterFormat _typingCharacterFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _typingParagraphFormat = RichTextParagraphFormat.Default;
@@ -206,8 +212,6 @@ public sealed class RichEditor : View
         if (args.OldHandler is not null && args.NewHandler is null)
         {
             Commands.Disconnect();
-            _documentEventsEnabled = false;
-            DetachDocument(_attachedDocument);
         }
 
         base.OnHandlerChanging(args);
@@ -223,14 +227,8 @@ public sealed class RichEditor : View
         }
 
         Commands.Connect();
-        if (_documentEventsEnabled)
-        {
-            return;
-        }
-
-        _documentEventsEnabled = true;
-        AttachDocument(Document);
         SynchronizeContentProperties();
+        ClampSelectionToDocument();
         RefreshTypingFormats();
         RefreshUndoState();
     }
@@ -298,7 +296,10 @@ public sealed class RichEditor : View
         }
     }
 
-    /// <summary>Gets or sets the stable live rich-text document.</summary>
+    /// <summary>
+    /// Gets or sets the stable live rich-text document. A document can be attached to
+    /// only one editor at a time because native undo history belongs to that editor.
+    /// </summary>
     public RichTextDocument Document
     {
         get => (RichTextDocument)GetValue(DocumentProperty);
@@ -480,28 +481,44 @@ public sealed class RichEditor : View
     /// <returns>A task that completes after the clipboard and document are updated.</returns>
     public async Task CutAsync()
     {
-        if (IsReadOnly || SelectedRange.IsEmpty)
+        var document = Document;
+        var snapshot = document.CurrentSnapshot;
+        var range = SelectedRange;
+        if (IsReadOnly || range.IsEmpty)
         {
             return;
         }
 
-        await CopyAsync();
+        await RichTextClipboard.SetAsync(RichTextDocumentFragment.FromRange(snapshot, range));
+        if (IsReadOnly ||
+            !ReferenceEquals(Document, document) ||
+            document.Version != snapshot.Version ||
+            SelectedRange != range)
+        {
+            return;
+        }
+
         Selection.ReplaceText(string.Empty);
     }
 
     /// <summary>Copies the selected text to the system clipboard.</summary>
     /// <returns>A task that completes after the clipboard is updated.</returns>
-    public Task CopyAsync() =>
-        SelectedRange.IsEmpty
+    public Task CopyAsync()
+    {
+        var snapshot = Document.CurrentSnapshot;
+        var range = SelectedRange;
+        return range.IsEmpty
             ? Task.CompletedTask
-            : RichTextClipboard.SetAsync(RichTextDocumentFragment.FromRange(
-                Document.CurrentSnapshot,
-                SelectedRange));
+            : RichTextClipboard.SetAsync(RichTextDocumentFragment.FromRange(snapshot, range));
+    }
 
     /// <summary>Pastes a portable fragment from the system clipboard.</summary>
     /// <returns>A task that completes after paste is committed or canceled.</returns>
     public async Task PasteAsync()
     {
+        var document = Document;
+        var version = document.Version;
+        var range = SelectedRange;
         if (IsReadOnly)
         {
             return;
@@ -515,7 +532,11 @@ public sealed class RichEditor : View
 
         var args = new RichTextPastingEventArgs(fragment);
         Pasting?.Invoke(this, args);
-        if (!args.Cancel)
+        if (!args.Cancel &&
+            !IsReadOnly &&
+            ReferenceEquals(Document, document) &&
+            document.Version == version &&
+            SelectedRange == range)
         {
             Selection.ReplaceFragment(args.Fragment);
         }
@@ -644,8 +665,8 @@ public sealed class RichEditor : View
             return;
         }
 
+        newDocument.VerifyCanAttachEditor(this);
         DetachDocument(oldDocument);
-        newDocument.ClearUndoHistory();
         AttachDocument(newDocument);
         var clampedStart = Math.Clamp(SelectedRange.Start, 0, newDocument.Length);
         var clampedLength = Math.Clamp(
@@ -685,15 +706,42 @@ public sealed class RichEditor : View
 
     private void AttachDocument(RichTextDocument document)
     {
-        if (!_documentEventsEnabled || ReferenceEquals(_attachedDocument, document))
+        if (ReferenceEquals(_attachedDocument, document))
         {
             return;
         }
 
+        document.AttachEditor(this);
         _attachedDocument = document;
-        document.AttachDispatcher(Dispatcher);
-        document.Changed += OnDocumentChanged;
-        document.UndoStateChanged += OnUndoStateChanged;
+        var weakEditor = new WeakReference<RichEditor>(this);
+        EventHandler<RichTextDocumentChangedEventArgs>? changed = null;
+        changed = (sender, eventArgs) =>
+        {
+            if (weakEditor.TryGetTarget(out var editor))
+            {
+                editor.OnDocumentChanged(sender, eventArgs);
+            }
+            else if (sender is RichTextDocument source)
+            {
+                source.Changed -= changed;
+            }
+        };
+        EventHandler? undoStateChanged = null;
+        undoStateChanged = (sender, eventArgs) =>
+        {
+            if (weakEditor.TryGetTarget(out var editor))
+            {
+                editor.OnUndoStateChanged(sender, eventArgs);
+            }
+            else if (sender is RichTextDocument source)
+            {
+                source.UndoStateChanged -= undoStateChanged;
+            }
+        };
+        _documentChangedSubscription = changed;
+        _undoStateChangedSubscription = undoStateChanged;
+        document.Changed += changed;
+        document.UndoStateChanged += undoStateChanged;
     }
 
     private void DetachDocument(RichTextDocument? document)
@@ -703,13 +751,29 @@ public sealed class RichEditor : View
             return;
         }
 
-        document.Changed -= OnDocumentChanged;
-        document.UndoStateChanged -= OnUndoStateChanged;
-        document.DetachDispatcher(Dispatcher);
+        if (_documentChangedSubscription is not null)
+        {
+            document.Changed -= _documentChangedSubscription;
+            _documentChangedSubscription = null;
+        }
+
+        if (_undoStateChangedSubscription is not null)
+        {
+            document.UndoStateChanged -= _undoStateChangedSubscription;
+            _undoStateChangedSubscription = null;
+        }
+        document.DetachEditor(this);
         if (ReferenceEquals(_attachedDocument, document))
         {
             _attachedDocument = null;
         }
+    }
+
+    private void ClampSelectionToDocument()
+    {
+        var start = Math.Clamp(SelectedRange.Start, 0, Document.Length);
+        var length = Math.Clamp(SelectedRange.Length, 0, Document.Length - start);
+        SetSelectionCore(new RichTextRange(start, length), fromPlatform: false);
     }
 
     private void OnDocumentChanged(object? sender, RichTextDocumentChangedEventArgs eventArgs)
@@ -886,6 +950,14 @@ public sealed class RichEditor : View
         end = Math.Clamp(end, start, documentLength);
         return new RichTextRange(start, end - start);
     }
+
+    private static bool IsValidAppearanceColor(object? value) =>
+        value is null ||
+        value is Color color &&
+        float.IsFinite(color.Red) &&
+        float.IsFinite(color.Green) &&
+        float.IsFinite(color.Blue) &&
+        float.IsFinite(color.Alpha);
 
     private static int MapPosition(int position, RichTextTextChange change)
     {

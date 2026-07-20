@@ -940,6 +940,7 @@ namespace RichEdit.Maui
             var attributed = PlatformView.AttributedText ?? new NSAttributedString(string.Empty);
             var text = attributed.Value ?? string.Empty;
             var previous = VirtualView.Document.CurrentSnapshot;
+            var remappedPrevious = previous.RemapText(text);
             var defaultCharacterFormat = previous.DefaultCharacterFormat;
 
             var runs = new List<RichTextRun>();
@@ -1010,7 +1011,11 @@ namespace RichEdit.Maui
 
             var paragraphs = new List<RichTextParagraph>();
             RichTextListFormat? previousList = null;
-            var nextListId = 1;
+            var assignedListIds = new HashSet<int>();
+            var nextListId = checked(previous.Lists.Keys
+                .Select(static id => id.Value)
+                .DefaultIfEmpty()
+                .Max() + 1);
             for (var start = 0; ;)
             {
                 RichTextParagraphFormat format;
@@ -1033,8 +1038,20 @@ namespace RichEdit.Maui
                         var continues = previousList is not null &&
                             previousList.Kind == list.Kind &&
                             previousList.Level == list.Level;
-                        list = list with { Id = continues ? previousList!.Id : nextListId++ };
+                        var priorId = remappedPrevious.GetParagraphFormat(
+                            Math.Min(start, remappedPrevious.Length)).List?.ListId.Value;
+                        var id = continues
+                            ? previousList!.Id
+                            : priorId is > 0 && assignedListIds.Add(priorId.Value)
+                                ? priorId.Value
+                                : nextListId++;
+                        assignedListIds.Add(id);
+                        list = list with { Id = id };
                         format = format with { NativeList = list };
+                    }
+                    else
+                    {
+                        assignedListIds.Add(list.Id);
                     }
 
                     previousList = list;
@@ -1061,7 +1078,8 @@ namespace RichEdit.Maui
                 links,
                 images,
                 defaultCharacterFormat,
-                previous.DefaultParagraphFormat);
+                previous.DefaultParagraphFormat,
+                remappedSnapshot: remappedPrevious);
         }
 
         private RichTextCharacterFormat ReadCharacterFormat(
@@ -1352,15 +1370,17 @@ namespace RichEdit.Maui
         {
             var markerFormat = list.Kind == RichListKind.Bulleted
                 ? (string.IsNullOrEmpty(list.BulletText) ? "{disc}" : list.BulletText)
-                : list.NumberStyle switch
-                {
-                    RichListNumberStyle.UpperRoman => "{upper-roman}",
-                    RichListNumberStyle.LowerRoman => "{lower-roman}",
-                    RichListNumberStyle.UpperLetter => "{upper-alpha}",
-                    RichListNumberStyle.LowerLetter => "{lower-alpha}",
-                    _ => "{decimal}",
-                };
-            markerFormat = string.Concat(list.Prefix, markerFormat, list.Suffix);
+                : string.Concat(
+                    list.Prefix,
+                    list.NumberStyle switch
+                    {
+                        RichListNumberStyle.UpperRoman => "{upper-roman}",
+                        RichListNumberStyle.LowerRoman => "{lower-roman}",
+                        RichListNumberStyle.UpperLetter => "{upper-alpha}",
+                        RichListNumberStyle.LowerLetter => "{lower-alpha}",
+                        _ => "{decimal}",
+                    },
+                    list.Suffix);
             return new NSTextList(
                 markerFormat,
                 NSTextListOptions.None,

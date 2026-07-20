@@ -90,7 +90,10 @@ internal sealed class RichBaselineOffsetSpan(int pixels) : MetricAffectingSpan
     {
         if (textPaint is not null)
         {
-            textPaint.BaselineShift += Pixels;
+            textPaint.BaselineShift = (int)Math.Clamp(
+                (long)textPaint.BaselineShift + Pixels,
+                int.MinValue,
+                int.MaxValue);
         }
     }
 }
@@ -174,31 +177,44 @@ internal sealed class RichLineHeightSpan(
             targetHeight = Math.Min(targetHeight, maximum);
         }
 
-        var pixels = Math.Max(checked((int)Math.Round(targetHeight)), 1);
+        var pixels = Math.Max(ToSaturatedInt32(targetHeight), 1);
         if (pixels != naturalHeight)
         {
             // Match Android's LineHeightSpan.Standard baseline-preserving scaling,
             // while remaining available on the API 26 minimum supported here.
-            var descent = checked((int)Math.Round(
-                fontMetrics.Descent * (double)pixels / naturalHeight));
+            var descent = ToSaturatedInt32(
+                fontMetrics.Descent * (double)pixels / naturalHeight);
             fontMetrics.Descent = descent;
-            fontMetrics.Ascent = descent - pixels;
+            fontMetrics.Ascent = SaturatingSubtract(descent, pixels);
             fontMetrics.Bottom = fontMetrics.Descent;
             fontMetrics.Top = fontMetrics.Ascent;
         }
 
         if (start <= ParagraphStart && SpaceBefore > 0)
         {
-            fontMetrics.Ascent -= SpaceBefore;
+            fontMetrics.Ascent = SaturatingSubtract(fontMetrics.Ascent, SpaceBefore);
             fontMetrics.Top = fontMetrics.Ascent;
         }
 
         if (end >= ParagraphEnd && SpaceAfter > 0)
         {
-            fontMetrics.Descent += SpaceAfter;
+            fontMetrics.Descent = (int)Math.Clamp(
+                (long)fontMetrics.Descent + SpaceAfter,
+                int.MinValue,
+                int.MaxValue);
             fontMetrics.Bottom = fontMetrics.Descent;
         }
     }
+
+    private static int ToSaturatedInt32(double value) => value switch
+    {
+        >= int.MaxValue => int.MaxValue,
+        <= int.MinValue => int.MinValue,
+        _ => (int)Math.Round(value),
+    };
+
+    private static int SaturatingSubtract(int left, int right) =>
+        (int)Math.Clamp((long)left - right, int.MinValue, int.MaxValue);
 }
 
 internal sealed class RichParagraphDecorationSpan(
@@ -369,8 +385,9 @@ internal sealed class RichListMarkerSpan(
 
     public string Marker { get; } = marker;
 
-    public int GetLeadingMargin(bool first) =>
-        checked(levelIndent + markerWidth + gapWidth);
+    public int GetLeadingMargin(bool first) => (int)Math.Min(
+        (long)levelIndent + markerWidth + gapWidth,
+        int.MaxValue);
 
     public void DrawLeadingMargin(
         global::Android.Graphics.Canvas? canvas,

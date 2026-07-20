@@ -594,12 +594,17 @@ internal static class RtfCodec
             int start,
             int end,
             RichTextField? excludedField = null,
-            RichTextLink? excludedLink = null)
+            RichTextLink? excludedLink = null,
+            bool skipEmptyFieldsAtStart = false)
         {
             var position = start;
             while (position < end)
             {
-                WriteEmptyFieldsAt(position, excludedField);
+                if (!skipEmptyFieldsAtStart || position != start)
+                {
+                    WriteEmptyFieldsAt(position, excludedField);
+                }
+
                 if (_fieldsByStart.TryGetValue(position, out var field) &&
                     field != excludedField && field.End <= end)
                 {
@@ -659,7 +664,8 @@ internal static class RtfCodec
                 field.Start,
                 field.End,
                 excludedField: field,
-                excludedLink: excludedLink);
+                excludedLink: excludedLink,
+                skipEmptyFieldsAtStart: true);
             _output.Append("}}");
         }
 
@@ -682,7 +688,8 @@ internal static class RtfCodec
                 link.Start,
                 link.End,
                 excludedField: excludedField,
-                excludedLink: link);
+                excludedLink: link,
+                skipEmptyFieldsAtStart: true);
             _output.Append("}}");
         }
 

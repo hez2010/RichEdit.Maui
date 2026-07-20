@@ -585,6 +585,25 @@ public sealed class RtfArchitectureTests
     }
 
     [Fact]
+    public void EmptyFieldsAtHyperlinkStartAreSerializedExactlyOnce()
+    {
+        var document = new RichTextDocument(
+            "abc",
+            links: [new RichTextLink(0, 3, "https://example.test")],
+            fields:
+            [
+                new RichTextField(0, 0, "PAGE"),
+                new RichTextField(0, 0, "NUMPAGES"),
+            ]);
+
+        var parsed = RichTextDocument.FromRtf(document.ToRtf());
+
+        Assert.Equal(2, parsed.Fields.Length);
+        Assert.Equal(["PAGE", "NUMPAGES"], parsed.Fields.Select(field => field.Instruction));
+        Assert.Single(parsed.Links);
+    }
+
+    [Fact]
     public void PartiallyOverlappingFieldAndLinkRoundTripWithoutLosingEitherRange()
     {
         var document = new RichTextDocument(
