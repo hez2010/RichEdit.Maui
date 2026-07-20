@@ -40,6 +40,10 @@ internal interface IRichEditorHandler
 
     void SetSelection(RichTextRange selection);
 
+    void ApplyTypingFormat(
+        RichTextCharacterFormat characterFormat,
+        RichTextParagraphFormat paragraphFormat);
+
     void Undo();
 
     void Redo();
@@ -131,13 +135,13 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         }
     }
 
-    void IRichEditorHandler.SetSelection(RichTextRange selection)
-    {
+    void IRichEditorHandler.SetSelection(RichTextRange selection) =>
         SetSelectionCore(selection.Start, selection.Length);
-        ApplyTypingFormatCore(
-            VirtualView.Selection.TypingCharacterFormat,
-            VirtualView.Selection.TypingParagraphFormat);
-    }
+
+    void IRichEditorHandler.ApplyTypingFormat(
+        RichTextCharacterFormat characterFormat,
+        RichTextParagraphFormat paragraphFormat) =>
+        ApplyTypingFormatCore(characterFormat, paragraphFormat);
 
     void IRichEditorHandler.Undo() => UndoCore();
 

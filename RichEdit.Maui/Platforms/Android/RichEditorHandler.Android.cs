@@ -603,7 +603,9 @@ public partial class RichEditorHandler
             var intersects = start == end
                 ? spanStart == start || spanStart < start && spanEnd > start
                 : spanStart < end && spanEnd > start ||
-                  spanStart == spanEnd && spanStart >= start && spanStart < end;
+                  // Android can collapse a paragraph span onto the edit boundary
+                  // when the paragraph delimiter is inserted or removed.
+                  spanStart == spanEnd && spanStart >= start && spanStart <= end;
             if (intersects)
             {
                 text.RemoveSpan(span);
@@ -1637,7 +1639,7 @@ public partial class RichEditorHandler
     {
         var document = previous.ApplyParagraphFormat(
             paragraphStart..paragraphStart,
-            format => format with { List = null });
+            format => format with { List = null, NativeList = null });
         document = document.Replace(
             paragraphStart..paragraphStart,
             "\n",
@@ -1803,6 +1805,12 @@ public partial class RichEditorHandler
         var paragraphStart = GetParagraphStart(
             document.Text,
             Math.Clamp(changedPosition, 0, document.Length));
+        // A paragraph span can grow across the edited newline before Android
+        // reports the text change. Rebuild the preceding paragraph as well so
+        // that marker is split back onto its authored paragraph boundary.
+        var refreshStart = paragraphStart == 0
+            ? 0
+            : GetParagraphStart(document.Text, paragraphStart - 1);
         var paragraphEnd = GetParagraphEnd(document.Text, paragraphStart);
         var listId = document.GetParagraphFormat(paragraphStart).NativeList?.Id;
         if (listId is not null)
@@ -1825,7 +1833,7 @@ public partial class RichEditorHandler
             ApplyParagraphFormatsIncrementally(
                 text,
                 document,
-                new RichTextRange(paragraphStart, paragraphEnd - paragraphStart));
+                new RichTextRange(refreshStart, paragraphEnd - refreshStart));
             UpdateGlobalParagraphProjection(document);
             PlatformView.RequestLayout();
             PlatformView.Invalidate();

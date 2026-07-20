@@ -18,6 +18,8 @@ namespace RichEdit.Maui.Platforms.Apple
 
         internal Func<Task>? PasteRequested { get; set; }
 
+        internal Action<RichTextView, string>? TextInputPreparing { get; set; }
+
         internal Action? NativeAppearanceChanged { get; set; }
 
         /// <summary>Initializes the native rich-text view.</summary>
@@ -80,6 +82,15 @@ namespace RichEdit.Maui.Platforms.Apple
             base.Paste(sender);
         }
 
+        /// <inheritdoc />
+        public override void InsertText(string text)
+        {
+            // Prepare typing attributes before UIKit enters its delegate-driven
+            // edit transaction. Mutating them from ShouldChangeText is reentrant.
+            TextInputPreparing?.Invoke(this, text);
+            base.InsertText(text);
+        }
+
 #pragma warning disable CA1422 // Required on iOS 15-16; the callback remains valid on 17+.
         /// <inheritdoc />
         public override void TraitCollectionDidChange(UITraitCollection? previousTraitCollection)
@@ -99,6 +110,7 @@ namespace RichEdit.Maui.Platforms.Apple
             if (disposing)
             {
                 PasteRequested = null;
+                TextInputPreparing = null;
                 NativeAppearanceChanged = null;
                 _placeholderLabel.Dispose();
             }
@@ -154,6 +166,7 @@ namespace RichEdit.Maui
             _textViewDelegate = new RichTextViewDelegate(this);
             platformView.Delegate = _textViewDelegate;
             platformView.PasteRequested = OnPlatformPasteAsync;
+            platformView.TextInputPreparing = OnNativeTextInputPreparing;
             platformView.NativeAppearanceChanged = OnNativeAppearanceChanged;
         }
 
@@ -162,6 +175,7 @@ namespace RichEdit.Maui
         {
             _pendingNativeChange = null;
             platformView.PasteRequested = null;
+            platformView.TextInputPreparing = null;
             platformView.NativeAppearanceChanged = null;
             platformView.Delegate = null!;
             _textViewDelegate?.Dispose();
@@ -1654,16 +1668,17 @@ namespace RichEdit.Maui
             return currentLength - removedLength + replacementText.Length <= VirtualView.MaxLength;
         }
 
-        private bool PrepareEmptyListParagraphExit(
-            UITextView textView,
-            NSRange range,
+        private void OnNativeTextInputPreparing(
+            RichTextView textView,
             string replacementText)
         {
+            var range = textView.SelectedRange;
             if (_applyingDocument || VirtualView is null ||
                 range.Length != 0 || range.Location < 0 || range.Location > int.MaxValue ||
-                !string.Equals(replacementText, "\n", StringComparison.Ordinal))
+                !string.Equals(replacementText, "\n", StringComparison.Ordinal) ||
+                !ShouldAllowNativeChange(range, replacementText))
             {
-                return false;
+                return;
             }
 
             var document = VirtualView.Document.CurrentSnapshot;
@@ -1674,7 +1689,7 @@ namespace RichEdit.Maui
                 (paragraphStart > 0 && text[paragraphStart - 1] != '\n') ||
                 document.GetParagraphFormat(paragraphStart).List is null)
             {
-                return false;
+                return;
             }
 
             var paragraphEnd = GetParagraphEnd(text, paragraphStart);
@@ -1685,17 +1700,20 @@ namespace RichEdit.Maui
 
             if (paragraphEnd != paragraphStart)
             {
-                return false;
+                return;
             }
 
             // Let UITextView perform the insertion so its native undo manager owns
             // the complete edit. Supplying the non-list paragraph as the native
             // typing format makes the inserted delimiter and following paragraph
             // leave the list without any attributed-string rewrite afterward.
-            var paragraphFormat = document.GetParagraphFormat(paragraphStart) with { List = null };
+            var paragraphFormat = document.GetParagraphFormat(paragraphStart) with
+            {
+                List = null,
+                NativeList = null,
+            };
             textView.SelectionAffinity = UITextStorageDirection.Forward;
             ApplyTypingFormatCore(document.GetCaretFormat(paragraphStart), paragraphFormat);
-            return true;
         }
 
         private void RecordPendingNativeChange(NSRange range)
@@ -1933,43 +1951,8 @@ namespace RichEdit.Maui
                 0,
                 VirtualView.Document.Text.Length - start);
             VirtualView.UpdateSelectionFromPlatform(start, length);
-            ApplyEmptyParagraphTypingAffinity(textView, start, length);
             UpdateTypingFormatsFromPlatform();
             _pendingNativeChange = null;
-        }
-
-        private void ApplyEmptyParagraphTypingAffinity(
-            UITextView textView,
-            int start,
-            int length)
-        {
-            if (length != 0 || VirtualView is null || start <= 0)
-            {
-                return;
-            }
-
-            var document = VirtualView.Document.CurrentSnapshot;
-            if (start > document.Length || document.Text[start - 1] != '\n')
-            {
-                return;
-            }
-
-            var paragraphEnd = GetParagraphEnd(document.Text, start);
-            var isEmpty = paragraphEnd == start ||
-                paragraphEnd == start + 1 && document.Text[start] == '\n';
-            var paragraphFormat = document.GetParagraphFormat(start);
-            if (!isEmpty || paragraphFormat.List is not null ||
-                document.GetParagraphFormat(start - 1).List is null)
-            {
-                return;
-            }
-
-            // A storage position immediately after a list newline has both an
-            // upstream list affinity and a downstream empty-paragraph affinity.
-            // Keep the caret on the authored non-list paragraph when keyboard
-            // navigation lands on that boundary.
-            textView.SelectionAffinity = UITextStorageDirection.Forward;
-            ApplyTypingFormatCore(document.GetCaretFormat(start), paragraphFormat);
         }
 
         private Task OnPlatformPasteAsync() =>
@@ -2037,7 +2020,6 @@ namespace RichEdit.Maui
                     return false;
                 }
 
-                target.PrepareEmptyListParagraphExit(textView, range, text);
                 target.RecordPendingNativeChange(range);
                 return true;
             }

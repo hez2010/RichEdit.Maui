@@ -671,7 +671,10 @@ public sealed class RichEditor : View
         RefreshTypingFormats();
         if (!_synchronizingSelection && Handler is IRichEditorHandler handler)
         {
+            var characterFormat = _typingCharacterFormat;
+            var paragraphFormat = _typingParagraphFormat;
             handler.SetSelection(newRange);
+            handler.ApplyTypingFormat(characterFormat, paragraphFormat);
         }
 
         SelectionChanged?.Invoke(
@@ -715,16 +718,18 @@ public sealed class RichEditor : View
         var resultingSelection = _pendingPlatformSelection ??
             MapSelection(SelectedRange, changeSet, Document.Length);
 
-        if (Handler is IRichEditorHandler handler &&
-            !ReferenceEquals(changeSet.SourceToken, handler.SourceToken))
+        var handler = Handler as IRichEditorHandler;
+        var appliedToPlatform = handler is not null &&
+            !ReferenceEquals(changeSet.SourceToken, handler.SourceToken);
+        if (appliedToPlatform)
         {
             if (changeSet.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
             {
-                handler.ApplySnapshot(Document.CurrentSnapshot, resultingSelection);
+                handler!.ApplySnapshot(Document.CurrentSnapshot, resultingSelection);
             }
             else
             {
-                handler.ApplyChanges(changeSet, resultingSelection);
+                handler!.ApplyChanges(changeSet, resultingSelection);
             }
         }
 
@@ -732,6 +737,16 @@ public sealed class RichEditor : View
         SetSelectionCore(
             resultingSelection,
             fromPlatform: changeSet.Origin == RichTextChangeOrigin.User);
+        if (appliedToPlatform && !selectionChanged)
+        {
+            // A document-format edit at a stationary caret refreshes the managed
+            // typing format without raising SelectedRange.PropertyChanged. Apply
+            // it without assigning the native selection again: selection changes
+            // are native callbacks on some platforms and must not be synthesized
+            // merely to update typing attributes.
+            handler!.ApplyTypingFormat(_typingCharacterFormat, _typingParagraphFormat);
+        }
+
         SynchronizeContentProperties();
         RefreshUndoState();
         if (AutoSize == EditorAutoSizeOption.TextChanges && changeSet.IsTextChanged)
@@ -835,7 +850,7 @@ public sealed class RichEditor : View
     {
         if (Handler is IRichEditorHandler handler)
         {
-            handler.SetSelection(SelectedRange);
+            handler.ApplyTypingFormat(_typingCharacterFormat, _typingParagraphFormat);
         }
     }
 
