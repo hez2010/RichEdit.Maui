@@ -168,6 +168,7 @@ namespace RichEdit.Maui
         {
             _pendingNativeChange = null;
             StopObservingUndoManager();
+            platformView.UndoManager?.RemoveAllActions(platformView);
             platformView.PasteRequested = null;
             platformView.NativeAppearanceChanged = null;
             platformView.Delegate = null!;
@@ -280,43 +281,22 @@ namespace RichEdit.Maui
             EnsureUndoManagerNotifications(undoManager);
             var previousSelection = GetNativeSelection(
                 changes.BeforeSnapshot?.Length ?? checked((int)PlatformView.TextStorage.Length));
-            var undoRegistrationWasEnabled =
-                undoManager?.IsUndoRegistrationEnabled == true;
-            if (undoRegistrationWasEnabled)
-            {
-                undoManager!.DisableUndoRegistration();
-            }
-
-            var applied = false;
-            try
-            {
-                ApplyIncrementalChangesWithoutUndo(
-                    changes,
-                    selection,
-                    typingCharacterFormat,
-                    typingParagraphFormat);
-                applied = true;
-            }
-            finally
-            {
-                if (undoRegistrationWasEnabled)
-                {
-                    undoManager!.EnableUndoRegistration();
-                }
-            }
-
-            if (applied)
-            {
-                CompleteNativeUndoTransaction(
-                    undoManager,
-                    changes,
-                    previousSelection,
-                    selection,
-                    undoRegistrationWasEnabled);
-            }
+            // Programmatic NSTextStorage edits do not register undo actions. Leave
+            // UIKit's shared manager enabled while TextKit processes the edit, then
+            // register the one model transaction after the native projection succeeds.
+            ApplyIncrementalChangesToTextStorage(
+                changes,
+                selection,
+                typingCharacterFormat,
+                typingParagraphFormat);
+            CompleteNativeUndoTransaction(
+                undoManager,
+                changes,
+                previousSelection,
+                selection);
         }
 
-        private void ApplyIncrementalChangesWithoutUndo(
+        private void ApplyIncrementalChangesToTextStorage(
             RichTextChangeSet changes,
             RichTextRange selection,
             RichTextCharacterFormat typingCharacterFormat,
@@ -431,8 +411,7 @@ namespace RichEdit.Maui
             NSUndoManager? manager,
             RichTextChangeSet changes,
             RichTextRange previousSelection,
-            RichTextRange resultingSelection,
-            bool undoRegistrationWasEnabled)
+            RichTextRange resultingSelection)
         {
             if (manager is null || _restoringNativeUndo)
             {
@@ -447,8 +426,14 @@ namespace RichEdit.Maui
                 return;
             }
 
-            if (!undoRegistrationWasEnabled ||
-                changes.BeforeSnapshot is not { } before ||
+            if (!manager.IsUndoRegistrationEnabled)
+            {
+                manager.RemoveAllActions();
+                VirtualView.UpdateUndoStateFromPlatform();
+                return;
+            }
+
+            if (changes.BeforeSnapshot is not { } before ||
                 changes.AfterSnapshot is not { } after)
             {
                 return;
@@ -469,17 +454,41 @@ namespace RichEdit.Maui
             NSUndoManager manager,
             NativeUndoTransition transition)
         {
-            var weakHandler = new WeakReference<RichEditorHandler>(this);
-            manager.RegisterUndo(PlatformView, _ =>
+            if (!manager.IsUndoRegistrationEnabled)
             {
-                if (weakHandler.TryGetTarget(out var handler))
+                return;
+            }
+
+            // MAUI commands can run before the undo manager has opened its automatic
+            // run-loop group. NSUndoManager requires an established group when an
+            // operation is registered, so own only the otherwise-missing top level.
+            var startedGroup = manager.GroupingLevel == 0;
+            if (startedGroup)
+            {
+                manager.BeginUndoGrouping();
+            }
+
+            try
+            {
+                var weakHandler = new WeakReference<RichEditorHandler>(this);
+                manager.RegisterUndo(PlatformView, _ =>
                 {
-                    handler.ApplyNativeUndoTransition(transition);
+                    if (weakHandler.TryGetTarget(out var handler))
+                    {
+                        handler.ApplyNativeUndoTransition(transition);
+                    }
+                });
+                if (!string.IsNullOrWhiteSpace(transition.ActionName))
+                {
+                    manager.SetActionName(transition.ActionName);
                 }
-            });
-            if (!string.IsNullOrWhiteSpace(transition.ActionName))
+            }
+            finally
             {
-                manager.SetActionName(transition.ActionName);
+                if (startedGroup)
+                {
+                    manager.EndUndoGrouping();
+                }
             }
         }
 
