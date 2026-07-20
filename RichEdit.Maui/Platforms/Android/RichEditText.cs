@@ -32,8 +32,6 @@ public class RichEditText : AppCompatEditText
 
     internal Action? RedoRequested { get; set; }
 
-    internal Func<bool>? BackspaceRequested { get; set; }
-
     internal Func<string, bool>? LinkInvoked { get; set; }
 
     internal Func<int, bool>? InlineObjectInvoked { get; set; }
@@ -80,21 +78,7 @@ public class RichEditText : AppCompatEditText
             return false;
         }
 
-        if (keyCode == Keycode.Del && BackspaceRequested?.Invoke() == true)
-        {
-            return true;
-        }
-
         return base.OnKeyDown(keyCode, e);
-    }
-
-    /// <inheritdoc />
-    public override IInputConnection? OnCreateInputConnection(EditorInfo? outAttrs)
-    {
-        var connection = base.OnCreateInputConnection(outAttrs);
-        return connection is null
-            ? null
-            : new RichInputConnection(connection, this);
     }
 
     /// <inheritdoc />
@@ -186,7 +170,6 @@ public class RichEditText : AppCompatEditText
             PasteRequested = null;
             UndoRequested = null;
             RedoRequested = null;
-            BackspaceRequested = null;
             LinkInvoked = null;
             InlineObjectInvoked = null;
         }
@@ -228,27 +211,5 @@ public class RichEditText : AppCompatEditText
     {
         base.OnSelectionChanged(selectionStart, selectionEnd);
         NativeSelectionChanged?.Invoke(this, new NativeSelectionChangedEventArgs(selectionStart, selectionEnd));
-    }
-
-    private sealed class RichInputConnection(
-        IInputConnection target,
-        RichEditText editor) : InputConnectionWrapper(target, mutable: false)
-    {
-        public override bool DeleteSurroundingText(int beforeLength, int afterLength) =>
-            beforeLength == 1 && afterLength == 0 &&
-            editor.BackspaceRequested?.Invoke() == true ||
-            base.DeleteSurroundingText(beforeLength, afterLength);
-
-        public override bool DeleteSurroundingTextInCodePoints(
-            int beforeLength,
-            int afterLength) =>
-            beforeLength == 1 && afterLength == 0 &&
-            editor.BackspaceRequested?.Invoke() == true ||
-            base.DeleteSurroundingTextInCodePoints(beforeLength, afterLength);
-
-        public override bool SendKeyEvent(KeyEvent? e) =>
-            e is { Action: KeyEventActions.Down, KeyCode: Keycode.Del } &&
-            editor.BackspaceRequested?.Invoke() == true ||
-            base.SendKeyEvent(e);
     }
 }

@@ -66,7 +66,6 @@ public partial class RichEditorHandler
         platformView.PasteRequested = OnPlatformPasteAsync;
         platformView.UndoRequested = OnPlatformUndo;
         platformView.RedoRequested = OnPlatformRedo;
-        platformView.BackspaceRequested = OnPlatformBackspace;
         platformView.LinkInvoked = OnPlatformLinkInvoked;
         platformView.InlineObjectInvoked = OnPlatformInlineObjectInvoked;
     }
@@ -80,7 +79,6 @@ public partial class RichEditorHandler
         platformView.PasteRequested = null;
         platformView.UndoRequested = null;
         platformView.RedoRequested = null;
-        platformView.BackspaceRequested = null;
         platformView.LinkInvoked = null;
         platformView.InlineObjectInvoked = null;
         base.DisconnectHandler(platformView);
@@ -105,31 +103,6 @@ public partial class RichEditorHandler
         {
             VirtualView.Redo();
         }
-    }
-
-    private bool OnPlatformBackspace()
-    {
-        if (VirtualView is null || VirtualView.IsReadOnly ||
-            PlatformView.SelectionStart != PlatformView.SelectionEnd)
-        {
-            return false;
-        }
-
-        var snapshot = VirtualView.Document.CurrentSnapshot;
-        var caret = Math.Clamp(PlatformView.SelectionStart, 0, snapshot.Length);
-        var paragraphStart = GetParagraphStart(snapshot.Text, caret);
-        if (caret != paragraphStart ||
-            snapshot.GetParagraphFormat(paragraphStart).List is null)
-        {
-            return false;
-        }
-
-        // Android list markers are paragraph spans rather than a native list
-        // editing primitive. Match RichEdit's first-Backspace command at the
-        // document layer: remove list membership without deleting text.
-        VirtualView.Document.Edit(edit =>
-            edit.RemoveList(new RichTextRange(paragraphStart, 0)));
-        return true;
     }
 
     private bool OnPlatformLinkInvoked(string target)
@@ -1542,18 +1515,24 @@ public partial class RichEditorHandler
             insertedStart,
             insertedStart + insertedLength);
 
+        var paragraphStructureChanged = previousText
+            .AsSpan(removedStart, removedLength)
+            .Contains('\n') ||
+            insertedText.Contains('\n');
+
         var containsPastedRichContent = insertedLength > 0 &&
             ContainsPastedRichContent(editable, insertedStart, insertedStart + insertedLength);
         var containsPastedListContent = insertedLength > 0 &&
             ContainsPastedListContent(editable, insertedStart, insertedStart + insertedLength);
-        var requiresRichSnapshot = containsPastedRichContent || containsPastedListContent;
+        var requiresNativeSnapshot = paragraphStructureChanged ||
+            containsPastedRichContent ||
+            containsPastedListContent;
         RichTextDocumentSnapshot document;
-        RichTextRange? affectedParagraphRange = null;
-        if (requiresRichSnapshot)
+        if (requiresNativeSnapshot)
         {
-            // Android does not expose a bounded description of every foreign span
-            // introduced by a rich clipboard payload. This is the explicit rich-
-            // paste recovery path; ordinary typing and deletion stay incremental.
+            // Paragraph spans move and split as part of Android's own edit. Read
+            // their resulting ranges instead of predicting or rewriting them.
+            // Ordinary edits that do not change paragraph structure stay incremental.
             document = ReadDocumentFromPlatform(editable.ToString() ?? string.Empty);
         }
         else
@@ -1561,63 +1540,18 @@ public partial class RichEditorHandler
             document = previousDocument.Replace(
                 removedStart..(removedStart + removedLength),
                 insertedText,
-                insertedLength == 0 ? null : _nativeTypingFormat,
-                out affectedParagraphRange);
+                insertedLength == 0 ? null : _nativeTypingFormat);
         }
 
         insertedStart = Math.Clamp(insertedStart, 0, document.Text.Length);
         insertedLength = Math.Clamp(insertedLength, 0, document.Text.Length - insertedStart);
-        var paragraphStructureChanged = previousText
-            .AsSpan(removedStart, removedLength)
-            .Contains('\n') ||
-            document.Text.AsSpan(insertedStart, insertedLength).Contains('\n');
 
-        var touchesList = TouchesList(
-            previousDocument,
-            document,
-            removedStart,
-            removedLength,
-            insertedStart,
-            insertedLength);
-        if (touchesList && requiresRichSnapshot && !containsPastedListContent)
-        {
-            var expected = previousDocument.Replace(
-                removedStart..(removedStart + removedLength),
-                insertedText,
-                replacementFormat: null);
-            if (string.Equals(expected.Text, document.Text, StringComparison.Ordinal))
-            {
-                document = document.With(paragraphs: document.Paragraphs.Select(paragraph =>
-                    paragraph with
-                    {
-                        Format = paragraph.Format with
-                        {
-                            List = expected.GetParagraphFormat(paragraph.Start).List,
-                            NativeList = null,
-                        },
-                    }));
-            }
-        }
-
-        var repairListMarkers = touchesList &&
-            (paragraphStructureChanged ||
-             insertedLength > 0 &&
-             removedStart == GetParagraphStart(previousText, removedStart));
-
-        if (!requiresRichSnapshot && insertedLength > 0)
+        if (!requiresNativeSnapshot && insertedLength > 0)
         {
             ApplyInsertedTypingFormat(
                 editable,
                 document,
                 new RichTextRange(insertedStart, insertedLength));
-        }
-
-        if (repairListMarkers)
-        {
-            RepairListMarkerSpans(
-                editable,
-                document,
-                affectedParagraphRange ?? new RichTextRange(insertedStart, insertedLength));
         }
 
         var start = Math.Clamp(PlatformView.SelectionStart, 0, document.Text.Length);
@@ -1746,78 +1680,6 @@ public partial class RichEditorHandler
         {
             _applyingDocument = false;
         }
-    }
-
-    private void RepairListMarkerSpans(
-        ISpannable text,
-        RichTextDocumentSnapshot document,
-        RichTextRange changedRange)
-    {
-        var paragraphStart = GetParagraphStart(
-            document.Text,
-            Math.Clamp(changedRange.Start, 0, document.Length));
-        // A paragraph span can grow across the edited newline before Android
-        // reports the text change. Rebuild the preceding paragraph as well so
-        // that marker is split back onto its authored paragraph boundary.
-        var refreshStart = paragraphStart == 0
-            ? 0
-            : GetParagraphStart(document.Text, paragraphStart - 1);
-        var changedEnd = Math.Clamp(changedRange.End, paragraphStart, document.Length);
-        var paragraphEnd = GetParagraphEnd(
-            document.Text,
-            GetParagraphStart(document.Text, changedEnd));
-        var listId = document.GetParagraphFormat(paragraphStart).NativeList?.Id;
-        if (listId is not null)
-        {
-            foreach (var paragraph in document.Paragraphs)
-            {
-                if (paragraph.Start >= paragraphStart &&
-                    paragraph.Format.NativeList?.Id == listId)
-                {
-                    paragraphEnd = Math.Max(
-                        paragraphEnd,
-                        GetParagraphEnd(document.Text, paragraph.Start));
-                }
-            }
-        }
-
-        _applyingDocument = true;
-        try
-        {
-            ApplyParagraphFormatsIncrementally(
-                text,
-                document,
-                new RichTextRange(refreshStart, paragraphEnd - refreshStart));
-            UpdateGlobalParagraphProjection(document);
-            PlatformView.RequestLayout();
-            PlatformView.Invalidate();
-        }
-        finally
-        {
-            _applyingDocument = false;
-        }
-    }
-
-    private static bool TouchesList(
-        RichTextDocumentSnapshot previous,
-        RichTextDocumentSnapshot current,
-        int removedStart,
-        int removedLength,
-        int insertedStart,
-        int insertedLength)
-    {
-        var previousParagraphStart = GetParagraphStart(previous.Text, removedStart);
-        var removedEnd = removedStart + removedLength;
-        var currentParagraphStart = GetParagraphStart(current.Text, insertedStart);
-        var insertedEnd = insertedStart + insertedLength;
-        return previous.Paragraphs.Any(paragraph =>
-                paragraph.Start >= previousParagraphStart &&
-                paragraph.Start <= removedEnd &&
-                paragraph.Format.NativeList is not null) ||
-            current.Paragraphs.Any(paragraph =>
-                paragraph.Start >= currentParagraphStart &&
-                paragraph.Start <= insertedEnd &&
-                paragraph.Format.NativeList is not null);
     }
 
     private static IEnumerable<T> GetSpans<T>(ISpanned text, int start, int end)

@@ -330,14 +330,7 @@ public sealed class RichTextDocumentSnapshot
     internal RichTextDocumentSnapshot Replace(
         Range range,
         string? replacement,
-        RichTextCharacterFormat? replacementFormat = null) =>
-        Replace(range, replacement, replacementFormat, out _);
-
-    internal RichTextDocumentSnapshot Replace(
-        Range range,
-        string? replacement,
-        RichTextCharacterFormat? replacementFormat,
-        out RichTextRange? affectedParagraphRange)
+        RichTextCharacterFormat? replacementFormat = null)
     {
         var (start, length) = range.GetOffsetAndLength(Text.Length);
         replacement = NormalizeText(replacement);
@@ -345,25 +338,6 @@ public sealed class RichTextDocumentSnapshot
         var delta = replacement.Length - length;
         var text = string.Concat(Text.AsSpan(0, start), replacement, Text.AsSpan(oldEnd));
         var insertionFormat = Validate(replacementFormat ?? GetCaretFormat(start));
-        var editedParagraphStart = GetParagraphStart(Text, start);
-        var removedNewlineOffset = Text.AsSpan(start, length).IndexOf('\n');
-        var removedNewline = removedNewlineOffset < 0
-            ? -1
-            : start + removedNewlineOffset;
-        // RichEdit keeps the left paragraph format when the delimiter itself is
-        // deleted after nonempty text. A selection that crosses the delimiter,
-        // or the delimiter of an empty paragraph, adopts the surviving right
-        // paragraph's format. The same rule naturally covers multi-line edits.
-        var adoptsEndingParagraphFormat = removedNewline >= 0 &&
-            (start < removedNewline || start == editedParagraphStart);
-        var editedParagraphFormat = adoptsEndingParagraphFormat
-            ? GetParagraphFormat(oldEnd)
-            : GetParagraphFormat(start);
-        var exitsEmptyList = length == 0 &&
-            string.Equals(replacement, "\n", StringComparison.Ordinal) &&
-            start == editedParagraphStart &&
-            GetParagraphContentEnd(Text, editedParagraphStart) == editedParagraphStart &&
-            editedParagraphFormat.List is not null;
         var runs = new List<RichTextRun>(_runs.Length + 2);
 
         foreach (var run in _runs)
@@ -398,52 +372,25 @@ public sealed class RichTextDocumentSnapshot
             runs.Add(new RichTextRun(start, replacement.Length, insertionFormat));
         }
 
+        var insertionParagraphFormat = GetParagraphFormat(start);
         var paragraphs = EnumerateParagraphStarts(text).Select(paragraphStart =>
         {
             RichTextParagraphFormat format;
-            if (paragraphStart < editedParagraphStart)
+            if (paragraphStart <= start)
             {
                 format = GetParagraphFormat(paragraphStart);
             }
-            else if (paragraphStart == editedParagraphStart)
-            {
-                format = editedParagraphFormat;
-            }
             else if (paragraphStart < start + replacement.Length)
             {
-                format = editedParagraphFormat;
+                format = insertionParagraphFormat;
             }
             else
             {
                 format = GetParagraphFormat(Math.Clamp(paragraphStart - delta, 0, Text.Length));
             }
 
-            // WinUI RichEdit terminates an empty list item by inserting the
-            // requested paragraph delimiter, then removing list membership from
-            // both empty paragraphs. Other paragraph properties remain authored.
-            if (exitsEmptyList &&
-                (paragraphStart == start || paragraphStart == start + 1))
-            {
-                format = format with { List = null, NativeList = null };
-            }
-
             return new RichTextParagraph(paragraphStart, format);
         });
-
-        var paragraphStructureChanged = removedNewline >= 0 || replacement.Contains('\n');
-        if (paragraphStructureChanged)
-        {
-            var affectedEndPosition = Math.Clamp(start + replacement.Length, 0, text.Length);
-            var followingNewline = text.IndexOf('\n', affectedEndPosition);
-            var affectedEnd = followingNewline < 0 ? text.Length : followingNewline + 1;
-            affectedParagraphRange = new RichTextRange(
-                editedParagraphStart,
-                affectedEnd - editedParagraphStart);
-        }
-        else
-        {
-            affectedParagraphRange = null;
-        }
 
         return new RichTextDocumentSnapshot(
             text,
@@ -461,12 +408,6 @@ public sealed class RichTextDocumentSnapshot
             _metadata,
             _listPictures.Values,
             _lists);
-    }
-
-    private static int GetParagraphContentEnd(string text, int paragraphStart)
-    {
-        var newline = text.IndexOf('\n', paragraphStart);
-        return newline < 0 ? text.Length : newline;
     }
 
     internal RichTextDocumentSnapshot SetLink(Range range, string target, string? toolTip = null)
