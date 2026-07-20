@@ -49,14 +49,11 @@
     <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != ''">
         <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
     </PropertyGroup>
-    <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net11.0-android|AnyCPU'">
-      <AndroidPackageFormat>apk</AndroidPackageFormat>
-      <AndroidLinkTool>r8</AndroidLinkTool>
-    </PropertyGroup>
 
     <PropertyGroup Condition="'$(Configuration)'=='Release'">
         <PublishAot>true</PublishAot>
-        <DebugType>none</DebugType>
+        <AndroidPackageFormat>apk</AndroidPackageFormat>
+        <AndroidLinkTool>r8</AndroidLinkTool>
     </PropertyGroup>
 
     <ItemGroup>
