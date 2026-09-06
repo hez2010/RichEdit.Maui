@@ -13,6 +13,8 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private static readonly byte[] ImagePlaceholder = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
     private bool _applyingDocument;
     private bool _canReadLanguageTag = true;
     private bool _hasCompletedInitialLoad;
@@ -20,7 +22,8 @@ public partial class RichEditorHandler
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private NativeTextSnapshot? _nativeTextSnapshot;
-    private RichTextChangeOrigin? _pendingNativeReadbackOrigin;
+    private TextCommandBarFlyout? _contextFlyout;
+    private TextCommandBarFlyout? _selectionFlyout;
 
     /// <inheritdoc />
     protected override RichEditBox CreatePlatformView() => new()
@@ -39,31 +42,53 @@ public partial class RichEditorHandler
     protected override void ConnectHandler(RichEditBox platformView)
     {
         base.ConnectHandler(platformView);
-        platformView.TextChanged += OnNativeDocumentChanged;
+        platformView.TextChanging += OnNativeDocumentChanged;
         platformView.SelectionChanged += OnNativeSelectionChanged;
         platformView.ActualThemeChanged += OnPlatformThemeChanged;
         platformView.Loaded += OnPlatformViewLoaded;
         platformView.LostFocus += OnPlatformViewLostFocus;
         platformView.PreviewKeyDown += OnPlatformKeyDown;
         platformView.Paste += OnPlatformPaste;
+        platformView.CopyingToClipboard += OnPlatformCopy;
+        platformView.CuttingToClipboard += OnPlatformCut;
         platformView.Tapped += OnPlatformTapped;
+        _contextFlyout = new TextCommandBarFlyout();
+        _selectionFlyout = new TextCommandBarFlyout();
+        _contextFlyout.Opening += OnTextFlyoutOpening;
+        _selectionFlyout.Opening += OnTextFlyoutOpening;
+        platformView.ContextFlyout = _contextFlyout;
+        platformView.SelectionFlyout = _selectionFlyout;
     }
 
     /// <inheritdoc />
     protected override void DisconnectHandler(RichEditBox platformView)
     {
-        platformView.TextChanged -= OnNativeDocumentChanged;
+        VirtualView?.Commands.Disconnect();
+        platformView.TextChanging -= OnNativeDocumentChanged;
         platformView.SelectionChanged -= OnNativeSelectionChanged;
         platformView.ActualThemeChanged -= OnPlatformThemeChanged;
         platformView.Loaded -= OnPlatformViewLoaded;
         platformView.LostFocus -= OnPlatformViewLostFocus;
         platformView.PreviewKeyDown -= OnPlatformKeyDown;
         platformView.Paste -= OnPlatformPaste;
+        platformView.CopyingToClipboard -= OnPlatformCopy;
+        platformView.CuttingToClipboard -= OnPlatformCut;
         platformView.Tapped -= OnPlatformTapped;
+        if (_contextFlyout is not null)
+        {
+            _contextFlyout.Opening -= OnTextFlyoutOpening;
+        }
+
+        if (_selectionFlyout is not null)
+        {
+            _selectionFlyout.Opening -= OnTextFlyoutOpening;
+        }
+
+        _contextFlyout = null;
+        _selectionFlyout = null;
         _hasCompletedInitialLoad = false;
         _hasNativeLinks = false;
         _nativeTextSnapshot = null;
-        _pendingNativeReadbackOrigin = null;
 
         base.DisconnectHandler(platformView);
     }
@@ -177,6 +202,19 @@ public partial class RichEditorHandler
                     }
                 }
 
+                var imagesByPosition = document.Images.ToDictionary(image => image.Position);
+                for (var position = 0; position < document.Length; position++)
+                {
+                    // RichEdit substitutes a space for an unsupported picture or
+                    // a literal U+FFFC. Keep a real native object at that position.
+                    if (document.Text[position] == '\uFFFC' &&
+                        nativeDocument.GetRange(position, position + 1).Character != '\uFFFC')
+                    {
+                        ApplyImageIncrementally(imagesByPosition.GetValueOrDefault(position) ??
+                            new RichTextImage { Position = position });
+                    }
+                }
+
                 foreach (var link in document.Links.OrderByDescending(link => link.Start))
                 {
                     formattingRange.SetRange(link.Start, link.End);
@@ -201,126 +239,9 @@ public partial class RichEditorHandler
         }
         finally
         {
+            PlatformView.Document.ClearUndoRedoHistory();
             _applyingDocument = false;
         }
-    }
-
-    /// <summary>
-    /// Projects a full document as one in-place native RTF edit that joins the
-    /// native undo stack, unlike a stream reload which purges that history.
-    /// </summary>
-    private bool TryApplyDocumentAsUndoableRtfEdit(
-        RichTextDocumentSnapshot document,
-        int selectionStart,
-        int selectionLength)
-    {
-        if (PlatformView is null)
-        {
-            return false;
-        }
-
-        _applyingDocument = true;
-        try
-        {
-            var nativeDocument = PlatformView.Document;
-            nativeDocument.BatchDisplayUpdates();
-            var undoGroupStarted = false;
-            try
-            {
-                var nativeDefaultCharacterFormat = RichTextCharacterFormat.Default with
-                {
-                    FontFamily = ResolveFontFamily(),
-                    FontSize = ResolveFontSize(),
-                    ForegroundColor = ResolveTextColor(),
-                };
-                var rtf = RtfCodec.SerializeForNativeProjection(
-                    document,
-                    nativeDefaultCharacterFormat);
-                nativeDocument.BeginUndoGroup();
-                undoGroupStarted = true;
-                _hasNativeLinks = false;
-                _nativeTextSnapshot = null;
-                var storyRange = nativeDocument.GetRange(0, 0);
-                storyRange.SetRange(0, storyRange.StoryLength);
-                try
-                {
-                    storyRange.SetText(TextSetOptions.FormatRtf, rtf);
-                }
-                catch (Exception exception) when (
-                    exception is ArgumentException or COMException)
-                {
-                    return false;
-                }
-
-                _nativeTextSnapshot = null;
-                if (!string.Equals(
-                        GetNativeTextSnapshot().Text,
-                        document.Text,
-                        StringComparison.Ordinal) ||
-                    !VerifyLastParagraphListProjection(document))
-                {
-                    // The selection-mode RTF reader disagreed with the model.
-                    // Reject the edit so the caller falls back to a full reload.
-                    _nativeTextSnapshot = null;
-                    return false;
-                }
-
-                var formattingRange = nativeDocument.GetRange(0, 0);
-                foreach (var link in document.Links.OrderByDescending(link => link.Start))
-                {
-                    formattingRange.SetRange(link.Start, link.End);
-                    try
-                    {
-                        formattingRange.Link = ToNativeLink(link.Target);
-                        _hasNativeLinks = true;
-                    }
-                    catch (Exception exception) when (
-                        exception is ArgumentException or COMException)
-                    {
-                        // Keep the model link when TOM rejects an unsupported target.
-                    }
-                }
-
-                _nativeTextSnapshot = null;
-                SetSelectionCore(selectionStart, selectionLength);
-                return true;
-            }
-            finally
-            {
-                try
-                {
-                    if (undoGroupStarted)
-                    {
-                        nativeDocument.EndUndoGroup();
-                    }
-                }
-                finally
-                {
-                    nativeDocument.ApplyDisplayUpdates();
-                }
-            }
-        }
-        finally
-        {
-            _applyingDocument = false;
-        }
-    }
-
-    private bool VerifyLastParagraphListProjection(RichTextDocumentSnapshot document)
-    {
-        var lastParagraph = document.Paragraphs[^1];
-        if (lastParagraph.Format.NativeList is null)
-        {
-            return true;
-        }
-
-        // The final paragraph mark cannot be replaced, so an in-place RTF edit
-        // relies on RichEdit extending the last inserted list item over it.
-        var nativeRange = PlatformView.Document.GetRange(
-            GetNativeTextSnapshot().ToNativePosition(lastParagraph.Start),
-            GetNativeTextSnapshot().ToNativePosition(lastParagraph.Start));
-        return nativeRange.ParagraphFormat.ListType is not
-            (MarkerType.None or MarkerType.Undefined);
     }
 
     private partial void ApplyIncrementalChangesCore(
@@ -336,57 +257,27 @@ public partial class RichEditorHandler
 
         var snapshot = VirtualView.Document.CurrentSnapshot;
         var affectedRange = changes.GetAffectedRange(snapshot.Length);
-        var clearUndoHistoryAfterApply =
-            changes.UndoBehavior is RichTextUndoBehavior.ClearHistory or
-                RichTextUndoBehavior.DoNotRecord;
-        // Model-only kinds (fields, metadata) have no native projection. Their
-        // text is still applied as an ordinary undoable edit; the model overlay
-        // is remapped on undo readback instead of purging native history.
-        var hasNativeProjection = changes.Changes.Any(
-            static change => HasNativeProjection(change.Kind));
         var hasListChanges = changes.Changes.Any(
             static change => change.Kind == RichTextChangeKind.List);
+        var requiresRtfImages = changes.Changes.Any(change => change.Kind == RichTextChangeKind.Image) &&
+            snapshot.Images.Any(image => image.Position >= affectedRange.Start && image.Position < affectedRange.End &&
+                (image.Rotation != 0 || image.Crop != default));
         if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset) ||
-            hasListChanges && RequiresRtfListProjection(snapshot, affectedRange))
+            hasListChanges && RequiresRtfListProjection(snapshot, affectedRange) || requiresRtfImages)
         {
-            // Custom and picture list markers have no bounded TOM editing API.
-            // Project the document as one undoable in-place RTF edit so the
-            // native undo history survives; a full reload purges it.
-            if (!TryApplyDocumentAsUndoableRtfEdit(snapshot, selection.Start, selection.Length))
-            {
-                ApplyDocumentCore(snapshot, selection.Start, selection.Length);
-                // The reload purges native history implicitly; clearing it
-                // explicitly also discards any unit left by a rejected edit.
-                ClearUndoHistoryCore();
-            }
-
+            // Custom list markers and image geometry need RTF controls beyond TOM.
+            ApplyDocumentCore(snapshot, selection.Start, selection.Length);
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
-            if (clearUndoHistoryAfterApply)
-            {
-                ClearUndoHistoryCore();
-            }
-
             return;
         }
 
         _applyingDocument = true;
         var nativeDocument = PlatformView.Document;
         var displayUpdatesBatched = false;
-        var undoGroupStarted = false;
         try
         {
             nativeDocument.BatchDisplayUpdates();
             displayUpdatesBatched = true;
-            if (hasNativeProjection)
-            {
-                // TOM cannot append a new group to the preceding undo unit, so
-                // MergeWithPrevious degrades to the same distinct unit as CreateUnit.
-                // Change sets without any native projection must not open a group:
-                // an empty unit would surface as a no-op undo step.
-                nativeDocument.BeginUndoGroup();
-                undoGroupStarted = true;
-            }
-
             foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
             {
                 var positions = GetNativeTextSnapshot();
@@ -398,7 +289,7 @@ public partial class RichEditorHandler
             }
 
             if (changes.Changes.Any(static change =>
-                    change.Kind == RichTextChangeKind.Image))
+                    change.Kind is RichTextChangeKind.Text or RichTextChangeKind.Image))
             {
                 ApplyImagesIncrementally(snapshot, changes, affectedRange);
             }
@@ -440,30 +331,23 @@ public partial class RichEditorHandler
         {
             try
             {
-                if (undoGroupStarted)
+                if (displayUpdatesBatched)
                 {
-                    nativeDocument.EndUndoGroup();
+                    nativeDocument.ApplyDisplayUpdates();
                 }
             }
             finally
             {
                 try
                 {
-                    if (displayUpdatesBatched)
-                    {
-                        nativeDocument.ApplyDisplayUpdates();
-                    }
+                    // Only the complete document snapshot owns undo state.
+                    nativeDocument.ClearUndoRedoHistory();
                 }
                 finally
                 {
                     _applyingDocument = false;
                 }
             }
-        }
-
-        if (clearUndoHistoryAfterApply)
-        {
-            ClearUndoHistoryCore();
         }
     }
 
@@ -475,11 +359,20 @@ public partial class RichEditorHandler
         var imageChanges = changes.Changes
             .Where(static change => change.Kind == RichTextChangeKind.Image)
             .ToArray();
+        var imagePositions = snapshot.Images.Select(image => image.Position).ToHashSet();
         foreach (var image in snapshot.Images.Where(image =>
                      image.Position >= affectedRange.Start &&
                      image.Position < affectedRange.End))
         {
             ApplyImageIncrementally(image);
+        }
+
+        for (var position = affectedRange.Start; position < affectedRange.End; position++)
+        {
+            if (snapshot.Text[position] == '\uFFFC' && !imagePositions.Contains(position))
+            {
+                ApplyImageIncrementally(new RichTextImage { Position = position });
+            }
         }
 
         if (changes.IsTextChanged)
@@ -489,16 +382,13 @@ public partial class RichEditorHandler
 
         // An image can be removed while its logical U+FFFC position remains. In
         // that case replace the native object itself with the literal placeholder.
-        var imagesByPosition = snapshot.Images
-            .Select(static image => image.Position)
-            .ToHashSet();
         foreach (var change in imageChanges)
         {
             var range = change.OldRange.Clamp(snapshot.Length);
             for (var position = range.Start; position < range.End; position++)
             {
                 if (snapshot.Text[position] == RichTextDocument.ObjectReplacementCharacter &&
-                    !imagesByPosition.Contains(position))
+                    !imagePositions.Contains(position))
                 {
                     ReplaceNativeImageWithPlaceholder(position);
                 }
@@ -512,65 +402,57 @@ public partial class RichEditorHandler
         var range = PlatformView.Document.GetRange(
             positions.ToNativePosition(image.Position),
             positions.ToNativePosition(image.Position + 1));
-        if (image.Data.IsDefaultOrEmpty)
-        {
-            range.SetText(
-                TextSetOptions.None,
-                RichTextDocument.ObjectReplacementCharacter.ToString());
-            _nativeTextSnapshot = null;
-            return;
-        }
-
-        using var stream = new InMemoryRandomAccessStream();
-        using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
-        {
-            writer.WriteBytes(ImmutableCollectionsMarshal.AsArray(image.Data) ?? []);
-            writer.StoreAsync().AsTask().GetAwaiter().GetResult();
-            writer.DetachStream();
-        }
-
-        stream.Seek(0);
         var insertionPosition = range.StartPosition;
         range.SetText(TextSetOptions.None, string.Empty);
         range.SetRange(insertionPosition, insertionPosition);
+        var lengthBeforeInsert = range.StoryLength;
         try
         {
-            range.InsertImage(
-                ToNativeImageSize(image.Width),
-                ToNativeImageSize(image.Height),
-                0,
+            if (!image.Data.IsDefaultOrEmpty)
+            {
+                InsertImage(ImmutableCollectionsMarshal.AsArray(image.Data)!, image.Width, image.Height);
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or COMException)
+        {
+            // Unsupported payloads remain owned by the managed snapshot.
+        }
+
+        if (range.StoryLength == lengthBeforeInsert ||
+            PlatformView.Document.GetRange(insertionPosition, insertionPosition + 1).Character != '\uFFFC')
+        {
+            range.SetRange(insertionPosition, insertionPosition + Math.Max(0, range.StoryLength - lengthBeforeInsert));
+            range.SetText(TextSetOptions.None, string.Empty);
+            range.SetRange(insertionPosition, insertionPosition);
+            InsertImage(ImagePlaceholder, 12, 12);
+        }
+
+        _nativeTextSnapshot = null;
+
+        void InsertImage(byte[] data, double width, double height)
+        {
+            using var stream = new InMemoryRandomAccessStream();
+            using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+            {
+                writer.WriteBytes(data);
+                writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+                writer.DetachStream();
+            }
+
+            stream.Seek(0);
+            range.InsertImage(ToNativeImageSize(width), ToNativeImageSize(height), 0,
                 image.VerticalAlignment switch
                 {
                     RichTextImageVerticalAlignment.Top => VerticalCharacterAlignment.Top,
                     RichTextImageVerticalAlignment.Bottom => VerticalCharacterAlignment.Bottom,
                     _ => VerticalCharacterAlignment.Baseline,
-                },
-                GetWindowsImageAlternativeText(image.AlternativeText),
-                stream);
+                }, GetWindowsImageAlternativeText(image.AlternativeText), stream);
         }
-        catch (Exception exception) when (exception is ArgumentException or COMException)
-        {
-            // Preserve unsupported payloads in the managed document while keeping
-            // their logical position visible and editable in the native control.
-            range.SetRange(insertionPosition, insertionPosition);
-            range.SetText(
-                TextSetOptions.None,
-                RichTextDocument.ObjectReplacementCharacter.ToString());
-        }
-
-        _nativeTextSnapshot = null;
     }
 
     private void ReplaceNativeImageWithPlaceholder(int position)
     {
-        var positions = GetNativeTextSnapshot();
-        PlatformView.Document.GetRange(
-                positions.ToNativePosition(position),
-                positions.ToNativePosition(position + 1))
-            .SetText(
-                TextSetOptions.None,
-                RichTextDocument.ObjectReplacementCharacter.ToString());
-        _nativeTextSnapshot = null;
+        ApplyImageIncrementally(new RichTextImage { Position = position });
     }
 
     private static int ToNativeImageSize(double points)
@@ -711,16 +593,6 @@ public partial class RichEditorHandler
         _hasNativeLinks = snapshot.Links.Length != 0;
     }
 
-    private static bool HasNativeProjection(RichTextChangeKind kind) => kind is
-        RichTextChangeKind.Text or
-        RichTextChangeKind.CharacterFormat or
-        RichTextChangeKind.ParagraphFormat or
-        RichTextChangeKind.DefaultFormat or
-        RichTextChangeKind.Link or
-        RichTextChangeKind.Image or
-        RichTextChangeKind.List or
-        RichTextChangeKind.Reset;
-
     private static bool RequiresRtfListProjection(
         RichTextDocumentSnapshot snapshot,
         RichTextRange affectedRange)
@@ -798,12 +670,16 @@ public partial class RichEditorHandler
         }
         finally
         {
+            PlatformView.Document.ClearUndoRedoHistory();
             _applyingDocument = wasApplyingDocument;
         }
     }
 
     private static void LoadRtfDocument(RichEditTextDocument nativeDocument, string rtf)
     {
+        // RichEdit consumes the last paragraph mark as its mandatory story
+        // terminator. Supply it separately from logical trailing paragraph breaks.
+        rtf = rtf.Insert(rtf.Length - 1, @"\par");
         using var stream = new InMemoryRandomAccessStream();
         using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
         {
@@ -839,68 +715,26 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial bool TryCutCore()
-    {
-        if (PlatformView is null || VirtualView.IsReadOnly)
-        {
-            return false;
-        }
+    private partial bool SupportsNativeUndoCore() => false;
 
-        var selection = PlatformView.Document.Selection;
-        if (selection.Length == 0)
-        {
-            return false;
-        }
+    private partial bool CanUndoCore() => VirtualView?.Document.CanUndo == true;
 
-        selection.Cut();
-        VirtualView.UpdateUndoStateFromPlatform();
-        return true;
-    }
-
-    private partial bool SupportsNativeUndoCore() => true;
-
-    private partial bool CanUndoCore() => PlatformView?.Document.CanUndo() == true;
-
-    private partial bool CanRedoCore() => PlatformView?.Document.CanRedo() == true;
+    private partial bool CanRedoCore() => VirtualView?.Document.CanRedo == true;
 
     private partial void UndoCore()
     {
-        if (PlatformView is null || VirtualView.IsReadOnly || !PlatformView.Document.CanUndo())
+        if (VirtualView is { IsReadOnly: false })
         {
-            return;
+            VirtualView.Undo();
         }
-
-        _pendingNativeReadbackOrigin = RichTextChangeOrigin.Undo;
-        try
-        {
-            PlatformView.Document.Undo();
-        }
-        finally
-        {
-            _pendingNativeReadbackOrigin = null;
-        }
-
-        VirtualView.UpdateUndoStateFromPlatform();
     }
 
     private partial void RedoCore()
     {
-        if (PlatformView is null || VirtualView.IsReadOnly || !PlatformView.Document.CanRedo())
+        if (VirtualView is { IsReadOnly: false })
         {
-            return;
+            VirtualView.Redo();
         }
-
-        _pendingNativeReadbackOrigin = RichTextChangeOrigin.Redo;
-        try
-        {
-            PlatformView.Document.Redo();
-        }
-        finally
-        {
-            _pendingNativeReadbackOrigin = null;
-        }
-
-        VirtualView.UpdateUndoStateFromPlatform();
     }
 
     private partial void ClearUndoHistoryCore()
@@ -980,6 +814,7 @@ public partial class RichEditorHandler
             finally
             {
                 nativeDocument.ApplyDisplayUpdates();
+                nativeDocument.ClearUndoRedoHistory();
                 _applyingDocument = false;
             }
 
@@ -1016,7 +851,28 @@ public partial class RichEditorHandler
             return;
         }
 
-        if (IsControlKeyDown() && !VirtualView.IsReadOnly)
+        if (IsControlKeyDown() && !IsAltKeyDown())
+        {
+            var clipboardCommand = eventArgs.Key switch
+            {
+                Windows.System.VirtualKey.C or Windows.System.VirtualKey.Insert => VirtualView.Commands.Copy,
+                Windows.System.VirtualKey.X => VirtualView.Commands.Cut,
+                Windows.System.VirtualKey.V => VirtualView.Commands.Paste,
+                _ => null,
+            };
+            if (clipboardCommand is not null)
+            {
+                if (clipboardCommand.CanExecute(null))
+                {
+                    clipboardCommand.Execute(null);
+                }
+
+                eventArgs.Handled = true;
+                return;
+            }
+        }
+
+        if (IsControlKeyDown() && !IsAltKeyDown() && !VirtualView.IsReadOnly)
         {
             if (eventArgs.Key == Windows.System.VirtualKey.Z)
             {
@@ -1042,9 +898,14 @@ public partial class RichEditorHandler
         }
 
         if (eventArgs.Key == Windows.System.VirtualKey.Tab &&
-            VirtualView.AcceptsTab && !VirtualView.IsReadOnly)
+            VirtualView.AcceptsTab && !VirtualView.IsReadOnly &&
+            !IsControlKeyDown() && !IsAltKeyDown() && !IsShiftKeyDown())
         {
-            PlatformView.Document.Selection.SetText(TextSetOptions.None, "\t");
+            if (VirtualView.MaxLength < 0 ||
+                VirtualView.Document.Length - VirtualView.SelectedRange.Length < VirtualView.MaxLength)
+            {
+                VirtualView.Selection.ReplaceText("\t");
+            }
             eventArgs.Handled = true;
         }
     }
@@ -1057,10 +918,87 @@ public partial class RichEditorHandler
         }
 
         // Route every user paste through the portable fragment and cancellable
-        // Pasting event. The resulting incremental edit is committed to WinUI's
-        // own undo stack as one native undo group.
+        // Pasting event. The complete fragment becomes one document undo unit.
         eventArgs.Handled = true;
-        await VirtualView.PasteAsync();
+        await RichEditorCommands.ExecuteAsync(VirtualView.PasteAsync);
+    }
+
+    private async void OnPlatformCopy(RichEditBox sender, TextControlCopyingToClipboardEventArgs args)
+    {
+        args.Handled = true;
+        await RichEditorCommands.ExecuteAsync(VirtualView.CopyAsync);
+    }
+
+    private async void OnPlatformCut(RichEditBox sender, TextControlCuttingToClipboardEventArgs args)
+    {
+        args.Handled = true;
+        await RichEditorCommands.ExecuteAsync(VirtualView.CutAsync);
+    }
+
+    private void OnTextFlyoutOpening(object? sender, object args)
+    {
+        if (sender is not TextCommandBarFlyout flyout || VirtualView is null)
+        {
+            return;
+        }
+
+        ConfigureTextFlyoutCommands(flyout);
+    }
+
+    internal void ConfigureTextFlyoutCommands(TextCommandBarFlyout flyout)
+    {
+        // Native flyout copy/cut call TOM directly and bypass the control's
+        // clipboard events. Keep native formatting/proofing, but route editing
+        // commands through the portable clipboard and snapshot history.
+        var kinds = new HashSet<StandardUICommandKind>();
+        foreach (var button in flyout.PrimaryCommands.Concat(flyout.SecondaryCommands).OfType<AppBarButton>())
+        {
+            if (button.Command is StandardUICommand native && GetCommand(native.Kind) is { } command)
+            {
+                kinds.Add(native.Kind);
+                BindCommand(button, native.Kind, command);
+            }
+        }
+
+        AddCommand(StandardUICommandKind.Undo, VirtualView.Commands.Undo);
+        AddCommand(StandardUICommandKind.Redo, VirtualView.Commands.Redo);
+        AddCommand(StandardUICommandKind.Paste, VirtualView.Commands.Paste);
+
+        System.Windows.Input.ICommand? GetCommand(StandardUICommandKind kind) => kind switch
+        {
+            StandardUICommandKind.Copy => VirtualView.Commands.Copy,
+            StandardUICommandKind.Cut => VirtualView.Commands.Cut,
+            StandardUICommandKind.Paste => VirtualView.Commands.Paste,
+            StandardUICommandKind.Undo => VirtualView.Commands.Undo,
+            StandardUICommandKind.Redo => VirtualView.Commands.Redo,
+            _ => null,
+        };
+
+        void BindCommand(AppBarButton button, StandardUICommandKind kind, System.Windows.Input.ICommand command)
+        {
+            var nativeCommand = new StandardUICommand { Kind = kind };
+            nativeCommand.CanExecuteRequested += (_, args) => args.CanExecute = command.CanExecute(null);
+            nativeCommand.ExecuteRequested += (_, _) =>
+            {
+                if (command.CanExecute(null))
+                {
+                    command.Execute(null);
+                }
+
+                flyout.Hide();
+            };
+            button.Command = nativeCommand;
+        }
+
+        void AddCommand(StandardUICommandKind kind, System.Windows.Input.ICommand command)
+        {
+            if (!kinds.Contains(kind) && command.CanExecute(null))
+            {
+                var button = new AppBarButton();
+                BindCommand(button, kind, command);
+                flyout.SecondaryCommands.Add(button);
+            }
+        }
     }
 
     private void OnPlatformTapped(object sender, TappedRoutedEventArgs eventArgs)
@@ -1114,6 +1052,8 @@ public partial class RichEditorHandler
 
     private static bool IsControlKeyDown() =>
         (GetNativeKeyState(VirtualKeyControl) & KeyPressedMask) != 0;
+
+    private static bool IsAltKeyDown() => (GetNativeKeyState(0x12) & KeyPressedMask) != 0;
 
     private static bool IsShiftKeyDown() =>
         (GetNativeKeyState(VirtualKeyShift) & KeyPressedMask) != 0;
@@ -1257,18 +1197,13 @@ public partial class RichEditorHandler
         native.ListLevelIndex = list.Level + 1;
     }
 
-    private RichTextDocumentSnapshot ReadDocumentFromPlatform(bool readNativeSemantics = false)
+    private RichTextDocumentSnapshot ReadDocumentFromPlatform()
     {
         var snapshot = GetNativeTextSnapshot();
         var text = snapshot.Text;
         var nativeDocument = PlatformView.Document;
         var previous = VirtualView.Document.CurrentSnapshot;
         var remappedPrevious = previous.RemapText(text);
-        // Native undo can restore hyperlink fields and inline objects without
-        // changing logical text. RTF supplies those semantics without a TOM scan.
-        var nativeSemantics = readNativeSemantics
-            ? TryReadNativeRtfDocument(text)
-            : null;
         var defaultCharacterFormat = ReadCharacterFormat(
             nativeDocument.GetDefaultCharacterFormat()) with
         {
@@ -1334,8 +1269,8 @@ public partial class RichEditorHandler
             text,
             snapshot.Runs,
             paragraphs,
-            nativeSemantics?.Links,
-            nativeSemantics?.Images,
+            null,
+            null,
             defaultCharacterFormat,
             defaultParagraphFormat,
             (native, prior) => MergeWindowsCharacterFormat(
@@ -1346,44 +1281,6 @@ public partial class RichEditorHandler
                 textColor),
             MergeWindowsParagraphFormat,
             remappedPrevious);
-    }
-
-    private RichTextDocumentSnapshot? TryReadNativeRtfDocument(string expectedText)
-    {
-        try
-        {
-            using var stream = new InMemoryRandomAccessStream();
-            PlatformView.Document.SaveToStream(TextGetOptions.FormatRtf, stream);
-            if (stream.Size > int.MaxValue)
-            {
-                return null;
-            }
-
-            stream.Seek(0);
-            using var reader = new DataReader(stream.GetInputStreamAt(0));
-            var byteCount = reader.LoadAsync((uint)stream.Size)
-                .AsTask()
-                .GetAwaiter()
-                .GetResult();
-            var bytes = new byte[checked((int)byteCount)];
-            reader.ReadBytes(bytes);
-            var rtf = Encoding.UTF8.GetString(bytes);
-            if (rtf.StartsWith('\uFEFF'))
-            {
-                rtf = rtf[1..];
-            }
-
-            var document = RtfCodec.Parse(rtf);
-            return string.Equals(document.Text, expectedText, StringComparison.Ordinal)
-                ? document
-                : null;
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException or COMException or FormatException)
-        {
-            // Preserve remapped model semantics if native RTF cannot be read.
-            return null;
-        }
     }
 
     private NativeTextSnapshot GetNativeTextSnapshot() =>
@@ -1935,7 +1832,7 @@ public partial class RichEditorHandler
         VirtualView.NotifyNativeAppearanceChanged();
     }
 
-    private void OnNativeDocumentChanged(object sender, RoutedEventArgs eventArgs)
+    private void OnNativeDocumentChanged(RichEditBox sender, RichEditBoxTextChangingEventArgs eventArgs)
     {
         if (_applyingDocument || VirtualView is null)
         {
@@ -1943,9 +1840,8 @@ public partial class RichEditorHandler
         }
 
         _nativeTextSnapshot = null;
-        // WinUI raises TextChanged directly after updating the RichEdit backing
-        // store. Reconcile before returning so every native edit is observable
-        // immediately and in event order.
+        // TextChanging is synchronous. TextChanged runs after rendering, when
+        // the projection guard has already been released and edits can coalesce.
         ReadNativeDocumentChange();
     }
 
@@ -1956,32 +1852,40 @@ public partial class RichEditorHandler
             return;
         }
 
-        var origin = _pendingNativeReadbackOrigin ?? RichTextChangeOrigin.User;
-        var readNativeSemantics =
-            origin is RichTextChangeOrigin.Undo or RichTextChangeOrigin.Redo;
         var selection = PlatformView.Document.Selection;
         var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
         var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
         RichTextDocumentSnapshot document;
         int start;
         int end;
-        if (!readNativeSemantics &&
-            !_hasNativeLinks &&
+        if (!_hasNativeLinks &&
             TryReadIncrementalNativeDocument(nativeStart, nativeEnd, out document, out start, out end))
         {
             _nativeTextSnapshot = null;
         }
         else
         {
-            document = ReadDocumentFromPlatform(readNativeSemantics);
+            document = ReadDocumentFromPlatform();
             var snapshot = GetNativeTextSnapshot();
             start = snapshot.ToLogicalPosition(nativeStart);
             end = snapshot.ToLogicalPosition(nativeEnd);
         }
 
         _hasNativeLinks = document.Links.Length != 0;
+        if (VirtualView.MaxLength >= 0 && document.Length > VirtualView.MaxLength &&
+            document.Length > VirtualView.Document.Length)
+        {
+            // WinUI interprets MaxLength=0 as unlimited; the portable API uses -1.
+            // Also cover text services that bypass the native input length limit.
+            ApplyDocumentCore(VirtualView.Document.CurrentSnapshot,
+                VirtualView.SelectedRange.Start, VirtualView.SelectedRange.Length);
+            ApplyTypingFormatCore(VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+            return;
+        }
+
         var length = end - start;
-        VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken, origin);
+        VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+        PlatformView.Document.ClearUndoRedoHistory();
         VirtualView.UpdateUndoStateFromPlatform();
         UpdateTypingFormatsFromPlatform();
     }

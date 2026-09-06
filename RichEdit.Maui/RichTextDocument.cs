@@ -129,6 +129,29 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     internal bool CanRedo => _redo.Count != 0;
 
+    internal RichTextRange? UndoSelection => _undo.TryPeek(out var entry) ? entry.BeforeSelection : null;
+
+    internal RichTextRange? RedoSelection => _redo.TryPeek(out var entry) ? entry.AfterSelection : null;
+
+    internal void RecordUndoSelection(RichTextRange before, RichTextRange after)
+    {
+        if (_undo.TryPeek(out var entry) && entry.After.Version == Version)
+        {
+            _undo.Pop();
+            _undo.Push(entry with { BeforeSelection = entry.BeforeSelection ?? before, AfterSelection = after });
+        }
+    }
+
+    internal void BreakUndoGroup() => ResetNativeEditCoalescing();
+
+    internal void BreakUndoGroupForSelection(RichTextRange selection)
+    {
+        if (!selection.IsEmpty || _lastNativeTextChange?.NewRange.End != selection.Start)
+        {
+            ResetNativeEditCoalescing();
+        }
+    }
+
     /// <summary>
     /// Applies an atomic set of incremental document edits.
     /// </summary>
@@ -273,6 +296,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     internal void ClearUndoHistory()
     {
         VerifyNoActiveEdit();
+        ResetNativeEditCoalescing();
         if (_undo.Count == 0 && _redo.Count == 0)
         {
             return;
@@ -375,7 +399,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             case RichTextUndoBehavior.MergeWithPrevious:
                 if (_undo.TryPop(out var preceding))
                 {
-                    _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription));
+                    _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription, preceding.BeforeSelection));
                 }
                 else
                 {
@@ -415,7 +439,8 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     internal RichTextChangeSet RestoreSnapshotFromNativeUndo(
         RichTextDocumentSnapshot snapshot,
-        RichTextChangeOrigin origin)
+        RichTextChangeOrigin origin,
+        object? sourceToken = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (origin is not (RichTextChangeOrigin.Undo or RichTextChangeOrigin.Redo))
@@ -443,13 +468,15 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         return TransitionTo(
             snapshot,
             origin,
-            RichTextUndoBehavior.DoNotRecord);
+            RichTextUndoBehavior.DoNotRecord,
+            sourceToken);
     }
 
     private RichTextChangeSet TransitionTo(
         RichTextDocumentSnapshot snapshot,
         RichTextChangeOrigin origin,
-        RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit)
+        RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit,
+        object? sourceToken = null)
     {
         ResetNativeEditCoalescing();
         var before = _snapshot;
@@ -464,6 +491,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             origin,
             [.. changes],
             tag: null,
+            sourceToken: sourceToken,
             beforeSnapshot: before,
             afterSnapshot: _snapshot,
             undoBehavior: undoBehavior);
@@ -824,5 +852,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     private sealed record UndoEntry(
         RichTextDocumentSnapshot Before,
         RichTextDocumentSnapshot After,
-        string? Description);
+        string? Description,
+        RichTextRange? BeforeSelection = null,
+        RichTextRange? AfterSelection = null);
 }

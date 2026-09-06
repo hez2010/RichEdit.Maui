@@ -90,8 +90,8 @@ public sealed class RichEditorCommands
     internal RichEditorCommands(RichEditor editor)
     {
         _editor = editor;
-        Undo = Create(editor.Undo, () => editor.CanUndo);
-        Redo = Create(editor.Redo, () => editor.CanRedo);
+        Undo = Create(editor.Undo, () => CanMutateSelection && editor.CanUndo);
+        Redo = Create(editor.Redo, () => CanMutateSelection && editor.CanRedo);
         Cut = Create(async () => await editor.CutAsync(), () => CanMutateSelection && !editor.SelectedRange.IsEmpty);
         Copy = Create(async () => await editor.CopyAsync(), () => !editor.SelectedRange.IsEmpty);
         Paste = Create(
@@ -268,24 +268,21 @@ public sealed class RichEditorCommands
         new(execute, canExecute);
 
     private static Command Create(Func<Task> execute, Func<bool> canExecute) =>
-        new(
-            async () =>
-            {
-                try
-                {
-                    await execute();
-                }
-                catch (Exception exception)
-                {
-                    // An async command failure (for example, a denied or busy system
-                    // clipboard) must not crash the application from an async void
-                    // command context.
-                    System.Diagnostics.Trace.TraceError(
-                        "RichEdit.Maui command failed: {0}",
-                        exception);
-                }
-            },
-            canExecute);
+        new(async () => await ExecuteAsync(execute), canExecute);
+
+    internal static async Task ExecuteAsync(Func<Task> execute)
+    {
+        try
+        {
+            await execute();
+        }
+        catch (Exception exception)
+        {
+            // Native event handlers and ICommand.Execute cannot return a Task to
+            // their caller. Public async editor methods still propagate failures.
+            System.Diagnostics.Trace.TraceError("RichEdit.Maui command failed: {0}", exception);
+        }
+    }
 
     private static Command Create<T>(Action<T> execute, Func<T, bool> canExecute) =>
         new(

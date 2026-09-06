@@ -26,11 +26,17 @@ public class RichEditText : AppCompatEditText
     private float _pointerDownX;
     private float _pointerDownY;
 
-    internal Func<Task>? PasteRequested { get; set; }
+    internal Func<bool, Task>? PasteRequested { get; set; }
+
+    internal Func<Task>? CopyRequested { get; set; }
+
+    internal Func<Task>? CutRequested { get; set; }
 
     internal Action? UndoRequested { get; set; }
 
     internal Action? RedoRequested { get; set; }
+
+    internal Action? TabRequested { get; set; }
 
     internal Func<string, bool>? LinkInvoked { get; set; }
 
@@ -62,6 +68,7 @@ public class RichEditText : AppCompatEditText
     public override bool OnKeyDown(Keycode keyCode, KeyEvent? e)
     {
         if (e?.IsCtrlPressed == true &&
+            !e.IsAltPressed &&
             e.IsShiftPressed &&
             keyCode == Keycode.Z &&
             RedoRequested is { } shiftedRedo)
@@ -71,6 +78,7 @@ public class RichEditText : AppCompatEditText
         }
 
         if (e?.IsCtrlPressed == true &&
+            !e.IsAltPressed &&
             !e.IsShiftPressed &&
             keyCode == Keycode.Z &&
             UndoRequested is { } undo)
@@ -79,7 +87,7 @@ public class RichEditText : AppCompatEditText
             return true;
         }
 
-        if (e?.IsCtrlPressed == true && keyCode == Keycode.Y && RedoRequested is { } redo)
+        if (e?.IsCtrlPressed == true && !e.IsAltPressed && keyCode == Keycode.Y && RedoRequested is { } redo)
         {
             redo();
             return true;
@@ -88,6 +96,13 @@ public class RichEditText : AppCompatEditText
         if (keyCode == Keycode.Tab && !AcceptsTab)
         {
             return false;
+        }
+
+        if (keyCode == Keycode.Tab && e?.IsAltPressed != true && e?.IsCtrlPressed != true &&
+            e?.IsShiftPressed != true && TabRequested is { } tab)
+        {
+            tab();
+            return true;
         }
 
         return base.OnKeyDown(keyCode, e);
@@ -100,7 +115,31 @@ public class RichEditText : AppCompatEditText
             id == global::Android.Resource.Id.PasteAsPlainText;
         if (isPaste && PasteRequested is { } pasteRequested)
         {
-            _ = pasteRequested();
+            _ = RichEditorCommands.ExecuteAsync(() => pasteRequested(id == global::Android.Resource.Id.PasteAsPlainText));
+            return true;
+        }
+
+        if (id == global::Android.Resource.Id.Copy && CopyRequested is { } copy)
+        {
+            _ = RichEditorCommands.ExecuteAsync(copy);
+            return true;
+        }
+
+        if (id == global::Android.Resource.Id.Cut && CutRequested is { } cut)
+        {
+            _ = RichEditorCommands.ExecuteAsync(cut);
+            return true;
+        }
+
+        if (id == global::Android.Resource.Id.Undo && UndoRequested is { } undo)
+        {
+            undo();
+            return true;
+        }
+
+        if (id == global::Android.Resource.Id.Redo && RedoRequested is { } redo)
+        {
+            redo();
             return true;
         }
 
@@ -180,8 +219,11 @@ public class RichEditText : AppCompatEditText
         if (disposing)
         {
             PasteRequested = null;
+            CopyRequested = null;
+            CutRequested = null;
             UndoRequested = null;
             RedoRequested = null;
+            TabRequested = null;
             LinkInvoked = null;
             InlineObjectInvoked = null;
         }

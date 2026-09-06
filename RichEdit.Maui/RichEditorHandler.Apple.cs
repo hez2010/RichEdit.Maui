@@ -18,6 +18,10 @@ namespace RichEdit.Maui.Platforms.Apple
 
         internal Func<Task>? PasteRequested { get; set; }
 
+        internal Func<Task>? CopyRequested { get; set; }
+
+        internal Func<Task>? CutRequested { get; set; }
+
         internal Action? NativeAppearanceChanged { get; set; }
 
         /// <summary>Initializes the native rich-text view.</summary>
@@ -73,11 +77,35 @@ namespace RichEdit.Maui.Platforms.Apple
         {
             if (PasteRequested is { } pasteRequested)
             {
-                await pasteRequested();
+                await RichEditorCommands.ExecuteAsync(pasteRequested);
                 return;
             }
 
             base.Paste(sender);
+        }
+
+        /// <inheritdoc />
+        public override async void Copy(NSObject? sender)
+        {
+            if (CopyRequested is { } copy)
+            {
+                await RichEditorCommands.ExecuteAsync(copy);
+                return;
+            }
+
+            base.Copy(sender);
+        }
+
+        /// <inheritdoc />
+        public override async void Cut(NSObject? sender)
+        {
+            if (CutRequested is { } cut)
+            {
+                await RichEditorCommands.ExecuteAsync(cut);
+                return;
+            }
+
+            base.Cut(sender);
         }
 
 #pragma warning disable CA1422 // Required on iOS 15-16; the callback remains valid on 17+.
@@ -99,6 +127,8 @@ namespace RichEdit.Maui.Platforms.Apple
             if (disposing)
             {
                 PasteRequested = null;
+                CopyRequested = null;
+                CutRequested = null;
                 NativeAppearanceChanged = null;
                 _placeholderLabel.Dispose();
             }
@@ -135,6 +165,7 @@ namespace RichEdit.Maui
         private NSObject? _didRedoObserver;
         private bool _restoringNativeUndo;
         private RichTextChangeOrigin? _pendingNativeReadbackOrigin;
+        private NativeUndoTransition? _pendingNativeUndoTransition;
 
         /// <inheritdoc />
         protected override RichTextView CreatePlatformView()
@@ -160,6 +191,8 @@ namespace RichEdit.Maui
             _textViewDelegate = new RichTextViewDelegate(this);
             platformView.Delegate = _textViewDelegate;
             platformView.PasteRequested = OnPlatformPasteAsync;
+            platformView.CopyRequested = VirtualView.CopyAsync;
+            platformView.CutRequested = VirtualView.CutAsync;
             platformView.NativeAppearanceChanged = OnNativeAppearanceChanged;
             EnsureUndoManagerNotifications(platformView.UndoManager);
         }
@@ -167,11 +200,15 @@ namespace RichEdit.Maui
         /// <inheritdoc />
         protected override void DisconnectHandler(RichTextView platformView)
         {
+            VirtualView?.Commands.Disconnect();
             _pendingNativeChange = null;
             _pendingNativeReadbackOrigin = null;
+            _pendingNativeUndoTransition = null;
             StopObservingUndoManager();
             platformView.UndoManager?.RemoveAllActions(platformView);
             platformView.PasteRequested = null;
+            platformView.CopyRequested = null;
+            platformView.CutRequested = null;
             platformView.NativeAppearanceChanged = null;
             platformView.Delegate = null!;
             _textViewDelegate?.Dispose();
@@ -521,6 +558,16 @@ namespace RichEdit.Maui
             var origin = manager.IsRedoing
                 ? RichTextChangeOrigin.Redo
                 : RichTextChangeOrigin.Undo;
+            if (transition.SynchronizeAfterNativeUndo)
+            {
+                // UIKit still has its own text actions to replay in this group.
+                // Restore the complete model only after those actions finish.
+                _pendingNativeUndoTransition = transition;
+                RegisterNativeUndoAction(manager, transition.Reverse());
+                return;
+            }
+
+            _pendingNativeUndoTransition = null;
             _restoringNativeUndo = true;
             try
             {
@@ -551,10 +598,34 @@ namespace RichEdit.Maui
                 (_, _) => VirtualView?.UpdateUndoStateFromPlatform());
             _didUndoObserver = NSUndoManager.Notifications.ObserveDidUndoChange(
                 manager,
-                (_, _) => VirtualView?.UpdateUndoStateFromPlatform());
+                (_, _) => CompleteNativeUndo(RichTextChangeOrigin.Undo));
             _didRedoObserver = NSUndoManager.Notifications.ObserveDidRedoChange(
                 manager,
-                (_, _) => VirtualView?.UpdateUndoStateFromPlatform());
+                (_, _) => CompleteNativeUndo(RichTextChangeOrigin.Redo));
+        }
+
+        private void CompleteNativeUndo(RichTextChangeOrigin origin)
+        {
+            if (VirtualView is null)
+            {
+                return;
+            }
+
+            if (_pendingNativeUndoTransition is { } transition)
+            {
+                _pendingNativeUndoTransition = null;
+                var selection = GetNativeSelection(transition.TargetSnapshot.Length);
+                VirtualView.RestoreDocumentFromNativeUndo(
+                    transition.TargetSnapshot,
+                    selection,
+                    origin,
+                    _sourceToken);
+                SetSelectionCore(selection.Start, selection.Length);
+                ApplyTypingFormatCore(VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+                PlatformView.UpdatePlaceholderVisibility();
+            }
+
+            VirtualView.UpdateUndoStateFromPlatform();
         }
 
         private void StopObservingUndoManager()
@@ -808,20 +879,6 @@ namespace RichEdit.Maui
             PlatformView.SelectedRange = new NSRange(start, length);
         }
 
-        private partial bool TryCutCore()
-        {
-            if (PlatformView is null ||
-                VirtualView.IsReadOnly ||
-                PlatformView.SelectedRange.Length == 0)
-            {
-                return false;
-            }
-
-            PlatformView.Cut(null);
-            VirtualView.UpdateUndoStateFromPlatform();
-            return true;
-        }
-
         private partial bool SupportsNativeUndoCore() => true;
 
         private partial bool CanUndoCore()
@@ -882,6 +939,7 @@ namespace RichEdit.Maui
 
         private partial void ClearUndoHistoryCore()
         {
+            _pendingNativeUndoTransition = null;
             PlatformView?.UndoManager?.RemoveAllActions();
             VirtualView?.UpdateUndoStateFromPlatform();
         }
@@ -1347,46 +1405,59 @@ namespace RichEdit.Maui
             if (attributes.Font is { } font)
             {
                 var traits = font.FontDescriptor.SymbolicTraits;
+                var expectedFont = metadata is null ? null : ResolveFont(
+                    VirtualView.Document.CurrentSnapshot.ResolveCharacterFormat(metadata.Format));
+                var bold = traits.HasFlag(UIFontDescriptorSymbolicTraits.Bold);
                 format = format with
                 {
-                    FontFamily = metadata is null || metadata.Format.FontFamily is not null
+                    FontFamily = expectedFont is null || font.FamilyName != expectedFont.FamilyName
                         ? font.FamilyName
                         : format.FontFamily,
-                    FontSize = metadata is null || metadata.Format.FontSize is not null
+                    FontSize = expectedFont is null || font.PointSize != expectedFont.PointSize
                         ? font.PointSize
                         : format.FontSize,
-                    FontWeight = traits.HasFlag(UIFontDescriptorSymbolicTraits.Bold)
-                        ? Math.Max(format.FontWeight, 700)
-                        : metadata is null ? 400 : format.FontWeight,
+                    FontWeight = bold == format.Bold ? format.FontWeight : bold ? 700 : 400,
                     Italic = traits.HasFlag(UIFontDescriptorSymbolicTraits.Italic),
                 };
             }
 
-            if (attributes.ForegroundColor is { } foreground && !format.Hidden &&
-                (metadata is null || metadata.Format.ForegroundColor is not null))
+            if (attributes.ForegroundColor is { } foreground && !format.Hidden)
             {
-                format = format with { ForegroundColor = FromUIColor(foreground) };
+                var expected = format.ForegroundColor ?? VirtualView.Document.DefaultCharacterFormat.ForegroundColor ??
+                    VirtualView.TextColor ?? FromUIColor(_defaultTextColor);
+                var color = FromUIColor(foreground);
+                if (metadata is null || color != expected)
+                {
+                    format = format with { ForegroundColor = color };
+                }
             }
 
-            if (attributes.BackgroundColor is { } background)
+            format = format with
             {
-                format = format with { BackgroundColor = FromUIColor(background) };
-            }
+                BackgroundColor = attributes.BackgroundColor is { } background ? FromUIColor(background) : null,
+            };
 
-            if (metadata is null || metadata.Format.Underline == RichTextUnderlineStyle.None)
+            var underline = attributes.UnderlineStyle ?? NSUnderlineStyle.None;
+            if (metadata is null || underline != ToNativeUnderline(metadata.Format.Underline))
             {
                 format = format with
                 {
-                    Underline = FromNativeUnderline(
-                        attributes.UnderlineStyle ?? NSUnderlineStyle.None),
+                    Underline = FromNativeUnderline(underline),
                 };
             }
 
-            if (metadata is null || metadata.Format.Strikethrough == RichTextStrikethroughStyle.None)
+            var strikethrough = attributes.StrikethroughStyle ?? NSUnderlineStyle.None;
+            var expectedStrikethrough = format.Strikethrough switch
+            {
+                RichTextStrikethroughStyle.Double => NSUnderlineStyle.Double,
+                RichTextStrikethroughStyle.Single => NSUnderlineStyle.Single,
+                _ => NSUnderlineStyle.None,
+            };
+            if (metadata is null || strikethrough != expectedStrikethrough)
             {
                 format = format with
                 {
-                    Strikethrough = attributes.StrikethroughStyle switch
+                    Strikethrough = strikethrough switch
                     {
                         NSUnderlineStyle.Double => RichTextStrikethroughStyle.Double,
                         NSUnderlineStyle.None => RichTextStrikethroughStyle.None,
@@ -1395,15 +1466,11 @@ namespace RichEdit.Maui
                 };
             }
 
-            if (attributes.UnderlineColor is { } underlineColor)
+            format = format with
             {
-                format = format with { UnderlineColor = FromUIColor(underlineColor) };
-            }
-
-            if (attributes.StrikethroughColor is { } strikeColor)
-            {
-                format = format with { StrikethroughColor = FromUIColor(strikeColor) };
-            }
+                UnderlineColor = attributes.UnderlineColor is { } underlineColor ? FromUIColor(underlineColor) : null,
+                StrikethroughColor = attributes.StrikethroughColor is { } strikeColor ? FromUIColor(strikeColor) : null,
+            };
 
             if (metadata is null)
             {
@@ -1487,13 +1554,56 @@ namespace RichEdit.Maui
                 lineSpacing = style.LineHeightMultiple;
             }
 
+            var expectedMinimum = format.MinimumLineHeight ?? 0;
+            var expectedMaximum = format.MaximumLineHeight ?? 0;
+            var expectedMultiple = 0d;
+            var expectedSpacing = 0d;
+            switch (format.LineSpacingRule)
+            {
+                case RichTextLineSpacingRule.Exactly:
+                    expectedMinimum = expectedMaximum = format.LineSpacing;
+                    break;
+                case RichTextLineSpacingRule.AtLeast:
+                    expectedMinimum = format.LineSpacing;
+                    break;
+                case RichTextLineSpacingRule.OneAndHalf:
+                    expectedMultiple = 1.5;
+                    break;
+                case RichTextLineSpacingRule.Double:
+                    expectedMultiple = 2;
+                    break;
+                case RichTextLineSpacingRule.Multiple:
+                    expectedMultiple = format.LineSpacing;
+                    break;
+                default:
+                    expectedSpacing = format.LineSpacing;
+                    break;
+            }
+
+            var preservesLineSpacing = metadata is not null &&
+                style.MinimumLineHeight == expectedMinimum && style.MaximumLineHeight == expectedMaximum &&
+                style.LineHeightMultiple == expectedMultiple && style.LineSpacing == expectedSpacing;
+            var nativeTabs = style.TabStops ?? [];
+            var defaultTabs = NSParagraphStyle.Default.TabStops ?? [];
+            var preservesTabs = metadata is not null && (format.TabStops.IsDefaultOrEmpty
+                ? nativeTabs.Length == defaultTabs.Length && nativeTabs.Zip(defaultTabs).All(pair =>
+                    pair.First.Location == pair.Second.Location && pair.First.Alignment == pair.Second.Alignment)
+                : nativeTabs.Length == format.TabStops.Length && nativeTabs.Zip(format.TabStops).All(pair =>
+                    pair.First.Location == pair.Second.Position && pair.First.Alignment == (pair.Second.Alignment switch
+                    {
+                        RichTextTabAlignment.Center => UITextAlignment.Center,
+                        RichTextTabAlignment.Right => UITextAlignment.Right,
+                        _ => UITextAlignment.Left,
+                    })));
+
             return format with
             {
                 Alignment = style.Alignment switch
                 {
                     UITextAlignment.Center => RichTextAlignment.Center,
                     UITextAlignment.Right => RichTextAlignment.Right,
-                    UITextAlignment.Justified => RichTextAlignment.Justified,
+                    UITextAlignment.Justified => format.Alignment == RichTextAlignment.Distributed
+                        ? RichTextAlignment.Distributed : RichTextAlignment.Justified,
                     _ => RichTextAlignment.Left,
                 },
                 Direction = style.BaseWritingDirection switch
@@ -1507,11 +1617,11 @@ namespace RichEdit.Maui
                 TrailingIndent = style.TailIndent < 0 ? -style.TailIndent : 0,
                 SpaceBefore = Math.Max(style.ParagraphSpacingBefore, 0),
                 SpaceAfter = Math.Max(style.ParagraphSpacing, 0),
-                LineSpacingRule = lineSpacingRule,
-                LineSpacing = Math.Max(lineSpacing, 0),
-                MinimumLineHeight = style.MinimumLineHeight > 0 ? style.MinimumLineHeight : null,
-                MaximumLineHeight = style.MaximumLineHeight > 0 ? style.MaximumLineHeight : null,
-                TabStops = (style.TabStops ?? [])
+                LineSpacingRule = preservesLineSpacing ? format.LineSpacingRule : lineSpacingRule,
+                LineSpacing = preservesLineSpacing ? format.LineSpacing : Math.Max(lineSpacing, 0),
+                MinimumLineHeight = preservesLineSpacing ? format.MinimumLineHeight : style.MinimumLineHeight > 0 ? style.MinimumLineHeight : null,
+                MaximumLineHeight = preservesLineSpacing ? format.MaximumLineHeight : style.MaximumLineHeight > 0 ? style.MaximumLineHeight : null,
+                TabStops = preservesTabs ? format.TabStops : nativeTabs
                     .Select(tab => new RichTextTabStop(
                         tab.Location,
                         tab.Alignment switch
@@ -1861,29 +1971,16 @@ namespace RichEdit.Maui
                 return RichTextUnderlineStyle.Double;
             }
 
-            if (value.HasFlag(NSUnderlineStyle.PatternDot))
+            // PatternDashDot contains the PatternDot bit; these are a masked
+            // enum field, not independent flags.
+            return ((long)value & 0x0F00) switch
             {
-                return RichTextUnderlineStyle.Dotted;
-            }
-
-            if (value.HasFlag(NSUnderlineStyle.PatternDashDotDot))
-            {
-                return RichTextUnderlineStyle.DashDotDot;
-            }
-
-            if (value.HasFlag(NSUnderlineStyle.PatternDashDot))
-            {
-                return RichTextUnderlineStyle.DashDot;
-            }
-
-            if (value.HasFlag(NSUnderlineStyle.PatternDash))
-            {
-                return RichTextUnderlineStyle.Dash;
-            }
-
-            return value.HasFlag(NSUnderlineStyle.Thick)
-                ? RichTextUnderlineStyle.Thick
-                : RichTextUnderlineStyle.Single;
+                (long)NSUnderlineStyle.PatternDot => RichTextUnderlineStyle.Dotted,
+                (long)NSUnderlineStyle.PatternDash => RichTextUnderlineStyle.Dash,
+                (long)NSUnderlineStyle.PatternDashDot => RichTextUnderlineStyle.DashDot,
+                (long)NSUnderlineStyle.PatternDashDotDot => RichTextUnderlineStyle.DashDotDot,
+                _ => value.HasFlag(NSUnderlineStyle.Thick) ? RichTextUnderlineStyle.Thick : RichTextUnderlineStyle.Single,
+            };
         }
 
         private static double GetNativeBaselineOffset(
@@ -1932,7 +2029,8 @@ namespace RichEdit.Maui
             var removedLength = range.Length > int.MaxValue
                 ? currentLength
                 : Math.Min((int)range.Length, currentLength);
-            return currentLength - removedLength + replacementText.Length <= VirtualView.MaxLength;
+            return replacementText.Length == 0 ||
+                currentLength - removedLength + replacementText.Length <= VirtualView.MaxLength;
         }
 
         private void RecordPendingNativeChange(NSRange range)
@@ -2136,6 +2234,16 @@ namespace RichEdit.Maui
                 return;
             }
 
+            var manager = PlatformView.UndoManager;
+            if (manager is { IsUndoing: true } or { IsRedoing: true })
+            {
+                _pendingNativeChange = null;
+                return;
+            }
+
+            var before = VirtualView.Document.CurrentSnapshot;
+            var previousSelection = VirtualView.SelectedRange;
+
             PlatformView.UpdatePlaceholderVisibility();
             RichTextDocumentSnapshot document;
             try
@@ -2159,13 +2267,27 @@ namespace RichEdit.Maui
                 length,
                 _sourceToken,
                 _pendingNativeReadbackOrigin ?? RichTextChangeOrigin.User);
+            if (manager is { IsUndoRegistrationEnabled: true } &&
+                !before.ContentEquals(VirtualView.Document.CurrentSnapshot))
+            {
+                EnsureUndoManagerNotifications(manager);
+                RegisterNativeUndoAction(manager, new NativeUndoTransition(
+                    before,
+                    previousSelection,
+                    VirtualView.Document.CurrentSnapshot,
+                    new RichTextRange(start, length),
+                    null,
+                    SynchronizeAfterNativeUndo: true));
+            }
+
             VirtualView.UpdateUndoStateFromPlatform();
             UpdateTypingFormatsFromPlatform();
         }
 
         private void OnNativeSelectionChanged(UITextView textView)
         {
-            if (_applyingDocument || VirtualView is null)
+            if (_applyingDocument || VirtualView is null ||
+                PlatformView.UndoManager is { IsUndoing: true } or { IsRedoing: true })
             {
                 return;
             }
@@ -2364,7 +2486,8 @@ namespace RichEdit.Maui
             RichTextRange TargetSelection,
             RichTextDocumentSnapshot InverseSnapshot,
             RichTextRange InverseSelection,
-            string? ActionName)
+            string? ActionName,
+            bool SynchronizeAfterNativeUndo = false)
         {
             public NativeUndoTransition Reverse() =>
                 new(
@@ -2372,7 +2495,8 @@ namespace RichEdit.Maui
                     InverseSelection,
                     TargetSnapshot,
                     TargetSelection,
-                    ActionName);
+                    ActionName,
+                    SynchronizeAfterNativeUndo);
         }
 
         private sealed class CharacterMetadata(RichTextCharacterFormat format) : NSObject

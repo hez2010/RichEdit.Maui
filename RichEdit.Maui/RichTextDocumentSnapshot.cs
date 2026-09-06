@@ -383,9 +383,15 @@ public sealed class RichTextDocumentSnapshot
             {
                 format = GetParagraphFormat(paragraphStart);
             }
-            else if (paragraphStart < start + replacement.Length)
+            else if (paragraphStart < start + replacement.Length ||
+                paragraphStart == start + replacement.Length &&
+                (oldEnd == start || oldEnd == 0 || Text[oldEnd - 1] != '\n'))
             {
-                format = insertionParagraphFormat;
+                // A new list item continues its predecessor's counter. A restart
+                // belongs to the original item, not every paragraph split from it.
+                format = insertionParagraphFormat.List is { } item
+                    ? insertionParagraphFormat with { List = new RichTextListItemFormat(item.ListId, item.Level), NativeList = null }
+                    : insertionParagraphFormat;
             }
             else
             {

@@ -61,6 +61,23 @@ internal sealed class RichImageMetadataSpan(RichTextImage image) : CharacterStyl
     }
 }
 
+internal sealed class RichFontSizeSpan(double size, float pixels) : MetricAffectingSpan
+{
+    public double Size { get; } = size;
+
+    public override void UpdateDrawState(TextPaint? paint) => Apply(paint);
+
+    public override void UpdateMeasureState(TextPaint? paint) => Apply(paint);
+
+    private void Apply(TextPaint? paint)
+    {
+        if (paint is not null)
+        {
+            paint.TextSize = pixels;
+        }
+    }
+}
+
 internal sealed class RichLetterSpacingSpan(float em) : MetricAffectingSpan
 {
     public float Em { get; } = em;
@@ -190,13 +207,15 @@ internal sealed class RichLineHeightSpan(
             fontMetrics.Top = fontMetrics.Ascent;
         }
 
-        if (start <= ParagraphStart && SpaceBefore > 0)
+        var currentStart = text is ISpanned startSpans ? startSpans.GetSpanStart(this) : ParagraphStart;
+        var currentEnd = text is ISpanned endSpans ? endSpans.GetSpanEnd(this) : ParagraphEnd;
+        if (start <= currentStart && SpaceBefore > 0)
         {
             fontMetrics.Ascent = SaturatingSubtract(fontMetrics.Ascent, SpaceBefore);
             fontMetrics.Top = fontMetrics.Ascent;
         }
 
-        if (end >= ParagraphEnd && SpaceAfter > 0)
+        if (end >= currentEnd && SpaceAfter > 0)
         {
             fontMetrics.Descent = (int)Math.Clamp(
                 (long)fontMetrics.Descent + SpaceAfter,
@@ -292,12 +311,14 @@ internal sealed class RichParagraphDecorationSpan(
                 DrawVerticalBorder(canvas, paint, right, top, bottom, inward: -1);
             }
 
-            if (start <= paragraphStart && (borderSides & RichTextBorderSides.Top) != 0)
+            var currentStart = text is ISpanned startSpans ? startSpans.GetSpanStart(this) : paragraphStart;
+            var currentEnd = text is ISpanned endSpans ? endSpans.GetSpanEnd(this) : paragraphEnd;
+            if (start <= currentStart && (borderSides & RichTextBorderSides.Top) != 0)
             {
                 DrawHorizontalBorder(canvas, paint, top, left, right, inward: 1);
             }
 
-            if (end >= paragraphEnd && (borderSides & RichTextBorderSides.Bottom) != 0)
+            if (end >= currentEnd && (borderSides & RichTextBorderSides.Bottom) != 0)
             {
                 DrawHorizontalBorder(canvas, paint, bottom, left, right, inward: -1);
             }
@@ -375,9 +396,9 @@ internal sealed class RichListMarkerSpan(
     RichTextListFormat listFormat,
     string marker,
     Drawable? picture,
-    int markerWidth,
-    int gapWidth,
-    int levelIndent) :
+    int firstTextIndent,
+    int textIndent,
+    int markerIndent) :
     Java.Lang.Object,
     ILeadingMarginSpan
 {
@@ -385,9 +406,7 @@ internal sealed class RichListMarkerSpan(
 
     public string Marker { get; } = marker;
 
-    public int GetLeadingMargin(bool first) => (int)Math.Min(
-        (long)levelIndent + markerWidth + gapWidth,
-        int.MaxValue);
+    public int GetLeadingMargin(bool first) => first ? firstTextIndent : textIndent;
 
     public void DrawLeadingMargin(
         global::Android.Graphics.Canvas? canvas,
@@ -416,7 +435,7 @@ internal sealed class RichListMarkerSpan(
                 : global::Android.Graphics.Paint.Align.Left;
             if (picture is null)
             {
-                canvas.DrawText(Marker, x + direction * levelIndent, baseline, paint);
+                canvas.DrawText(Marker, x + direction * markerIndent, baseline, paint);
             }
             else
             {
@@ -424,8 +443,8 @@ internal sealed class RichListMarkerSpan(
                 try
                 {
                     var left = direction < 0
-                        ? x - levelIndent - picture.Bounds.Width()
-                        : x + levelIndent;
+                        ? x - markerIndent - picture.Bounds.Width()
+                        : x + markerIndent;
                     canvas.Translate(left, baseline - picture.Bounds.Height());
                     picture.Draw(canvas);
                 }

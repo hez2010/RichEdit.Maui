@@ -52,8 +52,6 @@ internal interface IRichEditorHandler
         RichTextCharacterFormat characterFormat,
         RichTextParagraphFormat paragraphFormat);
 
-    bool TryCut();
-
     void Undo();
 
     void Redo();
@@ -166,8 +164,6 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         RichTextParagraphFormat paragraphFormat) =>
         ApplyTypingFormatCore(characterFormat, paragraphFormat);
 
-    bool IRichEditorHandler.TryCut() => TryCutCore();
-
     void IRichEditorHandler.Undo() => UndoCore();
 
     void IRichEditorHandler.Redo() => RedoCore();
@@ -208,8 +204,6 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         RichTextParagraphFormat paragraphFormat);
 
     private partial void SetSelectionCore(int start, int length);
-
-    private partial bool TryCutCore();
 
     private partial bool SupportsNativeUndoCore();
 

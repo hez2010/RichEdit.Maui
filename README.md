@@ -199,6 +199,20 @@ await Editor.CutAsync();
 await Editor.PasteAsync();
 ```
 
+Copy and cut from native menus and keyboard shortcuts use the same portable fragments as these methods. Copies within the running application retain formatting that RTF cannot represent; Windows and Apple also publish RTF and plain text for other applications. Paste raises `Pasting`, respects `MaxLength`, and preserves destination typing formatting for plain text. Android's **Paste as plain text** discards the copied formatting.
+
+Windows and Android use document snapshots for undo and redo, including field instructions, image payloads, metadata, and selection ranges. Apple keeps its native undo grouping and records complete document states alongside native edits. Undo and redo are disabled while the editor is read-only.
+
+## Tests
+
+The Windows test project includes a WinUI application host, so its integration tests exercise real `RichEditBox` instances and clipboard commands. Run it on Windows with the matching Windows App SDK runtime installed:
+
+```powershell
+dotnet test RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj -p:Platform=x64 -p:WindowsPackageType=None
+```
+
+The Android test app also includes a debug-only native test mode. Build and install its Debug APK, then launch the main activity with the boolean intent extra `run-editor-tests=true`. Results are written to `cache/editor-tests.txt` in the app's private storage and to the `RichEditTests` logcat tag. Use a dedicated emulator; these checks temporarily exercise its clipboard. Keep fast-deployment overrides consistent with the installed APK when switching SDKs.
+
 ## RTF behavior
 
 The reader follows RTF group scoping, Unicode fallback, `\upr`/`\ud` Unicode-alternate, code-page, paragraph-default, and ignorable-destination rules. It accepts ANSI (`\ansicpg`), Mac, PC 437, PC 850, and font-specific `\fcharset`/`\cpg` text; `\ansi` without `\ansicpg` decodes as Windows-1252. Table cells are flattened to tab/newline text. `\line` is represented as U+2028 and `\par` as `\n`, so soft and paragraph breaks remain distinct.

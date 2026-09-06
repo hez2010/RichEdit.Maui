@@ -130,7 +130,7 @@ internal static class RtfCodec
                     .ToArray()
                 : [];
             _fieldsByStart = includeSemanticRanges
-                ? SplitFields().ToDictionary(field => field.Start)
+                ? document.Fields.Where(field => field.Length > 0).ToDictionary(field => field.Start)
                 : [];
             _emptyFieldsByPosition = includeSemanticRanges
                 ? document.Fields
@@ -146,6 +146,7 @@ internal static class RtfCodec
                 .Concat(_emptyFieldsByPosition.Keys)
                 .Concat(_linksByStart.Keys)
                 .Concat(_imagesByPosition.Keys)
+                .Concat(_semanticBoundaries)
                 .Distinct()
                 .Order()
                 .ToArray();
@@ -529,42 +530,100 @@ internal static class RtfCodec
 
         private void WriteBody()
         {
+            RichTextField? activeField = null;
+            RichTextLink? activeLink = null;
             var position = 0;
             while (true)
             {
-                var lineEnd = _document.Text.IndexOf('\n', position);
-                var hasParagraphBreak = lineEnd >= 0;
-                if (!hasParagraphBreak)
+                var closedScope = false;
+                if (activeLink?.End == position)
                 {
-                    lineEnd = _document.Text.Length;
+                    _output.Append("}}");
+                    activeLink = null;
+                    closedScope = true;
                 }
 
-                WriteParagraph(position, lineEnd, hasParagraphBreak);
-                if (!hasParagraphBreak)
+                if (activeField?.End == position)
+                {
+                    _output.Append("}}");
+                    activeField = null;
+                    closedScope = true;
+                }
+
+                var paragraphStart = position == 0 || _document.Text[position - 1] == '\n';
+                if (paragraphStart || closedScope)
+                {
+                    // Paragraph controls may live inside a field result. Reapply
+                    // them when a semantic group closes and restores older state.
+                    WriteParagraphHeader(position, writeListText: paragraphStart);
+                }
+
+                WriteEmptyFieldsAt(position);
+                if (_fieldsByStart.TryGetValue(position, out var field))
+                {
+                    activeField = field;
+                    WriteFieldHeader(field.Instruction);
+                }
+
+                if (_linksByStart.TryGetValue(position, out var link))
+                {
+                    activeLink = link;
+                    WriteHyperlinkHeader(link);
+                }
+
+                if (position == _document.Length)
                 {
                     break;
                 }
 
-                position = lineEnd + 1;
+                if (_document.Text[position] == '\n')
+                {
+                    WriteParagraphBreak(position++);
+                    continue;
+                }
+
+                if (_imagesByPosition.TryGetValue(position, out var image))
+                {
+                    WriteImage(image);
+                    position++;
+                    continue;
+                }
+
+                var run = GetRunAt(position);
+                var end = Math.Min(run.End, GetNextSemanticStart(position, _document.Length));
+                var newline = _document.Text.IndexOf('\n', position, end - position);
+                if (newline >= 0)
+                {
+                    end = newline;
+                }
+
+                WriteRun(_document.Text.AsSpan(position, end - position), run.Format);
+                position = end;
             }
         }
 
-        private void WriteParagraph(int start, int end, bool hasParagraphBreak)
+        private void WriteParagraphHeader(int position, bool writeListText)
         {
-            _output.Append(@"{\pard\plain");
+            _output.Append(@"\pard\plain");
             if (_nativeDefaultCharacterFormat is not null)
             {
                 WriteNativeDefaultAppearance(_document.DefaultCharacterFormat);
             }
 
-            var paragraphFormat = _document.GetParagraphFormat(start);
+            var paragraph = _document.Paragraphs[_document.FindParagraphIndex(position)];
+            var paragraphFormat = paragraph.Format;
             WriteParagraphFormatControls(paragraphFormat, _document.DefaultParagraphFormat);
 
-            if (_listsByItemStart.TryGetValue(start, out var list))
+            if (_listsByItemStart.TryGetValue(paragraph.Start, out var list))
             {
                 _output.Append(@"\ls").Append(list.Override.OverrideId)
                     .Append(@"\ilvl").Append(list.Format.Level)
                     .Append(' ');
+                if (!writeListText)
+                {
+                    return;
+                }
+
                 _output.Append(@"{\listtext ");
                 if (list.Format.Kind == RichListKind.Bulleted)
                 {
@@ -592,98 +651,28 @@ internal static class RtfCodec
                 _output.Append(' ');
             }
 
-            WriteRange(start, end);
-            WriteEmptyFieldsAt(end);
-            if (hasParagraphBreak)
-            {
-                WriteParagraphBreak(end);
-            }
-
-            _output.Append('}').Append("\r\n");
         }
 
-        private void WriteRange(
-            int start,
-            int end,
-            RichTextField? excludedField = null,
-            RichTextLink? excludedLink = null,
-            bool skipEmptyFieldsAtStart = false)
+        private void WriteEmptyFieldsAt(int position)
         {
-            var position = start;
-            while (position < end)
+            if (_emptyFieldsByPosition.TryGetValue(position, out var fields))
             {
-                if (!skipEmptyFieldsAtStart || position != start)
+                foreach (var field in fields)
                 {
-                    WriteEmptyFieldsAt(position, excludedField);
-                }
-
-                if (_fieldsByStart.TryGetValue(position, out var field) &&
-                    field != excludedField && field.End <= end)
-                {
-                    WriteField(field, excludedLink);
-                    position = field.End;
-                    continue;
-                }
-
-                if (_linksByStart.TryGetValue(position, out var link) &&
-                    link != excludedLink && link.End <= end)
-                {
-                    WriteHyperlink(link, excludedField);
-                    position = link.End;
-                    continue;
-                }
-
-                if (_imagesByPosition.TryGetValue(position, out var image))
-                {
-                    WriteImage(image);
-                    position++;
-                    continue;
-                }
-
-                var run = GetRunAt(position);
-                var format = run.Format;
-                var runEnd = Math.Min(run.End, GetNextSemanticStart(position, end));
-
-                WriteRun(_document.Text.AsSpan(position, runEnd - position), format);
-                position = runEnd;
-            }
-        }
-
-        private void WriteEmptyFieldsAt(int position, RichTextField? excludedField = null)
-        {
-            if (!_emptyFieldsByPosition.TryGetValue(position, out var fields))
-            {
-                return;
-            }
-
-            foreach (var field in fields)
-            {
-                if (field != excludedField)
-                {
-                    WriteField(field);
+                    WriteFieldHeader(field.Instruction);
+                    _output.Append("}}");
                 }
             }
         }
 
-        private void WriteField(
-            RichTextField field,
-            RichTextLink? excludedLink = null)
+        private void WriteFieldHeader(string instruction)
         {
             _output.Append(@"{\field{\*\fldinst ");
-            WriteText(field.Instruction.AsSpan());
+            WriteText(instruction.AsSpan());
             _output.Append(@"}{\fldrslt ");
-            WriteRange(
-                field.Start,
-                field.End,
-                excludedField: field,
-                excludedLink: excludedLink,
-                skipEmptyFieldsAtStart: true);
-            _output.Append("}}");
         }
 
-        private void WriteHyperlink(
-            RichTextLink link,
-            RichTextField? excludedField = null)
+        private void WriteHyperlinkHeader(RichTextLink link)
         {
             _output.Append("{\\field{\\*\\fldinst HYPERLINK \"");
             WriteText(EscapeFieldArgument(link.Target).AsSpan());
@@ -696,15 +685,7 @@ internal static class RtfCodec
             }
 
             _output.Append(@"}{\fldrslt ");
-            WriteRange(
-                link.Start,
-                link.End,
-                excludedField: excludedField,
-                excludedLink: link,
-                skipEmptyFieldsAtStart: true);
-            _output.Append("}}");
         }
-
         // Word field syntax escapes literal backslashes and quotation marks in a
         // quoted argument, so UNC targets and quoted text survive a round trip.
         private static string EscapeFieldArgument(string value) =>
@@ -967,24 +948,6 @@ internal static class RtfCodec
             throw new InvalidOperationException("The normalized document has no run at the requested position.");
         }
 
-        private IEnumerable<RichTextField> SplitFields()
-        {
-            foreach (var field in _document.Fields)
-            {
-                if (field.Length == 0)
-                {
-                    continue;
-                }
-
-                // Links can be split and nested inside a field result. Splitting
-                // fields at link boundaries loses their independent identities.
-                foreach (var (start, length) in SplitSemanticRange(field.Start, field.End, splitAtSemanticBoundaries: false))
-                {
-                    yield return field with { Start = start, Length = length };
-                }
-            }
-        }
-
         private IEnumerable<RichTextLink> SplitLinks()
         {
             foreach (var link in _document.Links)
@@ -996,40 +959,24 @@ internal static class RtfCodec
             }
         }
 
-        private IEnumerable<(int Start, int Length)> SplitSemanticRange(int start, int end, bool splitAtSemanticBoundaries = true)
+        private IEnumerable<(int Start, int Length)> SplitSemanticRange(int start, int end)
         {
             while (start < end)
             {
-                var newline = _document.Text.IndexOf('\n', start, end - start);
-                var segmentEnd = newline < 0 ? end : newline;
-                if (splitAtSemanticBoundaries)
+                var segmentEnd = end;
+                var boundaryIndex = Array.BinarySearch(_semanticBoundaries, start + 1);
+                if (boundaryIndex < 0)
                 {
-                    var boundaryIndex = Array.BinarySearch(_semanticBoundaries, start + 1);
-                    if (boundaryIndex < 0)
-                    {
-                        boundaryIndex = ~boundaryIndex;
-                    }
-
-                    if (boundaryIndex < _semanticBoundaries.Length)
-                    {
-                        segmentEnd = Math.Min(segmentEnd, _semanticBoundaries[boundaryIndex]);
-                    }
+                    boundaryIndex = ~boundaryIndex;
                 }
 
-                if (segmentEnd > start)
+                if (boundaryIndex < _semanticBoundaries.Length)
                 {
-                    yield return (start, segmentEnd - start);
-                    start = segmentEnd;
-                    continue;
+                    segmentEnd = Math.Min(segmentEnd, _semanticBoundaries[boundaryIndex]);
                 }
 
-                if (start == newline)
-                {
-                    start++;
-                    continue;
-                }
-
-                throw new InvalidOperationException("A semantic range could not be partitioned.");
+                yield return (start, segmentEnd - start);
+                start = segmentEnd;
             }
         }
 

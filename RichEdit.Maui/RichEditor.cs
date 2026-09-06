@@ -202,6 +202,7 @@ public sealed class RichEditor : View
         base.OnHandlerChanged();
         if (Handler is null)
         {
+            RefreshUndoState();
             return;
         }
 
@@ -381,29 +382,53 @@ public sealed class RichEditor : View
 
     internal RichTextParagraphFormat TypingParagraphFormat => _typingParagraphFormat;
 
-    /// <summary>Undoes the most recent native edit, or the document edit when detached.</summary>
+    /// <summary>Undoes the most recent edit.</summary>
     public void Undo()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
+
         if (Handler is IRichEditorHandler { SupportsNativeUndo: true } handler)
         {
             handler.Undo();
         }
         else
         {
-            Document.Undo();
+            RestoreManagedHistory(Document.Undo, Document.UndoSelection);
         }
     }
 
-    /// <summary>Redoes the most recent native undo, or the document undo when detached.</summary>
+    /// <summary>Reapplies the most recently undone edit.</summary>
     public void Redo()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
+
         if (Handler is IRichEditorHandler { SupportsNativeUndo: true } handler)
         {
             handler.Redo();
         }
         else
         {
-            Document.Redo();
+            RestoreManagedHistory(Document.Redo, Document.RedoSelection);
+        }
+    }
+
+    private void RestoreManagedHistory(Action restore, RichTextRange? selection)
+    {
+        var previous = _pendingProgrammaticSelection;
+        _pendingProgrammaticSelection = selection;
+        try
+        {
+            restore();
+        }
+        finally
+        {
+            _pendingProgrammaticSelection = previous;
         }
     }
 
@@ -435,14 +460,6 @@ public sealed class RichEditor : View
         }
 
         var fragment = RichTextDocumentFragment.FromRange(snapshot, range);
-        if (Handler is IRichEditorHandler handler && handler.TryCut())
-        {
-            // Keep the portable fragment (including fields and library metadata)
-            // while the platform performs the actual cut and owns its undo unit.
-            await RichTextClipboard.SetAsync(fragment);
-            return;
-        }
-
         await RichTextClipboard.SetAsync(fragment);
         if (IsReadOnly ||
             !ReferenceEquals(Document, document) ||
@@ -468,7 +485,9 @@ public sealed class RichEditor : View
 
     /// <summary>Pastes a portable fragment from the system clipboard.</summary>
     /// <returns>A task that completes after paste is committed or canceled.</returns>
-    public async Task PasteAsync()
+    public Task PasteAsync() => PasteAsync(asPlainText: false);
+
+    internal async Task PasteAsync(bool asPlainText)
     {
         var document = Document;
         var version = document.Version;
@@ -478,7 +497,7 @@ public sealed class RichEditor : View
             return;
         }
 
-        var fragment = await RichTextClipboard.GetAsync();
+        var fragment = await RichTextClipboard.GetAsync(asPlainText);
         if (fragment is null)
         {
             return;
@@ -563,7 +582,8 @@ public sealed class RichEditor : View
     internal void RestoreDocumentFromNativeUndo(
         RichTextDocumentSnapshot snapshot,
         RichTextRange selection,
-        RichTextChangeOrigin origin)
+        RichTextChangeOrigin origin,
+        object? sourceToken = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         selection.Validate(snapshot.Length, nameof(selection));
@@ -572,7 +592,7 @@ public sealed class RichEditor : View
         RichTextChangeSet changes;
         try
         {
-            changes = Document.RestoreSnapshotFromNativeUndo(snapshot, origin);
+            changes = Document.RestoreSnapshotFromNativeUndo(snapshot, origin, sourceToken);
         }
         finally
         {
@@ -614,6 +634,7 @@ public sealed class RichEditor : View
     internal void SetTypingCharacterFormat(RichTextCharacterFormat format)
     {
         _typingCharacterFormat = RichTextDocumentSnapshot.Validate(format);
+        Document.BreakUndoGroup();
         ApplyTypingFormatToHandler();
         RaiseSelectionFormatChanged();
     }
@@ -708,6 +729,11 @@ public sealed class RichEditor : View
         RichTextRange oldRange,
         RichTextRange newRange)
     {
+        if (_pendingPlatformSelection is null && _pendingProgrammaticSelection is null)
+        {
+            Document.BreakUndoGroupForSelection(newRange);
+        }
+
         RefreshTypingFormats();
         if (!_synchronizingSelection && Handler is IRichEditorHandler handler)
         {
@@ -801,6 +827,11 @@ public sealed class RichEditor : View
         var resultingSelection = _pendingPlatformSelection ??
             _pendingProgrammaticSelection ??
             MapSelection(SelectedRange, changeSet, Document.Length);
+
+        if (changeSet.Origin is RichTextChangeOrigin.Programmatic or RichTextChangeOrigin.User)
+        {
+            Document.RecordUndoSelection(SelectedRange, resultingSelection);
+        }
 
         var snapshot = Document.CurrentSnapshot;
         var typingCharacterFormat = snapshot.GetCaretFormat(resultingSelection.Start);

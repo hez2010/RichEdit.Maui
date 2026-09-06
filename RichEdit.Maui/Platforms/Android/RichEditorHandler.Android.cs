@@ -62,8 +62,11 @@ public partial class RichEditorHandler
         platformView.NativeSelectionChanged += OnNativeSelectionChanged;
         platformView.EditingCompleted += OnNativeEditingCompleted;
         platformView.PasteRequested = OnPlatformPasteAsync;
+        platformView.CopyRequested = VirtualView.CopyAsync;
+        platformView.CutRequested = VirtualView.CutAsync;
         platformView.UndoRequested = OnPlatformUndo;
         platformView.RedoRequested = OnPlatformRedo;
+        platformView.TabRequested = OnPlatformTab;
         platformView.LinkInvoked = OnPlatformLinkInvoked;
         platformView.InlineObjectInvoked = OnPlatformInlineObjectInvoked;
     }
@@ -71,21 +74,25 @@ public partial class RichEditorHandler
     /// <inheritdoc />
     protected override void DisconnectHandler(RichEditText platformView)
     {
+        VirtualView?.Commands.Disconnect();
         platformView.TextChanged -= OnNativeDocumentChanged;
         platformView.NativeSelectionChanged -= OnNativeSelectionChanged;
         platformView.EditingCompleted -= OnNativeEditingCompleted;
         platformView.PasteRequested = null;
+        platformView.CopyRequested = null;
+        platformView.CutRequested = null;
         platformView.UndoRequested = null;
         platformView.RedoRequested = null;
+        platformView.TabRequested = null;
         platformView.LinkInvoked = null;
         platformView.InlineObjectInvoked = null;
         base.DisconnectHandler(platformView);
     }
 
-    private Task OnPlatformPasteAsync() =>
+    private Task OnPlatformPasteAsync(bool asPlainText) =>
         VirtualView is null || VirtualView.IsReadOnly
             ? Task.CompletedTask
-            : VirtualView.PasteAsync();
+            : VirtualView.PasteAsync(asPlainText);
 
     private void OnPlatformUndo()
     {
@@ -100,6 +107,15 @@ public partial class RichEditorHandler
         if (VirtualView is { IsReadOnly: false })
         {
             VirtualView.Redo();
+        }
+    }
+
+    private void OnPlatformTab()
+    {
+        if (VirtualView is { IsReadOnly: false } editor &&
+            (editor.MaxLength < 0 || editor.Document.Length - editor.SelectedRange.Length < editor.MaxLength))
+        {
+            editor.Selection.ReplaceText("\t");
         }
     }
 
@@ -394,6 +410,26 @@ public partial class RichEditorHandler
         RichTextDocumentSnapshot snapshot,
         RichTextRange range)
     {
+        // Marker text contains its counter value. Recompute subsequent items when
+        // a paragraph is inserted, removed, restarted, or taken out of a list.
+        var listIds = GetSpans<RichListMarkerSpan>(editable, range.Start, range.End)
+            .Select(span => span.ListFormat.Id).ToHashSet();
+        foreach (var paragraph in snapshot.Paragraphs.Where(paragraph =>
+            paragraph.Range.Start <= range.End && paragraph.Range.End >= range.Start))
+        {
+            if (paragraph.Format.List is { } item)
+            {
+                listIds.Add(item.ListId.Value);
+            }
+        }
+
+        foreach (var paragraph in snapshot.Paragraphs.Where(paragraph =>
+            paragraph.Format.List is { } item && listIds.Contains(item.ListId.Value)))
+        {
+            var start = Math.Min(range.Start, paragraph.Range.Start);
+            range = new RichTextRange(start, Math.Max(range.End, paragraph.Range.End) - start);
+        }
+
         RemoveParagraphSpans(editable, range.Start, range.End);
         var firstIndex = snapshot.FindParagraphIndex(range.Start);
         var counters = new Dictionary<(int Id, int Level), int>();
@@ -560,6 +596,7 @@ public partial class RichEditorHandler
                 StrikethroughSpan or
                 TypefaceSpan or
                 AbsoluteSizeSpan or
+                RichFontSizeSpan or
                 RelativeSizeSpan or
                 SuperscriptSpan or
                 SubscriptSpan or
@@ -647,8 +684,6 @@ public partial class RichEditorHandler
         length = Math.Clamp(length, 0, textLength - start);
         PlatformView.SetSelection(start, start + length);
     }
-
-    private partial bool TryCutCore() => false;
 
     // Android's public TextView API does not expose its internal undo manager or
     // CanUndo/CanRedo state, so the portable document history remains the fallback.
@@ -769,6 +804,8 @@ public partial class RichEditorHandler
         }
 
         PlatformView.InputType = inputType;
+        PlatformView.SetSingleLine(false);
+        PlatformView.SetHorizontallyScrolling(false);
         // InputType installs a key listener, including when the view was read-only.
         // Apply the read-only state after configuring the requested keyboard.
         if (editor.IsReadOnly)
@@ -850,9 +887,9 @@ public partial class RichEditorHandler
         if (format.FontSize is > 0)
         {
             text.SetSpan(
-                new AbsoluteSizeSpan(
-                    Math.Max(checked((int)Math.Round(format.FontSize.Value)), 1),
-                    true),
+                new RichFontSizeSpan(format.FontSize.Value,
+                    TypedValue.ApplyDimension(ComplexUnitType.Sp, (float)format.FontSize.Value,
+                        PlatformView.Resources!.DisplayMetrics)),
                 start,
                 end,
                 SpanTypes.ExclusiveExclusive);
@@ -867,7 +904,7 @@ public partial class RichEditorHandler
             text.SetSpan(new SubscriptSpan(), start, end, SpanTypes.ExclusiveExclusive);
         }
 
-        if (format.ForegroundColor is not null)
+        if (format.ForegroundColor is not null && !format.Hidden)
         {
             text.SetSpan(
                 new ForegroundColorSpan(format.ForegroundColor.ToPlatform()),
@@ -960,7 +997,7 @@ public partial class RichEditorHandler
 
         var firstMargin = ToPixels(format.LeadingIndent + format.FirstLineIndent);
         var remainingMargin = ToPixels(format.LeadingIndent);
-        if (firstMargin != 0 || remainingMargin != 0)
+        if (format.NativeList is null && (firstMargin != 0 || remainingMargin != 0))
         {
             text.SetSpan(
                 new LeadingMarginSpanStandard(firstMargin, remainingMargin),
@@ -1000,7 +1037,7 @@ public partial class RichEditorHandler
 
         if (format.NativeList is { } list && !string.IsNullOrEmpty(listMarker))
         {
-            ApplyListMarkerSpan(text, start, end, list, listMarker, listPicture);
+            ApplyListMarkerSpan(text, start, end, format, list, listMarker, listPicture);
         }
 
         if (format.BackgroundColor is not null ||
@@ -1031,6 +1068,7 @@ public partial class RichEditorHandler
         ISpannable text,
         int start,
         int end,
+        RichTextParagraphFormat format,
         RichTextListFormat list,
         string marker,
         Drawable? picture)
@@ -1040,18 +1078,15 @@ public partial class RichEditorHandler
             return;
         }
 
-        var markerWidth = picture?.Bounds.Width() ??
-            (PlatformView is { Paint: { } paint }
-                ? (int)Math.Min(Math.Ceiling(paint.MeasureText(marker)), int.MaxValue)
-                : 16);
+        var markerTab = format.TabStops.FirstOrDefault(tab => tab.Alignment == RichTextTabAlignment.Left)?.Position ?? 0;
         text.SetSpan(
             new RichListMarkerSpan(
                 list,
                 marker,
                 picture,
-                markerWidth,
-                ToPixels(8),
-                ToPixels(18 * list.Level)),
+                ToPixels(markerTab > 0 ? markerTab : format.LeadingIndent),
+                ToPixels(format.LeadingIndent),
+                ToPixels(format.LeadingIndent + format.FirstLineIndent)),
             start,
             end,
             SpanTypes.Paragraph);
@@ -1236,8 +1271,9 @@ public partial class RichEditorHandler
         int position,
         RichTextCharacterFormat defaultFormat)
     {
-        var format = GetSpans<RichCharacterMetadataSpan>(text, position, position + 1)
-            .LastOrDefault()?.Format ?? defaultFormat;
+        var metadata = GetSpans<RichCharacterMetadataSpan>(text, position, position + 1).LastOrDefault();
+        var format = metadata?.Format ?? defaultFormat;
+        var expected = VirtualView.Document.CurrentSnapshot.ResolveCharacterFormat(format);
 
         foreach (var span in GetSpans<StyleSpan>(text, position, position + 1))
         {
@@ -1281,7 +1317,7 @@ public partial class RichEditorHandler
         var family = GetSpans<TypefaceSpan>(text, position, position + 1)
             .Select(span => span.Family)
             .LastOrDefault(value => !string.IsNullOrWhiteSpace(value));
-        if (family is not null)
+        if (family is not null && (metadata is null || family != expected.FontFamily))
         {
             format = format with { FontFamily = family };
         }
@@ -1293,6 +1329,12 @@ public partial class RichEditorHandler
                 ? absoluteSize.Size
                 : FromPixels(absoluteSize.Size);
             format = format with { FontSize = Math.Max(size, 1) };
+        }
+
+        var ownedSize = GetSpans<RichFontSizeSpan>(text, position, position + 1).LastOrDefault();
+        if (ownedSize is not null && (metadata is null || ownedSize.Size != expected.FontSize))
+        {
+            format = format with { FontSize = ownedSize.Size };
         }
 
         foreach (var span in GetSpans<RelativeSizeSpan>(text, position, position + 1))
@@ -1313,7 +1355,8 @@ public partial class RichEditorHandler
         }
 
         var foreground = GetSpans<ForegroundColorSpan>(text, position, position + 1).LastOrDefault();
-        if (foreground is not null)
+        if (foreground is not null && !format.Hidden &&
+            (metadata is null || expected.ForegroundColor?.ToPlatform().ToArgb() != foreground.ForegroundColor))
         {
             format = format with
             {
@@ -1323,7 +1366,8 @@ public partial class RichEditorHandler
         }
 
         var background = GetSpans<BackgroundColorSpan>(text, position, position + 1).LastOrDefault();
-        if (background is not null)
+        if (background is not null &&
+            (metadata is null || format.BackgroundColor?.ToPlatform().ToArgb() != background.BackgroundColor))
         {
             format = format with
             {
@@ -1333,13 +1377,13 @@ public partial class RichEditorHandler
         }
 
         var scale = GetSpans<ScaleXSpan>(text, position, position + 1).LastOrDefault();
-        if (scale is not null && scale.ScaleX > 0)
+        if (scale is not null && scale.ScaleX > 0 && (metadata is null || scale.ScaleX != (float)format.HorizontalScale))
         {
             format = format with { HorizontalScale = scale.ScaleX };
         }
 
         var spacing = GetSpans<RichLetterSpacingSpan>(text, position, position + 1).LastOrDefault();
-        if (spacing is not null)
+        if (spacing is not null && metadata is null)
         {
             format = format with
             {
@@ -1348,7 +1392,7 @@ public partial class RichEditorHandler
         }
 
         var baseline = GetSpans<RichBaselineOffsetSpan>(text, position, position + 1).LastOrDefault();
-        if (baseline is not null)
+        if (baseline is not null && metadata is null)
         {
             format = format with { BaselineOffset = FromPixels(baseline.Pixels) };
         }
@@ -1368,8 +1412,8 @@ public partial class RichEditorHandler
         int end,
         RichTextParagraphFormat defaultFormat)
     {
-        var format = GetSpans<RichParagraphMetadataSpan>(text, start, end)
-            .LastOrDefault()?.Format ?? defaultFormat;
+        var metadata = GetSpans<RichParagraphMetadataSpan>(text, start, end).LastOrDefault();
+        var format = metadata?.Format ?? defaultFormat;
         var alignment = GetSpans<AlignmentSpanStandard>(text, start, end).LastOrDefault();
         if (alignment is not null)
         {
@@ -1385,7 +1429,9 @@ public partial class RichEditorHandler
         }
 
         var margin = GetSpans<LeadingMarginSpanStandard>(text, start, end).LastOrDefault();
-        if (margin is not null)
+        if (margin is not null && (metadata is null ||
+            margin.GetLeadingMargin(true) != ToPixels(format.LeadingIndent + format.FirstLineIndent) ||
+            margin.GetLeadingMargin(false) != ToPixels(format.LeadingIndent)))
         {
             var first = FromPixels(margin.GetLeadingMargin(true));
             var rest = FromPixels(margin.GetLeadingMargin(false));
@@ -1397,7 +1443,7 @@ public partial class RichEditorHandler
         }
 
         var richLineHeight = GetSpans<RichLineHeightSpan>(text, start, end).LastOrDefault();
-        if (richLineHeight is not null)
+        if (richLineHeight is not null && metadata is null)
         {
             format = format with
             {
@@ -1416,7 +1462,7 @@ public partial class RichEditorHandler
                 SpaceAfter = FromPixels(richLineHeight.SpaceAfter),
             };
         }
-        else if (OperatingSystem.IsAndroidVersionAtLeast(29))
+        else if (richLineHeight is null && OperatingSystem.IsAndroidVersionAtLeast(29))
         {
             var lineHeight = GetSpans<LineHeightSpanStandard>(text, start, end).LastOrDefault();
             if (lineHeight is not null)
@@ -1434,7 +1480,9 @@ public partial class RichEditorHandler
             .OrderBy(tab => tab.Position)
             .DistinctBy(tab => tab.Position)
             .ToImmutableArray();
-        if (!tabs.IsDefaultOrEmpty)
+        var expectedTabs = format.TabStops.Where(tab => tab.Alignment == RichTextTabAlignment.Left)
+            .Select(tab => FromPixels(ToPixels(tab.Position))).Order().Distinct();
+        if (!tabs.IsDefaultOrEmpty && (metadata is null || !tabs.Select(tab => tab.Position).SequenceEqual(expectedTabs)))
         {
             format = format with { TabStops = tabs };
         }
@@ -1562,15 +1610,11 @@ public partial class RichEditorHandler
             ContainsPastedRichContent(editable, insertedStart, insertedStart + insertedLength);
         var containsPastedListContent = insertedLength > 0 &&
             ContainsPastedListContent(editable, insertedStart, insertedStart + insertedLength);
-        var requiresNativeSnapshot = paragraphStructureChanged ||
-            containsPastedRichContent ||
+        var requiresNativeSnapshot = containsPastedRichContent ||
             containsPastedListContent;
         RichTextDocumentSnapshot document;
         if (requiresNativeSnapshot)
         {
-            // Paragraph spans move and split as part of Android's own edit. Read
-            // their resulting ranges instead of predicting or rewriting them.
-            // Ordinary edits that do not change paragraph structure stay incremental.
             document = ReadDocumentFromPlatform(editable.ToString() ?? string.Empty);
         }
         else
@@ -1592,8 +1636,25 @@ public partial class RichEditorHandler
                 new RichTextRange(insertedStart, insertedLength));
         }
 
-        var start = Math.Clamp(PlatformView.SelectionStart, 0, document.Text.Length);
-        var end = Math.Clamp(PlatformView.SelectionEnd, start, document.Text.Length);
+        if (paragraphStructureChanged)
+        {
+            _applyingDocument = true;
+            try
+            {
+                // EditText moves Paragraph spans but does not split our custom
+                // list markers, spacing, and borders into new paragraph objects.
+                ApplyParagraphFormatsIncrementally(editable, document,
+                    GetAffectedParagraphRange(new RichTextRange(insertedStart, insertedLength), document.Text));
+                UpdateGlobalParagraphProjection(document);
+            }
+            finally
+            {
+                _applyingDocument = false;
+            }
+        }
+
+        var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Text.Length);
+        var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Text.Length);
         VirtualView.UpdateDocumentFromPlatform(document, start, end - start, _sourceToken);
         UpdateTypingFormatsFromPlatform();
     }

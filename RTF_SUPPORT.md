@@ -138,7 +138,7 @@ List markers are presentation metadata and are never inserted into
 | Drawing shapes, text boxes, and floating/wrapped pictures | Flattened on import: `\shptxt` becomes ordinary text and pictures in shape properties become inline images. Positioning, wrapping, and editable vector geometry are discarded. |
 | Equations and math zones | No portable math model; plain field/result text or pictures can be used as a fallback. |
 | Document information, user properties, themes, mail merge, forms, and XML/custom data | Not serialized into the portable model. Application metadata can be edited with `RichTextDocumentEdit.SetMetadata` and read from `RichTextDocument.CurrentSnapshot.Metadata`; it is currently model-only. |
-| Rich clipboard paste | Supported attributes are read back from each native editor. Unsupported attributes follow the same degradation rules as programmatic documents; full cross-platform RTF clipboard equivalence is not guaranteed. |
+| Rich clipboard paste | Copies within the running application retain the complete rich fragment while the clipboard still identifies that copy. Windows and Apple publish RTF and plain text for other applications; Android imports plain text from other applications. Native copy/cut/paste commands use this path too. Plain-text paste inherits destination typing formatting. |
 
 ## Native API basis
 
