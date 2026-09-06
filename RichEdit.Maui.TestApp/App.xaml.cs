@@ -26,7 +26,7 @@ public partial class App : Application
                     await AppleEditorTests.RunAsync(editor);
                 }
             };
-            return new Window(new ContentPage { Content = editor, SafeAreaEdges = SafeAreaEdges.Container });
+            return new Window(new ContentPage { Content = editor, SafeAreaEdges = new(SafeAreaRegions.Container) });
         }
 #endif
 		return new Window(new AppShell());

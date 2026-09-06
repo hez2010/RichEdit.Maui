@@ -26,7 +26,7 @@ public class MainActivity : MauiAppCompatActivity
             Microsoft.Maui.Controls.Application.Current!.Windows[0].Page = new ContentPage
             {
                 Content = editor,
-                SafeAreaEdges = SafeAreaEdges.Container,
+                SafeAreaEdges = new (SafeAreaRegions.Container),
             };
         }
     }

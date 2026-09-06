@@ -18,7 +18,7 @@ internal sealed class CodeEditorTestPage : ContentPage
         layout.Add(_editor);
         layout.Add(_focusTarget, 0, 1);
         Content = layout;
-        SafeAreaEdges = SafeAreaEdges.Container;
+        SafeAreaEdges = new(SafeAreaRegions.Container);
         var started = false;
         _textView.Loaded += async (_, _) =>
         {

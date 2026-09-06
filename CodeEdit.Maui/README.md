@@ -131,4 +131,4 @@ dotnet build RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj -p:Platform=x64 -p:W
 & ./RichEdit.Maui.Tests/bin/x64/Debug/net10.0-windows10.0.19041.0/RichEdit.Maui.Tests.exe -class RichEdit.Maui.Tests.CodeEditorTests
 ```
 
-The executable uses xUnit's in-process runner. Add `-p:SkipMauiWorkloadManifest=true` to the build when validating the .NET 10 targets with the locally installed .NET 11 preview workload. Mobile native behavior still requires device or simulator validation.
+The executable uses xUnit's in-process runner. Add `-p:SkipMauiWorkloadManifest=true` to the build when validating the .NET 10 targets with the locally installed workload. Mobile native behavior still requires device or simulator validation.
