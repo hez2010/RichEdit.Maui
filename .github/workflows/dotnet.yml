@@ -44,4 +44,13 @@ jobs:
 
     - name: NuGet push
       if: success() && github.event_name == 'workflow_dispatch' && inputs.publish
-      run: dotnet nuget push artifacts/*.nupkg --api-key ${{steps.login.outputs.NUGET_API_KEY}} --source https://api.nuget.org/v3/index.json
+      shell: pwsh
+      env:
+        NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+      run: |
+        $packages = @(Get-ChildItem artifacts -Filter *.nupkg -File)
+        if ($packages.Count -eq 0) { throw "No NuGet packages found in artifacts." }
+        foreach ($package in $packages) {
+          dotnet nuget push $package.FullName --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
