@@ -197,6 +197,47 @@ internal static class AppleEditorTests
                 $"shrinking formatting left offset {native.ContentOffset.Y} past the bottom {maximum}");
         });
 
+        await Test("text undo and redo preserve the scrolled viewport", async () =>
+        {
+            var source = string.Concat(Enumerable.Repeat("Paragraph text for scrolling.\n", 150));
+            editor.Document = RichTextDocument.FromPlainText(source);
+            editor.SelectedRange = new RichTextRange(31, 0);
+            native.InsertText("edit");
+            await Task.Delay(100);
+            native.SetContentOffset(new CoreGraphics.CGPoint(0, 200), false);
+            await Task.Delay(100);
+            var before = native.ContentOffset;
+            async Task VerifyViewport(string operation)
+            {
+                // Sample several frames so a delayed UIKit scroll is observable.
+                for (var frame = 0; frame < 15; frame++)
+                {
+                    await Task.Delay(20);
+                    EditorContractTests.Equal(true, Math.Abs((double)(native.ContentOffset.Y - before.Y)) < 2,
+                        $"text {operation} scrolled from {before.Y} to {native.ContentOffset.Y}");
+                }
+            }
+            editor.Undo();
+            await VerifyViewport("undo");
+            Equal(source, editor.Document.Text);
+            Equal(new RichTextRange(31, 0), editor.SelectedRange);
+            editor.Redo();
+            await VerifyViewport("redo");
+            Equal(source.Insert(31, "edit"), editor.Document.Text);
+            Equal(new RichTextRange(31, 0), editor.SelectedRange);
+
+            editor.Document = RichTextDocument.FromPlainText("short");
+            editor.Selection.ReplaceText(source);
+            await Task.Delay(100);
+            native.SetContentOffset(new CoreGraphics.CGPoint(0, native.ContentSize.Height - native.Bounds.Height), false);
+            editor.Undo();
+            await Task.Delay(250);
+            var maximum = Math.Max(-native.AdjustedContentInset.Top,
+                native.ContentSize.Height - native.Bounds.Height + native.AdjustedContentInset.Bottom);
+            EditorContractTests.Equal(true, native.ContentOffset.Y <= maximum + 2,
+                $"text undo left offset {native.ContentOffset.Y} past the bottom {maximum}");
+        });
+
         await Test("field-only changes are undoable", async () =>
         {
             editor.Selection.InsertField("DATE", "today");

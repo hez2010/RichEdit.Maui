@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net11.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -13,6 +13,7 @@
     <EnableDefaultMauiItems>false</EnableDefaultMauiItems>
     <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <UseMonoRuntime>false</UseMonoRuntime>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
     <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
     <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.cs" Link="EditorContractTests.cs" />
     <EmbeddedResource Include="..\RichEdit.Maui.TestApp\MainPage.xaml.cs" LogicalName="EditorSampleSource" />

@@ -207,6 +207,19 @@ internal static class AndroidEditorTests
             Equal(true, native.KeyListener is not null);
         }));
 
+        await Test("read-only toggle restores hardware arrow navigation", async () =>
+        {
+            editor.Selection.ReplaceText("abcd");
+            editor.IsReadOnly = true;
+            editor.IsReadOnly = false;
+            editor.SelectedRange = new RichTextRange(2, 0);
+            Equal(true, native.RequestFocus());
+            await EditorContractTests.Verify(editor);
+            using var key = new Android.Views.KeyEvent(Android.Views.KeyEventActions.Down, Android.Views.Keycode.DpadLeft);
+            native.DispatchKeyEvent(key);
+            Equal(new RichTextRange(1, 0), editor.SelectedRange);
+        });
+
         await Test("length limit constrains typing but allows document edits", () => Sync(() =>
         {
             editor.MaxLength = 2;

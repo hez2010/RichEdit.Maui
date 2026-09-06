@@ -1,0 +1,85 @@
+using Android.Views;
+using Android.Views.InputMethods;
+using RichEdit.Maui.Platforms.Android;
+
+namespace CodeEdit.Maui;
+
+internal sealed partial class CodeEditorNativeAdapter
+{
+    private RichEditText PlatformView = null!;
+    private ViewTreeObserver? _observer;
+    internal partial bool IsComposing => PlatformView.EditableText is { } text && BaseInputConnection.GetComposingSpanStart(text) >= 0;
+    internal partial bool Post(Action action) => PlatformView.Post(action);
+
+    private partial void Connect()
+    {
+        var platformView = PlatformView = _handler.PlatformView;
+        platformView.KeyPress += OnCodeKeyPress;
+        _observer = platformView.ViewTreeObserver;
+        if (_observer is not null)
+        {
+            _observer.ScrollChanged += OnViewportChanged;
+            _observer.GlobalLayout += OnViewportChanged;
+        }
+    }
+
+    private partial void Disconnect()
+    {
+        var platformView = PlatformView;
+        platformView.KeyPress -= OnCodeKeyPress;
+        if (_observer is { IsAlive: true })
+        {
+            _observer.ScrollChanged -= OnViewportChanged;
+            _observer.GlobalLayout -= OnViewportChanged;
+        }
+        _observer = null;
+    }
+
+    internal partial void UpdateConfiguration() => PlatformView.SetHorizontallyScrolling(!Owner.WordWrap);
+    internal partial void ScrollToSelection() => PlatformView.BringPointIntoView(Owner.SelectedRange.Start);
+
+    internal partial IReadOnlyList<VisibleCodeLine> GetVisibleLines()
+    {
+        var result = new List<VisibleCodeLine>();
+        if (PlatformView.Layout is not { } layout || PlatformView.Height <= 0) return result;
+        var density = PlatformView.Resources?.DisplayMetrics?.Density ?? 1f;
+        var firstVisual = layout.GetLineForVertical(PlatformView.ScrollY);
+        var first = Owner.Lines.GetLineIndex(Math.Min(layout.GetLineStart(firstVisual), Owner.Document.Length));
+        for (var index = first; index < Owner.LineCount; index++)
+        {
+            var visual = layout.GetLineForOffset(Owner.Lines.GetRange(index).Start);
+            var top = layout.GetLineTop(visual) + PlatformView.CompoundPaddingTop - PlatformView.ScrollY;
+            if (top >= PlatformView.Height) break;
+            var height = layout.GetLineBottom(visual) - layout.GetLineTop(visual);
+            if (top + height > 0) result.Add(new(index + 1, top / density, height / density));
+        }
+        return result;
+    }
+
+    private void OnViewportChanged(object? sender, EventArgs args) => Owner.InvalidateGutter();
+    private void OnCodeKeyPress(object? sender, global::Android.Views.View.KeyEventArgs args)
+    {
+        args.Handled = false;
+        var keyEvent = args.Event;
+        if (keyEvent is null || keyEvent.Action != KeyEventActions.Down || keyEvent.IsAltPressed || IsComposing) return;
+        if (keyEvent.IsCtrlPressed && args.KeyCode == Keycode.Slash)
+        {
+            Owner.ToggleLineComment();
+            args.Handled = true;
+        }
+        else if (!keyEvent.IsCtrlPressed && !Owner.IsReadOnly)
+        {
+            if (args.KeyCode == Keycode.Tab)
+            {
+                if (keyEvent.IsShiftPressed) Owner.Outdent();
+                else Owner.Indent();
+                args.Handled = true;
+            }
+            else if (args.KeyCode == Keycode.Enter)
+            {
+                Owner.InsertNewLine();
+                args.Handled = true;
+            }
+        }
+    }
+}

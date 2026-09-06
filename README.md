@@ -2,6 +2,8 @@
 
 `RichEdit.Maui` is a native-handler rich-text editor for .NET MAUI. It combines a bindable editor control, a stable live document, immutable versioned snapshots, and atomic range edits.
 
+For source-code editing, [CodeEdit.Maui](CodeEdit.Maui/README.md) builds on the same document and native handlers with C# syntax coloring, line numbers, indentation, line comments, and find/replace. Register it with `builder.UseCodeEditor()` and try the test app's **Code editor** tab.
+
 The editor uses each platform's native text stack:
 
 - Android 26+: `AppCompatEditText` and editable spans

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using CodeEdit.Maui;
 using RichEdit.Maui;
 
 namespace RichEdit.Maui.TestApp;
@@ -10,7 +11,7 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
-            .UseRichEdit()
+            .UseCodeEditor()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
