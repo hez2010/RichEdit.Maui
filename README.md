@@ -10,6 +10,10 @@ The editor uses each platform's native text stack:
 
 Formatting that cannot be rendered exactly on a platform remains in the document and its RTF representation. See the [portable RTF support matrix](RTF_SUPPORT.md) for the exact native, adapted, degraded, preserved, and unsupported behavior.
 
+## Project state
+
+Currently this project is still in early preview and deliberately targeting the latest .NET 11 previews to align with my development environment. It will be expanded to support more targets in stable versions. 
+
 ## Register the handler
 
 ```csharp
