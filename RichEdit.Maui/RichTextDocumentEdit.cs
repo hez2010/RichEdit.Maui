@@ -197,6 +197,59 @@ public sealed class RichTextDocumentEdit
     }
 
     /// <summary>
+    /// Sets character formats for ordered, non-overlapping ranges in one pass.
+    /// Formatting outside the supplied ranges is preserved.
+    /// </summary>
+    /// <param name="runs">The nonempty ranges and their replacement character formats, ordered by start offset.</param>
+    /// <exception cref="ArgumentException">A range is empty, overlaps another range, or is out of order.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A range extends beyond the document.</exception>
+    public void SetCharacterFormats(IEnumerable<RichTextRun> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+        var replacements = runs.ToArray();
+        if (replacements.Length == 0) return;
+
+        var previousEnd = 0;
+        foreach (var replacement in replacements)
+        {
+            ArgumentNullException.ThrowIfNull(replacement);
+            replacement.Range.Validate(Snapshot.Length, nameof(runs));
+            if (replacement.Range.IsEmpty || replacement.Start < previousEnd)
+                throw new ArgumentException("Character-format ranges must be nonempty, ordered, and non-overlapping.", nameof(runs));
+            previousEnd = replacement.End;
+        }
+
+        var formattedRuns = new List<RichTextRun>(Snapshot.Runs.Length + replacements.Length);
+        var replacementIndex = 0;
+        foreach (var run in Snapshot.Runs)
+        {
+            var position = run.Start;
+            while (replacementIndex < replacements.Length && replacements[replacementIndex].Start < run.End)
+            {
+                var replacement = replacements[replacementIndex];
+                if (position < replacement.Start)
+                {
+                    formattedRuns.Add(new RichTextRun(position, replacement.Start - position, run.Format));
+                    position = replacement.Start;
+                }
+
+                var end = Math.Min(run.End, replacement.End);
+                formattedRuns.Add(new RichTextRun(position, end - position, replacement.Format));
+                position = end;
+                if (replacement.End > run.End) break;
+                replacementIndex++;
+            }
+
+            if (position < run.End)
+                formattedRuns.Add(run with { Range = new RichTextRange(position, run.End - position) });
+        }
+
+        Snapshot = Snapshot.With(runs: formattedRuns);
+        foreach (var replacement in replacements)
+            _changes.Add(new RichTextRangeChange(RichTextChangeKind.CharacterFormat, replacement.Range, replacement.Range));
+    }
+
+    /// <summary>
     /// Updates character formats in a range while preserving run boundaries.
     /// </summary>
     /// <param name="range">The nonempty text range to format.</param>

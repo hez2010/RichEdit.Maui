@@ -298,11 +298,8 @@ public sealed partial class CodeEditor : ContentView
                 return;
             }
             var formatting = GetForegroundChanges(document.CurrentSnapshot, tokens);
-            document.Edit(edit =>
-            {
-                foreach (var (range, color) in formatting)
-                    edit.UpdateCharacterFormat(range, format => format with { ForegroundColor = color });
-            }, new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory, tag: _highlightTag));
+            document.Edit(edit => edit.SetCharacterFormats(formatting),
+                new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory, tag: _highlightTag));
             if (token.IsCancellationRequested || !ReferenceEquals(Document, document)) return;
             _tokens = tokens;
             OnPropertyChanged(nameof(Tokens));
@@ -317,9 +314,9 @@ public sealed partial class CodeEditor : ContentView
 
     internal void CancelHighlighting() => _highlightCancellation?.Cancel();
 
-    private List<(RichTextRange Range, Color? Color)> GetForegroundChanges(RichTextDocumentSnapshot snapshot, IReadOnlyList<CodeToken> tokens)
+    private List<RichTextRun> GetForegroundChanges(RichTextDocumentSnapshot snapshot, IReadOnlyList<CodeToken> tokens)
     {
-        var changes = new List<(RichTextRange Range, Color? Color)>();
+        var changes = new List<RichTextRun>();
         var tokenIndex = 0;
         foreach (var run in snapshot.Runs)
         {
@@ -340,12 +337,13 @@ public sealed partial class CodeEditor : ContentView
                 }
                 if (!Equals(run.Format.ForegroundColor, color))
                 {
-                    if (changes.Count > 0 && changes[^1].Range.End == position && Equals(changes[^1].Color, color))
+                    var format = run.Format with { ForegroundColor = color };
+                    if (changes.Count > 0 && changes[^1].Range.End == position && changes[^1].Format == format)
                     {
                         var previous = changes[^1].Range;
-                        changes[^1] = (new RichTextRange(previous.Start, end - previous.Start), color);
+                        changes[^1] = new RichTextRun(new RichTextRange(previous.Start, end - previous.Start), format);
                     }
-                    else changes.Add((new RichTextRange(position, end - position), color));
+                    else changes.Add(new RichTextRun(new RichTextRange(position, end - position), format));
                 }
                 position = end;
             }

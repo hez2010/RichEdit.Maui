@@ -235,6 +235,75 @@ public class CodeEditorTests
     });
 
     [Fact]
+    public Task HighlightingPreservesOtherFormatsAcrossTokenBoundaries() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new CodeEditorFixture("public class C { return 42; }");
+        var editor = fixture.Editor;
+        editor.Document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(2, 8),
+            format => format with { FontWeight = 700, BackgroundColor = Microsoft.Maui.Graphics.Colors.Yellow }));
+        var before = editor.Document.CurrentSnapshot;
+        await editor.RefreshHighlightingAsync();
+        Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 0));
+        Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 3));
+        Assert.Equal(editor.Theme.TextColor, NativeColor(fixture, 6));
+        Assert.Equal(700, fixture.Handler.PlatformView.Document.GetRange(3, 4).CharacterFormat.Weight);
+        Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 255, 0), fixture.Handler.PlatformView.Document.GetRange(3, 4).CharacterFormat.BackgroundColor);
+        editor.Theme = CodeEditorTheme.Dark;
+        await editor.RefreshHighlightingAsync();
+        Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 3));
+        editor.Highlighter = null;
+        await editor.RefreshHighlightingAsync();
+        Assert.True(before.ContentEquals(editor.Document.CurrentSnapshot));
+        Assert.Equal(editor.Theme.TextColor, NativeColor(fixture, 3));
+    });
+
+    [Fact]
+    public Task HighlightingTwoThousandLinesUpdatesNativeColorsAndPreservesHistory()
+    {
+        var output = TestContext.Current.TestOutputHelper!;
+        return WindowsTestHost.RunAsync(async () =>
+        {
+            const string block = "    public static string FormatValue(int value)\n    {\n        var result = value + 42;\n        return $\"Value: {result}\"; // formatted value\n    }";
+            var source = string.Join('\n', Enumerable.Repeat(block, 400));
+            using var fixture = new CodeEditorFixture(source);
+            var editor = fixture.Editor;
+            editor.SelectedRange = new RichTextRange(source.LastIndexOf("return", StringComparison.Ordinal), 6);
+            editor.Selection.ReplaceText("throw");
+            editor.Undo();
+            var selection = editor.SelectedRange;
+            var changes = new List<RichTextChangeSet>();
+            editor.ContentChanged += (_, args) => changes.Add(args.ChangeSet);
+
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            await editor.RefreshHighlightingAsync();
+            output.WriteLine($"Initial highlighting: {timer.Elapsed.TotalMilliseconds:F1} ms (2,000 lines, {editor.Tokens.Count} tokens)");
+            Assert.Equal(2000, editor.LineCount);
+            Assert.Equal(4400, editor.Tokens.Count);
+            Assert.False(Assert.Single(changes).IsTextChanged);
+            Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, source.IndexOf("public", StringComparison.Ordinal)));
+            Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, source.LastIndexOf("return", StringComparison.Ordinal)));
+            Assert.Equal(editor.Theme.NumberColor, NativeColor(fixture, source.LastIndexOf("42", StringComparison.Ordinal)));
+            Assert.Equal(editor.Theme.CommentColor, NativeColor(fixture, source.LastIndexOf("//", StringComparison.Ordinal)));
+
+            timer.Restart();
+            editor.Theme = CodeEditorTheme.Dark;
+            await editor.RefreshHighlightingAsync();
+            output.WriteLine($"Theme change and highlighting: {timer.Elapsed.TotalMilliseconds:F1} ms");
+            Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, source.LastIndexOf("return", StringComparison.Ordinal)));
+            Assert.Equal(editor.Theme.CommentColor, NativeColor(fixture, source.LastIndexOf("//", StringComparison.Ordinal)));
+            var version = editor.Document.Version;
+            await editor.RefreshHighlightingAsync();
+            Assert.Equal(version, editor.Document.Version);
+            Assert.Equal(source, editor.Document.Text);
+            Assert.Equal(selection, editor.SelectedRange);
+            Assert.False(editor.CanUndo);
+            Assert.True(editor.CanRedo);
+            editor.Redo();
+            Assert.Contains("throw", editor.Document.Text);
+        });
+    }
+
+    [Fact]
     public Task RecoloringUpdatesOnlyRangesWhoseClassificationChanged() => WindowsTestHost.RunAsync(async () =>
     {
         using var fixture = new CodeEditorFixture(string.Concat(Enumerable.Repeat("class A { }\n", 40)));

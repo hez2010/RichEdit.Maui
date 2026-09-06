@@ -497,6 +497,11 @@ public partial class RichEditorHandler
         var positions = GetNativeTextSnapshot();
         var nativeDocument = PlatformView.Document;
         var reset = nativeDocument.GetDefaultCharacterFormat();
+        var characterFormats = new Dictionary<RichTextCharacterFormat, ITextCharacterFormat>();
+        // TOM notifies every live range on formatting changes. Reuse one range so
+        // thousands of token ranges do not accumulate until their wrappers are collected.
+        var nativeRange = nativeDocument.GetRange(0, 0);
+        var rangeFormat = nativeRange.CharacterFormat;
         for (var index = snapshot.FindRunIndex(affectedRange.Start);
              index < snapshot.Runs.Length;
              index++)
@@ -514,12 +519,14 @@ public partial class RichEditorHandler
                 continue;
             }
 
-            var nativeFormat = reset.GetClone();
-            ApplyCharacterFormat(nativeFormat, snapshot.ResolveCharacterFormat(run.Format));
-            var nativeRange = nativeDocument.GetRange(
-                positions.ToNativePosition(start),
-                positions.ToNativePosition(end));
-            nativeRange.CharacterFormat.SetClone(nativeFormat);
+            if (!characterFormats.TryGetValue(run.Format, out var nativeFormat))
+            {
+                nativeFormat = reset.GetClone();
+                ApplyCharacterFormat(nativeFormat, snapshot.ResolveCharacterFormat(run.Format));
+                characterFormats.Add(run.Format, nativeFormat);
+            }
+            nativeRange.SetRange(positions.ToNativePosition(start), positions.ToNativePosition(end));
+            rangeFormat.SetClone(nativeFormat);
         }
     }
 
