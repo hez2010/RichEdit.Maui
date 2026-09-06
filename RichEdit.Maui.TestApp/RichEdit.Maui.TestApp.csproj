@@ -51,7 +51,6 @@
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(Configuration)'=='Release'">
-        <PublishAot>true</PublishAot>
         <AndroidPackageFormat>apk</AndroidPackageFormat>
         <AndroidLinkTool>r8</AndroidLinkTool>
     </PropertyGroup>
