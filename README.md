@@ -201,7 +201,7 @@ await Editor.PasteAsync();
 
 Copy and cut from native menus and keyboard shortcuts use the same portable fragments as these methods. Copies within the running application retain formatting that RTF cannot represent; Windows and Apple also publish RTF and plain text for other applications. Paste raises `Pasting`, respects `MaxLength`, and preserves destination typing formatting for plain text. Android's **Paste as plain text** discards the copied formatting.
 
-All platforms use document snapshots for undo and redo, including field instructions, image payloads, metadata, and selection ranges. Apple's native undo manager forwards system undo/redo commands to that history, so native typing and programmatic edits remain in one consistent sequence. Undo and redo are disabled while the editor is read-only.
+All platforms use document snapshots for undo and redo, including field instructions, image payloads, and metadata. Selection is not stored in history: the current range is remapped and clamped as content changes. Apple's native undo manager forwards system undo/redo commands to that history, so native typing and programmatic edits remain in one consistent sequence. Undo and redo are disabled while the editor is read-only.
 
 ## Tests
 

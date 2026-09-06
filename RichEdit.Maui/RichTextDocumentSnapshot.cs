@@ -535,12 +535,17 @@ public sealed class RichTextDocumentSnapshot
             DictionariesEqual(_metadata, other._metadata);
     }
 
-    internal RichTextDocumentSnapshot RemapText(string text)
+    internal RichTextDocumentSnapshot RemapText(string text, RichTextRange? replacedRange = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         if (string.Equals(Text, text, StringComparison.Ordinal))
         {
             return this;
+        }
+
+        if (replacedRange is { } range && TryGetReplacement(Text, text, range, out var insertedText))
+        {
+            return Replace(range.Start..range.End, insertedText);
         }
 
         var prefixLength = Text.AsSpan().CommonPrefixLength(text);
@@ -555,6 +560,21 @@ public sealed class RichTextDocumentSnapshot
         var oldEnd = Text.Length - suffixLength;
         var newEnd = text.Length - suffixLength;
         return Replace(prefixLength..oldEnd, text[prefixLength..newEnd]);
+    }
+
+    internal static bool TryGetReplacement(string before, string after, RichTextRange range, out string insertedText)
+    {
+        insertedText = string.Empty;
+        var insertedLength = after.Length - (before.Length - range.Length);
+        if (range.Start < 0 || range.End > before.Length || insertedLength < 0 || range.Start > after.Length - insertedLength ||
+            !before.AsSpan(0, range.Start).SequenceEqual(after.AsSpan(0, range.Start)) ||
+            !before.AsSpan(range.End).SequenceEqual(after.AsSpan(range.Start + insertedLength)))
+        {
+            return false;
+        }
+
+        insertedText = after.Substring(range.Start, insertedLength);
+        return true;
     }
 
     internal RichTextDocumentSnapshot MergeNativeSnapshot(

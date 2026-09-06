@@ -129,19 +129,6 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     internal bool CanRedo => _redo.Count != 0;
 
-    internal RichTextRange? UndoSelection => _undo.TryPeek(out var entry) ? entry.BeforeSelection : null;
-
-    internal RichTextRange? RedoSelection => _redo.TryPeek(out var entry) ? entry.AfterSelection : null;
-
-    internal void RecordUndoSelection(RichTextRange before, RichTextRange after)
-    {
-        if (_undo.TryPeek(out var entry) && entry.After.Version == Version)
-        {
-            _undo.Pop();
-            _undo.Push(entry with { BeforeSelection = entry.BeforeSelection ?? before, AfterSelection = after });
-        }
-    }
-
     internal void BreakUndoGroup() => ResetNativeEditCoalescing();
 
     internal void BreakUndoGroupForSelection(RichTextRange selection)
@@ -235,7 +222,9 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         RichTextDocumentSnapshot snapshot,
         object sourceToken,
         bool nativeUndoOwned,
-        RichTextChangeOrigin origin = RichTextChangeOrigin.User)
+        RichTextChangeOrigin origin = RichTextChangeOrigin.User,
+        bool mergeWithPrevious = false,
+        long? projectedVersion = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(sourceToken);
@@ -248,9 +237,11 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
         VerifyNoActiveEdit();
         var changes = CreateDelta(_snapshot, snapshot);
+        var completesProjection = projectedVersion == Version && _undo.TryPeek(out var projectedEdit) && projectedEdit.After.Version == Version;
         var undoBehavior = nativeUndoOwned
             ? RichTextUndoBehavior.ClearHistory
-            : origin == RichTextChangeOrigin.User && CanMergeNativeEdit(changes, sourceToken)
+            : origin == RichTextChangeOrigin.User &&
+              (completesProjection || mergeWithPrevious && ReferenceEquals(_lastNativeSourceToken, sourceToken) || CanMergeNativeEdit(changes, sourceToken))
                 ? RichTextUndoBehavior.MergeWithPrevious
                 : RichTextUndoBehavior.CreateUnit;
         var result = Commit(
@@ -399,7 +390,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             case RichTextUndoBehavior.MergeWithPrevious:
                 if (_undo.TryPop(out var preceding))
                 {
-                    _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription, preceding.BeforeSelection));
+                    _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription));
                 }
                 else
                 {
@@ -852,7 +843,5 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     private sealed record UndoEntry(
         RichTextDocumentSnapshot Before,
         RichTextDocumentSnapshot After,
-        string? Description,
-        RichTextRange? BeforeSelection = null,
-        RichTextRange? AfterSelection = null);
+        string? Description);
 }

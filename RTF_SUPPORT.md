@@ -32,7 +32,7 @@ WinUI and are remapped as the text changes.
 | Unicode text, surrogate pairs, escaped braces and backslashes | Round-trip | Native | Native | Native | Native | Writer emits `\u`; reader honors `\uc` fallback counts. |
 | ANSI/Mac/PC code pages and font charsets on import | Round-trip | Native | Native | Native | Native | Imported text is normalized to .NET UTF-16. |
 | Paragraph breaks | Round-trip | Native | Native | Native | Native | Canonical form is `\n`; RTF uses `\par`. |
-| Soft line breaks | Round-trip | Native | Native | Native | Native | Canonical form is U+2028; RTF uses `\line`. |
+| Soft line breaks | Round-trip | Native | Native | Adapter | Native | Canonical form is U+2028; RTF uses `\line`. Android transforms it for layout while preserving logical text, UTF-16 offsets, paragraph identity, and continuation indentation. |
 | Tabs and nonbreaking/special spaces | Round-trip | Native | Native | Native | Native | Tabs remain logical text; formatted stops are listed below. |
 | Font family | Round-trip | Native | Native | Native | Native | Missing fonts use the platform fallback. |
 | Font size | Round-trip | Native | Native | Native | Native | RTF half-point precision applies. |

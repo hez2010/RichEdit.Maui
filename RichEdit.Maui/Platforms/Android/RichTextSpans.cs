@@ -4,6 +4,13 @@ using Android.Graphics.Drawables;
 
 namespace RichEdit.Maui.Platforms.Android;
 
+// Preserve canonical UTF-16 offsets while Android's layout sees a line break.
+internal sealed class RichSoftLineBreakTransformation : global::Android.Text.Method.ReplacementTransformationMethod
+{
+    protected override char[] GetOriginal() => ['\u2028'];
+    protected override char[] GetReplacement() => ['\n'];
+}
+
 internal sealed class RichCharacterMetadataSpan(RichTextCharacterFormat format) : MetricAffectingSpan
 {
     public RichTextCharacterFormat Format { get; } = format;

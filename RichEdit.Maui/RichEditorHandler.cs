@@ -180,6 +180,13 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         {
             return;
         }
+        if (changes.Changes.All(static change => change.Kind is RichTextChangeKind.Metadata or RichTextChangeKind.Field))
+        {
+            // These are model-owned values; field result edits also carry a Text
+            // change. Reprojecting invisible metadata interrupts native input,
+            // including an in-progress IME composition.
+            return;
+        }
 
         ApplyIncrementalChangesCore(
             changes,

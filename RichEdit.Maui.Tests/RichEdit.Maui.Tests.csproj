@@ -26,6 +26,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
+    <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.cs" Link="EditorContractTests.cs" />
+    <EmbeddedResource Include="..\RichEdit.Maui.TestApp\MainPage.xaml.cs" LogicalName="EditorSampleSource" />
   </ItemGroup>
 
 </Project>

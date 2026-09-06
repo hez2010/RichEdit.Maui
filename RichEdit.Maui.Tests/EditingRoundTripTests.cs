@@ -2,6 +2,44 @@ namespace RichEdit.Maui.Tests;
 
 public class EditingRoundTripTests
 {
+    [Fact]
+    public void NativeProjectionCompletionMergesOnlyWithItsExactDocumentVersion()
+    {
+        var document = new RichTextDocument();
+        var source = new object();
+        document.Edit(edit => edit.InsertText(0, "onetwo"));
+        document.ReplaceSnapshotFromNative(document.CurrentSnapshot.RemapText("one two"), source, false, projectedVersion: document.Version);
+        document.Undo();
+        Assert.Empty(document.Text);
+        document.Redo();
+        Assert.Equal("one two", document.Text);
+
+        var staleVersion = document.Version;
+        document.Edit(edit => edit.InsertText(document.Length, "!"));
+        document.ReplaceSnapshotFromNative(document.CurrentSnapshot.RemapText("one two! "), source, false, projectedVersion: staleVersion);
+        document.Undo();
+        Assert.Equal("one two!", document.Text);
+    }
+
+    [Fact]
+    public void NativeFollowupMergesIntoTypingButNotAnInterveningApplicationEdit()
+    {
+        var document = new RichTextDocument();
+        var source = new object();
+        document.ReplaceSnapshotFromNative(RichTextDocumentSnapshot.FromPlainText("word"), source, false);
+        document.ReplaceSnapshotFromNative(document.CurrentSnapshot.RemapText("word "), source, false, mergeWithPrevious: true);
+        document.Undo();
+        Assert.Empty(document.Text);
+        document.Redo();
+        document.Edit(edit => edit.SetMetadata("author", "test"));
+        document.ReplaceSnapshotFromNative(document.CurrentSnapshot.RemapText("corrected "), source, false, mergeWithPrevious: true);
+        document.Undo();
+        Assert.Equal("word ", document.Text);
+        Assert.Equal("test", document.CurrentSnapshot.Metadata["author"]);
+        document.Undo();
+        Assert.Empty(document.CurrentSnapshot.Metadata);
+    }
+
     [Theory]
     [InlineData(0, "\n")]
     [InlineData(3, "\n")]
@@ -61,22 +99,6 @@ public class EditingRoundTripTests
         Assert.True(before.ContentEquals(document.CurrentSnapshot));
         Assert.Same(token, change.SourceToken);
         Assert.False(document.CanUndo);
-    }
-
-    [Fact]
-    public void MergedUndoEntriesKeepTheFirstSelectionAndLastCaret()
-    {
-        var document = new RichTextDocument();
-        var token = new object();
-        document.ReplaceSnapshotFromNative(new RichTextDocumentSnapshot("a"), token, nativeUndoOwned: false);
-        document.RecordUndoSelection(RichTextRange.Empty, new RichTextRange(1, 0));
-        document.ReplaceSnapshotFromNative(new RichTextDocumentSnapshot("ab"), token, nativeUndoOwned: false);
-        document.RecordUndoSelection(new RichTextRange(1, 0), new RichTextRange(2, 0));
-        Assert.Equal(RichTextRange.Empty, document.UndoSelection);
-        document.Undo();
-        Assert.Equal(new RichTextRange(2, 0), document.RedoSelection);
-        document.Redo();
-        Assert.Equal("ab", document.Text);
     }
 
     [Fact]

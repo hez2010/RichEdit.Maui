@@ -19,6 +19,7 @@ public partial class RichEditorHandler
     private bool _canReadLanguageTag = true;
     private bool _hasCompletedInitialLoad;
     private bool _hasNativeLinks;
+    private bool _nativeFormatReadbackQueued;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private NativeTextSnapshot? _nativeTextSnapshot;
@@ -104,8 +105,11 @@ public partial class RichEditorHandler
         }
 
         _applyingDocument = true;
+        var wasReadOnly = PlatformView.IsReadOnly;
         try
         {
+            // Read-only restricts user input, not projection of an authored document.
+            PlatformView.IsReadOnly = false;
             var nativeDocument = PlatformView.Document;
             nativeDocument.BatchDisplayUpdates();
             try
@@ -240,6 +244,7 @@ public partial class RichEditorHandler
         finally
         {
             PlatformView.Document.ClearUndoRedoHistory();
+            PlatformView.IsReadOnly = wasReadOnly;
             _applyingDocument = false;
         }
     }
@@ -263,19 +268,24 @@ public partial class RichEditorHandler
             snapshot.Images.Any(image => image.Position >= affectedRange.Start && image.Position < affectedRange.End &&
                 (image.Rotation != 0 || image.Crop != default));
         if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset) ||
+            _hasNativeLinks && changes.Changes.Any(static change => change.Kind is
+                RichTextChangeKind.Text or RichTextChangeKind.CharacterFormat or RichTextChangeKind.Link or RichTextChangeKind.DefaultFormat) ||
             hasListChanges && RequiresRtfListProjection(snapshot, affectedRange) || requiresRtfImages)
         {
-            // Custom list markers and image geometry need RTF controls beyond TOM.
+            // TOM formatting resets can strand hidden hyperlink instructions.
+            // Rebuild linked content atomically, as for custom lists/image geometry.
             ApplyDocumentCore(snapshot, selection.Start, selection.Length);
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
             return;
         }
 
         _applyingDocument = true;
+        var wasReadOnly = PlatformView.IsReadOnly;
         var nativeDocument = PlatformView.Document;
         var displayUpdatesBatched = false;
         try
         {
+            PlatformView.IsReadOnly = false;
             nativeDocument.BatchDisplayUpdates();
             displayUpdatesBatched = true;
             foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
@@ -317,8 +327,7 @@ public partial class RichEditorHandler
                     GetAffectedParagraphRange(changes, snapshot.Text));
             }
 
-            if (changes.Changes.Any(static change => change.Kind is
-                    RichTextChangeKind.Text or RichTextChangeKind.Link))
+            if (changes.Changes.Any(static change => change.Kind is RichTextChangeKind.Text or RichTextChangeKind.Link))
             {
                 ApplyLinksIncrementally(snapshot, affectedRange);
             }
@@ -345,6 +354,7 @@ public partial class RichEditorHandler
                 }
                 finally
                 {
+                    PlatformView.IsReadOnly = wasReadOnly;
                     _applyingDocument = false;
                 }
             }
@@ -545,36 +555,13 @@ public partial class RichEditorHandler
         }
     }
 
-    private void ApplyLinksIncrementally(
-        RichTextDocumentSnapshot snapshot,
-        RichTextRange affectedRange)
+    private void ApplyLinksIncrementally(RichTextDocumentSnapshot snapshot, RichTextRange affectedRange)
     {
-        var positions = GetNativeTextSnapshot();
         var nativeDocument = PlatformView.Document;
-        if (!affectedRange.IsEmpty)
-        {
-            var affected = nativeDocument.GetRange(
-                positions.ToNativePosition(affectedRange.Start),
-                positions.ToNativePosition(affectedRange.End));
-            try
-            {
-                affected.Link = string.Empty;
-            }
-            catch (Exception exception) when (exception is ArgumentException or COMException)
-            {
-                // Some TOM versions reject clearing a range that only partially
-                // intersects a field. Individual surviving links are still applied.
-            }
-
-            // Adding or removing a TOM link can insert or remove hidden field
-            // instruction text, invalidating both position maps.
-            _nativeTextSnapshot = null;
-        }
-
         foreach (var link in snapshot.Links.Where(link =>
                      link.End > affectedRange.Start && link.Start < affectedRange.End))
         {
-            positions = GetNativeTextSnapshot();
+            var positions = GetNativeTextSnapshot();
             var range = nativeDocument.GetRange(
                 positions.ToNativePosition(link.Start),
                 positions.ToNativePosition(link.End));
@@ -801,6 +788,13 @@ public partial class RichEditorHandler
 
         if (!_applyingDocument)
         {
+            if (_hasNativeLinks)
+            {
+                ApplyDocumentCore(editor.Document.CurrentSnapshot, editor.SelectedRange.Start, editor.SelectedRange.Length);
+                ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
+                return;
+            }
+
             _applyingDocument = true;
             var nativeDocument = PlatformView.Document;
             nativeDocument.BatchDisplayUpdates();
@@ -1203,7 +1197,7 @@ public partial class RichEditorHandler
         var text = snapshot.Text;
         var nativeDocument = PlatformView.Document;
         var previous = VirtualView.Document.CurrentSnapshot;
-        var remappedPrevious = previous.RemapText(text);
+        var remappedPrevious = previous.RemapText(text, VirtualView.SelectedRange);
         var defaultCharacterFormat = ReadCharacterFormat(
             nativeDocument.GetDefaultCharacterFormat()) with
         {
@@ -1838,11 +1832,37 @@ public partial class RichEditorHandler
         {
             return;
         }
+        if (!eventArgs.IsContentChanging)
+        {
+            QueueNativeFormatReadback();
+            return;
+        }
 
         _nativeTextSnapshot = null;
         // TextChanging is synchronous. TextChanged runs after rendering, when
         // the projection guard has already been released and edits can coalesce.
         ReadNativeDocumentChange();
+    }
+
+    private void QueueNativeFormatReadback()
+    {
+        if (_nativeFormatReadbackQueued) return;
+        var document = VirtualView.Document;
+        var version = document.Version;
+        _nativeFormatReadbackQueued = true;
+        PlatformView.DispatcherQueue.TryEnqueue(() =>
+        {
+            _nativeFormatReadbackQueued = false;
+            if (_applyingDocument || !ReferenceEquals(VirtualView?.Document, document) || document.Version != version) return;
+            // Formatting also raises IsContentChanging=false. Once the native
+            // operation finishes, only a real edit adds native undo state;
+            // focus/selection notifications do not. Projection clears that state.
+            if (PlatformView.Document.CanUndo())
+            {
+                _nativeTextSnapshot = null;
+                ReadNativeDocumentChange();
+            }
+        });
     }
 
     private void ReadNativeDocumentChange()
@@ -1914,6 +1934,13 @@ public partial class RichEditorHandler
         var oldEnd = previous.Length - suffixLength;
         var newEnd = text.Length - suffixLength;
         var insertedText = text.Substring(prefixLength, newEnd - prefixLength);
+        var replacedRange = VirtualView.SelectedRange;
+        if (RichTextDocumentSnapshot.TryGetReplacement(previous.Text, text, replacedRange, out var knownInsertion))
+        {
+            prefixLength = replacedRange.Start;
+            oldEnd = replacedRange.End;
+            insertedText = knownInsertion;
+        }
         var textChanged = !string.Equals(previous.Text, text, StringComparison.Ordinal);
         document = textChanged
             ? previous.Replace(prefixLength..oldEnd, insertedText, _nativeTypingFormat)

@@ -9,8 +9,51 @@ using DataPackage = Windows.ApplicationModel.DataTransfer.DataPackage;
 
 namespace RichEdit.Maui.Tests;
 
+[Collection("Native editor")]
 public class WindowsEditorTests
 {
+    private static Microsoft.UI.Xaml.Window? _sampleWindow;
+    [Fact]
+    public Task FocusingTheSampleDocumentDoesNotCreateHistory() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var source = typeof(WindowsEditorTests).Assembly.GetManifestResourceStream("EditorSampleSource")!;
+        using var reader = new StreamReader(source);
+        var sample = System.Text.RegularExpressions.Regex.Match(reader.ReadToEnd(), "(?s)Editor\\.Document = RichTextDocument\\.FromRtf\\(\"\"\"\\r?\\n(?<rtf>.*?)\\r?\\n(?<indent>[ \\t]*)\"\"\"\\);");
+        Assert.True(sample.Success);
+        var indent = sample.Groups["indent"].Value;
+        var rtf = string.Join("\n", sample.Groups["rtf"].Value.Split('\n')
+            .Select(line => line.StartsWith(indent, StringComparison.Ordinal) ? line[indent.Length..] : line));
+        using var fixture = new EditorFixture();
+        var editor = fixture.Editor;
+        editor.FontSize = 17;
+        editor.TextColor = Microsoft.Maui.Graphics.Color.FromArgb("#212121");
+        editor.Document = RichTextDocument.FromRtf(rtf);
+        var focusTarget = new Microsoft.UI.Xaml.Controls.Button { Content = "Focus target" };
+        var grid = new Microsoft.UI.Xaml.Controls.Grid();
+        grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition());
+        grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = Microsoft.UI.Xaml.GridLength.Auto });
+        Microsoft.UI.Xaml.Controls.Grid.SetRow(focusTarget, 1);
+        grid.Children.Add(fixture.Handler.PlatformView);
+        grid.Children.Add(focusTarget);
+        var window = _sampleWindow ??= new Microsoft.UI.Xaml.Window();
+        window.Content = grid;
+        var notifications = new List<string>();
+        fixture.Handler.PlatformView.TextChanging += (_, args) => notifications.Add($"IsContentChanging={args.IsContentChanging}, version={editor.Document.Version}");
+        try
+        {
+            window.Activate();
+            focusTarget.Focus(FocusState.Programmatic);
+            await Task.Delay(100);
+            editor.ClearUndoHistory();
+            var before = editor.Document.CurrentSnapshot;
+            fixture.Handler.PlatformView.Focus(FocusState.Pointer);
+            await Task.Delay(100);
+            Assert.False(editor.CanUndo, string.Join("; ", notifications));
+            Assert.True(before.ContentEquals(editor.Document.CurrentSnapshot), $"Before: {before.RtfText}\nAfter: {editor.Document.RtfText}");
+        }
+        finally { window.Content = null; }
+    });
+
     [Fact]
     public Task ReplacingClipboardTextInvalidatesTheRichFragmentCache() => WindowsTestHost.RunClipboardAsync(async () =>
     {
@@ -191,7 +234,7 @@ public class WindowsEditorTests
     });
 
     [Fact]
-    public Task UndoRestoresFieldsMetadataAndSelection() => WindowsTestHost.RunAsync(() =>
+    public Task UndoRestoresFieldsAndMetadata() => WindowsTestHost.RunAsync(() =>
     {
         using var fixture = new EditorFixture();
         var editor = fixture.Editor;
@@ -203,12 +246,13 @@ public class WindowsEditorTests
         editor.Selection.ReplaceText("X");
         var after = editor.Document.CurrentSnapshot;
 
+        editor.SelectedRange = new RichTextRange(0, 1);
         editor.Undo();
         Assert.True(before.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextRange(1, 3), editor.SelectedRange);
+        Assert.Equal(new RichTextRange(0, 1), editor.SelectedRange);
         editor.Redo();
         Assert.True(after.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextRange(2, 0), editor.SelectedRange);
+        Assert.Equal(new RichTextRange(0, 1), editor.SelectedRange);
         Assert.Equal(editor.Document.Text, fixture.NativeText);
     });
 
@@ -345,7 +389,7 @@ public class WindowsEditorTests
         Assert.Equal("prefix ", fixture.NativeText);
         editor.Undo();
         Assert.True(beforeCut.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextRange(7, 5), editor.SelectedRange);
+        Assert.Equal(new RichTextRange(7, 0), editor.SelectedRange);
     });
 
     [Fact]

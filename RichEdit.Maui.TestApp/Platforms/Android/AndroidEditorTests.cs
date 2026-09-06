@@ -8,30 +8,39 @@ namespace RichEdit.Maui.TestApp;
 // Run on an emulator with: adb shell am start -n <activity> --ez run-editor-tests true
 internal static class AndroidEditorTests
 {
-    public static async Task RunAsync(RichEditor editor)
+    public static async Task RunAsync(RichEditor editor, string? filter = null)
     {
         var native = (RichEditText)editor.Handler!.PlatformView!;
         var results = new List<string>();
+        var started = DateTimeOffset.UtcNow;
         var clipboard = (Android.Content.ClipboardManager)Android.App.Application.Context
             .GetSystemService(Android.Content.Context.ClipboardService)!;
         var previousClip = clipboard.PrimaryClip;
+        var output = Path.Combine(FileSystem.CacheDirectory, "editor-tests.txt");
+        void Save() => File.WriteAllText(output,
+            $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; Android {Android.OS.Build.VERSION.Release} API {Android.OS.Build.VERSION.SdkInt}\n" +
+            $"Started {started:O}; library {typeof(RichEditor).Assembly.ManifestModule.ModuleVersionId}\n" +
+            string.Join("\n", results) + "\n");
 
         async Task Test(string name, Func<Task> test)
         {
+            if (!string.IsNullOrEmpty(filter) && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) return;
+            var index = results.Count;
+            results.Add($"RUN {name}");
+            Save();
             try
             {
-                editor.IsReadOnly = false;
-                editor.MaxLength = -1;
-                editor.Keyboard = Keyboard.Default;
-                editor.AcceptsTab = false;
-                editor.Document = new RichTextDocument();
+                EditorContractTests.Reset(editor);
                 await test();
-                results.Add($"PASS {name}");
+                await EditorContractTests.Verify(editor);
+                results[index] = $"PASS {name}";
             }
             catch (Exception exception)
             {
-                results.Add($"FAIL {name}: {exception}");
+                results[index] = $"FAIL {name}: {exception}";
             }
+            Save();
+            Android.Util.Log.Info("RichEditTests", results[index]);
         }
 
         Task Sync(Action action) { action(); return Task.CompletedTask; }
@@ -73,6 +82,28 @@ internal static class AndroidEditorTests
             Equal(true, native.MaxLines > 1);
             Equal("one\ntwo", native.Text);
         }));
+
+        await Test("soft breaks create native lines without creating document paragraphs", async () =>
+        {
+            editor.Selection.ReplaceText("one\u2028two");
+            await EditorContractTests.Verify(editor);
+            Equal(1, editor.Document.CurrentSnapshot.Paragraphs.Length);
+            Equal(0, native.Layout!.GetLineForOffset(0));
+            Equal(1, native.Layout.GetLineForOffset(4));
+            editor.Selection.UpdateParagraphFormat(format => format with { LeadingIndent = 24, FirstLineIndent = 12 });
+            await EditorContractTests.Verify(editor);
+            var indent = Android.Util.TypedValue.ApplyDimension(Android.Util.ComplexUnitType.Dip, 12, native.Resources!.DisplayMetrics);
+            EditorContractTests.Equal(true, Math.Abs(native.Layout.GetPrimaryHorizontal(0) - native.Layout.GetPrimaryHorizontal(4) - indent) < 1,
+                $"soft-line indents: first={native.Layout.GetPrimaryHorizontal(0)}, next={native.Layout.GetPrimaryHorizontal(4)}, expected difference={indent}; spans=" +
+                string.Join(";", native.EditableText!.GetSpans(0, 7, Java.Lang.Class.FromType(typeof(LeadingMarginSpanStandard)))!.OfType<LeadingMarginSpanStandard>()
+                    .Select(span => $"{native.EditableText.GetSpanStart(span)}..{native.EditableText.GetSpanEnd(span)}={span.GetLeadingMargin(true)}/{span.GetLeadingMargin(false)}")));
+            editor.SelectedRange = new RichTextRange(4, 3);
+            EditorContractTests.NativeReplace(editor, "next");
+            await EditorContractTests.Verify(editor);
+            Equal("one\u2028next", editor.Document.Text);
+            editor.Undo();
+            Equal("one\u2028two", editor.Document.Text);
+        });
 
         await Test("fractional font sizes reach native text paint", () => Sync(() =>
         {
@@ -143,7 +174,7 @@ internal static class AndroidEditorTests
             Equal("", editor.Document.Text);
             native.OnTextContextMenuItem(Android.Resource.Id.Undo);
             Equal(before, editor.Document.RtfText);
-            Equal(new RichTextRange(0, 5), editor.SelectedRange);
+            Equal(RichTextRange.Empty, editor.SelectedRange);
             native.OnTextContextMenuItem(Android.Resource.Id.Redo);
             Equal("", editor.Document.Text);
         });
@@ -219,6 +250,106 @@ internal static class AndroidEditorTests
             Equal(true, metrics.Ascent < -10);
         }));
 
+        await Test("IME composition, commit, surrogate deletion and undo", async () =>
+        {
+            native.RequestFocus();
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var composingN = new Java.Lang.String("n");
+            using var composingNi = new Java.Lang.String("ni");
+            using var japanese = new Java.Lang.String("日本");
+            using var emoji = new Java.Lang.String("😀");
+            editor.Selection.ToggleBold();
+            connection.SetComposingText(composingN, 1);
+            EditorContractTests.Equal(true, editor.Document.CurrentSnapshot.Runs[0].Format.Bold, "first composing character");
+            connection.SetComposingText(composingNi, 1);
+            EditorContractTests.Equal(true, editor.Document.CurrentSnapshot.Runs[0].Format.Bold, "replaced composing characters");
+            connection.CommitText(japanese, 1);
+            connection.FinishComposingText();
+            await EditorContractTests.Verify(editor);
+            Equal("日本", editor.Document.Text);
+            Equal(true, editor.Document.CurrentSnapshot.Runs[0].Format.Bold);
+            connection.CommitText(emoji, 1);
+            Equal("日本😀", editor.Document.Text);
+            connection.DeleteSurroundingTextInCodePoints(1, 0);
+            await EditorContractTests.Verify(editor);
+            Equal("日本", editor.Document.Text);
+            var final = editor.Document.CurrentSnapshot;
+            var count = 0;
+            while (editor.CanUndo && count++ < 20) { editor.Undo(); await EditorContractTests.Verify(editor); }
+            Equal("", editor.Document.Text);
+            while (editor.CanRedo && count-- > -20) { editor.Redo(); await EditorContractTests.Verify(editor); }
+            EditorContractTests.SameContent(final, editor.Document.CurrentSnapshot);
+        });
+
+        await Test("metadata edits preserve ongoing IME composition", async () =>
+        {
+            native.RequestFocus();
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var composing = new Java.Lang.String("n");
+            using var committed = new Java.Lang.String("日本");
+            connection.SetComposingText(composing, 1);
+            editor.Document.Edit(edit => edit.SetMetadata("author", "test"));
+            Equal(0, Android.Views.InputMethods.BaseInputConnection.GetComposingSpanStart(native.EditableText!));
+            connection.CommitText(committed, 1);
+            connection.FinishComposingText();
+            await EditorContractTests.Verify(editor);
+            Equal("日本", editor.Document.Text);
+            Equal("test", editor.Document.CurrentSnapshot.Metadata["author"]);
+        });
+
+        await Test("IME batch replacement and length limit", async () =>
+        {
+            native.RequestFocus();
+            editor.Selection.ReplaceText("abc");
+            editor.SelectedRange = new RichTextRange(1, 1);
+            editor.MaxLength = 4;
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var input = new Java.Lang.String("😀x");
+            connection.BeginBatchEdit();
+            connection.CommitText(input, 1);
+            connection.EndBatchEdit();
+            await EditorContractTests.Verify(editor);
+            Equal("a😀c", editor.Document.Text);
+        });
+
+        await Test("IME action invokes Completed and ReturnCommand once", async () =>
+        {
+            var completed = 0;
+            var invoked = 0;
+            var parameter = new object();
+            void OnCompleted(object? sender, EventArgs args) => completed++;
+            editor.Completed += OnCompleted;
+            editor.ReturnCommandParameter = parameter;
+            editor.ReturnCommand = new Command<object>(value => { Equal(parameter, value); invoked++; });
+            try
+            {
+                native.OnEditorAction(Android.Views.InputMethods.ImeAction.Done);
+                await Task.Yield();
+                Equal(1, completed);
+                Equal(1, invoked);
+            }
+            finally { editor.Completed -= OnCompleted; }
+        });
+
+        await Test("hardware undo and redo shortcuts", () => Sync(() =>
+        {
+            editor.Selection.ReplaceText("text");
+            using var undo = new Android.Views.KeyEvent(0, 0, Android.Views.KeyEventActions.Down, Android.Views.Keycode.Z, 0, Android.Views.MetaKeyStates.CtrlOn);
+            native.OnKeyDown(Android.Views.Keycode.Z, undo);
+            Equal("", editor.Document.Text);
+            using var redo = new Android.Views.KeyEvent(0, 0, Android.Views.KeyEventActions.Down, Android.Views.Keycode.Z, 0, Android.Views.MetaKeyStates.CtrlOn | Android.Views.MetaKeyStates.ShiftOn);
+            native.OnKeyDown(Android.Views.Keycode.Z, redo);
+            Equal("text", editor.Document.Text);
+        }));
+
+        foreach (var test in EditorContractTests.Cases)
+        {
+            await Test(test.Name, () => test.Run(editor));
+        }
+
         if (previousClip is not null)
         {
             clipboard.PrimaryClip = previousClip;
@@ -228,13 +359,9 @@ internal static class AndroidEditorTests
             clipboard.ClearPrimaryClip();
         }
 
-        var report = string.Join("\n", results);
-        File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "editor-tests.txt"), report);
-        foreach (var result in results)
-        {
-            Android.Util.Log.Info("RichEditTests", result);
-        }
-        Android.Util.Log.Info("RichEditTests", $"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL"))} failures");
+        results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL"))} failures");
+        Save();
+        Android.Util.Log.Info("RichEditTests", results[^1]);
     }
 
     private static void Equal<T>(T expected, T actual)

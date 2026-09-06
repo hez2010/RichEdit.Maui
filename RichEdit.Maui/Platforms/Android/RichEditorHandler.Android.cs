@@ -17,6 +17,7 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private static readonly RichSoftLineBreakTransformation SoftLineBreakTransformation = new();
     private bool _applyingDocument;
     private ColorStateList? _defaultHintTextColors;
     private ColorStateList? _defaultTextColors;
@@ -24,6 +25,13 @@ public partial class RichEditorHandler
     private Typeface? _defaultTypeface;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
+    private NativeFormatWatcher? _formatWatcher;
+    private IEditable? _watchedText;
+    private bool _nativeFormatReadbackQueued;
+    private int _projectionGeneration;
+    private int _queuedProjectionGeneration;
+    private RichTextDocument? _queuedDocument;
+    private long _queuedVersion;
 
     /// <inheritdoc />
     protected override RichEditText CreatePlatformView()
@@ -58,6 +66,8 @@ public partial class RichEditorHandler
     protected override void ConnectHandler(RichEditText platformView)
     {
         base.ConnectHandler(platformView);
+        _formatWatcher = new NativeFormatWatcher(this);
+        WatchNativeFormats();
         platformView.TextChanged += OnNativeDocumentChanged;
         platformView.NativeSelectionChanged += OnNativeSelectionChanged;
         platformView.EditingCompleted += OnNativeEditingCompleted;
@@ -75,6 +85,10 @@ public partial class RichEditorHandler
     protected override void DisconnectHandler(RichEditText platformView)
     {
         VirtualView?.Commands.Disconnect();
+        _watchedText?.RemoveSpan(_formatWatcher);
+        _watchedText = null;
+        _formatWatcher?.Dispose();
+        _formatWatcher = null;
         platformView.TextChanged -= OnNativeDocumentChanged;
         platformView.NativeSelectionChanged -= OnNativeSelectionChanged;
         platformView.EditingCompleted -= OnNativeEditingCompleted;
@@ -162,6 +176,7 @@ public partial class RichEditorHandler
         }
 
         _applyingDocument = true;
+        _projectionGeneration++;
         var filters = PlatformView.GetFilters();
         try
         {
@@ -260,6 +275,7 @@ public partial class RichEditorHandler
                     ? TextDirection.Ltr
                     : TextDirection.FirstStrong;
             PlatformView.SetText(builder, TextView.BufferType.Spannable);
+            WatchNativeFormats();
             SetSelectionCore(selectionStart, selectionLength);
         }
         finally
@@ -292,6 +308,7 @@ public partial class RichEditorHandler
 
         var snapshot = VirtualView.Document.CurrentSnapshot;
         _applyingDocument = true;
+        _projectionGeneration++;
         var filters = editable.GetFilters();
         try
         {
@@ -781,43 +798,54 @@ public partial class RichEditorHandler
 
     private partial void UpdateInputConfiguration(RichEditor editor)
     {
-        PlatformView.SetTextIsSelectable(editor.IsReadOnly);
-        var inputType = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
-            ? InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned
-            : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
-                ? InputTypes.ClassPhone
-                : ReferenceEquals(editor.Keyboard, Keyboard.Email)
-                    ? InputTypes.ClassText | InputTypes.TextVariationEmailAddress
-                    : ReferenceEquals(editor.Keyboard, Keyboard.Url)
-                        ? InputTypes.ClassText | InputTypes.TextVariationUri
-                        : InputTypes.ClassText |
-                          InputTypes.TextFlagMultiLine |
-                          InputTypes.TextFlagCapSentences;
-        if (editor.IsTextPredictionEnabled)
+        var selection = editor.SelectedRange;
+        var wasApplying = _applyingDocument;
+        _applyingDocument = true;
+        try
         {
-            inputType |= InputTypes.TextFlagAutoCorrect;
-        }
+            PlatformView.SetTextIsSelectable(editor.IsReadOnly);
+            var inputType = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
+                ? InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned
+                : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
+                    ? InputTypes.ClassPhone
+                    : ReferenceEquals(editor.Keyboard, Keyboard.Email)
+                        ? InputTypes.ClassText | InputTypes.TextVariationEmailAddress
+                        : ReferenceEquals(editor.Keyboard, Keyboard.Url)
+                            ? InputTypes.ClassText | InputTypes.TextVariationUri
+                            : InputTypes.ClassText |
+                              InputTypes.TextFlagMultiLine |
+                              InputTypes.TextFlagCapSentences;
+            if (editor.IsTextPredictionEnabled)
+            {
+                inputType |= InputTypes.TextFlagAutoCorrect;
+            }
 
-        if (!editor.IsSpellCheckEnabled)
-        {
-            inputType |= InputTypes.TextFlagNoSuggestions;
-        }
+            if (!editor.IsSpellCheckEnabled)
+            {
+                inputType |= InputTypes.TextFlagNoSuggestions;
+            }
 
-        PlatformView.InputType = inputType;
-        PlatformView.SetSingleLine(false);
-        PlatformView.SetHorizontallyScrolling(false);
-        // InputType installs a key listener, including when the view was read-only.
-        // Apply the read-only state after configuring the requested keyboard.
-        if (editor.IsReadOnly)
-        {
-            PlatformView.KeyListener = null;
-        }
+            PlatformView.InputType = inputType;
+            PlatformView.SetSingleLine(false);
+            PlatformView.TransformationMethod = SoftLineBreakTransformation;
+            PlatformView.SetHorizontallyScrolling(false);
+            // InputType installs a key listener, including when the view was read-only.
+            // Apply the read-only state after configuring the requested keyboard.
+            if (editor.IsReadOnly)
+            {
+                PlatformView.KeyListener = null;
+            }
 
-        PlatformView.SetCursorVisible(!editor.IsReadOnly);
-        PlatformView.AcceptsTab = editor.AcceptsTab;
-        PlatformView.SetFilters(editor.MaxLength < 0
-            ? []
-            : [new InputFilterLengthFilter(editor.MaxLength)]);
+            PlatformView.SetCursorVisible(!editor.IsReadOnly);
+            PlatformView.AcceptsTab = editor.AcceptsTab;
+            PlatformView.SetFilters(editor.MaxLength < 0
+                ? []
+                : [new InputFilterLengthFilter(editor.MaxLength)]);
+            WatchNativeFormats();
+            SetSelectionCore(selection.Start, selection.Length);
+            ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
+        }
+        finally { _applyingDocument = wasApplying; }
     }
 
     private void ApplyCharacterFormat(
@@ -999,11 +1027,7 @@ public partial class RichEditorHandler
         var remainingMargin = ToPixels(format.LeadingIndent);
         if (format.NativeList is null && (firstMargin != 0 || remainingMargin != 0))
         {
-            text.SetSpan(
-                new LeadingMarginSpanStandard(firstMargin, remainingMargin),
-                start,
-                end,
-                SpanTypes.Paragraph);
+            ApplyParagraphMargins(text, start, end, firstMargin, remainingMargin);
         }
 
         if (RichLineHeightSpan.IsNeeded(format))
@@ -1037,7 +1061,9 @@ public partial class RichEditorHandler
 
         if (format.NativeList is { } list && !string.IsNullOrEmpty(listMarker))
         {
-            ApplyListMarkerSpan(text, start, end, format, list, listMarker, listPicture);
+            var markerEnd = FindSoftLineEnd(text, start, end);
+            ApplyListMarkerSpan(text, start, markerEnd, format, list, listMarker, listPicture);
+            if (markerEnd < end) ApplyParagraphMargins(text, markerEnd, end, remainingMargin, remainingMargin);
         }
 
         if (format.BackgroundColor is not null ||
@@ -1079,6 +1105,7 @@ public partial class RichEditorHandler
         }
 
         var markerTab = format.TabStops.FirstOrDefault(tab => tab.Alignment == RichTextTabAlignment.Left)?.Position ?? 0;
+        end = FindSoftLineEnd(text, start, end);
         text.SetSpan(
             new RichListMarkerSpan(
                 list,
@@ -1089,7 +1116,26 @@ public partial class RichEditorHandler
                 ToPixels(format.LeadingIndent + format.FirstLineIndent)),
             start,
             end,
-            SpanTypes.Paragraph);
+            SpanTypes.ExclusiveExclusive);
+    }
+
+    private static int FindSoftLineEnd(Java.Lang.ICharSequence text, int start, int end)
+    {
+        var value = text.ToString() ?? string.Empty;
+        var next = value.IndexOf(RichTextDocument.SoftLineBreakCharacter, start, end - start);
+        return next < 0 ? end : next + 1;
+    }
+
+    private static void ApplyParagraphMargins(ISpannable text, int start, int end, int firstMargin, int remainingMargin)
+    {
+        var first = true;
+        for (var segment = start; segment < end;)
+        {
+            var next = FindSoftLineEnd(text, segment, end);
+            text.SetSpan(new LeadingMarginSpanStandard(first ? firstMargin : remainingMargin, remainingMargin), segment, next, SpanTypes.ExclusiveExclusive);
+            first = false;
+            segment = next;
+        }
     }
 
     private void ApplyImage(ISpannable text, RichTextImage image)
@@ -1161,7 +1207,7 @@ public partial class RichEditorHandler
         return drawable;
     }
 
-    private RichTextDocumentSnapshot ReadDocumentFromPlatform(string text)
+    private RichTextDocumentSnapshot ReadDocumentFromPlatform(string text, RichTextRange? replacedRange = null)
     {
         if (PlatformView.EditableText is not { } editable)
         {
@@ -1169,7 +1215,7 @@ public partial class RichEditorHandler
         }
 
         var previous = VirtualView.Document.CurrentSnapshot;
-        var remappedPrevious = previous.RemapText(text);
+        var remappedPrevious = previous.RemapText(text, replacedRange);
         var defaultCharacterFormat = previous.DefaultCharacterFormat;
         var inheritedCharacterFormat =
             RichTextDocumentSnapshot.CreateInheritedCharacterFormat(defaultCharacterFormat);
@@ -1274,8 +1320,18 @@ public partial class RichEditorHandler
         var metadata = GetSpans<RichCharacterMetadataSpan>(text, position, position + 1).LastOrDefault();
         var format = metadata?.Format ?? defaultFormat;
         var expected = VirtualView.Document.CurrentSnapshot.ResolveCharacterFormat(format);
+        var styles = GetSpans<StyleSpan>(text, position, position + 1).ToArray();
+        if (metadata is not null)
+        {
+            var bold = styles.Any(span => (span.Style & TypefaceStyle.Bold) != 0);
+            format = format with
+            {
+                FontWeight = bold == format.Bold ? format.FontWeight : bold ? 700 : 400,
+                Italic = styles.Any(span => (span.Style & TypefaceStyle.Italic) != 0),
+            };
+        }
 
-        foreach (var span in GetSpans<StyleSpan>(text, position, position + 1))
+        foreach (var span in styles)
         {
             if (span.Style == TypefaceStyle.Normal)
             {
@@ -1303,6 +1359,7 @@ public partial class RichEditorHandler
                     : format.Underline,
             };
         }
+        else if (metadata is not null) format = format with { Underline = RichTextUnderlineStyle.None };
 
         if (GetSpans<StrikethroughSpan>(text, position, position + 1).Any())
         {
@@ -1313,6 +1370,7 @@ public partial class RichEditorHandler
                     : format.Strikethrough,
             };
         }
+        else if (metadata is not null) format = format with { Strikethrough = RichTextStrikethroughStyle.None };
 
         var family = GetSpans<TypefaceSpan>(text, position, position + 1)
             .Select(span => span.Family)
@@ -1428,7 +1486,8 @@ public partial class RichEditorHandler
             };
         }
 
-        var margin = GetSpans<LeadingMarginSpanStandard>(text, start, end).LastOrDefault();
+        var margin = GetSpans<LeadingMarginSpanStandard>(text, start, end)
+            .LastOrDefault(span => text.GetSpanStart(span) <= start && text.GetSpanEnd(span) > start);
         if (margin is not null && (metadata is null ||
             margin.GetLeadingMargin(true) != ToPixels(format.LeadingIndent + format.FirstLineIndent) ||
             margin.GetLeadingMargin(false) != ToPixels(format.LeadingIndent)))
@@ -1603,8 +1662,8 @@ public partial class RichEditorHandler
 
         var paragraphStructureChanged = previousText
             .AsSpan(removedStart, removedLength)
-            .Contains('\n') ||
-            insertedText.Contains('\n');
+            .ContainsAny('\n', RichTextDocument.SoftLineBreakCharacter) ||
+            insertedText.AsSpan().ContainsAny('\n', RichTextDocument.SoftLineBreakCharacter);
 
         var containsPastedRichContent = insertedLength > 0 &&
             ContainsPastedRichContent(editable, insertedStart, insertedStart + insertedLength);
@@ -1615,7 +1674,7 @@ public partial class RichEditorHandler
         RichTextDocumentSnapshot document;
         if (requiresNativeSnapshot)
         {
-            document = ReadDocumentFromPlatform(editable.ToString() ?? string.Empty);
+            document = ReadDocumentFromPlatform(editable.ToString() ?? string.Empty, new RichTextRange(removedStart, removedLength));
         }
         else
         {
@@ -1656,7 +1715,58 @@ public partial class RichEditorHandler
         var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Text.Length);
         var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Text.Length);
         VirtualView.UpdateDocumentFromPlatform(document, start, end - start, _sourceToken);
+        WatchNativeFormats();
         UpdateTypingFormatsFromPlatform();
+    }
+
+    private void WatchNativeFormats()
+    {
+        if (_formatWatcher is null || PlatformView.EditableText is not { } text || ReferenceEquals(text, _watchedText)) return;
+        _watchedText?.RemoveSpan(_formatWatcher);
+        _watchedText = text;
+        text.SetSpan(_formatWatcher, 0, text.Length(), SpanTypes.InclusiveInclusive);
+    }
+
+    private void QueueNativeFormatReadback(ISpannable text, Java.Lang.Object span)
+    {
+        if (_applyingDocument || VirtualView is null ||
+            span is not (CharacterStyle or IParagraphStyle) ||
+            span is RichCharacterMetadataSpan or RichParagraphMetadataSpan ||
+            (text.GetSpanFlags(span) & SpanTypes.Composing) != 0)
+        {
+            return;
+        }
+
+        if (!_nativeFormatReadbackQueued || !ReferenceEquals(_queuedDocument, VirtualView.Document) || _queuedProjectionGeneration != _projectionGeneration)
+        {
+            _queuedDocument = VirtualView.Document;
+            _queuedVersion = _queuedDocument.Version;
+            _queuedProjectionGeneration = _projectionGeneration;
+        }
+        if (_nativeFormatReadbackQueued) return;
+        _nativeFormatReadbackQueued = true;
+        PlatformView.Post(() =>
+        {
+            _nativeFormatReadbackQueued = false;
+            if (_applyingDocument || _formatWatcher is null || !ReferenceEquals(VirtualView?.Document, _queuedDocument) || _queuedProjectionGeneration != _projectionGeneration) return;
+            var snapshot = ReadDocumentFromPlatform(PlatformView.Text ?? string.Empty);
+            var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, snapshot.Length);
+            var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, snapshot.Length);
+            VirtualView.UpdateDocumentFromPlatform(snapshot, start, end - start, _sourceToken, mergeWithPrevious: _queuedDocument!.Version != _queuedVersion);
+            UpdateTypingFormatsFromPlatform();
+        });
+    }
+
+    private sealed class NativeFormatWatcher(RichEditorHandler handler) : Java.Lang.Object, ISpanWatcher
+    {
+        private readonly WeakReference<RichEditorHandler> _handler = new(handler);
+        public void OnSpanAdded(ISpannable? text, Java.Lang.Object? what, int start, int end) => Changed(text, what);
+        public void OnSpanRemoved(ISpannable? text, Java.Lang.Object? what, int start, int end) => Changed(text, what);
+        public void OnSpanChanged(ISpannable? text, Java.Lang.Object? what, int oldStart, int oldEnd, int newStart, int newEnd) => Changed(text, what);
+        private void Changed(ISpannable? text, Java.Lang.Object? what)
+        {
+            if (text is not null && what is not null && _handler.TryGetTarget(out var handler)) handler.QueueNativeFormatReadback(text, what);
+        }
     }
 
     private void OnNativeSelectionChanged(object? sender, NativeSelectionChangedEventArgs eventArgs)
@@ -1734,6 +1844,7 @@ public partial class RichEditorHandler
 
         return GetSpans<CharacterStyle>(text, start, end)
             .Where(span => span is not RichCharacterMetadataSpan)
+            .Where(span => (text.GetSpanFlags(span) & SpanTypes.Composing) == 0)
             .Any(span => text.GetSpanStart(span) >= start && text.GetSpanEnd(span) <= end);
     }
 
@@ -1745,24 +1856,14 @@ public partial class RichEditorHandler
 
     private static int GetParagraphStart(Java.Lang.ICharSequence text, int position)
     {
-        position = Math.Clamp(position, 0, text.Length());
-        while (position > 0 && text.CharAt(position - 1) != '\n')
-        {
-            position--;
-        }
-
-        return position;
+        var value = text.ToString() ?? string.Empty;
+        return GetParagraphStart(value, Math.Clamp(position, 0, value.Length));
     }
 
     private static int GetParagraphEnd(Java.Lang.ICharSequence text, int start)
     {
-        var length = text.Length();
-        start = Math.Clamp(start, 0, length);
-        while (start < length && text.CharAt(start++) != '\n')
-        {
-        }
-
-        return start;
+        var value = text.ToString() ?? string.Empty;
+        return GetParagraphEnd(value, Math.Clamp(start, 0, value.Length));
     }
 
     private void ApplyInsertedTypingFormat(

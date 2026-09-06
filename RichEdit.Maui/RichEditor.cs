@@ -396,7 +396,7 @@ public sealed class RichEditor : View
         }
         else
         {
-            RestoreManagedHistory(Document.Undo, Document.UndoSelection);
+            Document.Undo();
         }
     }
 
@@ -414,21 +414,7 @@ public sealed class RichEditor : View
         }
         else
         {
-            RestoreManagedHistory(Document.Redo, Document.RedoSelection);
-        }
-    }
-
-    private void RestoreManagedHistory(Action restore, RichTextRange? selection)
-    {
-        var previous = _pendingProgrammaticSelection;
-        _pendingProgrammaticSelection = selection;
-        try
-        {
-            restore();
-        }
-        finally
-        {
-            _pendingProgrammaticSelection = previous;
+            Document.Redo();
         }
     }
 
@@ -549,7 +535,9 @@ public sealed class RichEditor : View
         int selectionStart,
         int selectionLength,
         object sourceToken,
-        RichTextChangeOrigin origin = RichTextChangeOrigin.User)
+        RichTextChangeOrigin origin = RichTextChangeOrigin.User,
+        bool mergeWithPrevious = false,
+        long? projectedVersion = null)
     {
         var selection = new RichTextRange(selectionStart, selectionLength);
         selection.Validate(snapshot.Text.Length, nameof(selectionLength));
@@ -562,7 +550,9 @@ public sealed class RichEditor : View
                 snapshot,
                 sourceToken,
                 nativeUndoOwned,
-                origin);
+                origin,
+                mergeWithPrevious,
+                projectedVersion);
             if (changes.IsEmpty)
             {
                 SetSelectionFromPlatform(selection);
@@ -716,7 +706,10 @@ public sealed class RichEditor : View
             newDocument.Length - clampedStart);
         var selection = new RichTextRange(clampedStart, clampedLength);
         var selectionChanged = SelectedRange != selection;
-        SetSelectionCore(selection, fromPlatform: false);
+        // The handler's Document mapper projects the new text and selection
+        // together. Updating the old native text's selection here can report
+        // that old content back into the newly attached document.
+        SetSelectionCore(selection, fromPlatform: true);
         RefreshTypingFormats();
         RefreshUndoState();
         if (!selectionChanged)
@@ -827,11 +820,6 @@ public sealed class RichEditor : View
         var resultingSelection = _pendingPlatformSelection ??
             _pendingProgrammaticSelection ??
             MapSelection(SelectedRange, changeSet, Document.Length);
-
-        if (changeSet.Origin is RichTextChangeOrigin.Programmatic or RichTextChangeOrigin.User)
-        {
-            Document.RecordUndoSelection(SelectedRange, resultingSelection);
-        }
 
         var snapshot = Document.CurrentSnapshot;
         var typingCharacterFormat = snapshot.GetCaretFormat(resultingSelection.Start);
