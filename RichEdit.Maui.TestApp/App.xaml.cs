@@ -11,6 +11,22 @@ public partial class App : Application
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
+#if DEBUG && (IOS || MACCATALYST)
+        if (Environment.GetEnvironmentVariable("RICHEDIT_RUN_TESTS") == "1")
+        {
+            var editor = new RichEditor();
+            var started = false;
+            editor.Loaded += async (_, _) =>
+            {
+                if (!started)
+                {
+                    started = true;
+                    await AppleEditorTests.RunAsync(editor);
+                }
+            };
+            return new Window(new ContentPage { Content = editor, SafeAreaEdges = SafeAreaEdges.Container });
+        }
+#endif
 		return new Window(new AppShell());
 	}
 }

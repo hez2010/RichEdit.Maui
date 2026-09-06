@@ -201,7 +201,7 @@ await Editor.PasteAsync();
 
 Copy and cut from native menus and keyboard shortcuts use the same portable fragments as these methods. Copies within the running application retain formatting that RTF cannot represent; Windows and Apple also publish RTF and plain text for other applications. Paste raises `Pasting`, respects `MaxLength`, and preserves destination typing formatting for plain text. Android's **Paste as plain text** discards the copied formatting.
 
-Windows and Android use document snapshots for undo and redo, including field instructions, image payloads, metadata, and selection ranges. Apple keeps its native undo grouping and records complete document states alongside native edits. Undo and redo are disabled while the editor is read-only.
+All platforms use document snapshots for undo and redo, including field instructions, image payloads, metadata, and selection ranges. Apple's native undo manager forwards system undo/redo commands to that history, so native typing and programmatic edits remain in one consistent sequence. Undo and redo are disabled while the editor is read-only.
 
 ## Tests
 
@@ -212,6 +212,8 @@ dotnet test RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj -p:Platform=x64 -p:Wi
 ```
 
 The Android test app also includes a debug-only native test mode. Build and install its Debug APK, then launch the main activity with the boolean intent extra `run-editor-tests=true`. Results are written to `cache/editor-tests.txt` in the app's private storage and to the `RichEditTests` logcat tag. Use a dedicated emulator; these checks temporarily exercise its clipboard. Keep fast-deployment overrides consistent with the installed APK when switching SDKs.
+
+For the Apple debug test mode, launch the test app with `RICHEDIT_RUN_TESTS=1` in its environment. With `simctl`, use `SIMCTL_CHILD_RICHEDIT_RUN_TESTS=1 xcrun simctl launch <device> <bundle-id>`. Results are written to `Library/Caches/apple-editor-tests.txt` inside the app's data container. This mode uses test-owned clipboard data and replaces the simulator clipboard contents.
 
 ## RTF behavior
 
