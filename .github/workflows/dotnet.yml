@@ -36,7 +36,6 @@ jobs:
       run: |
         dotnet pack RichEdit.Maui -c Release -o artifacts
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        dotnet pack RichEdit.Code.Maui -c Release -o artifacts
 
     - name: NuGet login
       if: success() && github.event_name == 'workflow_dispatch' && inputs.publish
