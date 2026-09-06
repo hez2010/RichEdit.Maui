@@ -762,6 +762,8 @@ public partial class RichEditorHandler
             PlatformView.ClearValue(Microsoft.UI.Xaml.Controls.Control.ForegroundProperty);
         }
 
+        UpdateForegroundStateResources();
+
         if (editor.IsSet(RichEditor.FontFamilyProperty))
         {
             if (string.IsNullOrWhiteSpace(editor.FontFamily))
@@ -1791,6 +1793,8 @@ public partial class RichEditorHandler
             return;
         }
 
+        UpdateForegroundStateResources();
+
         if (_hasCompletedInitialLoad)
         {
             _nativeTextSnapshot = null;
@@ -1810,6 +1814,17 @@ public partial class RichEditorHandler
         ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
         ClearUndoHistoryCore();
         _hasCompletedInitialLoad = true;
+    }
+
+    private void UpdateForegroundStateResources()
+    {
+        if (PlatformView.Foreground is not { } foreground) return;
+        // Changing the template's text-surface foreground resets TOM run colors.
+        // Use the same brush in every interaction state so authored colors survive.
+        // The normal Foreground still follows the view/native theme fallback.
+        PlatformView.Resources["TextControlForegroundFocused"] = foreground;
+        PlatformView.Resources["TextControlForegroundPointerOver"] = foreground;
+        PlatformView.Resources["TextControlForegroundDisabled"] = foreground;
     }
 
     private void OnPlatformViewLostFocus(object sender, RoutedEventArgs eventArgs) =>

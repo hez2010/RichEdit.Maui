@@ -387,10 +387,10 @@ namespace RichEdit.Maui
             {
                 ApplyDocumentCore(VirtualView.Document.CurrentSnapshot, selection.Start, selection.Length);
                 ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
-                if (!changes.IsTextChanged)
+                if (!changes.IsTextChanged || _restoringHistory)
                 {
                     // Replacing attributed content resets UIKit's scroll position.
-                    // Formatting must keep the viewport the user was working in.
+                    // Formatting and history replay must keep the user's viewport.
                     PlatformView.LayoutIfNeeded();
                     var inset = PlatformView.AdjustedContentInset;
                     var maximumX = Math.Max(-inset.Left, PlatformView.ContentSize.Width - PlatformView.Bounds.Width + inset.Right);
@@ -1038,7 +1038,7 @@ namespace RichEdit.Maui
                 var expected = format.ForegroundColor ?? VirtualView.Document.DefaultCharacterFormat.ForegroundColor ??
                     VirtualView.TextColor ?? FromUIColor(_defaultTextColor);
                 var color = FromUIColor(foreground);
-                if (color != expected)
+                if (!color.Equals(expected))
                 {
                     format = format with { ForegroundColor = color };
                 }

@@ -75,6 +75,14 @@ public enum RichTextUndoBehavior
 
     /// <summary>Commit the transaction and clear existing undo and redo history.</summary>
     ClearHistory,
+
+    /// <summary>
+    /// Commit character, paragraph, or default formatting without recording an undo
+    /// unit or invalidating undo/redo. Text and semantic changes are rejected.
+    /// Undo/redo may restore older formatting; applications deriving formatting
+    /// from content should reapply it after history transitions.
+    /// </summary>
+    PreserveHistory,
 }
 
 /// <summary>

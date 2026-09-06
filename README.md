@@ -165,6 +165,30 @@ The transaction produces one version change, native batch, undo unit, and change
 
 `CurrentSnapshot` exposes an immutable view of the current version for safe enumeration. Range-bearing values use `RichTextRange`, whose offsets and lengths are UTF-16 code units.
 
+## Grouping edits and derived formatting
+
+`Document.Edit` is an atomic transaction. To combine several existing editing operations into one undo unit, open an undo group:
+
+```csharp
+using (Editor.Document.BeginUndoGroup("Insert heading and body"))
+{
+    Editor.Selection.ReplaceText("Heading\n");
+    Editor.Selection.ReplaceText("Body text\n");
+}
+```
+
+Groups can nest and must close in reverse order. Edits still commit and notify independently; an undo group does not roll back committed edits on an exception. Undo/redo are unavailable until the outermost group closes, and history cannot be cleared while a group is open.
+
+Derived formatting, such as search highlighting or application-generated styles, can preserve existing undo and redo history:
+
+```csharp
+Editor.Document.Edit(
+    edit => edit.UpdateCharacterFormat(match, format => format with { BackgroundColor = Colors.Yellow }),
+    new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory));
+```
+
+`PreserveHistory` accepts character, paragraph, and default formatting. Text and semantic edits are rejected atomically. This formatting remains document content and is included in RTF. Undo/redo may restore older formatting, so applications that derive it from text should reapply it after history transitions. `DoNotRecord` and `ClearHistory` retain their existing history-clearing behavior.
+
 ## MVVM commands
 
 `Commands` exposes `ICommand` instances with editor-aware `CanExecute` state:

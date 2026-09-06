@@ -13,6 +13,59 @@ namespace RichEdit.Maui.Tests;
 public class WindowsEditorTests
 {
     private static Microsoft.UI.Xaml.Window? _sampleWindow;
+
+    [Fact]
+    public Task AuthoredColorsSurviveFocusAndEnabledStateChanges() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new EditorFixture();
+        var editor = fixture.Editor;
+        editor.Document = RichTextDocument.FromPlainText("red blue");
+        editor.Document.Edit(edit =>
+        {
+            edit.UpdateCharacterFormat(new RichTextRange(0, 3), format => format with { ForegroundColor = Microsoft.Maui.Graphics.Colors.Red });
+            edit.UpdateCharacterFormat(new RichTextRange(4, 4), format => format with { ForegroundColor = Microsoft.Maui.Graphics.Colors.Blue });
+        });
+        editor.ClearUndoHistory();
+        var button = new Microsoft.UI.Xaml.Controls.Button { Content = "Focus target" };
+        var grid = new Microsoft.UI.Xaml.Controls.Grid();
+        grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition());
+        grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = Microsoft.UI.Xaml.GridLength.Auto });
+        Microsoft.UI.Xaml.Controls.Grid.SetRow(button, 1);
+        grid.Children.Add(fixture.Handler.PlatformView);
+        grid.Children.Add(button);
+        var window = _sampleWindow ??= new Microsoft.UI.Xaml.Window();
+        window.Content = grid;
+        try
+        {
+            window.Activate();
+            await Task.Delay(100);
+            var snapshot = editor.Document.CurrentSnapshot;
+            for (var index = 0; index < 2; index++)
+            {
+                fixture.Handler.PlatformView.Focus(FocusState.Programmatic);
+                await Task.Delay(30);
+                AssertColors();
+                button.Focus(FocusState.Programmatic);
+                fixture.Handler.PlatformView.IsEnabled = false;
+                await Task.Delay(30);
+                AssertColors();
+                fixture.Handler.PlatformView.IsEnabled = true;
+                await Task.Delay(30);
+                AssertColors();
+            }
+            Assert.Same(snapshot, editor.Document.CurrentSnapshot);
+            Assert.False(editor.CanUndo);
+        }
+        finally { window.Content = null; }
+
+        void AssertColors()
+        {
+            var document = fixture.Handler.PlatformView.Document;
+            Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 0, 0), document.GetRange(0, 3).CharacterFormat.ForegroundColor);
+            Assert.Equal(Windows.UI.Color.FromArgb(255, 0, 0, 255), document.GetRange(4, 8).CharacterFormat.ForegroundColor);
+        }
+    });
+
     [Fact]
     public Task FocusingTheSampleDocumentDoesNotCreateHistory() => WindowsTestHost.RunAsync(async () =>
     {

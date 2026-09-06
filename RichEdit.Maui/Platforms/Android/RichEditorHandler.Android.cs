@@ -835,6 +835,12 @@ public partial class RichEditorHandler
             {
                 PlatformView.KeyListener = null;
             }
+            else
+            {
+                // SetTextIsSelectable(false) removes the movement method.
+                PlatformView.MovementMethod = global::Android.Text.Method.ArrowKeyMovementMethod.Instance;
+                PlatformView.FocusableInTouchMode = true;
+            }
 
             PlatformView.SetCursorVisible(!editor.IsReadOnly);
             PlatformView.AcceptsTab = editor.AcceptsTab;

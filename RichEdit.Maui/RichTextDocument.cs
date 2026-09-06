@@ -21,6 +21,9 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     private readonly Stack<UndoEntry> _undo = new();
     private readonly Stack<UndoEntry> _redo = new();
+    private readonly Stack<UndoGroup> _undoGroups = new();
+    private RichTextDocumentSnapshot? _undoGroupBefore;
+    private string? _undoGroupDescription;
     private RichTextDocumentSnapshot _snapshot;
     private string? _cachedRtf;
     private long _cachedRtfVersion = -1;
@@ -97,6 +100,11 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Creates a plain-text document with normalized line endings and empty undo history.</summary>
+    /// <param name="text">The initial text, or null for an empty document.</param>
+    /// <returns>A new live document.</returns>
+    public static RichTextDocument FromPlainText(string? text) => new(new RichTextDocumentSnapshot(text));
+
     /// <summary>
     /// Creates a document by parsing a complete RTF value.
     /// </summary>
@@ -125,9 +133,42 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     /// </summary>
     public RichTextDocumentSnapshot CurrentSnapshot => _snapshot;
 
-    internal bool CanUndo => _undo.Count != 0;
+    internal bool CanUndo => _undo.Count != 0 && !IsUndoGroupOpen;
 
-    internal bool CanRedo => _redo.Count != 0;
+    internal bool CanRedo => _redo.Count != 0 && !IsUndoGroupOpen;
+
+    /// <summary>Gets whether an explicit undo group is open.</summary>
+    public bool IsUndoGroupOpen => _undoGroups.Count != 0;
+
+    /// <summary>Groups subsequent recorded edits into one undo unit.</summary>
+    /// <remarks>
+    /// Groups can nest and must be disposed in reverse order. Each edit still commits
+    /// and notifies independently; this scope is not a rollback transaction. Undo and
+    /// redo are unavailable until the outermost group closes. History-clearing edits
+    /// and explicit history clearing are not allowed inside a group.
+    /// </remarks>
+    /// <param name="description">An optional description for the outermost undo unit.</param>
+    /// <returns>A scope to dispose after the grouped edits.</returns>
+    public IDisposable BeginUndoGroup(string? description = null)
+    {
+        VerifyNoActiveEdit();
+        var group = new UndoGroup(this);
+        if (!IsUndoGroupOpen)
+        {
+            _undoGroupBefore = null;
+            _undoGroupDescription = description;
+            ResetNativeEditCoalescing();
+        }
+        _undoGroups.Push(group);
+        try { RaiseUndoStateChanged(); }
+        catch
+        {
+            _undoGroups.Pop();
+            if (!IsUndoGroupOpen) _undoGroupDescription = null;
+            throw;
+        }
+        return group;
+    }
 
     internal void BreakUndoGroup() => ResetNativeEditCoalescing();
 
@@ -263,6 +304,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     internal void Undo()
     {
         VerifyNoActiveEdit();
+        if (IsUndoGroupOpen) return;
         if (!_undo.TryPop(out var entry))
         {
             return;
@@ -275,6 +317,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     internal void Redo()
     {
         VerifyNoActiveEdit();
+        if (IsUndoGroupOpen) return;
         if (!_redo.TryPop(out var entry))
         {
             return;
@@ -287,6 +330,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     internal void ClearUndoHistory()
     {
         VerifyNoActiveEdit();
+        VerifyNoOpenUndoGroup();
         ResetNativeEditCoalescing();
         if (_undo.Count == 0 && _redo.Count == 0)
         {
@@ -372,7 +416,15 @@ public sealed class RichTextDocument : INotifyPropertyChanged
                 options.UndoDescription);
         }
 
-        if (origin != RichTextChangeOrigin.User)
+        if (options.UndoBehavior == RichTextUndoBehavior.PreserveHistory && changes.Any(static change =>
+            change.Kind is not (RichTextChangeKind.CharacterFormat or RichTextChangeKind.ParagraphFormat or RichTextChangeKind.DefaultFormat)))
+        {
+            throw new InvalidOperationException("Preserving undo history is supported only for character, paragraph, and default formatting.");
+        }
+        if (options.UndoBehavior is RichTextUndoBehavior.DoNotRecord or RichTextUndoBehavior.ClearHistory)
+            VerifyNoOpenUndoGroup();
+
+        if (origin != RichTextChangeOrigin.User && options.UndoBehavior != RichTextUndoBehavior.PreserveHistory)
         {
             ResetNativeEditCoalescing();
         }
@@ -381,7 +433,11 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         var versionBefore = Version;
         var after = snapshot.WithVersion(checked(versionBefore + 1));
 
-        switch (options.UndoBehavior)
+        if (IsUndoGroupOpen && options.UndoBehavior is RichTextUndoBehavior.CreateUnit or RichTextUndoBehavior.MergeWithPrevious)
+        {
+            _undoGroupBefore ??= before;
+        }
+        else switch (options.UndoBehavior)
         {
             case RichTextUndoBehavior.CreateUnit:
                 _undo.Push(new UndoEntry(before, after, options.UndoDescription));
@@ -406,6 +462,8 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             case RichTextUndoBehavior.ClearHistory:
                 _undo.Clear();
                 _redo.Clear();
+                break;
+            case RichTextUndoBehavior.PreserveHistory:
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(options));
@@ -814,6 +872,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         _notificationInProgress = true;
         try
         {
+            OnPropertyChanged(nameof(IsUndoGroupOpen));
             UndoStateChanged?.Invoke(this, EventArgs.Empty);
         }
         finally
@@ -835,6 +894,43 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             throw new InvalidOperationException(
                 "A rich-text document cannot be mutated recursively from an edit callback or change notification.");
         }
+    }
+
+    private void VerifyNoOpenUndoGroup()
+    {
+        if (IsUndoGroupOpen) throw new InvalidOperationException("Undo history cannot be cleared while an undo group is open.");
+    }
+
+    private void EndUndoGroup(UndoGroup group)
+    {
+        VerifyNoActiveEdit();
+        if (!_undoGroups.TryPeek(out var current) || !ReferenceEquals(current, group))
+            throw new InvalidOperationException("Undo groups must be disposed in reverse order.");
+        _undoGroups.Pop();
+        group.MarkClosed();
+        if (!IsUndoGroupOpen)
+        {
+            if (_undoGroupBefore is { } before && !before.ContentEquals(_snapshot))
+            {
+                _undo.Push(new UndoEntry(before, _snapshot, _undoGroupDescription));
+                _redo.Clear();
+            }
+            _undoGroupBefore = null;
+            _undoGroupDescription = null;
+            ResetNativeEditCoalescing();
+        }
+        RaiseUndoStateChanged();
+    }
+
+    private sealed class UndoGroup(RichTextDocument document) : IDisposable
+    {
+        private RichTextDocument? _document = document;
+        public void Dispose()
+        {
+            if (_document is not { } owner) return;
+            owner.EndUndoGroup(this);
+        }
+        internal void MarkClosed() => _document = null;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
