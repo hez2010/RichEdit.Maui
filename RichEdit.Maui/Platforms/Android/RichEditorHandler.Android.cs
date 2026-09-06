@@ -24,7 +24,6 @@ public partial class RichEditorHandler
     private Typeface? _defaultTypeface;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
-    private IKeyListener? _editableKeyListener;
 
     /// <inheritdoc />
     protected override RichEditText CreatePlatformView()
@@ -52,7 +51,6 @@ public partial class RichEditorHandler
             checked((int)Math.Round(10 * density)),
             checked((int)Math.Round(12 * density)),
             checked((int)Math.Round(10 * density)));
-        _editableKeyListener = editor.KeyListener;
         return editor;
     }
 
@@ -148,8 +146,11 @@ public partial class RichEditorHandler
         }
 
         _applyingDocument = true;
+        var filters = PlatformView.GetFilters();
         try
         {
+            // MaxLength constrains user input, not an already committed document.
+            PlatformView.SetFilters([]);
             var builder = new SpannableStringBuilder(document.Text);
             foreach (var run in document.Runs)
             {
@@ -247,6 +248,7 @@ public partial class RichEditorHandler
         }
         finally
         {
+            PlatformView.SetFilters(filters);
             _applyingDocument = false;
         }
     }
@@ -274,8 +276,10 @@ public partial class RichEditorHandler
 
         var snapshot = VirtualView.Document.CurrentSnapshot;
         _applyingDocument = true;
+        var filters = editable.GetFilters();
         try
         {
+            editable.SetFilters([]);
             foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
             {
                 using var replacement = new Java.Lang.String(textChange.InsertedText);
@@ -344,6 +348,7 @@ public partial class RichEditorHandler
         }
         finally
         {
+            editable.SetFilters(filters);
             _applyingDocument = false;
         }
     }
@@ -741,14 +746,7 @@ public partial class RichEditorHandler
 
     private partial void UpdateInputConfiguration(RichEditor editor)
     {
-        if (_editableKeyListener is null && PlatformView.KeyListener is not null)
-        {
-            _editableKeyListener = PlatformView.KeyListener;
-        }
-
-        PlatformView.KeyListener = editor.IsReadOnly ? null : _editableKeyListener;
         PlatformView.SetTextIsSelectable(editor.IsReadOnly);
-        PlatformView.SetCursorVisible(!editor.IsReadOnly);
         var inputType = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
             ? InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned
             : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
@@ -757,18 +755,28 @@ public partial class RichEditorHandler
                     ? InputTypes.ClassText | InputTypes.TextVariationEmailAddress
                     : ReferenceEquals(editor.Keyboard, Keyboard.Url)
                         ? InputTypes.ClassText | InputTypes.TextVariationUri
-                        : InputTypes.ClassText | InputTypes.TextFlagMultiLine;
+                        : InputTypes.ClassText |
+                          InputTypes.TextFlagMultiLine |
+                          InputTypes.TextFlagCapSentences;
         if (editor.IsTextPredictionEnabled)
-        {
-            inputType |= InputTypes.TextFlagCapSentences;
-        }
-
-        if (editor.IsSpellCheckEnabled)
         {
             inputType |= InputTypes.TextFlagAutoCorrect;
         }
 
+        if (!editor.IsSpellCheckEnabled)
+        {
+            inputType |= InputTypes.TextFlagNoSuggestions;
+        }
+
         PlatformView.InputType = inputType;
+        // InputType installs a key listener, including when the view was read-only.
+        // Apply the read-only state after configuring the requested keyboard.
+        if (editor.IsReadOnly)
+        {
+            PlatformView.KeyListener = null;
+        }
+
+        PlatformView.SetCursorVisible(!editor.IsReadOnly);
         PlatformView.AcceptsTab = editor.AcceptsTab;
         PlatformView.SetFilters(editor.MaxLength < 0
             ? []

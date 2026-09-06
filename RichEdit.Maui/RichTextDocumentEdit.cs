@@ -72,6 +72,12 @@ public sealed class RichTextDocumentEdit
         ArgumentNullException.ThrowIfNull(fragment);
         range.Validate(Snapshot.Length, nameof(range));
         var source = fragment.Snapshot;
+        if (fragment.IsPlainText)
+        {
+            ReplaceText(range, source.Text);
+            return;
+        }
+
         var insertionStart = range.Start;
         ReplaceText(range, source.Text, source.DefaultCharacterFormat);
 
@@ -139,7 +145,7 @@ public sealed class RichTextDocumentEdit
         {
             SetCharacterFormat(
                 new RichTextRange(insertionStart + run.Range.Start, run.Range.Length),
-                run.Format);
+                source.ResolveCharacterFormat(run.Format));
         }
 
         foreach (var paragraph in source.Paragraphs)

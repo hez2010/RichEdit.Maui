@@ -134,6 +134,7 @@ namespace RichEdit.Maui
         private NSObject? _didUndoObserver;
         private NSObject? _didRedoObserver;
         private bool _restoringNativeUndo;
+        private RichTextChangeOrigin? _pendingNativeReadbackOrigin;
 
         /// <inheritdoc />
         protected override RichTextView CreatePlatformView()
@@ -167,6 +168,7 @@ namespace RichEdit.Maui
         protected override void DisconnectHandler(RichTextView platformView)
         {
             _pendingNativeChange = null;
+            _pendingNativeReadbackOrigin = null;
             StopObservingUndoManager();
             platformView.UndoManager?.RemoveAllActions(platformView);
             platformView.PasteRequested = null;
@@ -251,6 +253,10 @@ namespace RichEdit.Maui
 
                 PlatformView.AttributedText = attributed;
                 SetSelectionCore(selectionStart, selectionLength);
+                ApplyTrailingEmptyParagraphTypingFormat(
+                    document,
+                    selectionStart,
+                    selectionLength);
                 PlatformView.UpdatePlaceholderVisibility();
             }
             finally
@@ -377,6 +383,10 @@ namespace RichEdit.Maui
 
                 SetSelectionCore(selection.Start, selection.Length);
                 ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
+                ApplyTrailingEmptyParagraphTypingFormat(
+                    snapshot,
+                    selection.Start,
+                    selection.Length);
                 PlatformView.UpdatePlaceholderVisibility();
             }
             finally
@@ -437,6 +447,15 @@ namespace RichEdit.Maui
                 changes.AfterSnapshot is not { } after)
             {
                 return;
+            }
+
+            if (changes.UndoBehavior == RichTextUndoBehavior.CreateUnit &&
+                manager.GroupingLevel > 0)
+            {
+                // UIKit keeps its event-level typing group open until the run loop
+                // advances. Close it so this transaction becomes a separate unit.
+                // MergeWithPrevious intentionally remains in an open native group.
+                manager.EndUndoGrouping();
             }
 
             RegisterNativeUndoAction(
@@ -826,7 +845,17 @@ namespace RichEdit.Maui
                 return;
             }
 
-            manager.Undo();
+            var previousOrigin = _pendingNativeReadbackOrigin;
+            _pendingNativeReadbackOrigin = RichTextChangeOrigin.Undo;
+            try
+            {
+                manager.Undo();
+            }
+            finally
+            {
+                _pendingNativeReadbackOrigin = previousOrigin;
+            }
+
             VirtualView.UpdateUndoStateFromPlatform();
         }
 
@@ -837,7 +866,17 @@ namespace RichEdit.Maui
                 return;
             }
 
-            manager.Redo();
+            var previousOrigin = _pendingNativeReadbackOrigin;
+            _pendingNativeReadbackOrigin = RichTextChangeOrigin.Redo;
+            try
+            {
+                manager.Redo();
+            }
+            finally
+            {
+                _pendingNativeReadbackOrigin = previousOrigin;
+            }
+
             VirtualView.UpdateUndoStateFromPlatform();
         }
 
@@ -2114,7 +2153,12 @@ namespace RichEdit.Maui
                 (int)textView.SelectedRange.Length,
                 0,
                 document.Text.Length - start);
-            VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+            VirtualView.UpdateDocumentFromPlatform(
+                document,
+                start,
+                length,
+                _sourceToken,
+                _pendingNativeReadbackOrigin ?? RichTextChangeOrigin.User);
             VirtualView.UpdateUndoStateFromPlatform();
             UpdateTypingFormatsFromPlatform();
         }
@@ -2166,24 +2210,79 @@ namespace RichEdit.Maui
             _nativeTypingFormat = ReadCharacterFormat(
                 attributes,
                 VirtualView.TypingCharacterFormat);
-            _nativeTypingParagraphFormat = ReadParagraphFormat(
-                attributes,
-                VirtualView.TypingParagraphFormat);
-            if (_nativeTypingParagraphFormat.NativeList is { Id: <= 0 } nativeList &&
-                VirtualView.TypingParagraphFormat.NativeList is { } previousList)
+            var snapshot = VirtualView.Document.CurrentSnapshot;
+            var selectionStart = Math.Clamp(
+                (int)PlatformView.SelectedRange.Location,
+                0,
+                snapshot.Length);
+            var selectionLength = Math.Clamp(
+                (int)PlatformView.SelectedRange.Length,
+                0,
+                snapshot.Length - selectionStart);
+            if (IsCaretInTrailingEmptyParagraph(
+                    snapshot,
+                    selectionStart,
+                    selectionLength))
             {
-                nativeList = nativeList with { Id = previousList.Id };
-                _nativeTypingParagraphFormat = _nativeTypingParagraphFormat with
+                ApplyTrailingEmptyParagraphTypingFormat(
+                    snapshot,
+                    selectionStart,
+                    selectionLength);
+            }
+            else
+            {
+                _nativeTypingParagraphFormat = ReadParagraphFormat(
+                    attributes,
+                    VirtualView.TypingParagraphFormat);
+                if (_nativeTypingParagraphFormat.NativeList is { Id: <= 0 } nativeList &&
+                    VirtualView.TypingParagraphFormat.NativeList is { } previousList)
                 {
-                    NativeList = nativeList,
-                    List = RichTextListConversions.ToItem(nativeList),
-                };
+                    nativeList = nativeList with { Id = previousList.Id };
+                    _nativeTypingParagraphFormat = _nativeTypingParagraphFormat with
+                    {
+                        NativeList = nativeList,
+                        List = RichTextListConversions.ToItem(nativeList),
+                    };
+                }
             }
 
             VirtualView.UpdateTypingFormatsFromPlatform(
                 _nativeTypingFormat,
                 _nativeTypingParagraphFormat);
         }
+
+        private void ApplyTrailingEmptyParagraphTypingFormat(
+            RichTextDocumentSnapshot snapshot,
+            int selectionStart,
+            int selectionLength)
+        {
+            if (!IsCaretInTrailingEmptyParagraph(
+                    snapshot,
+                    selectionStart,
+                    selectionLength))
+            {
+                return;
+            }
+
+            var paragraphFormat = snapshot.GetParagraphFormat(selectionStart);
+            using var paragraphAttributes = CreateParagraphAttributes(paragraphFormat);
+            var typingAttributes = PlatformView.TypingAttributes2 is { } current
+                ? new NSMutableDictionary(current)
+                : new NSMutableDictionary();
+            typingAttributes.AddEntries(paragraphAttributes);
+            PlatformView.TypingAttributes2 = typingAttributes;
+            _nativeTypingParagraphFormat = paragraphFormat;
+        }
+
+        private static bool IsCaretInTrailingEmptyParagraph(
+            RichTextDocumentSnapshot snapshot,
+            int selectionStart,
+            int selectionLength) =>
+            selectionLength == 0 &&
+            selectionStart == snapshot.Length &&
+            (snapshot.Length == 0 || snapshot.Text[^1] == '\n');
+
+        private void OnNativeEditingEnded() => VirtualView?.RaiseCompleted();
 
         private sealed class RichTextViewDelegate(RichEditorHandler handler) : UITextViewDelegate
         {
@@ -2221,6 +2320,14 @@ namespace RichEdit.Maui
                 if (_handler.TryGetTarget(out var target))
                 {
                     target.OnNativeSelectionChanged(textView);
+                }
+            }
+
+            public override void EditingEnded(UITextView textView)
+            {
+                if (_handler.TryGetTarget(out var target))
+                {
+                    target.OnNativeEditingEnded();
                 }
             }
 

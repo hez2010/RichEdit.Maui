@@ -211,24 +211,32 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     internal RichTextChangeSet ReplaceSnapshotFromNative(
         RichTextDocumentSnapshot snapshot,
         object sourceToken,
-        bool nativeUndoOwned)
+        bool nativeUndoOwned,
+        RichTextChangeOrigin origin = RichTextChangeOrigin.User)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(sourceToken);
+        if (origin is not (RichTextChangeOrigin.User or
+            RichTextChangeOrigin.Undo or
+            RichTextChangeOrigin.Redo))
+        {
+            throw new ArgumentOutOfRangeException(nameof(origin));
+        }
+
         VerifyNoActiveEdit();
         var changes = CreateDelta(_snapshot, snapshot);
         var undoBehavior = nativeUndoOwned
             ? RichTextUndoBehavior.ClearHistory
-            : CanMergeNativeEdit(changes, sourceToken)
+            : origin == RichTextChangeOrigin.User && CanMergeNativeEdit(changes, sourceToken)
                 ? RichTextUndoBehavior.MergeWithPrevious
                 : RichTextUndoBehavior.CreateUnit;
         var result = Commit(
             snapshot,
             changes,
-            RichTextChangeOrigin.User,
+            origin,
             new RichTextEditOptions(undoBehavior),
             sourceToken);
-        if (!result.IsEmpty)
+        if (!result.IsEmpty && origin == RichTextChangeOrigin.User)
         {
             _lastNativeSourceToken = sourceToken;
             _lastNativeEditTick = Environment.TickCount64;
@@ -473,8 +481,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         }
 
         var changes = new List<RichTextChange>();
-        RichTextRange? textOldRange = null;
-        RichTextRange? textNewRange = null;
+        RichTextTextChange? textChange = null;
         if (!string.Equals(before.Text, after.Text, StringComparison.Ordinal))
         {
             var prefixLength = before.Text.AsSpan().CommonPrefixLength(after.Text);
@@ -486,32 +493,30 @@ public sealed class RichTextDocument : INotifyPropertyChanged
                 suffixLength++;
             }
 
-            textOldRange = new RichTextRange(
+            var textOldRange = new RichTextRange(
                 prefixLength,
                 before.Length - prefixLength - suffixLength);
-            textNewRange = new RichTextRange(
+            var textNewRange = new RichTextRange(
                 prefixLength,
                 after.Length - prefixLength - suffixLength);
-            changes.Add(new RichTextTextChange(
-                textOldRange.Value,
-                after.Text.Substring(textNewRange.Value.Start, textNewRange.Value.Length)));
+            textChange = new RichTextTextChange(
+                textOldRange,
+                after.Text.Substring(textNewRange.Start, textNewRange.Length));
+            changes.Add(textChange);
         }
 
-        if (!before.Runs.AsSpan().SequenceEqual(after.Runs.AsSpan()))
+        if (FindRunDifference(after, before, textChange) is { } characterRange)
         {
-            var range = textNewRange ?? FindRunDifference(after, before);
             changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.CharacterFormat,
-                textOldRange ?? range,
-                range));
+                MapAffectedRangeToBefore(characterRange, textChange),
+                characterRange));
         }
 
-        if (!before.Paragraphs.AsSpan().SequenceEqual(after.Paragraphs.AsSpan()) ||
-            before.DefaultParagraphFormat != after.DefaultParagraphFormat)
+        if (FindParagraphDifference(after, before, textChange) is { } paragraphRange)
         {
-            var newRange = ExpandToParagraphs(after.Text, textNewRange ??
-                FindParagraphDifference(after, before));
-            var oldRange = ExpandToParagraphs(before.Text, textOldRange ?? newRange.Clamp(before.Length));
+            var newRange = ExpandToParagraphs(after.Text, paragraphRange);
+            var oldRange = ExpandToParagraphs(before.Text, MapAffectedRangeToBefore(newRange, textChange));
             changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.ParagraphFormat,
                 oldRange,
@@ -532,11 +537,10 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         AddSemanticDelta(changes, RichTextChangeKind.Field, before.Fields, after.Fields,
             static field => field.Range, before.Length, after.Length);
         AddSemanticDelta(changes, RichTextChangeKind.Image, before.Images, after.Images,
-            static image => new RichTextRange(image.Position, 1), before.Length, after.Length,
-            ImagesEqual);
+            static image => new RichTextRange(image.Position, 1), before.Length, after.Length);
 
         if (!DictionaryEqual(before.Lists, after.Lists) ||
-            !ListPicturesEqual(before.ListPictures, after.ListPictures))
+            !DictionaryEqual(before.ListPictures, after.ListPictures))
         {
             changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.List,
@@ -552,51 +556,98 @@ public sealed class RichTextDocument : INotifyPropertyChanged
                 new RichTextRange(0, after.Length)));
         }
 
-        if (changes.Count == 1 && changes[0] is RichTextTextChange && textNewRange is { } inserted)
-        {
-            var paragraphRange = ExpandToParagraphs(after.Text, inserted);
-            changes.Add(new RichTextRangeChange(
-                RichTextChangeKind.CharacterFormat,
-                textOldRange!.Value,
-                inserted));
-            changes.Add(new RichTextRangeChange(
-                RichTextChangeKind.ParagraphFormat,
-                ExpandToParagraphs(before.Text, textOldRange.Value),
-                paragraphRange));
-        }
-
         return changes;
     }
 
-    private static RichTextRange FindRunDifference(
+    private static RichTextRange? FindRunDifference(
         RichTextDocumentSnapshot first,
-        RichTextDocumentSnapshot second)
+        RichTextDocumentSnapshot second,
+        RichTextTextChange? textChange)
     {
-        var start = first.Runs
-            .Where(run => second.GetCharacterFormat(Math.Min(run.Start, second.Length)) != run.Format)
-            .Select(static run => run.Start)
-            .DefaultIfEmpty(0)
-            .Min();
-        var end = first.Runs
-            .Where(run => second.GetCharacterFormat(Math.Min(run.Start, second.Length)) != run.Format)
-            .Select(static run => run.End)
-            .DefaultIfEmpty(first.Length)
-            .Max();
-        return new RichTextRange(start, Math.Max(end - start, 0));
+        RichTextRange? affected = textChange?.NewRange;
+        var firstIndex = 0;
+        var secondIndex = 0;
+        var position = 0;
+        while (position < first.Length)
+        {
+            if (textChange is not null &&
+                position >= textChange.NewRange.Start && position < textChange.NewRange.End)
+            {
+                position = textChange.NewRange.End;
+                continue;
+            }
+
+            var offset = textChange is not null && position >= textChange.NewRange.End
+                ? textChange.NewRange.Length - textChange.OldRange.Length
+                : 0;
+            var oldPosition = position - offset;
+            while (first.Runs[firstIndex].End <= position)
+            {
+                firstIndex++;
+            }
+
+            while (second.Runs[secondIndex].End <= oldPosition)
+            {
+                secondIndex++;
+            }
+
+            var firstRun = first.Runs[firstIndex];
+            var secondRun = second.Runs[secondIndex];
+            var end = Math.Min(firstRun.End, secondRun.End + offset);
+            if (textChange is not null && position < textChange.NewRange.Start)
+            {
+                end = Math.Min(end, textChange.NewRange.Start);
+            }
+
+            if (firstRun.Format != secondRun.Format)
+            {
+                affected = UnionRanges(affected, new RichTextRange(position, end - position));
+            }
+
+            position = end;
+        }
+
+        return affected;
     }
 
-    private static RichTextRange FindParagraphDifference(
+    private static RichTextRange? FindParagraphDifference(
         RichTextDocumentSnapshot first,
-        RichTextDocumentSnapshot second)
+        RichTextDocumentSnapshot second,
+        RichTextTextChange? textChange)
     {
-        var changed = first.Paragraphs
-            .Where(paragraph =>
-                second.GetParagraphFormat(Math.Min(paragraph.Start, second.Length)) != paragraph.Format)
-            .ToArray();
-        return changed.Length == 0
-            ? new RichTextRange(0, first.Length)
-            : new RichTextRange(changed[0].Range.Start, changed[^1].Range.End - changed[0].Range.Start);
+        RichTextRange? affected = textChange?.NewRange;
+        foreach (var paragraph in first.Paragraphs)
+        {
+            var oldPosition = paragraph.Start;
+            if (textChange is not null && oldPosition >= textChange.NewRange.Start)
+            {
+                oldPosition = oldPosition >= textChange.NewRange.End
+                    ? oldPosition + textChange.OldRange.Length - textChange.NewRange.Length
+                    : textChange.OldRange.Start;
+            }
+
+            if (second.GetParagraphFormat(oldPosition) != paragraph.Format)
+            {
+                affected = UnionRanges(affected, paragraph.Range);
+            }
+        }
+
+        return affected;
     }
+
+    private static RichTextRange UnionRanges(RichTextRange? first, RichTextRange second)
+    {
+        var start = Math.Min(first?.Start ?? second.Start, second.Start);
+        var end = Math.Max(first?.End ?? second.End, second.End);
+        return new RichTextRange(start, end - start);
+    }
+
+    // Format ranges include the entire text replacement, so mapping them back
+    // only needs to undo its length change.
+    private static RichTextRange MapAffectedRangeToBefore(RichTextRange range, RichTextTextChange? textChange) =>
+        textChange is null
+            ? range
+            : new RichTextRange(range.Start, range.Length + textChange.OldRange.Length - textChange.NewRange.Length);
 
     private static RichTextRange ExpandToParagraphs(string text, RichTextRange range)
     {
@@ -614,10 +665,9 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         IReadOnlyList<T> after,
         Func<T, RichTextRange> getRange,
         int beforeLength,
-        int afterLength,
-        Func<IReadOnlyList<T>, IReadOnlyList<T>, bool>? equals = null)
+        int afterLength)
     {
-        if (equals?.Invoke(before, after) ?? before.SequenceEqual(after))
+        if (before.SequenceEqual(after))
         {
             return;
         }
@@ -650,49 +700,6 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         first.Count == second.Count &&
         first.All(pair => second.TryGetValue(pair.Key, out var value) &&
             EqualityComparer<TValue>.Default.Equals(pair.Value, value));
-
-    private static bool ImagesEqual(
-        IReadOnlyList<RichTextImage> first,
-        IReadOnlyList<RichTextImage> second)
-    {
-        if (first.Count != second.Count)
-        {
-            return false;
-        }
-
-        for (var index = 0; index < first.Count; index++)
-        {
-            if (first[index] with { Data = [] } != second[index] with { Data = [] } ||
-                !first[index].Data.AsSpan().SequenceEqual(second[index].Data.AsSpan()))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static bool ListPicturesEqual(
-        IReadOnlyDictionary<string, RichTextListPicture> first,
-        IReadOnlyDictionary<string, RichTextListPicture> second)
-    {
-        if (first.Count != second.Count)
-        {
-            return false;
-        }
-
-        foreach (var pair in first)
-        {
-            if (!second.TryGetValue(pair.Key, out var value) ||
-                pair.Value with { Data = [] } != value with { Data = [] } ||
-                !pair.Value.Data.AsSpan().SequenceEqual(value.Data.AsSpan()))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
     private bool CanMergeNativeEdit(
         IReadOnlyList<RichTextChange> changes,

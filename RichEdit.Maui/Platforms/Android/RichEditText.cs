@@ -61,7 +61,19 @@ public class RichEditText : AppCompatEditText
     /// <inheritdoc />
     public override bool OnKeyDown(Keycode keyCode, KeyEvent? e)
     {
-        if (e?.IsCtrlPressed == true && keyCode == Keycode.Z && UndoRequested is { } undo)
+        if (e?.IsCtrlPressed == true &&
+            e.IsShiftPressed &&
+            keyCode == Keycode.Z &&
+            RedoRequested is { } shiftedRedo)
+        {
+            shiftedRedo();
+            return true;
+        }
+
+        if (e?.IsCtrlPressed == true &&
+            !e.IsShiftPressed &&
+            keyCode == Keycode.Z &&
+            UndoRequested is { } undo)
         {
             undo();
             return true;

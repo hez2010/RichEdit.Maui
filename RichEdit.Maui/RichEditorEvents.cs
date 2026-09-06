@@ -130,10 +130,13 @@ public sealed class RichTextInlineObjectInvokedEventArgs : EventArgs
 /// </summary>
 public sealed class RichTextDocumentFragment
 {
-    internal RichTextDocumentFragment(RichTextDocumentSnapshot snapshot)
+    internal RichTextDocumentFragment(RichTextDocumentSnapshot snapshot, bool isPlainText = false)
     {
         Snapshot = snapshot;
+        IsPlainText = isPlainText;
     }
+
+    internal bool IsPlainText { get; }
 
     /// <summary>Gets the fragment's logical plain text.</summary>
     public string Text => Snapshot.Text;
@@ -161,7 +164,7 @@ public sealed class RichTextDocumentFragment
     /// <param name="text">The text to include.</param>
     /// <returns>An immutable plain-text fragment.</returns>
     public static RichTextDocumentFragment FromPlainText(string? text) =>
-        new(new RichTextDocumentSnapshot(text));
+        new(new RichTextDocumentSnapshot(text), isPlainText: true);
 
     internal static RichTextDocumentFragment FromRange(
         RichTextDocumentSnapshot snapshot,
@@ -177,6 +180,7 @@ public sealed class RichTextDocumentFragment
         if (range.Start > 0)
         {
             fragment = fragment.Replace(0..range.Start, string.Empty);
+            fragment = fragment.ApplyParagraphFormat(0..0, _ => snapshot.GetParagraphFormat(range.Start));
         }
 
         return new RichTextDocumentFragment(

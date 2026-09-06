@@ -28,8 +28,13 @@ public sealed class RichEditor : View
         typeof(RichEditor),
         RichTextRange.Empty,
         BindingMode.TwoWay,
-        validateValue: static (bindable, value) =>
-            value is RichTextRange range && range.End <= ((RichEditor)bindable).Document.Length,
+        coerceValue: static (bindable, value) =>
+        {
+            var length = ((RichEditor)bindable).Document.Length;
+            var range = value is RichTextRange richRange ? richRange : RichTextRange.Empty;
+            var start = Math.Clamp(range.Start, 0, length);
+            return new RichTextRange(start, Math.Clamp(range.Length, 0, length - start));
+        },
         propertyChanged: static (bindable, oldValue, newValue) =>
             ((RichEditor)bindable).OnSelectedRangePropertyChanged(
                 (RichTextRange)oldValue,
@@ -247,7 +252,10 @@ public sealed class RichEditor : View
         }
     }
 
-    /// <summary>Gets or sets the selected UTF-16 document range.</summary>
+    /// <summary>
+    /// Gets or sets the selected UTF-16 document range. Assigned values are clamped
+    /// to the current document bounds.
+    /// </summary>
     public RichTextRange SelectedRange
     {
         get => (RichTextRange)GetValue(SelectedRangeProperty);
@@ -482,17 +490,47 @@ public sealed class RichEditor : View
             !IsReadOnly &&
             ReferenceEquals(Document, document) &&
             document.Version == version &&
-            SelectedRange == range)
+            SelectedRange == range &&
+            LimitFragmentToMaxLength(args.Fragment, range) is { } accepted)
         {
-            Selection.ReplaceFragment(args.Fragment);
+            Selection.ReplaceFragment(accepted);
         }
+    }
+
+    private RichTextDocumentFragment? LimitFragmentToMaxLength(
+        RichTextDocumentFragment fragment,
+        RichTextRange replacedRange)
+    {
+        var maxLength = MaxLength;
+        if (maxLength < 0)
+        {
+            return fragment;
+        }
+
+        var available = maxLength - (Document.Length - replacedRange.Length);
+        if (fragment.Text.Length <= available)
+        {
+            return fragment;
+        }
+
+        if (available > 0 && char.IsHighSurrogate(fragment.Text[available - 1]))
+        {
+            available--;
+        }
+
+        return available <= 0
+            ? null
+            : fragment.IsPlainText
+                ? RichTextDocumentFragment.FromPlainText(fragment.Text[..available])
+                : RichTextDocumentFragment.FromRange(fragment.Snapshot, new RichTextRange(0, available));
     }
 
     internal void UpdateDocumentFromPlatform(
         RichTextDocumentSnapshot snapshot,
         int selectionStart,
         int selectionLength,
-        object sourceToken)
+        object sourceToken,
+        RichTextChangeOrigin origin = RichTextChangeOrigin.User)
     {
         var selection = new RichTextRange(selectionStart, selectionLength);
         selection.Validate(snapshot.Text.Length, nameof(selectionLength));
@@ -504,7 +542,8 @@ public sealed class RichEditor : View
             var changes = Document.ReplaceSnapshotFromNative(
                 snapshot,
                 sourceToken,
-                nativeUndoOwned);
+                nativeUndoOwned,
+                origin);
             if (changes.IsEmpty)
             {
                 SetSelectionFromPlatform(selection);
@@ -574,14 +613,14 @@ public sealed class RichEditor : View
 
     internal void SetTypingCharacterFormat(RichTextCharacterFormat format)
     {
-        _typingCharacterFormat = format ?? throw new ArgumentNullException(nameof(format));
+        _typingCharacterFormat = RichTextDocumentSnapshot.Validate(format);
         ApplyTypingFormatToHandler();
         RaiseSelectionFormatChanged();
     }
 
     internal void SetTypingParagraphFormat(RichTextParagraphFormat format)
     {
-        _typingParagraphFormat = format ?? throw new ArgumentNullException(nameof(format));
+        _typingParagraphFormat = RichTextDocumentSnapshot.Validate(format);
         ApplyTypingFormatToHandler();
         RaiseSelectionFormatChanged();
     }
@@ -794,7 +833,7 @@ public sealed class RichEditor : View
         SetSelectionCore(
             resultingSelection,
             fromPlatform: appliedToPlatform ||
-                changeSet.Origin == RichTextChangeOrigin.User);
+                changeSet.Origin != RichTextChangeOrigin.Programmatic);
 
         RefreshUndoState();
         if (AutoSize == EditorAutoSizeOption.TextChanges && changeSet.IsTextChanged)

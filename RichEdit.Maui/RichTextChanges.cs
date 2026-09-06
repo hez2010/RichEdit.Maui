@@ -242,7 +242,8 @@ public sealed class RichTextChangeSet
     {
         RichTextRange? affected = null;
         var hasNonemptyAffectedChange = Changes.Any(static change =>
-            change.Kind != RichTextChangeKind.Metadata && !change.NewRange.IsEmpty);
+            change.Kind != RichTextChangeKind.Metadata &&
+            (!change.NewRange.IsEmpty || IsSemanticKind(change.Kind) && !change.OldRange.IsEmpty));
         foreach (var change in Changes)
         {
             if (change is RichTextTextChange textChange && affected is { } preceding)
@@ -253,14 +254,21 @@ public sealed class RichTextChangeSet
             if (change.Kind == RichTextChangeKind.Metadata ||
                 change.Kind == RichTextChangeKind.List &&
                 change.NewRange.IsEmpty &&
+                change.OldRange.IsEmpty &&
                 hasNonemptyAffectedChange)
             {
                 continue;
             }
 
-            affected = affected is { } current
-                ? Union(current, change.NewRange)
+            // A semantic removal leaves an empty new range; refresh the removed
+            // extent as well. Semantic old ranges are recorded in the coordinates
+            // that follow the transaction's text replacement.
+            var changeRange = IsSemanticKind(change.Kind)
+                ? Union(change.NewRange, change.OldRange)
                 : change.NewRange;
+            affected = affected is { } current
+                ? Union(current, changeRange)
+                : changeRange;
         }
 
         if (affected is not { } result)
@@ -277,6 +285,12 @@ public sealed class RichTextChangeSet
 
         return result;
     }
+
+    private static bool IsSemanticKind(RichTextChangeKind kind) =>
+        kind is RichTextChangeKind.Link or
+            RichTextChangeKind.Field or
+            RichTextChangeKind.Image or
+            RichTextChangeKind.List;
 
     private static RichTextRange MapRange(
         RichTextRange range,

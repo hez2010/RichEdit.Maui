@@ -77,6 +77,12 @@ public sealed class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
+        if (fragment.IsPlainText)
+        {
+            ReplaceText(fragment.Text);
+            return;
+        }
+
         var start = Range.Start;
         _editor.EditDocument(
             edit => edit.ReplaceFragment(Range, fragment),

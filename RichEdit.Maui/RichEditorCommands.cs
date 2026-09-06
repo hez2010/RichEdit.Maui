@@ -268,7 +268,24 @@ public sealed class RichEditorCommands
         new(execute, canExecute);
 
     private static Command Create(Func<Task> execute, Func<bool> canExecute) =>
-        new(async () => await execute(), canExecute);
+        new(
+            async () =>
+            {
+                try
+                {
+                    await execute();
+                }
+                catch (Exception exception)
+                {
+                    // An async command failure (for example, a denied or busy system
+                    // clipboard) must not crash the application from an async void
+                    // command context.
+                    System.Diagnostics.Trace.TraceError(
+                        "RichEdit.Maui command failed: {0}",
+                        exception);
+                }
+            },
+            canExecute);
 
     private static Command Create<T>(Action<T> execute, Func<T, bool> canExecute) =>
         new(

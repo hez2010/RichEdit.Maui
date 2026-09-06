@@ -523,9 +523,9 @@ public sealed class RichTextDocumentSnapshot
             _paragraphs.AsSpan().SequenceEqual(other._paragraphs.AsSpan()) &&
             _links.AsSpan().SequenceEqual(other._links.AsSpan()) &&
             _fields.AsSpan().SequenceEqual(other._fields.AsSpan()) &&
-            ImagesEqual(_images, other._images) &&
-            ListsEqual(_lists, other._lists) &&
-            ListPicturesEqual(_listPictures, other._listPictures) &&
+            _images.AsSpan().SequenceEqual(other._images.AsSpan()) &&
+            DictionariesEqual(_lists, other._lists) &&
+            DictionariesEqual(_listPictures, other._listPictures) &&
             DictionariesEqual(_metadata, other._metadata);
     }
 
@@ -662,57 +662,6 @@ public sealed class RichTextDocumentSnapshot
         }
 
         return [.. result];
-    }
-
-    private static bool ImagesEqual(
-        ImmutableArray<RichTextImage> first,
-        ImmutableArray<RichTextImage> second)
-    {
-        if (first.Length != second.Length)
-        {
-            return false;
-        }
-
-        for (var index = 0; index < first.Length; index++)
-        {
-            var left = first[index];
-            var right = second[index];
-            if (left with { Data = [] } != right with { Data = [] } ||
-                !left.Data.AsSpan().SequenceEqual(right.Data.AsSpan()))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static bool ListsEqual(
-        ImmutableDictionary<RichTextListId, RichTextListDefinition> first,
-        ImmutableDictionary<RichTextListId, RichTextListDefinition> second) =>
-        first.Count == second.Count &&
-        first.All(pair => second.TryGetValue(pair.Key, out var value) && pair.Value == value);
-
-    private static bool ListPicturesEqual(
-        ImmutableDictionary<string, RichTextListPicture> first,
-        ImmutableDictionary<string, RichTextListPicture> second)
-    {
-        if (first.Count != second.Count)
-        {
-            return false;
-        }
-
-        foreach (var pair in first)
-        {
-            if (!second.TryGetValue(pair.Key, out var value) ||
-                pair.Value with { Data = [] } != value with { Data = [] } ||
-                !pair.Value.Data.AsSpan().SequenceEqual(value.Data.AsSpan()))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static bool DictionariesEqual<TKey, TValue>(
@@ -877,7 +826,13 @@ public sealed class RichTextDocumentSnapshot
         Array.Sort(fields, static (first, second) =>
         {
             var position = first.Start.CompareTo(second.Start);
-            return position != 0 ? position : first.Id.Value.CompareTo(second.Id.Value);
+            if (position != 0)
+            {
+                return position;
+            }
+
+            var length = first.Length.CompareTo(second.Length);
+            return length != 0 ? length : first.Id.Value.CompareTo(second.Id.Value);
         });
         var previousEnd = 0;
         foreach (var field in fields)
@@ -1108,10 +1063,9 @@ public sealed class RichTextDocumentSnapshot
         }
     }
 
-    private static RichTextCharacterFormat Validate(RichTextCharacterFormat format)
+    internal static RichTextCharacterFormat Validate(RichTextCharacterFormat format)
     {
         ArgumentNullException.ThrowIfNull(format);
-        ValidateColor(format.ForegroundColor);
         if (format.FontSize is { } size &&
                 (size <= 0 ||
                  !IsRtfScaledInteger(size, 2d) ||
@@ -1136,6 +1090,7 @@ public sealed class RichTextDocumentSnapshot
 
         return format with
         {
+            ForegroundColor = NormalizeVisibleColor(format.ForegroundColor),
             BackgroundColor = NormalizeVisibleColor(format.BackgroundColor),
             UnderlineColor = NormalizeVisibleColor(format.UnderlineColor),
             StrikethroughColor = NormalizeVisibleColor(format.StrikethroughColor),
@@ -1144,7 +1099,7 @@ public sealed class RichTextDocumentSnapshot
         };
     }
 
-    private static RichTextParagraphFormat Validate(RichTextParagraphFormat format)
+    internal static RichTextParagraphFormat Validate(RichTextParagraphFormat format)
     {
         ArgumentNullException.ThrowIfNull(format);
         if (!IsRtfTwips(format.LeadingIndent) ||
@@ -1202,6 +1157,9 @@ public sealed class RichTextDocumentSnapshot
             BackgroundColor = NormalizeVisibleColor(format.BackgroundColor),
             ShadingForegroundColor = NormalizeVisibleColor(format.ShadingForegroundColor),
             ShadingBackgroundColor = NormalizeVisibleColor(format.ShadingBackgroundColor),
+            Border = format.Border is { } visibleBorder
+                ? visibleBorder with { Color = NormalizeVisibleColor(visibleBorder.Color) }
+                : null,
         };
     }
 

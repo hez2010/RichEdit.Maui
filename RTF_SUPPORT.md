@@ -78,14 +78,14 @@ WinUI and are remapped as the text changes.
 | Space before and after | Round-trip | Native | Native | Adapter | Native | Android adds the requested space to the first and last line metrics. |
 | Single, 1.5, double, exact, at-least, and multiple line spacing | Round-trip | Native | Native | Adapter | Native | Android uses the API 1 `LineHeightSpan` contract, so all rules work at the API 26 minimum. |
 | Minimum and maximum line height | Model only | Native | Native | Adapter | Model | Android clamps the calculated per-line height. |
-| Left tab stops | Round-trip | Native | Native | Native | Native | Fully portable. |
+| Left tab stops | Round-trip | Native | Native | Native | Native | Fully portable. Stops are declared per paragraph and are not inherited through `\pard`, so a paragraph can clear default stops. |
 | Center and right tab stops | Round-trip | Native | Native | Model | Native | Android retains them without applying a visual stop. |
 | Decimal tab stops | Round-trip | Degraded | Degraded | Model | Native | Apple uses its natural tab alignment. |
 | Tab leaders | Round-trip | Model | Model | Model | Native | Positions still work where the alignment is supported. |
 | Hyphenation preference | Round-trip | Native | Native | Degraded | Model | Android delegates to native normal-frequency hyphenation when every paragraph enables it; mixed documents retain metadata. |
 | Solid paragraph background | Round-trip | Model | Model | Adapter | Model | Android paints the complete line box without altering text. |
 | Paragraph shading patterns | Round-trip | Model | Model | Model | Model | Exact values remain in the canonical model. |
-| Paragraph borders | Round-trip | Model | Model | Adapter | Model | Android draws selected sides with single, double, dotted, or dashed strokes. |
+| Paragraph borders | Round-trip | Model | Model | Adapter | Model | Android draws selected sides with single, double, dotted, or dashed strokes. An explicit border-none value (`\brdrnil`) round-trips and clears an inherited default border. |
 | Named paragraph style | Model only | Model | Model | Model | Model | Explicit paragraph formatting is authoritative. |
 
 ## Lists
@@ -128,7 +128,7 @@ List markers are presentation metadata and are never inserted into
 | Area | Current behavior |
 |---|---|
 | Font table, color table, default character properties, and default paragraph properties | Parsed and serialized for the supported formatting subset. |
-| Group scoping, ignorable destinations, unknown controls, Unicode fallbacks, and binary picture data | Handled by the custom reader. Unknown optional destinations are skipped as required by RTF. |
+| Group scoping, ignorable destinations, unknown controls, Unicode fallbacks, `\upr`/`\ud` Unicode alternates, and binary picture data | Handled by the custom reader. Unknown optional destinations are skipped as required by RTF; `\upr` groups use the `\*\ud` Unicode representation. |
 | Tables and nested tables | Flattened to tab-separated cells and newline-separated rows for continuous editing. |
 | Sections, pages, and columns | Section/page breaks become paragraph breaks; page-layout properties are not retained. |
 | Headers, footers, footnotes, and endnotes | Not part of the continuous editor model; destination content is skipped. |

@@ -197,6 +197,6 @@ await Editor.PasteAsync();
 
 ## RTF behavior
 
-The reader follows RTF group scoping, Unicode fallback, code-page, paragraph-default, and ignorable-destination rules. It accepts ANSI, Mac, PC 437, PC 850, and font-specific `\fcharset`/`\cpg` text. Table cells are flattened to tab/newline text. `\line` is represented as U+2028 and `\par` as `\n`, so soft and paragraph breaks remain distinct.
+The reader follows RTF group scoping, Unicode fallback, `\upr`/`\ud` Unicode-alternate, code-page, paragraph-default, and ignorable-destination rules. It accepts ANSI (`\ansicpg`), Mac, PC 437, PC 850, and font-specific `\fcharset`/`\cpg` text; `\ansi` without `\ansicpg` decodes as Windows-1252. Table cells are flattened to tab/newline text. `\line` is represented as U+2028 and `\par` as `\n`, so soft and paragraph breaks remain distinct.
 
 RTF uses opaque 8-bit RGB colors and half-point font sizes. Serialization rounds model values to those wire-format units. Nonzero alpha is degraded to opaque RGB; a fully transparent formatting color means unset/reset instead of an alpha-zero native color.

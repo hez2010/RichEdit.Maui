@@ -14,6 +14,7 @@ internal static class RtfCodec
     private const int MaximumListOverrideId = 2000;
     private const double DefaultRtfFontSize = 12d;
     private const int DefaultCodePage = 65001;
+    private const int AnsiCodePage = 1252;
     private const double TwipsPerPoint = 20d;
     private const int SingleLineSpacingTwips = 240;
 
@@ -53,7 +54,18 @@ internal static class RtfCodec
     public static RichTextDocumentSnapshot Parse(string rtf)
     {
         ArgumentNullException.ThrowIfNull(rtf);
-        return new Reader(rtf).Read();
+        try
+        {
+            return new Reader(rtf).Read();
+        }
+        catch (ArgumentException exception)
+        {
+            // Model validation failures triggered by extreme or contradictory RTF
+            // values surface as the documented invalid-input exception type.
+            throw new FormatException(
+                "The RTF document contains a value outside the supported range.",
+                exception);
+        }
     }
 
     private readonly record struct RtfColor(byte Red, byte Green, byte Blue);
@@ -674,12 +686,12 @@ internal static class RtfCodec
             RichTextField? excludedField = null)
         {
             _output.Append("{\\field{\\*\\fldinst HYPERLINK \"");
-            WriteText(link.Target.Replace("\"", "%22", StringComparison.Ordinal).AsSpan());
+            WriteText(EscapeFieldArgument(link.Target).AsSpan());
             _output.Append('"');
             if (!string.IsNullOrWhiteSpace(link.ToolTip))
             {
                 _output.Append(" \\\\o \"");
-                WriteText(link.ToolTip.Replace("\"", "'", StringComparison.Ordinal).AsSpan());
+                WriteText(EscapeFieldArgument(link.ToolTip).AsSpan());
                 _output.Append('"');
             }
 
@@ -692,6 +704,13 @@ internal static class RtfCodec
                 skipEmptyFieldsAtStart: true);
             _output.Append("}}");
         }
+
+        // Word field syntax escapes literal backslashes and quotation marks in a
+        // quoted argument, so UNC targets and quoted text survive a round trip.
+        private static string EscapeFieldArgument(string value) =>
+            value
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("\"", "\\\"", StringComparison.Ordinal);
 
         private void WriteImage(RichTextImage image)
         {
@@ -957,7 +976,9 @@ internal static class RtfCodec
                     continue;
                 }
 
-                foreach (var (start, length) in SplitSemanticRange(field.Start, field.End))
+                // Links can be split and nested inside a field result. Splitting
+                // fields at link boundaries loses their independent identities.
+                foreach (var (start, length) in SplitSemanticRange(field.Start, field.End, splitAtSemanticBoundaries: false))
                 {
                     yield return field with { Start = start, Length = length };
                 }
@@ -975,21 +996,24 @@ internal static class RtfCodec
             }
         }
 
-        private IEnumerable<(int Start, int Length)> SplitSemanticRange(int start, int end)
+        private IEnumerable<(int Start, int Length)> SplitSemanticRange(int start, int end, bool splitAtSemanticBoundaries = true)
         {
             while (start < end)
             {
                 var newline = _document.Text.IndexOf('\n', start, end - start);
                 var segmentEnd = newline < 0 ? end : newline;
-                var boundaryIndex = Array.BinarySearch(_semanticBoundaries, start + 1);
-                if (boundaryIndex < 0)
+                if (splitAtSemanticBoundaries)
                 {
-                    boundaryIndex = ~boundaryIndex;
-                }
+                    var boundaryIndex = Array.BinarySearch(_semanticBoundaries, start + 1);
+                    if (boundaryIndex < 0)
+                    {
+                        boundaryIndex = ~boundaryIndex;
+                    }
 
-                if (boundaryIndex < _semanticBoundaries.Length)
-                {
-                    segmentEnd = Math.Min(segmentEnd, _semanticBoundaries[boundaryIndex]);
+                    if (boundaryIndex < _semanticBoundaries.Length)
+                    {
+                        segmentEnd = Math.Min(segmentEnd, _semanticBoundaries[boundaryIndex]);
+                    }
                 }
 
                 if (segmentEnd > start)
@@ -1240,28 +1264,28 @@ internal static class RtfCodec
                     .Append(@"\slmult").Append(multiple);
             }
 
-            if (!format.TabStops.AsSpan().SequenceEqual(baseline.TabStops.AsSpan()))
+            // Tab stops are always written explicitly. RTF cannot express "no tab
+            // stops" against an inherited default, so \pard clears stops and every
+            // paragraph that has stops declares them.
+            foreach (var tab in format.TabStops)
             {
-                foreach (var tab in format.TabStops)
+                _output.Append(tab.Alignment switch
                 {
-                    _output.Append(tab.Alignment switch
-                    {
-                        RichTextTabAlignment.Center => @"\tqc",
-                        RichTextTabAlignment.Right => @"\tqr",
-                        RichTextTabAlignment.Decimal => @"\tqdec",
-                        _ => @"\tql",
-                    });
-                    _output.Append(tab.Leader switch
-                    {
-                        RichTextTabLeader.Dots => @"\tldot",
-                        RichTextTabLeader.Hyphens => @"\tlhyph",
-                        RichTextTabLeader.Underline => @"\tlul",
-                        RichTextTabLeader.ThickLine => @"\tlth",
-                        RichTextTabLeader.Equals => @"\tleq",
-                        _ => string.Empty,
-                    });
-                    _output.Append(@"\tx").Append(ToTwips(tab.Position));
-                }
+                    RichTextTabAlignment.Center => @"\tqc",
+                    RichTextTabAlignment.Right => @"\tqr",
+                    RichTextTabAlignment.Decimal => @"\tqdec",
+                    _ => @"\tql",
+                });
+                _output.Append(tab.Leader switch
+                {
+                    RichTextTabLeader.Dots => @"\tldot",
+                    RichTextTabLeader.Hyphens => @"\tlhyph",
+                    RichTextTabLeader.Underline => @"\tlul",
+                    RichTextTabLeader.ThickLine => @"\tlth",
+                    RichTextTabLeader.Equals => @"\tleq",
+                    _ => string.Empty,
+                });
+                _output.Append(@"\tx").Append(ToTwips(tab.Position));
             }
 
             WriteToggle(@"\hyphpar", format.Hyphenation, baseline.Hyphenation);
@@ -1294,9 +1318,20 @@ internal static class RtfCodec
 
             if (format.Border != baseline.Border && format.Border is { } border)
             {
-                WriteBorder(border);
+                if (border.Sides == RichTextBorderSides.None ||
+                    border.Style == RichTextBorderStyle.None)
+                {
+                    WriteClearedBorder();
+                }
+                else
+                {
+                    WriteBorder(border);
+                }
             }
         }
+
+        private void WriteClearedBorder() =>
+            _output.Append(@"\brdrt\brdrnil\brdrl\brdrnil\brdrb\brdrnil\brdrr\brdrnil");
 
         private void WriteBorder(RichTextBorder border)
         {
@@ -1778,6 +1813,7 @@ internal static class RtfCodec
         private readonly Dictionary<(int ListId, int Level), ParsedListDefinition> _lists = [];
         private readonly Dictionary<int, int> _listOverrides = [];
         private readonly Dictionary<(int OverrideId, int Level), int> _listOverrideStartAt = [];
+        private readonly Dictionary<(int OverrideId, int Level), ParsedListDefinition> _listOverrideLevels = [];
         private readonly Dictionary<(bool IsTableList, int Id), int> _modelListIds = [];
         private readonly Dictionary<int, RichTextListFormat> _listItems = [];
         private readonly Dictionary<int, RichTextParagraphFormat> _paragraphs = [];
@@ -1812,7 +1848,7 @@ internal static class RtfCodec
         private int _unicodeFallbackRemaining;
         private ReaderState? _encodedState;
         private int _encodedCodePage;
-        private int _documentCodePage = DefaultCodePage;
+        private int _documentCodePage = AnsiCodePage;
         private int _defaultFontIndex;
         private int? _defaultCharacterFontIndex;
         private RichTextCharacterFormat _defaultCharacterFormat = RichTextCharacterFormat.Default;
@@ -1894,6 +1930,9 @@ internal static class RtfCodec
                             state.CompletesDefaultCharacterProperties;
                         var completesDefaultParagraphProperties =
                             state.CompletesDefaultParagraphProperties;
+                        var completesFontTable =
+                            state.Destination == Destination.FontTable &&
+                            stack.Peek().Destination != Destination.FontTable;
                         CompleteGroup(state);
                         state = stack.Pop();
                         if (completesDefaultCharacterProperties)
@@ -1905,6 +1944,13 @@ internal static class RtfCodec
                         {
                             ResetToDefaultParagraphProperties(state);
                             TrackParagraphFormat(state);
+                        }
+
+                        if (completesFontTable && state.FontIndex is null)
+                        {
+                            // Text that follows the font table without an explicit
+                            // \f control uses the \deff default font's code page.
+                            state.CodePage = GetFontCodePage(GetDefaultCharacterFontIndex());
                         }
 
                         depth--;
@@ -1956,7 +2002,7 @@ internal static class RtfCodec
                 _document.Runs,
                 EnumerateParagraphs(text),
                 links: CoalesceLinks(_links),
-                fields: CoalesceFields(_fields),
+                fields: _fields,
                 images: _images,
                 defaultCharacterFormat: defaultCharacterFormat,
                 defaultParagraphFormat: _defaultParagraphFormat,
@@ -1997,27 +2043,6 @@ internal static class RtfCodec
                 else
                 {
                     result.Add(link);
-                }
-            }
-
-            return result;
-        }
-
-        private static IReadOnlyList<RichTextField> CoalesceFields(
-            IEnumerable<RichTextField> source)
-        {
-            var result = new List<RichTextField>();
-            foreach (var field in source.OrderBy(field => field.Start).ThenBy(field => field.End))
-            {
-                if (result.Count > 0 && result[^1] is { } previous &&
-                    previous.End == field.Start &&
-                    string.Equals(previous.Instruction, field.Instruction, StringComparison.Ordinal))
-                {
-                    result[^1] = previous with { Length = field.End - previous.Start };
-                }
-                else
-                {
-                    result.Add(field);
                 }
             }
 
@@ -2098,11 +2123,6 @@ internal static class RtfCodec
             var digitStart = position;
             while (position < _rtf.Length && char.IsAsciiDigit(_rtf[position]))
             {
-                if (position - digitStart == 10)
-                {
-                    throw Error(controlStart, "An RTF numeric parameter cannot contain more than 10 digits.");
-                }
-
                 position++;
             }
 
@@ -2114,7 +2134,10 @@ internal static class RtfCodec
                         CultureInfo.InvariantCulture,
                         out var value))
                 {
-                    throw Error(controlStart, "An RTF numeric parameter is outside the supported range.");
+                    // An out-of-range numeric parameter saturates instead of failing
+                    // the document. Control words that require a bounded value
+                    // validate the saturated parameter themselves.
+                    value = _rtf[parameterStart] == '-' ? int.MinValue : int.MaxValue;
                 }
 
                 parameter = value;
@@ -2222,6 +2245,20 @@ internal static class RtfCodec
 
         private void ApplyControl(string word, int? parameter, ReaderState state, int controlStart)
         {
+            if (word == "ud" &&
+                state.AtGroupStart &&
+                state.SkipDestination &&
+                state.InUnicodePreferred)
+            {
+                // The \*\ud destination inside \upr carries the Unicode
+                // representation, which replaces the skipped ANSI alternative.
+                state.SkipDestination = false;
+                state.IgnorableDestination = false;
+                state.InUnicodePreferred = false;
+                state.AtGroupStart = false;
+                return;
+            }
+
             if (state.AtGroupStart && !state.SkipDestination && TrySetDestination(word, state))
             {
                 state.AtGroupStart = false;
@@ -2295,7 +2332,8 @@ internal static class RtfCodec
 
             if (word == "ansi")
             {
-                SetDocumentCodePage(state, DefaultCodePage);
+                // The ANSI charset defaults to Windows-1252 until \ansicpg refines it.
+                SetDocumentCodePage(state, AnsiCodePage);
                 return;
             }
 
@@ -2453,7 +2491,9 @@ internal static class RtfCodec
 
             if (word is "up" or "dn")
             {
-                var halfPoints = parameter ?? 6;
+                // int.MinValue half-points cannot round-trip through the model's
+                // point representation; saturate to the representable magnitude.
+                var halfPoints = Math.Max(parameter ?? 6, -int.MaxValue);
                 state.Format = state.Format with
                 {
                     BaselineOffset = (word == "dn" ? -halfPoints : halfPoints) / 2d,
@@ -2647,9 +2687,11 @@ internal static class RtfCodec
         {
             if (word == "pard")
             {
+                // Tab stops are declared per paragraph and never inherited
+                // through \pard, so a paragraph can clear default stops.
                 state.ParagraphFormat = state.Destination == Destination.DefaultParagraphProperties
                     ? RichTextParagraphFormat.Default
-                    : _defaultParagraphFormat;
+                    : _defaultParagraphFormat with { TabStops = [] };
                 state.ListOverride = 0;
                 state.ListLevel = 0;
                 ResetParagraphControlState(state);
@@ -2831,7 +2873,15 @@ internal static class RtfCodec
             {
                 if (word is "brdrnil" or "brdrnone")
                 {
-                    SetParagraphFormat(state, state.ParagraphFormat with { Border = null });
+                    // An explicit border-none survives a document default border,
+                    // unlike a null border, which inherits it.
+                    SetParagraphFormat(state, state.ParagraphFormat with
+                    {
+                        Border = new RichTextBorder(
+                            RichTextBorderSides.None,
+                            RichTextBorderStyle.None,
+                            0),
+                    });
                 }
                 else if (state.ParagraphFormat.Border is { } border)
                 {
@@ -2985,7 +3035,10 @@ internal static class RtfCodec
                 case "listpicture" when state.Destination == Destination.ListTable:
                     state.Destination = Destination.ListPictures;
                     return true;
-                case "leveltext" when state.Destination == Destination.ListTable:
+                case "leveltext" when state.Destination is
+                    Destination.ListTable or Destination.ListOverrideTable:
+                    state.ListLevelTextIsOverride =
+                        state.Destination == Destination.ListOverrideTable;
                     state.Destination = Destination.ListLevelText;
                     state.ListLevelTextCapture = new StringBuilder();
                     state.CompletesListLevelText = true;
@@ -3068,6 +3121,12 @@ internal static class RtfCodec
                     return true;
                 case "shppict":
                     // The ignorable wrapper contains the preferred Word 97+ picture.
+                    return true;
+                case "upr":
+                    // Skip the ANSI alternative; the paired \*\ud destination
+                    // supplies the preferred Unicode representation.
+                    state.SkipDestination = true;
+                    state.InUnicodePreferred = true;
                     return true;
                 default:
                     if (SkippedDestinations.Contains(word))
@@ -3229,9 +3288,10 @@ internal static class RtfCodec
             _pendingListPictureIndex = null;
         }
 
-        private void CompleteListLevelText(StringBuilder capture)
+        private void CompleteListLevelText(StringBuilder capture, bool isOverride)
         {
-            if (_pendingListLevel is < 0 or >= 9 || capture.Length == 0)
+            var pendingLevel = isOverride ? _pendingOverrideLevel : _pendingListLevel;
+            if (pendingLevel is < 0 or >= 9 || capture.Length == 0)
             {
                 return;
             }
@@ -3251,8 +3311,15 @@ internal static class RtfCodec
                 _pendingListSuffix = string.Empty;
             }
 
-            CommitPendingListLevel();
-            CommitListDefinition();
+            if (isOverride)
+            {
+                CommitPendingOverrideLevel();
+            }
+            else
+            {
+                CommitPendingListLevel();
+                CommitListDefinition();
+            }
         }
 
         private void SetPendingListNumberFormat(int numberFormat)
@@ -3284,13 +3351,28 @@ internal static class RtfCodec
                 _pendingOverrideId = null;
                 _pendingOverrideLevel = -1;
                 _pendingOverrideStartAt = false;
+                // Prevent trailing list-table state from leaking into override
+                // levels committed by the shared pending-level machinery.
+                _pendingListId = null;
+                _pendingListLevel = -1;
+                Array.Clear(_pendingListLevels);
+                ResetPendingListLevel();
                 return;
             }
 
             if (word == "lfolevel")
             {
+                CommitPendingOverrideLevel();
                 _pendingOverrideLevel++;
                 _pendingOverrideStartAt = false;
+                ResetPendingListLevel();
+                return;
+            }
+
+            if (word == "listlevel")
+            {
+                // A nested \listlevel redefines the complete lfolevel format.
+                ResetPendingListLevel();
                 return;
             }
 
@@ -3306,18 +3388,53 @@ internal static class RtfCodec
             {
                 _pendingOverrideStartAt = true;
             }
-            else if (word == "levelstartat" &&
-                     parameter is > 0 &&
-                     _pendingOverrideStartAt &&
-                     _pendingOverrideId is { } startOverrideId &&
-                     _pendingOverrideLevel is >= 0 and < 9)
+            else if (word == "levelstartat" && parameter is > 0)
             {
-                _listOverrideStartAt[(startOverrideId, _pendingOverrideLevel)] = parameter.Value;
+                _pendingListStartAt = parameter.Value;
+                if (_pendingOverrideStartAt &&
+                    _pendingOverrideId is { } startOverrideId &&
+                    _pendingOverrideLevel is >= 0 and < 9)
+                {
+                    _listOverrideStartAt[(startOverrideId, _pendingOverrideLevel)] = parameter.Value;
+                }
+            }
+            else if (word == "levelnfc" && parameter is not null &&
+                     !_pendingListUsesModernNumberFormat)
+            {
+                SetPendingListNumberFormat(parameter.Value);
+            }
+            else if (word == "levelnfcn" && parameter is not null)
+            {
+                SetPendingListNumberFormat(parameter.Value);
+                _pendingListUsesModernNumberFormat = true;
+            }
+            else if (word == "levelpicture" && parameter is >= 0)
+            {
+                _pendingListPictureIndex = parameter.Value;
             }
 
             if (_pendingOverrideListId is { } listId && _pendingOverrideId is { } overrideId)
             {
                 _listOverrides[overrideId] = listId;
+            }
+
+            CommitPendingOverrideLevel();
+        }
+
+        private void CommitPendingOverrideLevel()
+        {
+            if (_pendingOverrideId is { } overrideId &&
+                _pendingOverrideLevel is >= 0 and < 9 &&
+                _pendingListKind is { } kind)
+            {
+                _listOverrideLevels[(overrideId, _pendingOverrideLevel)] = new ParsedListDefinition(
+                    kind,
+                    _pendingListStartAt,
+                    _pendingListNumberFormat,
+                    _pendingListPrefix,
+                    _pendingListSuffix,
+                    _pendingListBulletText,
+                    _pendingListPictureIndex);
             }
         }
 
@@ -3442,7 +3559,13 @@ internal static class RtfCodec
                     state.FieldInstructionCapture!.Append(character);
                     break;
                 case Destination.Picture:
-                    state.Picture!.AppendHex(character);
+                    if (!state.Picture!.TryAppendHex(character) &&
+                        !char.IsWhiteSpace(character))
+                    {
+                        throw new FormatException(
+                            "Picture data contains an invalid hexadecimal digit.");
+                    }
+
                     break;
                 case Destination.PicturePropertyName:
                 case Destination.PicturePropertyValue:
@@ -3630,7 +3753,7 @@ internal static class RtfCodec
 
             if (state.CompletesListLevelText && state.ListLevelTextCapture is not null)
             {
-                CompleteListLevelText(state.ListLevelTextCapture);
+                CompleteListLevelText(state.ListLevelTextCapture, state.ListLevelTextIsOverride);
             }
 
             if (state.CompletesPicturePropertyName &&
@@ -3671,7 +3794,8 @@ internal static class RtfCodec
                         counterKey,
                         out var expectedNumber);
                     var restart = !hasExpectedNumber &&
-                        _listOverrideStartAt.ContainsKey((state.ListOverride, level));
+                        _listOverrideStartAt.ContainsKey((state.ListOverride, level)) &&
+                        !IsContinuationStartOverride(state.ListOverride, level);
                     if (listKind == RichListKind.Numbered && parsedNumber is { } parsed)
                     {
                         if (hasExpectedNumber)
@@ -3845,26 +3969,28 @@ internal static class RtfCodec
             target = string.Empty;
             toolTip = null;
             var position = 0;
-            if (!TryReadFieldToken(instruction, ref position, out var fieldName) ||
+            if (!TryReadFieldToken(instruction, ref position, out var fieldName, out _) ||
                 !fieldName.Equals("HYPERLINK", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
             string? fragment = null;
-            while (TryReadFieldToken(instruction, ref position, out var token))
+            while (TryReadFieldToken(instruction, ref position, out var token, out var isSwitch))
             {
-                if (token.Equals(@"\l", StringComparison.OrdinalIgnoreCase) &&
-                    TryReadFieldToken(instruction, ref position, out var bookmark))
+                if (isSwitch &&
+                    token.Equals(@"\l", StringComparison.OrdinalIgnoreCase) &&
+                    TryReadFieldToken(instruction, ref position, out var bookmark, out _))
                 {
                     fragment = bookmark;
                 }
-                else if (token.Equals(@"\o", StringComparison.OrdinalIgnoreCase) &&
-                         TryReadFieldToken(instruction, ref position, out var parsedToolTip))
+                else if (isSwitch &&
+                         token.Equals(@"\o", StringComparison.OrdinalIgnoreCase) &&
+                         TryReadFieldToken(instruction, ref position, out var parsedToolTip, out _))
                 {
                     toolTip = parsedToolTip;
                 }
-                else if (!token.StartsWith('\\') && target.Length == 0)
+                else if (!isSwitch && target.Length == 0)
                 {
                     target = token;
                 }
@@ -3961,9 +4087,9 @@ internal static class RtfCodec
             }
 
             var position = 0;
-            if (!TryReadFieldToken(instruction, ref position, out var fieldName) ||
+            if (!TryReadFieldToken(instruction, ref position, out var fieldName, out _) ||
                 !fieldName.Equals("SYMBOL", StringComparison.OrdinalIgnoreCase) ||
-                !TryReadFieldToken(instruction, ref position, out var characterToken) ||
+                !TryReadFieldToken(instruction, ref position, out var characterToken, out _) ||
                 !TryParseCharacterNumber(characterToken, out var characterNumber))
             {
                 return false;
@@ -3972,7 +4098,7 @@ internal static class RtfCodec
             string? fontFamily = null;
             double? fontSize = null;
             var encoding = SymbolEncoding.Ansi;
-            while (TryReadFieldToken(instruction, ref position, out var token))
+            while (TryReadFieldToken(instruction, ref position, out var token, out _))
             {
                 if (token.Equals(@"\a", StringComparison.OrdinalIgnoreCase))
                 {
@@ -3987,12 +4113,12 @@ internal static class RtfCodec
                     encoding = SymbolEncoding.Unicode;
                 }
                 else if (token.Equals(@"\f", StringComparison.OrdinalIgnoreCase) &&
-                         TryReadFieldToken(instruction, ref position, out var parsedFontFamily))
+                         TryReadFieldToken(instruction, ref position, out var parsedFontFamily, out _))
                 {
                     fontFamily = parsedFontFamily;
                 }
                 else if (token.Equals(@"\s", StringComparison.OrdinalIgnoreCase) &&
-                         TryReadFieldToken(instruction, ref position, out var sizeToken) &&
+                         TryReadFieldToken(instruction, ref position, out var sizeToken, out _) &&
                          double.TryParse(
                              sizeToken,
                              NumberStyles.Float,
@@ -4012,8 +4138,10 @@ internal static class RtfCodec
         private static bool TryReadFieldToken(
             string instruction,
             ref int position,
-            out string token)
+            out string token,
+            out bool isSwitch)
         {
+            isSwitch = false;
             while (position < instruction.Length && char.IsWhiteSpace(instruction[position]))
             {
                 position++;
@@ -4027,13 +4155,25 @@ internal static class RtfCodec
 
             if (instruction[position] == '"')
             {
-                var start = ++position;
+                var builder = new StringBuilder();
+                position++;
                 while (position < instruction.Length && instruction[position] != '"')
                 {
+                    var character = instruction[position];
+                    if (character == '\\' &&
+                        position + 1 < instruction.Length &&
+                        instruction[position + 1] is '"' or '\\')
+                    {
+                        builder.Append(instruction[position + 1]);
+                        position += 2;
+                        continue;
+                    }
+
+                    builder.Append(character);
                     position++;
                 }
 
-                token = instruction[start..position];
+                token = builder.ToString();
                 if (position < instruction.Length)
                 {
                     position++;
@@ -4049,6 +4189,17 @@ internal static class RtfCodec
             }
 
             token = instruction[tokenStart..position];
+            if (token.StartsWith("\\\\", StringComparison.Ordinal))
+            {
+                // An unquoted escaped path such as \\\\server\\share is a literal
+                // argument, not a field switch.
+                token = token.Replace("\\\\", "\\", StringComparison.Ordinal);
+            }
+            else if (token.Length >= 2 && token[0] == '\\' && char.IsAsciiLetter(token[1]))
+            {
+                isSwitch = true;
+            }
+
             return true;
         }
 
@@ -4111,7 +4262,8 @@ internal static class RtfCodec
                 },
                 StartAt = definition.Value.StartAt,
                 Restart = _listOverrideStartAt.ContainsKey((state.ListOverride, level)) &&
-                    !_nextListNumbers.ContainsKey(GetListCounterKey(state.ListOverride, level)),
+                    !_nextListNumbers.ContainsKey(GetListCounterKey(state.ListOverride, level)) &&
+                    !IsContinuationStartOverride(state.ListOverride, level),
                 Prefix = definition.Value.Prefix,
                 Suffix = definition.Value.Suffix,
                 BulletText = definition.Value.BulletText,
@@ -4146,31 +4298,43 @@ internal static class RtfCodec
 
         private ParsedListDefinition? ResolveList(int overrideId, int level)
         {
-            if (overrideId <= 0 || !_listOverrides.TryGetValue(overrideId, out var listId))
+            if (overrideId <= 0)
             {
                 return null;
             }
 
             level = Math.Clamp(level, 0, 8);
             ParsedListDefinition? result = null;
-            if (_lists.TryGetValue((listId, level), out var definition))
+            if (_listOverrideLevels.TryGetValue((overrideId, level), out var formatOverride))
             {
-                result = definition;
+                // A \listoverrideformat level replaces the base list level.
+                result = formatOverride;
             }
-            else if (_lists.TryGetValue((listId, 0), out definition))
+            else if (_listOverrides.TryGetValue(overrideId, out var listId))
             {
-                result = definition;
+                if (_lists.TryGetValue((listId, level), out var definition))
+                {
+                    result = definition;
+                }
+                else if (_lists.TryGetValue((listId, 0), out definition))
+                {
+                    result = definition;
+                }
+                else
+                {
+                    for (var fallbackLevel = 1; fallbackLevel < 9; fallbackLevel++)
+                    {
+                        if (_lists.TryGetValue((listId, fallbackLevel), out definition))
+                        {
+                            result = definition;
+                            break;
+                        }
+                    }
+                }
             }
             else
             {
-                for (var fallbackLevel = 1; fallbackLevel < 9; fallbackLevel++)
-                {
-                    if (_lists.TryGetValue((listId, fallbackLevel), out definition))
-                    {
-                        result = definition;
-                        break;
-                    }
-                }
+                return null;
             }
 
             if (result is { } resolved &&
@@ -4195,16 +4359,67 @@ internal static class RtfCodec
         }
 
         private (bool IsTableList, int Id) GetListIdentity(int overrideId) =>
-            _listOverrides.TryGetValue(overrideId, out var listId)
+            _listOverrides.TryGetValue(overrideId, out var listId) && !HasFormatOverride(overrideId)
                 ? (true, listId)
                 : (false, overrideId);
+
+        private bool HasFormatOverride(int overrideId)
+        {
+            for (var level = 0; level < 9; level++)
+            {
+                if (_listOverrideLevels.ContainsKey((overrideId, level)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool HasStartOverride(int overrideId)
+        {
+            for (var level = 0; level < 9; level++)
+            {
+                if (_listOverrideStartAt.ContainsKey((overrideId, level)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         private (bool IsTableList, int Id, int Level) GetListCounterKey(
             int overrideId,
             int level)
         {
+            // A start-at override begins its own numbering thread even though its
+            // marker definition continues to come from the shared base list.
+            if (HasStartOverride(overrideId))
+            {
+                return (false, overrideId, Math.Clamp(level, 0, 8));
+            }
+
             var identity = GetListIdentity(overrideId);
             return (identity.IsTableList, identity.Id, Math.Clamp(level, 0, 8));
+        }
+
+        private bool IsContinuationStartOverride(int overrideId, int level)
+        {
+            // Writers encode numbering continuation across overrides by starting the
+            // next override exactly where the shared list counter stopped. Such an
+            // override is not an explicit user restart.
+            level = Math.Clamp(level, 0, 8);
+            if (!_listOverrideStartAt.TryGetValue((overrideId, level), out var startAt))
+            {
+                return false;
+            }
+
+            var identity = GetListIdentity(overrideId);
+            return _nextListNumbers.TryGetValue(
+                       (identity.IsTableList, identity.Id, level),
+                       out var expected) &&
+                   startAt == expected;
         }
 
         private int GetNextListNumber(
@@ -4448,7 +4663,9 @@ internal static class RtfCodec
 
         private void ResetToDefaultParagraphProperties(ReaderState state)
         {
-            state.ParagraphFormat = _defaultParagraphFormat;
+            // Tab stops are never inherited through \pard; a paragraph declares
+            // its stops explicitly. This lets a paragraph clear default stops.
+            state.ParagraphFormat = _defaultParagraphFormat with { TabStops = [] };
             state.ListOverride = 0;
             state.ListLevel = 0;
             ResetParagraphControlState(state);
@@ -4465,7 +4682,9 @@ internal static class RtfCodec
 
         private static int? GetCodePageForCharacterSet(int characterSet) => characterSet switch
         {
-            0 => 1252,
+            // Character set 0 is the ANSI charset. It follows the document code
+            // page declared by \ansicpg rather than a hardcoded 1252.
+            0 => null,
             1 => null,
             2 => 42,
             77 => 10000,
@@ -4651,7 +4870,7 @@ internal static class RtfCodec
                 _data.Add(value);
             }
 
-            public void AppendHex(char character)
+            public bool TryAppendHex(char character)
             {
                 int nibble;
                 if (character is >= '0' and <= '9')
@@ -4668,7 +4887,7 @@ internal static class RtfCodec
                 }
                 else
                 {
-                    return;
+                    return false;
                 }
 
                 if (_highNibble is { } high)
@@ -4680,6 +4899,8 @@ internal static class RtfCodec
                 {
                     _highNibble = nibble;
                 }
+
+                return true;
             }
         }
 
@@ -4693,7 +4914,7 @@ internal static class RtfCodec
 
             public int UnicodeSkipCount { get; set; } = 1;
 
-            public int CodePage { get; set; } = DefaultCodePage;
+            public int CodePage { get; set; } = AnsiCodePage;
 
             public int? CharacterShading { get; set; }
 
@@ -4719,6 +4940,8 @@ internal static class RtfCodec
 
             public bool SkipDestination { get; set; }
 
+            public bool InUnicodePreferred { get; set; }
+
             public bool CompletesCapture { get; set; }
 
             public TextAccumulator? Capture { get; set; }
@@ -4726,6 +4949,8 @@ internal static class RtfCodec
             public StringBuilder? ListLevelTextCapture { get; set; }
 
             public bool CompletesListLevelText { get; set; }
+
+            public bool ListLevelTextIsOverride { get; set; }
 
             public StringBuilder? PicturePropertyCapture { get; set; }
 
@@ -4773,8 +4998,10 @@ internal static class RtfCodec
                 ListLevel = ListLevel,
                 AtGroupStart = true,
                 SkipDestination = SkipDestination,
+                InUnicodePreferred = InUnicodePreferred,
                 Capture = Capture,
                 ListLevelTextCapture = ListLevelTextCapture,
+                ListLevelTextIsOverride = ListLevelTextIsOverride,
                 PicturePropertyCapture = PicturePropertyCapture,
                 Field = Field,
                 Object = Object,

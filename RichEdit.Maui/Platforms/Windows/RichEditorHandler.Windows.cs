@@ -15,10 +15,12 @@ public partial class RichEditorHandler
 {
     private bool _applyingDocument;
     private bool _canReadLanguageTag = true;
+    private bool _hasCompletedInitialLoad;
     private bool _hasNativeLinks;
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private NativeTextSnapshot? _nativeTextSnapshot;
+    private RichTextChangeOrigin? _pendingNativeReadbackOrigin;
 
     /// <inheritdoc />
     protected override RichEditBox CreatePlatformView() => new()
@@ -41,6 +43,7 @@ public partial class RichEditorHandler
         platformView.SelectionChanged += OnNativeSelectionChanged;
         platformView.ActualThemeChanged += OnPlatformThemeChanged;
         platformView.Loaded += OnPlatformViewLoaded;
+        platformView.LostFocus += OnPlatformViewLostFocus;
         platformView.PreviewKeyDown += OnPlatformKeyDown;
         platformView.Paste += OnPlatformPaste;
         platformView.Tapped += OnPlatformTapped;
@@ -53,11 +56,14 @@ public partial class RichEditorHandler
         platformView.SelectionChanged -= OnNativeSelectionChanged;
         platformView.ActualThemeChanged -= OnPlatformThemeChanged;
         platformView.Loaded -= OnPlatformViewLoaded;
+        platformView.LostFocus -= OnPlatformViewLostFocus;
         platformView.PreviewKeyDown -= OnPlatformKeyDown;
         platformView.Paste -= OnPlatformPaste;
         platformView.Tapped -= OnPlatformTapped;
+        _hasCompletedInitialLoad = false;
         _hasNativeLinks = false;
         _nativeTextSnapshot = null;
+        _pendingNativeReadbackOrigin = null;
 
         base.DisconnectHandler(platformView);
     }
@@ -199,6 +205,124 @@ public partial class RichEditorHandler
         }
     }
 
+    /// <summary>
+    /// Projects a full document as one in-place native RTF edit that joins the
+    /// native undo stack, unlike a stream reload which purges that history.
+    /// </summary>
+    private bool TryApplyDocumentAsUndoableRtfEdit(
+        RichTextDocumentSnapshot document,
+        int selectionStart,
+        int selectionLength)
+    {
+        if (PlatformView is null)
+        {
+            return false;
+        }
+
+        _applyingDocument = true;
+        try
+        {
+            var nativeDocument = PlatformView.Document;
+            nativeDocument.BatchDisplayUpdates();
+            var undoGroupStarted = false;
+            try
+            {
+                var nativeDefaultCharacterFormat = RichTextCharacterFormat.Default with
+                {
+                    FontFamily = ResolveFontFamily(),
+                    FontSize = ResolveFontSize(),
+                    ForegroundColor = ResolveTextColor(),
+                };
+                var rtf = RtfCodec.SerializeForNativeProjection(
+                    document,
+                    nativeDefaultCharacterFormat);
+                nativeDocument.BeginUndoGroup();
+                undoGroupStarted = true;
+                _hasNativeLinks = false;
+                _nativeTextSnapshot = null;
+                var storyRange = nativeDocument.GetRange(0, 0);
+                storyRange.SetRange(0, storyRange.StoryLength);
+                try
+                {
+                    storyRange.SetText(TextSetOptions.FormatRtf, rtf);
+                }
+                catch (Exception exception) when (
+                    exception is ArgumentException or COMException)
+                {
+                    return false;
+                }
+
+                _nativeTextSnapshot = null;
+                if (!string.Equals(
+                        GetNativeTextSnapshot().Text,
+                        document.Text,
+                        StringComparison.Ordinal) ||
+                    !VerifyLastParagraphListProjection(document))
+                {
+                    // The selection-mode RTF reader disagreed with the model.
+                    // Reject the edit so the caller falls back to a full reload.
+                    _nativeTextSnapshot = null;
+                    return false;
+                }
+
+                var formattingRange = nativeDocument.GetRange(0, 0);
+                foreach (var link in document.Links.OrderByDescending(link => link.Start))
+                {
+                    formattingRange.SetRange(link.Start, link.End);
+                    try
+                    {
+                        formattingRange.Link = ToNativeLink(link.Target);
+                        _hasNativeLinks = true;
+                    }
+                    catch (Exception exception) when (
+                        exception is ArgumentException or COMException)
+                    {
+                        // Keep the model link when TOM rejects an unsupported target.
+                    }
+                }
+
+                _nativeTextSnapshot = null;
+                SetSelectionCore(selectionStart, selectionLength);
+                return true;
+            }
+            finally
+            {
+                try
+                {
+                    if (undoGroupStarted)
+                    {
+                        nativeDocument.EndUndoGroup();
+                    }
+                }
+                finally
+                {
+                    nativeDocument.ApplyDisplayUpdates();
+                }
+            }
+        }
+        finally
+        {
+            _applyingDocument = false;
+        }
+    }
+
+    private bool VerifyLastParagraphListProjection(RichTextDocumentSnapshot document)
+    {
+        var lastParagraph = document.Paragraphs[^1];
+        if (lastParagraph.Format.NativeList is null)
+        {
+            return true;
+        }
+
+        // The final paragraph mark cannot be replaced, so an in-place RTF edit
+        // relies on RichEdit extending the last inserted list item over it.
+        var nativeRange = PlatformView.Document.GetRange(
+            GetNativeTextSnapshot().ToNativePosition(lastParagraph.Start),
+            GetNativeTextSnapshot().ToNativePosition(lastParagraph.Start));
+        return nativeRange.ParagraphFormat.ListType is not
+            (MarkerType.None or MarkerType.Undefined);
+    }
+
     private partial void ApplyIncrementalChangesCore(
         RichTextChangeSet changes,
         RichTextRange selection,
@@ -212,17 +336,36 @@ public partial class RichEditorHandler
 
         var snapshot = VirtualView.Document.CurrentSnapshot;
         var affectedRange = changes.GetAffectedRange(snapshot.Length);
+        var clearUndoHistoryAfterApply =
+            changes.UndoBehavior is RichTextUndoBehavior.ClearHistory or
+                RichTextUndoBehavior.DoNotRecord;
+        // Model-only kinds (fields, metadata) have no native projection. Their
+        // text is still applied as an ordinary undoable edit; the model overlay
+        // is remapped on undo readback instead of purging native history.
+        var hasNativeProjection = changes.Changes.Any(
+            static change => HasNativeProjection(change.Kind));
+        var hasListChanges = changes.Changes.Any(
+            static change => change.Kind == RichTextChangeKind.List);
         if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset) ||
-            changes.Changes.Any(static change => change.Kind == RichTextChangeKind.List) &&
-                snapshot.Paragraphs.Any(paragraph =>
-                    paragraph.Range.End > affectedRange.Start &&
-                    paragraph.Range.Start < affectedRange.End &&
-                    paragraph.Format.NativeList?.PictureId is not null))
+            hasListChanges && RequiresRtfListProjection(snapshot, affectedRange))
         {
-            // Picture list markers have no bounded TOM editing API. Keep this
-            // required full projection separate from ordinary range changes.
-            ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+            // Custom and picture list markers have no bounded TOM editing API.
+            // Project the document as one undoable in-place RTF edit so the
+            // native undo history survives; a full reload purges it.
+            if (!TryApplyDocumentAsUndoableRtfEdit(snapshot, selection.Start, selection.Length))
+            {
+                ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+                // The reload purges native history implicitly; clearing it
+                // explicitly also discards any unit left by a rejected edit.
+                ClearUndoHistoryCore();
+            }
+
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
+            if (clearUndoHistoryAfterApply)
+            {
+                ClearUndoHistoryCore();
+            }
+
             return;
         }
 
@@ -234,8 +377,15 @@ public partial class RichEditorHandler
         {
             nativeDocument.BatchDisplayUpdates();
             displayUpdatesBatched = true;
-            nativeDocument.BeginUndoGroup();
-            undoGroupStarted = true;
+            if (hasNativeProjection)
+            {
+                // TOM cannot append a new group to the preceding undo unit, so
+                // MergeWithPrevious degrades to the same distinct unit as CreateUnit.
+                // Change sets without any native projection must not open a group:
+                // an empty unit would surface as a no-op undo step.
+                nativeDocument.BeginUndoGroup();
+                undoGroupStarted = true;
+            }
 
             foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
             {
@@ -309,6 +459,11 @@ public partial class RichEditorHandler
                     _applyingDocument = false;
                 }
             }
+        }
+
+        if (clearUndoHistoryAfterApply)
+        {
+            ClearUndoHistoryCore();
         }
     }
 
@@ -556,6 +711,43 @@ public partial class RichEditorHandler
         _hasNativeLinks = snapshot.Links.Length != 0;
     }
 
+    private static bool HasNativeProjection(RichTextChangeKind kind) => kind is
+        RichTextChangeKind.Text or
+        RichTextChangeKind.CharacterFormat or
+        RichTextChangeKind.ParagraphFormat or
+        RichTextChangeKind.DefaultFormat or
+        RichTextChangeKind.Link or
+        RichTextChangeKind.Image or
+        RichTextChangeKind.List or
+        RichTextChangeKind.Reset;
+
+    private static bool RequiresRtfListProjection(
+        RichTextDocumentSnapshot snapshot,
+        RichTextRange affectedRange)
+    {
+        var paragraphRange = GetAffectedParagraphRange(affectedRange, snapshot.Text);
+        return snapshot.Paragraphs.Any(paragraph =>
+            (paragraphRange.IsEmpty
+                ? paragraph.Start == paragraphRange.Start
+                : paragraph.Start >= paragraphRange.Start &&
+                    paragraph.Start < paragraphRange.End) &&
+            paragraph.Format.NativeList is { } list &&
+            !CanProjectListWithTom(list));
+    }
+
+    private static bool CanProjectListWithTom(RichTextListFormat list)
+    {
+        if (list.PictureId is not null || !string.IsNullOrEmpty(list.Prefix))
+        {
+            return false;
+        }
+
+        return list.Kind == RichListKind.Bulleted
+            ? string.Equals(list.BulletText, "•", StringComparison.Ordinal) &&
+                string.IsNullOrEmpty(list.Suffix)
+            : list.Suffix is "." or ")" or "-" or "";
+    }
+
     private static RichTextRange GetAffectedRange(
         RichTextChangeSet changes,
         int documentLength) =>
@@ -678,7 +870,16 @@ public partial class RichEditorHandler
             return;
         }
 
-        PlatformView.Document.Undo();
+        _pendingNativeReadbackOrigin = RichTextChangeOrigin.Undo;
+        try
+        {
+            PlatformView.Document.Undo();
+        }
+        finally
+        {
+            _pendingNativeReadbackOrigin = null;
+        }
+
         VirtualView.UpdateUndoStateFromPlatform();
     }
 
@@ -689,7 +890,16 @@ public partial class RichEditorHandler
             return;
         }
 
-        PlatformView.Document.Redo();
+        _pendingNativeReadbackOrigin = RichTextChangeOrigin.Redo;
+        try
+        {
+            PlatformView.Document.Redo();
+        }
+        finally
+        {
+            _pendingNativeReadbackOrigin = null;
+        }
+
         VirtualView.UpdateUndoStateFromPlatform();
     }
 
@@ -781,6 +991,7 @@ public partial class RichEditorHandler
     {
         PlatformView.IsReadOnly = editor.IsReadOnly;
         PlatformView.IsSpellCheckEnabled = editor.IsSpellCheckEnabled;
+        PlatformView.IsTextPredictionEnabled = editor.IsTextPredictionEnabled;
         PlatformView.AcceptsReturn = true;
         PlatformView.MaxLength = editor.MaxLength < 0 ? 0 : editor.MaxLength;
         var scope = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
@@ -1046,13 +1257,18 @@ public partial class RichEditorHandler
         native.ListLevelIndex = list.Level + 1;
     }
 
-    private RichTextDocumentSnapshot ReadDocumentFromPlatform()
+    private RichTextDocumentSnapshot ReadDocumentFromPlatform(bool readNativeSemantics = false)
     {
         var snapshot = GetNativeTextSnapshot();
         var text = snapshot.Text;
         var nativeDocument = PlatformView.Document;
         var previous = VirtualView.Document.CurrentSnapshot;
         var remappedPrevious = previous.RemapText(text);
+        // Native undo can restore hyperlink fields and inline objects without
+        // changing logical text. RTF supplies those semantics without a TOM scan.
+        var nativeSemantics = readNativeSemantics
+            ? TryReadNativeRtfDocument(text)
+            : null;
         var defaultCharacterFormat = ReadCharacterFormat(
             nativeDocument.GetDefaultCharacterFormat()) with
         {
@@ -1118,8 +1334,8 @@ public partial class RichEditorHandler
             text,
             snapshot.Runs,
             paragraphs,
-            null,
-            null,
+            nativeSemantics?.Links,
+            nativeSemantics?.Images,
             defaultCharacterFormat,
             defaultParagraphFormat,
             (native, prior) => MergeWindowsCharacterFormat(
@@ -1130,6 +1346,44 @@ public partial class RichEditorHandler
                 textColor),
             MergeWindowsParagraphFormat,
             remappedPrevious);
+    }
+
+    private RichTextDocumentSnapshot? TryReadNativeRtfDocument(string expectedText)
+    {
+        try
+        {
+            using var stream = new InMemoryRandomAccessStream();
+            PlatformView.Document.SaveToStream(TextGetOptions.FormatRtf, stream);
+            if (stream.Size > int.MaxValue)
+            {
+                return null;
+            }
+
+            stream.Seek(0);
+            using var reader = new DataReader(stream.GetInputStreamAt(0));
+            var byteCount = reader.LoadAsync((uint)stream.Size)
+                .AsTask()
+                .GetAwaiter()
+                .GetResult();
+            var bytes = new byte[checked((int)byteCount)];
+            reader.ReadBytes(bytes);
+            var rtf = Encoding.UTF8.GetString(bytes);
+            if (rtf.StartsWith('\uFEFF'))
+            {
+                rtf = rtf[1..];
+            }
+
+            var document = RtfCodec.Parse(rtf);
+            return string.Equals(document.Text, expectedText, StringComparison.Ordinal)
+                ? document
+                : null;
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or COMException or FormatException)
+        {
+            // Preserve remapped model semantics if native RTF cannot be read.
+            return null;
+        }
     }
 
     private NativeTextSnapshot GetNativeTextSnapshot() =>
@@ -1646,13 +1900,29 @@ public partial class RichEditorHandler
             return;
         }
 
+        if (_hasCompletedInitialLoad)
+        {
+            _nativeTextSnapshot = null;
+            if (string.Equals(
+                    GetNativeTextSnapshot().Text,
+                    VirtualView.Document.Text,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+
         ApplyDocumentCore(
             VirtualView.Document.CurrentSnapshot,
             VirtualView.SelectedRange.Start,
             VirtualView.SelectedRange.Length);
         ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
         ClearUndoHistoryCore();
+        _hasCompletedInitialLoad = true;
     }
+
+    private void OnPlatformViewLostFocus(object sender, RoutedEventArgs eventArgs) =>
+        VirtualView?.RaiseCompleted();
 
     private void OnPlatformThemeChanged(FrameworkElement sender, object args)
     {
@@ -1686,27 +1956,32 @@ public partial class RichEditorHandler
             return;
         }
 
+        var origin = _pendingNativeReadbackOrigin ?? RichTextChangeOrigin.User;
+        var readNativeSemantics =
+            origin is RichTextChangeOrigin.Undo or RichTextChangeOrigin.Redo;
         var selection = PlatformView.Document.Selection;
         var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
         var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
         RichTextDocumentSnapshot document;
         int start;
         int end;
-        if (!_hasNativeLinks &&
+        if (!readNativeSemantics &&
+            !_hasNativeLinks &&
             TryReadIncrementalNativeDocument(nativeStart, nativeEnd, out document, out start, out end))
         {
             _nativeTextSnapshot = null;
         }
         else
         {
-            document = ReadDocumentFromPlatform();
+            document = ReadDocumentFromPlatform(readNativeSemantics);
             var snapshot = GetNativeTextSnapshot();
             start = snapshot.ToLogicalPosition(nativeStart);
             end = snapshot.ToLogicalPosition(nativeEnd);
         }
 
+        _hasNativeLinks = document.Links.Length != 0;
         var length = end - start;
-        VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+        VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken, origin);
         VirtualView.UpdateUndoStateFromPlatform();
         UpdateTypingFormatsFromPlatform();
     }
@@ -1873,10 +2148,21 @@ public partial class RichEditorHandler
                     return false;
                 }
 
+                var preservesListIdentity =
+                    previousFormat.NativeList is { } previousNativeList &&
+                    previousItem.ListId.Value == nativeList.Id &&
+                    previousNativeList.Id == nativeList.Id &&
+                    previousNativeList.Kind == nativeList.Kind &&
+                    previousNativeList.NumberStyle == nativeList.NumberStyle &&
+                    previousItem.Level == nativeList.Level;
                 item = new RichTextListItemFormat(
                     previousItem.ListId,
                     nativeList.Level,
-                    nativeList.Restart ? nativeList.StartAt : null);
+                    nativeList.Restart
+                        ? nativeList.StartAt
+                        : preservesListIdentity
+                            ? previousItem.RestartAt
+                            : null);
             }
 
             merged = merged with { List = item };

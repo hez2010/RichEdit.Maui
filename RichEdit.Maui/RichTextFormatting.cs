@@ -333,6 +333,22 @@ public sealed record RichTextListPicture
     /// <summary>Gets alternative text for the marker image.</summary>
     public string? AlternativeText { get; init; }
 
+    /// <inheritdoc />
+    public bool Equals(RichTextListPicture? other) =>
+        ReferenceEquals(this, other) ||
+        other is not null &&
+        string.Equals(Id, other.Id, StringComparison.Ordinal) &&
+        string.Equals(MediaType, other.MediaType, StringComparison.Ordinal) &&
+        string.Equals(Source, other.Source, StringComparison.Ordinal) &&
+        Width.Equals(other.Width) &&
+        Height.Equals(other.Height) &&
+        string.Equals(AlternativeText, other.AlternativeText, StringComparison.Ordinal) &&
+        Data.AsSpan().SequenceEqual(other.Data.AsSpan());
+
+    /// <inheritdoc />
+    public override int GetHashCode() =>
+        HashCode.Combine(Id, MediaType, Width, Height, Data.Length);
+
     /// <summary>Creates a list picture by copying encoded bytes.</summary>
     /// <param name="id">The nonempty document-local identifier.</param>
     /// <param name="mediaType">The image media type.</param>
@@ -619,6 +635,25 @@ public sealed record RichTextImage
     public double Rotation { get; init; }
     /// <summary>Gets crop amounts in points.</summary>
     public RichTextImageCrop Crop { get; init; }
+
+    /// <inheritdoc />
+    public bool Equals(RichTextImage? other) =>
+        ReferenceEquals(this, other) ||
+        other is not null &&
+        Position == other.Position &&
+        string.Equals(MediaType, other.MediaType, StringComparison.Ordinal) &&
+        string.Equals(Source, other.Source, StringComparison.Ordinal) &&
+        Width.Equals(other.Width) &&
+        Height.Equals(other.Height) &&
+        VerticalAlignment == other.VerticalAlignment &&
+        string.Equals(AlternativeText, other.AlternativeText, StringComparison.Ordinal) &&
+        Rotation.Equals(other.Rotation) &&
+        Crop == other.Crop &&
+        Data.AsSpan().SequenceEqual(other.Data.AsSpan());
+
+    /// <inheritdoc />
+    public override int GetHashCode() =>
+        HashCode.Combine(Position, MediaType, Width, Height, Data.Length);
 
     /// <summary>Creates an inline image by copying encoded bytes.</summary>
     /// <param name="position">The U+FFFC document position.</param>
