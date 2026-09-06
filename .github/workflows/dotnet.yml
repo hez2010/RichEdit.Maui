@@ -28,9 +28,9 @@ jobs:
       with:
         dotnet-version: 10.0.x
     - name: Restore workloads
-      run: dotnet workload restore RichEdit.Maui/RichEdit.Maui.csproj
+      run: dotnet workload restore
     - name: Build
-      run: dotnet build RichEdit.Maui/RichEdit.Maui.csproj -c Release
+      run: dotnet build -c Release
     - name: Pack
       if: success()
       run: dotnet pack RichEdit.Maui -c Release -o artifacts
