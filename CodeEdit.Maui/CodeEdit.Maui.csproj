@@ -27,7 +27,7 @@
         <RepositoryUrl>https://github.com/hez2010/RichEdit.Maui</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
-        <PackageTags>code;editor;maui;syntax;highlighting</PackageTags>
+        <PackageTags>code;editor;codeeditor;maui;syntax;highlighting</PackageTags>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <CsWinRTAotWarningLevel>3</CsWinRTAotWarningLevel>
     </PropertyGroup>
