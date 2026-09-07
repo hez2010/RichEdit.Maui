@@ -67,12 +67,6 @@ public enum RichTextUndoBehavior
     /// <summary>Merge the transaction with the preceding compatible undo unit.</summary>
     MergeWithPrevious,
 
-    /// <summary>
-    /// Commit the transaction without recording it and invalidate snapshot-based undo
-    /// history that cannot be safely replayed across the unrecorded state.
-    /// </summary>
-    DoNotRecord,
-
     /// <summary>Commit the transaction and clear existing undo and redo history.</summary>
     ClearHistory,
 
@@ -330,6 +324,8 @@ public sealed class RichTextChangeSet
         var end = Math.Max(first.End, second.End);
         return new RichTextRange(start, end - start);
     }
+
+    internal RichTextSelectionState? SelectionAfter { get; set; }
 
     internal object? SourceToken { get; }
 

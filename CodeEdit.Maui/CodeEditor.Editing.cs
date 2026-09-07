@@ -2,15 +2,10 @@ using RichEdit.Maui;
 
 namespace CodeEdit.Maui;
 
-/// <summary>Options for ordinal, literal source searches.</summary>
-/// <param name="MatchCase">Whether comparisons distinguish uppercase and lowercase.</param>
-/// <param name="WholeWord">Whether matches must have identifier boundaries on both sides.</param>
-public readonly record struct CodeSearchOptions(bool MatchCase = false, bool WholeWord = false);
-
 public sealed partial class CodeEditor
 {
     /// <summary>Inserts indentation at the caret, or indents every selected logical line in one undo unit.</summary>
-    public void Indent()
+    internal void Indent()
     {
         if (IsReadOnly) return;
         if (SelectedRange.IsEmpty)
@@ -31,7 +26,7 @@ public sealed partial class CodeEditor
     }
 
     /// <summary>Removes one indentation level from each selected line in one undo unit.</summary>
-    public void Outdent()
+    internal void Outdent()
     {
         if (IsReadOnly) return;
         var (first, last) = Lines.GetSelectedLines(SelectedRange);
@@ -49,14 +44,14 @@ public sealed partial class CodeEditor
     }
 
     /// <summary>Replaces the selection with a newline and, when enabled, the current line's leading whitespace.</summary>
-    public void InsertNewLine()
+    internal void InsertNewLine()
     {
         if (IsReadOnly) return;
         ApplyEdits([new(SelectedRange, "\n" + (AutoIndent ? GetIndentation(SelectedRange.Start) : string.Empty))], "New line");
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>
-    public void ToggleLineComment()
+    internal void ToggleLineComment()
     {
         if (IsReadOnly) return;
         var (first, last) = Lines.GetSelectedLines(SelectedRange);
@@ -89,88 +84,20 @@ public sealed partial class CodeEditor
     /// <returns>The line's UTF-16 source range.</returns>
     public RichTextRange GetLineRange(int line) => Lines.GetRange(line - 1);
 
-    /// <summary>Moves the caret to a one-based logical line and UTF-16 column, clamped to the document.</summary>
-    /// <param name="line">The requested line, starting at one.</param>
-    /// <param name="column">The requested column, starting at one.</param>
-    public void GoToLine(int line, int column = 1)
-    {
-        ArgumentOutOfRangeException.ThrowIfLessThan(line, 1);
-        ArgumentOutOfRangeException.ThrowIfLessThan(column, 1);
-        var range = Lines.GetRange(Math.Min(line, LineCount) - 1);
-        SelectedRange = new RichTextRange(range.Start + Math.Min(column - 1, range.Length), 0);
-        NativeAdapter?.ScrollToSelection();
-    }
+    /// <summary>Converts a bounded UTF-16 offset to a one-based line and column.</summary>
+    /// <param name="offset">The source offset.</param>
+    /// <returns>The logical source position.</returns>
+    public CodePosition GetPosition(int offset) => Lines.GetPosition(offset);
 
-    /// <summary>Finds non-overlapping literal matches in the current source. Empty queries have no matches.</summary>
-    /// <param name="query">The literal text to find.</param>
-    /// <param name="options">Case and identifier-boundary options.</param>
-    /// <returns>Ordered UTF-16 source ranges.</returns>
-    public IReadOnlyList<RichTextRange> FindAll(string query, CodeSearchOptions options = default)
+    /// <summary>Converts a one-based line and UTF-16 column to a bounded source offset.</summary>
+    /// <param name="position">The logical source position.</param>
+    /// <returns>The UTF-16 source offset.</returns>
+    public int GetOffset(CodePosition position)
     {
-        ArgumentNullException.ThrowIfNull(query);
-        var matches = new List<RichTextRange>();
-        if (query.Length == 0) return matches;
-        var text = Document.Text;
-        var comparison = options.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-        var position = 0;
-        while (position <= text.Length - query.Length)
-        {
-            position = text.IndexOf(query, position, comparison);
-            if (position < 0) break;
-            var end = position + query.Length;
-            if (!options.WholeWord ||
-                (position == 0 || !CSharpSyntaxHighlighter.IsIdentifierPart(text[position - 1])) &&
-                (end == text.Length || !CSharpSyntaxHighlighter.IsIdentifierPart(text[end])))
-                matches.Add(new RichTextRange(position, query.Length));
-            position = end;
-        }
-        return matches;
-    }
-
-    /// <summary>Selects the next literal match, optionally wrapping to the start of the source.</summary>
-    /// <param name="query">The text to find.</param>
-    /// <param name="options">Case and identifier-boundary options.</param>
-    /// <param name="wrap">Whether to continue from the beginning.</param>
-    /// <returns>The selected range, or null when no match is found.</returns>
-    public RichTextRange? FindNext(string query, CodeSearchOptions options = default, bool wrap = true)
-    {
-        var matches = FindAll(query, options);
-        foreach (var match in matches)
-            if (match.Start >= SelectedRange.End) return SelectMatch(match);
-        return wrap && matches.Count > 0 ? SelectMatch(matches[0]) : null;
-    }
-
-    /// <summary>Selects the preceding literal match, optionally wrapping to the end of the source.</summary>
-    /// <param name="query">The text to find.</param>
-    /// <param name="options">Case and identifier-boundary options.</param>
-    /// <param name="wrap">Whether to continue from the end.</param>
-    /// <returns>The selected range, or null when no match is found.</returns>
-    public RichTextRange? FindPrevious(string query, CodeSearchOptions options = default, bool wrap = true)
-    {
-        var matches = FindAll(query, options);
-        for (var i = matches.Count - 1; i >= 0; i--)
-            if (matches[i].End <= SelectedRange.Start) return SelectMatch(matches[i]);
-        return wrap && matches.Count > 0 ? SelectMatch(matches[^1]) : null;
-    }
-
-    /// <summary>Replaces every literal match in one undo unit, respecting read-only state and the length limit.</summary>
-    /// <param name="query">The text to find.</param>
-    /// <param name="replacement">The replacement source text.</param>
-    /// <param name="options">Case and identifier-boundary options.</param>
-    /// <returns>The number of matches replaced, or zero when the operation cannot be applied.</returns>
-    public int ReplaceAll(string query, string replacement, CodeSearchOptions options = default)
-    {
-        ArgumentNullException.ThrowIfNull(replacement);
-        var matches = FindAll(query, options);
-        var normalized = replacement.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        return ApplyEdits(matches.Select(range => new CodeTextEdit(range, normalized)).ToList(), "Replace all") ? matches.Count : 0;
-    }
-
-    private RichTextRange SelectMatch(RichTextRange range)
-    {
-        SelectedRange = range;
-        NativeAdapter?.ScrollToSelection();
-        return range;
+        var range = GetLineRange(position.Line);
+        ArgumentOutOfRangeException.ThrowIfLessThan(position.Column, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(position.Column - 1, range.Length);
+        return range.Start + position.Column - 1;
     }
 
     private string Indentation => UseTabs ? "\t" : new string(' ', IndentSize);
@@ -207,19 +134,21 @@ public sealed partial class CodeEditor
         if (IsReadOnly || edits.Count == 0) return false;
         var resultingLength = (long)Document.Length + edits.Sum(static edit => (long)edit.Text.Length - edit.Range.Length);
         if (resultingLength > int.MaxValue || MaxLength >= 0 && resultingLength > MaxLength && resultingLength > Document.Length) return false;
-        var start = SelectedRange.Start;
-        var end = SelectedRange.End;
-        Document.Edit(edit =>
+        var anchor = SelectionState.Anchor;
+        var active = SelectionState.Active;
+        for (var i = edits.Count - 1; i >= 0; i--)
+        {
+            anchor = MapPosition(anchor, edits[i]);
+            active = MapPosition(active, edits[i]);
+        }
+        TextView.Selection.Edit(edit =>
         {
             for (var i = edits.Count - 1; i >= 0; i--)
             {
                 var replacement = edits[i];
                 edit.ReplaceText(replacement.Range, replacement.Text);
-                start = MapPosition(start, replacement);
-                end = MapPosition(end, replacement);
             }
-        }, new RichTextEditOptions(undoBehavior, description));
-        SelectedRange = new RichTextRange(start, Math.Max(0, end - start));
+        }, new RichTextSelectionState(anchor, active), new RichTextEditOptions(undoBehavior, description));
         return true;
     }
 

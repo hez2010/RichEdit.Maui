@@ -54,15 +54,30 @@ public sealed class RichTextSelectionChangedEventArgs : EventArgs
         RichTextRange oldRange,
         RichTextRange newRange)
     {
-        OldRange = oldRange;
-        NewRange = newRange;
+        OldSelection = RichTextSelectionState.FromRange(oldRange);
+        NewSelection = RichTextSelectionState.FromRange(newRange);
     }
 
     /// <summary>Gets the preceding selection range.</summary>
-    public RichTextRange OldRange { get; }
+    public RichTextRange OldRange => OldSelection.Range;
+
+    /// <summary>Gets the preceding directional selection.</summary>
+    public RichTextSelectionState OldSelection { get; }
+
+    /// <summary>Gets the current directional selection.</summary>
+    public RichTextSelectionState NewSelection { get; }
+
+    /// <summary>Creates directional selection-change data.</summary>
+    /// <param name="oldSelection">The preceding selection.</param>
+    /// <param name="newSelection">The current selection.</param>
+    public RichTextSelectionChangedEventArgs(RichTextSelectionState oldSelection, RichTextSelectionState newSelection)
+    {
+        OldSelection = oldSelection;
+        NewSelection = newSelection;
+    }
 
     /// <summary>Gets the current selection range.</summary>
-    public RichTextRange NewRange { get; }
+    public RichTextRange NewRange => NewSelection.Range;
 }
 
 /// <summary>

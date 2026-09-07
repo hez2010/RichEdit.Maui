@@ -12,6 +12,7 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <CsWinRTAotWarningLevel>3</CsWinRTAotWarningLevel>
 
         <!-- Enable XAML source generation for faster build times and improved performance.
              This generates C# code from XAML at compile time instead of runtime inflation.
@@ -40,7 +41,7 @@
         <RepositoryUrl>https://github.com/hez2010/RichEdit.Maui</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
-        <Version>0.2.0-preview.1</Version>
+        <Version>0.3.0-preview.1</Version>
         <PackageTags>richtext;richeditor;editor;maui;richtexteditor;texteditor;text</PackageTags>
     </PropertyGroup>
 

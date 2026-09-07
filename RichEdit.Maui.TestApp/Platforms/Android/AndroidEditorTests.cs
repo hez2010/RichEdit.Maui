@@ -174,7 +174,7 @@ internal static class AndroidEditorTests
             Equal("", editor.Document.Text);
             native.OnTextContextMenuItem(Android.Resource.Id.Undo);
             Equal(before, editor.Document.RtfText);
-            Equal(RichTextRange.Empty, editor.SelectedRange);
+            Equal(new RichTextRange(0, 5), editor.SelectedRange);
             native.OnTextContextMenuItem(Android.Resource.Id.Redo);
             Equal("", editor.Document.Text);
         });

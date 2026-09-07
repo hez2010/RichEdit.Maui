@@ -34,6 +34,82 @@ internal static class EditorContractTests
 
     private static IEnumerable<Case> CreateCases()
     {
+        yield return new("directional selection, document history and saved state", async editor =>
+        {
+            editor.Selection.ReplaceText("123456");
+            editor.Document.ClearUndoHistory();
+            editor.Document.MarkSaved();
+            editor.SelectionState = new RichTextSelectionState(4, 1);
+            await Verify(editor);
+            Equal(new RichTextSelectionState(4, 1), editor.SelectionState);
+            editor.Selection.ReplaceText("9");
+            Equal("1956", editor.Document.Text);
+            Equal(true, editor.Document.IsModified);
+            editor.SelectionState = new RichTextSelectionState(0, 0);
+            editor.Document.Undo();
+            await Verify(editor);
+            Equal("123456", editor.Document.Text);
+            Equal(new RichTextSelectionState(4, 1), editor.SelectionState);
+            Equal(false, editor.Document.IsModified);
+            editor.Document.Redo();
+            await Verify(editor);
+            Equal("1956", editor.Document.Text);
+            Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
+        });
+
+        yield return new("asynchronous save points retain intervening changes", async editor =>
+        {
+            editor.Selection.ReplaceText("12");
+            var snapshot = editor.Document.CurrentSnapshot;
+            var point = editor.Document.CreateSavePoint();
+            editor.Selection.ReplaceText("3");
+            editor.Document.MarkSaved(point);
+            Equal("12", snapshot.Text);
+            Equal(true, editor.Document.IsModified);
+            editor.Document.Undo();
+            await Verify(editor);
+            Equal("12", editor.Document.Text);
+            Equal(false, editor.Document.IsModified);
+        });
+
+        yield return new("background mutation fails before native or document changes", async editor =>
+        {
+            editor.Selection.ReplaceText("123");
+            var before = editor.Document.CurrentSnapshot;
+            var failure = await Task.Run(() =>
+            {
+                try { editor.Document.Edit(edit => edit.DeleteText(new RichTextRange(0, 3))); return null; }
+                catch (Exception exception) { return exception; }
+            });
+            Equal(true, failure is InvalidOperationException);
+            Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
+            await Verify(editor);
+            Equal("123", editor.Document.Text);
+        });
+
+        yield return new("presentation layers stay out of native input and history", async editor =>
+        {
+            editor.Selection.ReplaceText("123");
+            editor.Document.ClearUndoHistory();
+            editor.Document.MarkSaved();
+            var before = editor.Document.CurrentSnapshot;
+            var rtf = editor.Document.RtfText;
+            using var layer = editor.Decorations.CreateLayer();
+            layer.Set([new(new RichTextRange(0, 3), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            editor.SelectionState = new RichTextSelectionState(1, 1);
+            await Verify(editor);
+            Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
+            Equal(rtf, editor.Document.RtfText);
+            Equal(false, editor.Document.IsModified);
+            NativeReplace(editor, "9");
+            await Verify(editor);
+            Equal(true, editor.Document.CurrentSnapshot.Runs.All(run => run.Format.ForegroundColor is null));
+            editor.Document.Undo();
+            await Verify(editor);
+            Equal("123", editor.Document.Text);
+            Equal(false, editor.Document.IsModified);
+        });
+
         foreach (var content in new[] { "empty", "plain", "rich" })
         {
             yield return new($"focus changes leave {content} document history untouched", async editor =>
@@ -107,7 +183,7 @@ internal static class EditorContractTests
             Equal("firX\nYnd\nthird", editor.Document.Text);
         });
 
-        yield return new("history restores content without restoring a previous selection", async editor =>
+        yield return new("history restores content and the recorded selection", async editor =>
         {
             editor.Selection.ReplaceText("abcdef");
             editor.ClearUndoHistory();
@@ -117,13 +193,13 @@ internal static class EditorContractTests
             editor.SelectedRange = new RichTextRange(5, 0);
             editor.Undo();
             await Verify(editor);
-            Equal(new RichTextRange(5, 0), editor.SelectedRange);
+            Equal(new RichTextRange(1, 2), editor.SelectedRange);
             Equal(false, editor.Document.GetCharacterFormat(new RichTextRange(1, 2)).RepresentativeFormat.Bold);
             editor.SelectedRange = new RichTextRange(0, 2);
             Equal(true, editor.CanRedo);
             editor.Redo();
             await Verify(editor);
-            Equal(new RichTextRange(0, 2), editor.SelectedRange);
+            Equal(new RichTextRange(1, 2), editor.SelectedRange);
             Equal(true, editor.Document.GetCharacterFormat(new RichTextRange(1, 2)).RepresentativeFormat.Bold);
 
             editor.ClearUndoHistory();
@@ -133,11 +209,11 @@ internal static class EditorContractTests
             editor.Undo();
             await Verify(editor);
             Equal("abcdef", editor.Document.Text);
-            Equal(new RichTextRange(0, 1), editor.SelectedRange);
+            Equal(new RichTextRange(6, 0), editor.SelectedRange);
             editor.Redo();
             await Verify(editor);
             Equal("abcdef tail", editor.Document.Text);
-            Equal(new RichTextRange(0, 1), editor.SelectedRange);
+            Equal(new RichTextRange(11, 0), editor.SelectedRange);
             editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
             editor.Undo();
             await Verify(editor);
@@ -408,13 +484,14 @@ internal static class EditorContractTests
 
         yield return new("read-only blocks selection operations and commands but permits document edits", async editor =>
         {
+            using var formatting = new RichEditorFormattingCommands(editor);
             editor.Selection.ReplaceText("fixed");
             editor.SelectAll();
             var before = editor.Document.CurrentSnapshot;
             editor.IsReadOnly = true;
             Equal(false, editor.Commands.Cut.CanExecute(null));
-            Equal(false, editor.Commands.ToggleBold.CanExecute(null));
-            Equal(false, editor.Commands.InsertField.CanExecute(new RichTextFieldRequest("DATE", "today")));
+            Equal(false, formatting.ToggleBold.CanExecute(null));
+            Equal(false, formatting.InsertField.CanExecute(new FieldRequest("DATE", "today")));
             Equal(true, editor.Commands.Copy.CanExecute(null));
             editor.Selection.ReplaceText("no");
             editor.Selection.ToggleBold();
@@ -433,19 +510,20 @@ internal static class EditorContractTests
 
         yield return new("command state, parameters, notifications and redo invalidation", async editor =>
         {
+            using var formatting = new RichEditorFormattingCommands(editor);
             var notifications = 0;
             void StateChanged(object? sender, EventArgs args) => notifications++;
             editor.Commands.Undo.CanExecuteChanged += StateChanged;
             try
             {
                 Equal(false, editor.Commands.Copy.CanExecute(null));
-                Equal(false, editor.Commands.InsertField.CanExecute("invalid"));
-                Equal(false, editor.Commands.ToggleUnderline.CanExecute(RichTextUnderlineStyle.None));
-                editor.Commands.InsertField.Execute(new RichTextFieldRequest("DATE", "today"));
+                Equal(false, formatting.InsertField.CanExecute("invalid"));
+                Equal(false, formatting.ToggleUnderline.CanExecute(RichTextUnderlineStyle.None));
+                formatting.InsertField.Execute(new FieldRequest("DATE", "today"));
                 Equal(true, editor.CanUndo);
                 Equal(true, notifications > 0);
                 editor.Commands.SelectAll.Execute(null);
-                editor.Commands.SetLink.Execute(new RichTextLinkRequest("https://example.com", "tip"));
+                formatting.SetLink.Execute(new LinkRequest("https://example.com", "tip"));
                 Equal("tip", editor.Document.CurrentSnapshot.Links.Single().ToolTip);
                 editor.Commands.Undo.Execute(null);
                 Equal(0, editor.Document.CurrentSnapshot.Links.Length);

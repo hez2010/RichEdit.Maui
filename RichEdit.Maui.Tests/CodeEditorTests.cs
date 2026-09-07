@@ -4,6 +4,7 @@ using Microsoft.Maui.Hosting;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Text;
 using CodeEdit.Maui;
+using RichEdit.Maui.TestApp;
 using Clipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
 using DataPackage = Windows.ApplicationModel.DataTransfer.DataPackage;
 
@@ -57,7 +58,7 @@ public class CodeEditorTests
     [Fact]
     public Task PlainTextLoadingNormalizesLineEndingsWithoutHistory() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("a\r\nb\rc\n") };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("a\r\nb\rc\n") };
         Assert.Equal("a\nb\nc\n", editor.Document.Text);
         Assert.Equal(4, editor.LineCount);
         Assert.False(editor.CanUndo);
@@ -68,10 +69,11 @@ public class CodeEditorTests
     [Fact]
     public Task BlockIndentExcludesAnUnselectedFollowingLineAndIsAtomic() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("one\ntwo\nthree"), SelectedRange = new RichTextRange(0, 8) };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("one\ntwo\nthree"), SelectedRange = new RichTextRange(0, 8) };
+        var actions = new CodeEditorActions(editor);
         var changes = 0;
         editor.TextChanged += (_, _) => changes++;
-        editor.Indent();
+        actions.Indent();
         Assert.Equal("    one\n    two\nthree", editor.Document.Text);
         Assert.Equal(1, changes);
         editor.Undo();
@@ -79,38 +81,40 @@ public class CodeEditorTests
         Assert.False(editor.CanUndo);
         editor.Redo();
         editor.SelectedRange = new RichTextRange(0, 16);
-        editor.Outdent();
+        actions.Outdent();
         Assert.Equal("one\ntwo\nthree", editor.Document.Text);
     });
 
     [Fact]
     public Task IndentUsesTheNextStopAndOutdentHandlesTabs() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("ab"), SelectedRange = new RichTextRange(2, 0) };
-        editor.Indent();
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("ab"), SelectedRange = new RichTextRange(2, 0) };
+        var actions = new CodeEditorActions(editor);
+        actions.Indent();
         Assert.Equal("ab  ", editor.Document.Text);
         Assert.Equal(new RichTextRange(4, 0), editor.SelectedRange);
-        editor.Document = RichTextDocument.FromPlainText("\tfirst\n  second");
+        editor.Document = CodeDocument.FromPlainText("\tfirst\n  second");
         editor.SelectAll();
-        editor.Outdent();
+        actions.Outdent();
         Assert.Equal("first\nsecond", editor.Document.Text);
         editor.UseTabs = true;
         editor.SelectAll();
-        editor.Indent();
+        actions.Indent();
         Assert.Equal("\tfirst\n\tsecond", editor.Document.Text);
     });
 
     [Fact]
     public Task NewLineCopiesOnlyIndentationBeforeTheCaret() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("    call();"), SelectedRange = new RichTextRange(11, 0) };
-        editor.InsertNewLine();
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("    call();"), SelectedRange = new RichTextRange(11, 0) };
+        var actions = new CodeEditorActions(editor);
+        actions.InsertNewLine();
         Assert.Equal("    call();\n    ", editor.Document.Text);
         Assert.Equal(new CodePosition(2, 5), editor.CaretPosition);
         editor.Undo();
         Assert.Equal("    call();", editor.Document.Text);
         editor.SelectedRange = new RichTextRange(2, 0);
-        editor.InsertNewLine();
+        actions.InsertNewLine();
         Assert.Equal("  \n    call();", editor.Document.Text);
         Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
     });
@@ -119,12 +123,13 @@ public class CodeEditorTests
     public Task CommentsToggleAfterIndentationAndIgnoreSelectedBlankLines() => WindowsTestHost.RunAsync(() =>
     {
         const string source = "  first();\n\n\tsecond();\n";
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText(source) };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText(source) };
+        var actions = new CodeEditorActions(editor);
         editor.SelectAll();
-        editor.ToggleLineComment();
+        actions.ToggleLineComment();
         Assert.Equal("  // first();\n\n\t// second();\n", editor.Document.Text);
         editor.SelectAll();
-        editor.ToggleLineComment();
+        actions.ToggleLineComment();
         Assert.Equal(source, editor.Document.Text);
         editor.Undo();
         Assert.Contains("//", editor.Document.Text);
@@ -133,25 +138,26 @@ public class CodeEditorTests
     [Fact]
     public Task ReadOnlyAndLengthLimitsPreventPartialCodeCommands() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("a\na"), MaxLength = 4 };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("a\na"), MaxLength = 4 };
+        var actions = new CodeEditorActions(editor);
         editor.SelectAll();
-        editor.Indent();
+        actions.Indent();
         Assert.Equal("a\na", editor.Document.Text);
-        Assert.Equal(0, editor.ReplaceAll("a", "long"));
+        Assert.Equal(0, actions.ReplaceAll("a", "long"));
         Assert.False(editor.CanUndo);
         editor.IsReadOnly = true;
-        Assert.False(editor.Commands.Indent.CanExecute(null));
-        editor.Outdent();
-        editor.ToggleLineComment();
-        editor.InsertNewLine();
+        actions.Outdent();
+        actions.ToggleLineComment();
+        actions.InsertNewLine();
         Assert.Equal("a\na", editor.Document.Text);
     });
 
     [Fact]
     public Task OverLimitDocumentsCanStillShrink() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("    value"), MaxLength = 2 };
-        editor.Outdent();
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("    value"), MaxLength = 2 };
+        var actions = new CodeEditorActions(editor);
+        actions.Outdent();
         Assert.Equal("value", editor.Document.Text);
         editor.Undo();
         Assert.Equal("    value", editor.Document.Text);
@@ -160,18 +166,19 @@ public class CodeEditorTests
     [Fact]
     public Task SearchWrapsAndReplaceAllUsesOneUndoUnit() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("foo food FOO foo\u0301 foo" ) };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("foo food FOO foo\u0301 foo" ) };
+        var actions = new CodeEditorActions(editor);
         var options = new CodeSearchOptions(WholeWord: true);
-        Assert.Equal(3, editor.FindAll("foo", options).Count);
-        Assert.Equal(2, editor.FindAll("foo", new CodeSearchOptions(MatchCase: true, WholeWord: true)).Count);
-        Assert.Equal(new RichTextRange(0, 3), editor.FindNext("foo", options));
-        Assert.Equal(new RichTextRange(9, 3), editor.FindNext("foo", options));
-        Assert.Equal(new RichTextRange(18, 3), editor.FindNext("foo", options));
-        Assert.Null(editor.FindNext("foo", options, wrap: false));
-        Assert.Equal(new RichTextRange(0, 3), editor.FindNext("foo", options));
-        Assert.Equal(new RichTextRange(18, 3), editor.FindPrevious("foo", options));
+        Assert.Equal(3, actions.FindAll("foo", options).Count);
+        Assert.Equal(2, actions.FindAll("foo", new CodeSearchOptions(MatchCase: true, WholeWord: true)).Count);
+        Assert.Equal(new RichTextRange(0, 3), actions.FindNext("foo", options));
+        Assert.Equal(new RichTextRange(9, 3), actions.FindNext("foo", options));
+        Assert.Equal(new RichTextRange(18, 3), actions.FindNext("foo", options));
+        Assert.Null(actions.FindNext("foo", options, wrap: false));
+        Assert.Equal(new RichTextRange(0, 3), actions.FindNext("foo", options));
+        Assert.Equal(new RichTextRange(18, 3), actions.FindPrevious("foo", options));
         var source = editor.Document.Text;
-        Assert.Equal(3, editor.ReplaceAll("foo", "bar", options));
+        Assert.Equal(3, actions.ReplaceAll("foo", "bar", options));
         Assert.Equal("bar food bar foo\u0301 bar", editor.Document.Text);
         editor.Undo();
         Assert.Equal(source, editor.Document.Text);
@@ -181,26 +188,27 @@ public class CodeEditorTests
     [Fact]
     public Task DocumentOwnershipValidationKeepsTheWrapperAndNativeEditorInSync() => WindowsTestHost.RunAsync(() =>
     {
-        var first = new CodeEditor { Document = RichTextDocument.FromPlainText("owned") };
+        var first = new CodeEditor { Document = CodeDocument.FromPlainText("owned") };
         var second = new CodeEditor();
         var original = second.Document;
         second.Document = first.Document;
         Assert.Same(original, second.Document);
-        Assert.Same(original, second.TextView.Document);
+        Assert.Same(original.Source, second.TextView.Document);
         GC.KeepAlive(first);
     });
 
     [Fact]
     public Task PositionsUseUtf16AndTrackDocumentReplacement() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = RichTextDocument.FromPlainText("😀\n日本語\n") };
-        editor.GoToLine(2, 3);
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("😀\n日本語\n") };
+        var actions = new CodeEditorActions(editor);
+        actions.GoToLine(2, 3);
         Assert.Equal(new RichTextRange(5, 0), editor.SelectedRange);
         Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
-        editor.GoToLine(100, 100);
+        actions.GoToLine(100, 100);
         Assert.Equal(new CodePosition(3, 1), editor.CaretPosition);
         var previous = editor.Document;
-        editor.Document = RichTextDocument.FromPlainText("x");
+        editor.Document = CodeDocument.FromPlainText("x");
         previous.Edit(edit => edit.InsertText(0, "detached\n"));
         Assert.Equal(1, editor.LineCount);
         Assert.Equal("x", editor.Document.Text);
@@ -239,9 +247,9 @@ public class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture("public class C { return 42; }");
         var editor = fixture.Editor;
-        editor.Document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(2, 8),
+        editor.TextView.Document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(2, 8),
             format => format with { FontWeight = 700, BackgroundColor = Microsoft.Maui.Graphics.Colors.Yellow }));
-        var before = editor.Document.CurrentSnapshot;
+        var before = editor.TextView.Document.CurrentSnapshot;
         await editor.RefreshHighlightingAsync();
         Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 0));
         Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 3));
@@ -253,7 +261,7 @@ public class CodeEditorTests
         Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 3));
         editor.Highlighter = null;
         await editor.RefreshHighlightingAsync();
-        Assert.True(before.ContentEquals(editor.Document.CurrentSnapshot));
+        Assert.True(before.ContentEquals(editor.TextView.Document.CurrentSnapshot));
         Assert.Equal(editor.Theme.TextColor, NativeColor(fixture, 3));
     });
 
@@ -279,7 +287,7 @@ public class CodeEditorTests
             output.WriteLine($"Initial highlighting: {timer.Elapsed.TotalMilliseconds:F1} ms (2,000 lines, {editor.Tokens.Count} tokens)");
             Assert.Equal(2000, editor.LineCount);
             Assert.Equal(4400, editor.Tokens.Count);
-            Assert.False(Assert.Single(changes).IsTextChanged);
+            Assert.Empty(changes);
             Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, source.IndexOf("public", StringComparison.Ordinal)));
             Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, source.LastIndexOf("return", StringComparison.Ordinal)));
             Assert.Equal(editor.Theme.NumberColor, NativeColor(fixture, source.LastIndexOf("42", StringComparison.Ordinal)));
@@ -310,14 +318,14 @@ public class CodeEditorTests
         var editor = fixture.Editor;
         await editor.RefreshHighlightingAsync();
         var start = editor.Document.Text.LastIndexOf("class", StringComparison.Ordinal);
-        var previousFormat = editor.Document.CurrentSnapshot.Runs.First(run => run.Range.Start <= start && run.Range.End > start).Format;
-        editor.Document.Edit(edit => edit.ReplaceText(new RichTextRange(start, 5), "other", previousFormat));
+        var previousFormat = editor.TextView.Document.CurrentSnapshot.Runs.First(run => run.Range.Start <= start && run.Range.End > start).Format;
+        editor.Document.Edit(edit => edit.ReplaceText(new RichTextRange(start, 5), "other"));
         var changes = new List<RichTextChangeSet>();
         editor.ContentChanged += (_, args) => changes.Add(args.ChangeSet);
         await editor.RefreshHighlightingAsync();
-        var change = Assert.Single(Assert.Single(changes).Changes);
-        Assert.Equal(RichTextChangeKind.CharacterFormat, change.Kind);
-        Assert.Equal(new RichTextRange(start, 5), change.NewRange);
+        Assert.Empty(changes);
+        Assert.Equal(editor.Theme.TextColor, NativeColor(fixture, start));
+        Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 0));
         editor.Undo();
         Assert.EndsWith("class A { }\n", editor.Document.Text);
         Assert.False(editor.CanUndo);
@@ -333,8 +341,9 @@ public class CodeEditorTests
         fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "public ");
         Assert.Equal("public class C { }", editor.Document.Text);
         await editor.RefreshHighlightingAsync();
-        Assert.Equal(editor.Theme.KeywordColor, editor.Document.CurrentSnapshot.Runs[0].Format.ForegroundColor);
-        Assert.Null(editor.Document.CurrentSnapshot.Runs.First(run => run.Start <= 6 && run.End > 6).Format.ForegroundColor);
+        Assert.Equal(editor.Theme.KeywordColor, NativeColor(fixture, 0));
+        Assert.All(editor.TextView.Document.CurrentSnapshot.Runs, run => Assert.Null(run.Format.ForegroundColor));
+        Assert.Null(editor.TextView.Document.CurrentSnapshot.Runs.First(run => run.Start <= 6 && run.End > 6).Format.ForegroundColor);
         editor.Undo();
         Assert.Equal("class C { }", editor.Document.Text);
         Assert.False(editor.CanUndo);
@@ -425,7 +434,7 @@ public class CodeEditorTests
         fixture.Editor.Highlighter = highlighter;
         var pending = fixture.Editor.RefreshHighlightingAsync();
         await highlighter.Started.Task;
-        fixture.Editor.Document = RichTextDocument.FromPlainText("class New {}");
+        fixture.Editor.Document = CodeDocument.FromPlainText("class New {}");
         fixture.Editor.Highlighter = new CSharpSyntaxHighlighter();
         await fixture.Editor.RefreshHighlightingAsync();
         highlighter.Release.TrySetResult();
@@ -469,7 +478,7 @@ public class CodeEditorTests
         Clipboard.SetContent(package);
         await fixture.Editor.PasteAsync();
         Assert.Equal("class C", fixture.Editor.Document.Text);
-        Assert.All(fixture.Editor.Document.CurrentSnapshot.Runs, run =>
+        Assert.All(fixture.Editor.TextView.Document.CurrentSnapshot.Runs, run =>
         {
             Assert.False(run.Format.Bold);
             Assert.Null(run.Format.ForegroundColor);
@@ -495,7 +504,7 @@ public class CodeEditorTests
             Assert.NotEmpty(lines);
             Assert.Equal(1, lines[0].Number);
             Assert.True(lines.Zip(lines.Skip(1)).All(pair => pair.First.Top < pair.Second.Top));
-            fixture.Editor.GoToLine(90);
+            new CodeEditorActions(fixture.Editor).GoToLine(90);
             await Task.Delay(100);
             lines = fixture.Editor.NativeAdapter!.GetVisibleLines();
             Assert.NotEmpty(lines);
@@ -522,7 +531,7 @@ public class CodeEditorTests
         var app = _controlTestApp ??= MauiApp.CreateBuilder().UseMauiApp<CodeTestApplication>().UseCodeEditor().Build();
         var editor = new CodeEditor
         {
-            Document = RichTextDocument.FromPlainText("// A long logical line wraps across several visual rows. " + new string('x', 180) + "\nclass Example\n{\n    string value = \"Hello\";\n}\n"),
+            Document = CodeDocument.FromPlainText("// A long logical line wraps across several visual rows. " + new string('x', 180) + "\nclass Example\n{\n    string value = \"Hello\";\n}\n"),
             Theme = CodeEditorTheme.Dark,
             WordWrap = true,
         };
@@ -586,7 +595,7 @@ public class CodeEditorTests
         internal RichEditorHandler Handler { get; } = new();
         internal CodeEditorFixture(string source)
         {
-            Editor = new CodeEditor { Document = RichTextDocument.FromPlainText(source) };
+            Editor = new CodeEditor { Document = CodeDocument.FromPlainText(source) };
             Handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
             Editor.TextView.Handler = Handler;
         }

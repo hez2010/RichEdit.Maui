@@ -302,10 +302,10 @@ public class WindowsEditorTests
         editor.SelectedRange = new RichTextRange(0, 1);
         editor.Undo();
         Assert.True(before.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextRange(0, 1), editor.SelectedRange);
+        Assert.Equal(new RichTextSelectionState(1, 4), editor.SelectionState);
         editor.Redo();
         Assert.True(after.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextRange(0, 1), editor.SelectedRange);
+        Assert.Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
         Assert.Equal(editor.Document.Text, fixture.NativeText);
     });
 
@@ -442,7 +442,7 @@ public class WindowsEditorTests
         Assert.Equal("prefix ", fixture.NativeText);
         editor.Undo();
         Assert.True(beforeCut.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextRange(7, 0), editor.SelectedRange);
+        Assert.Equal(new RichTextRange(7, 5), editor.SelectedRange);
     });
 
     [Fact]

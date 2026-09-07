@@ -268,6 +268,7 @@ namespace RichEdit.Maui
             int selectionStart,
             int selectionLength)
         {
+            document = VirtualView.Decorations.Project(document);
             if (PlatformView is null)
             {
                 return;
@@ -369,6 +370,24 @@ namespace RichEdit.Maui
             }
         }
 
+        private partial void ApplyDecorationsCore(RichTextChangeSet changes)
+        {
+            var wasApplying = _applyingDocument;
+            _applyingDocument = true;
+            try
+            {
+                PlatformView.TextStorage.BeginEditing();
+                try
+                {
+                    foreach (var change in changes.Changes)
+                        ApplyCharacterFormatsIncrementally(VirtualView.PresentationSnapshot, change.NewRange);
+                }
+                finally { PlatformView.TextStorage.EndEditing(); }
+                ApplyTypingFormatCore(VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+            }
+            finally { _applyingDocument = wasApplying; }
+        }
+
         private partial void ApplyIncrementalChangesCore(
             RichTextChangeSet changes,
             RichTextRange selection,
@@ -385,7 +404,7 @@ namespace RichEdit.Maui
             _applyingDocument = true;
             try
             {
-                ApplyDocumentCore(VirtualView.Document.CurrentSnapshot, selection.Start, selection.Length);
+                ApplyDocumentCore(VirtualView.PresentationSnapshot, selection.Start, selection.Length);
                 ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
                 if (!changes.IsTextChanged || _restoringHistory)
                 {
@@ -494,21 +513,19 @@ namespace RichEdit.Maui
             }
         }
 
-        private partial void SetSelectionCore(int start, int length)
+        private partial void SetNativeSelectionCore(RichTextSelectionState selection)
         {
-            if (PlatformView is null)
-            {
-                return;
-            }
-
-            var textLength = PlatformView.Text?.Length ?? 0;
-            start = Math.Clamp(start, 0, textLength);
-            length = Math.Clamp(length, 0, textLength - start);
+            if (PlatformView is null) return;
+            var range = selection.Range;
             var wasApplying = _applyingSelection;
             _applyingSelection = true;
-            try { PlatformView.SelectedRange = new NSRange(start, length); }
+            try { PlatformView.SelectedRange = new NSRange(range.Start, range.Length); }
             finally { _applyingSelection = wasApplying; }
         }
+
+        private partial void ScrollIntoViewCore(RichTextRange range) => PlatformView.ScrollRangeToVisible(new NSRange(range.Start, range.Length));
+
+        private partial bool IsComposingCore() => PlatformView.MarkedTextRange is not null;
 
         private partial bool SupportsNativeUndoCore() => false;
 
@@ -541,7 +558,7 @@ namespace RichEdit.Maui
                 return;
             }
 
-            var snapshot = editor.Document.CurrentSnapshot;
+            var snapshot = editor.PresentationSnapshot;
             var selection = editor.SelectedRange;
             _applyingDocument = true;
             try
@@ -1945,7 +1962,8 @@ namespace RichEdit.Maui
                 length,
                 _sourceToken,
                 mergeWithPrevious: mergeWithPrevious,
-                projectedVersion: ReferenceEquals(_projectedDocument, VirtualView.Document) ? _projectedVersion : null);
+                projectedVersion: ReferenceEquals(_projectedDocument, VirtualView.Document) ? _projectedVersion : null,
+                selectionState: VirtualView.InferSelectionState(new RichTextRange(start, length)));
             _projectedDocument = null;
             _projectedVersion = null;
 
@@ -1975,7 +1993,7 @@ namespace RichEdit.Maui
                 (int)textView.SelectedRange.Length,
                 0,
                 VirtualView.Document.Text.Length - start);
-            VirtualView.UpdateSelectionFromPlatform(start, length);
+            VirtualView.UpdateSelectionFromPlatform(VirtualView.InferSelectionState(new RichTextRange(start, length)));
             UpdateTypingFormatsFromPlatform();
             _pendingNativeChange = null;
         }
@@ -2043,6 +2061,7 @@ namespace RichEdit.Maui
                 }
             }
 
+            _nativeTypingFormat = VirtualView.Decorations.RestoreTypingFormat(_nativeTypingFormat);
             VirtualView.UpdateTypingFormatsFromPlatform(
                 _nativeTypingFormat,
                 _nativeTypingParagraphFormat);

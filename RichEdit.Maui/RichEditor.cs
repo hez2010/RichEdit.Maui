@@ -15,11 +15,33 @@ public sealed class RichEditor : View
         defaultValueCreator: static _ => new RichTextDocument(),
         defaultBindingMode: BindingMode.OneWay,
         validateValue: static (bindable, value) =>
-            value is RichTextDocument document && document.CanAttachEditor(bindable),
+        {
+            var editor = (RichEditor)bindable;
+            editor.VerifyAccess();
+            if (value is not RichTextDocument document || !document.CanAttachEditor(bindable)) return false;
+            if (!ReferenceEquals(editor._attachedDocument, document))
+            {
+                editor._attachedDocument?.VerifyAttachmentChange();
+                document.VerifyAttachmentChange();
+            }
+            return true;
+        },
         propertyChanged: static (bindable, oldValue, newValue) =>
             ((RichEditor)bindable).OnDocumentPropertyChanged(
                 (RichTextDocument?)oldValue,
                 (RichTextDocument)newValue));
+
+    /// <summary>Identifies the directional <see cref="SelectionState"/> bindable property.</summary>
+    public static readonly BindableProperty SelectionStateProperty = BindableProperty.Create(
+        nameof(SelectionState), typeof(RichTextSelectionState), typeof(RichEditor), default(RichTextSelectionState), BindingMode.TwoWay,
+        coerceValue: static (bindable, value) =>
+        {
+            var editor = (RichEditor)bindable;
+            editor.VerifyAccess();
+            return ((RichTextSelectionState)value).Clamp(editor.Document.Length);
+        },
+        propertyChanged: static (bindable, before, after) => ((RichEditor)bindable).OnSelectionStateChanged(
+            (RichTextSelectionState)before, (RichTextSelectionState)after));
 
     /// <summary>Identifies the <see cref="SelectedRange"/> bindable property.</summary>
     public static readonly BindableProperty SelectedRangeProperty = BindableProperty.Create(
@@ -30,6 +52,7 @@ public sealed class RichEditor : View
         BindingMode.TwoWay,
         coerceValue: static (bindable, value) =>
         {
+            ((RichEditor)bindable).VerifyAccess();
             var length = ((RichEditor)bindable).Document.Length;
             var range = value is RichTextRange richRange ? richRange : RichTextRange.Empty;
             var start = Math.Clamp(range.Start, 0, length);
@@ -164,12 +187,15 @@ public sealed class RichEditor : View
     /// <summary>Identifies the read-only <see cref="CanRedo"/> bindable property.</summary>
     public static readonly BindableProperty CanRedoProperty = CanRedoPropertyKey.BindableProperty;
 
+    private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
     private bool _synchronizingSelection;
+    private bool _updatingSelectionRange;
+    private bool _deferNotifications;
+    private readonly List<string> _deferredProperties = [];
+    private RichTextSelectionState _selectionBeforeNotification;
     private RichTextDocument? _attachedDocument;
-    private EventHandler<RichTextDocumentChangedEventArgs>? _documentChangedSubscription;
-    private EventHandler? _undoStateChangedSubscription;
-    private RichTextRange? _pendingPlatformSelection;
-    private RichTextRange? _pendingProgrammaticSelection;
+    private RichTextSelectionState? _pendingPlatformSelection;
+    private RichTextSelectionState? _pendingProgrammaticSelection;
     private RichTextCharacterFormat _typingCharacterFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _typingParagraphFormat = RichTextParagraphFormat.Default;
 
@@ -178,6 +204,7 @@ public sealed class RichEditor : View
     /// </summary>
     public RichEditor()
     {
+        Decorations = new RichTextDecorations(this);
         Selection = new RichTextSelection(this);
         Commands = new RichEditorCommands(this);
         AttachDocument(Document);
@@ -241,7 +268,7 @@ public sealed class RichEditor : View
 
     /// <summary>
     /// Gets or sets the stable live rich-text document. A document can be attached to
-    /// only one editor at a time because native undo history belongs to that editor.
+    /// one editor at a time; the document owns content history and saved-state identity.
     /// </summary>
     public RichTextDocument Document
     {
@@ -260,11 +287,23 @@ public sealed class RichEditor : View
     public RichTextRange SelectedRange
     {
         get => (RichTextRange)GetValue(SelectedRangeProperty);
-        set => SetValue(SelectedRangeProperty, value);
+        set => SelectionState = RichTextSelectionState.FromRange(value);
+    }
+
+    /// <summary>Gets or sets the anchor and active UTF-16 offsets, clamped to the document.</summary>
+    public RichTextSelectionState SelectionState
+    {
+        get => (RichTextSelectionState)GetValue(SelectionStateProperty);
+        set { VerifyAccess(); SetValue(SelectionStateProperty, value); }
     }
 
     /// <summary>Gets the stable selection and selection-format facade.</summary>
     public RichTextSelection Selection { get; }
+
+    /// <summary>Gets the view-owned layers for syntax colors, diagnostics, and other nonpersistent appearance.</summary>
+    public RichTextDecorations Decorations { get; }
+
+    internal RichTextDocumentSnapshot PresentationSnapshot => Decorations.Project(Document.CurrentSnapshot);
 
     /// <summary>Gets or sets the empty-document placeholder text.</summary>
     public string Placeholder
@@ -385,6 +424,7 @@ public sealed class RichEditor : View
     /// <summary>Undoes the most recent edit.</summary>
     public void Undo()
     {
+        VerifyAccess();
         if (IsReadOnly)
         {
             return;
@@ -403,6 +443,7 @@ public sealed class RichEditor : View
     /// <summary>Reapplies the most recently undone edit.</summary>
     public void Redo()
     {
+        VerifyAccess();
         if (IsReadOnly)
         {
             return;
@@ -421,6 +462,7 @@ public sealed class RichEditor : View
     /// <summary>Clears native and managed undo and redo history without changing content.</summary>
     public void ClearUndoHistory()
     {
+        VerifyAccess();
         if (Handler is IRichEditorHandler { SupportsNativeUndo: true } handler)
         {
             handler.ClearUndoHistory();
@@ -433,10 +475,20 @@ public sealed class RichEditor : View
     /// <summary>Selects the complete logical document.</summary>
     public void SelectAll() => SelectedRange = new RichTextRange(0, Document.Length);
 
+    /// <summary>Brings a document range into view without changing the selection.</summary>
+    /// <param name="range">The bounded UTF-16 range to reveal.</param>
+    public void ScrollIntoView(RichTextRange range)
+    {
+        VerifyAccess();
+        range.Validate(Document.Length, nameof(range));
+        (Handler as IRichEditorHandler)?.ScrollIntoView(range);
+    }
+
     /// <summary>Cuts the selected text to the system clipboard.</summary>
     /// <returns>A task that completes after the clipboard and document are updated.</returns>
     public async Task CutAsync()
     {
+        VerifyAccess();
         var document = Document;
         var snapshot = document.CurrentSnapshot;
         var range = SelectedRange;
@@ -462,6 +514,7 @@ public sealed class RichEditor : View
     /// <returns>A task that completes after the clipboard is updated.</returns>
     public Task CopyAsync()
     {
+        VerifyAccess();
         var snapshot = Document.CurrentSnapshot;
         var range = SelectedRange;
         return range.IsEmpty
@@ -475,6 +528,7 @@ public sealed class RichEditor : View
 
     internal async Task PasteAsync(bool asPlainText)
     {
+        VerifyAccess();
         var document = Document;
         var version = document.Version;
         var range = SelectedRange;
@@ -537,10 +591,13 @@ public sealed class RichEditor : View
         object sourceToken,
         RichTextChangeOrigin origin = RichTextChangeOrigin.User,
         bool mergeWithPrevious = false,
-        long? projectedVersion = null)
+        long? projectedVersion = null,
+        RichTextSelectionState? selectionState = null)
     {
-        var selection = new RichTextRange(selectionStart, selectionLength);
-        selection.Validate(snapshot.Text.Length, nameof(selectionLength));
+        VerifyAccess();
+        snapshot = Decorations.RestoreAuthoredSnapshot(snapshot, SelectedRange);
+        var selection = selectionState ?? RichTextSelectionState.FromRange(new RichTextRange(selectionStart, selectionLength));
+        selection.Range.Validate(snapshot.Text.Length, nameof(selectionLength));
         _pendingPlatformSelection = selection;
         try
         {
@@ -565,7 +622,19 @@ public sealed class RichEditor : View
     }
 
     internal void UpdateSelectionFromPlatform(int start, int length) =>
-        SetSelectionFromPlatform(new RichTextRange(start, length));
+        UpdateSelectionFromPlatform(RichTextSelectionState.FromRange(new RichTextRange(start, length)));
+
+    internal void UpdateSelectionFromPlatform(RichTextSelectionState selection) => SetSelectionFromPlatform(selection);
+
+    internal RichTextSelectionState InferSelectionState(RichTextRange range)
+    {
+        var previous = SelectionState;
+        if (previous.Range == range) return previous;
+        if (range.End == previous.Anchor) return new RichTextSelectionState(range.End, range.Start);
+        if (range.Start == previous.Anchor) return new RichTextSelectionState(range.Start, range.End);
+        if (range.End == previous.Range.End) return new RichTextSelectionState(range.End, range.Start);
+        return RichTextSelectionState.FromRange(range);
+    }
 
     internal void UpdateUndoStateFromPlatform() => RefreshUndoState();
 
@@ -578,7 +647,7 @@ public sealed class RichEditor : View
         ArgumentNullException.ThrowIfNull(snapshot);
         selection.Validate(snapshot.Length, nameof(selection));
         var previousPendingSelection = _pendingProgrammaticSelection;
-        _pendingProgrammaticSelection = selection;
+        _pendingProgrammaticSelection = RichTextSelectionState.FromRange(selection);
         RichTextChangeSet changes;
         try
         {
@@ -597,25 +666,31 @@ public sealed class RichEditor : View
 
     internal RichTextChangeSet EditDocument(
         Action<RichTextDocumentEdit> edit,
-        RichTextRange resultingSelection)
+        RichTextRange resultingSelection) => EditDocument(edit, RichTextSelectionState.FromRange(resultingSelection));
+
+    internal RichTextChangeSet EditDocument(
+        Action<RichTextDocumentEdit> edit,
+        RichTextSelectionState resultingSelection,
+        RichTextEditOptions options = default)
     {
+        VerifyAccess();
         ArgumentNullException.ThrowIfNull(edit);
         var previousPendingSelection = _pendingProgrammaticSelection;
         _pendingProgrammaticSelection = resultingSelection;
         RichTextChangeSet changes;
         try
         {
-            changes = Document.Edit(edit);
+            changes = Document.Edit(edit, options);
         }
         finally
         {
             _pendingProgrammaticSelection = previousPendingSelection;
         }
 
-        resultingSelection.Validate(Document.Length, nameof(resultingSelection));
+        resultingSelection.Range.Validate(Document.Length, nameof(resultingSelection));
         if (changes.IsEmpty)
         {
-            SelectedRange = resultingSelection;
+            SelectionState = resultingSelection;
         }
 
         return changes;
@@ -623,6 +698,7 @@ public sealed class RichEditor : View
 
     internal void SetTypingCharacterFormat(RichTextCharacterFormat format)
     {
+        VerifyAccess();
         _typingCharacterFormat = RichTextDocumentSnapshot.Validate(format);
         Document.BreakUndoGroup();
         ApplyTypingFormatToHandler();
@@ -631,6 +707,7 @@ public sealed class RichEditor : View
 
     internal void SetTypingParagraphFormat(RichTextParagraphFormat format)
     {
+        VerifyAccess();
         _typingParagraphFormat = RichTextDocumentSnapshot.Validate(format);
         ApplyTypingFormatToHandler();
         RaiseSelectionFormatChanged();
@@ -682,6 +759,7 @@ public sealed class RichEditor : View
 
     internal void RaiseSelectionFormatChanged()
     {
+        if (_deferNotifications) return;
         Selection.RefreshFormatting();
         SelectionFormatChanged?.Invoke(this, EventArgs.Empty);
         Commands.Refresh();
@@ -699,13 +777,9 @@ public sealed class RichEditor : View
         newDocument.VerifyCanAttachEditor(this);
         DetachDocument(oldDocument);
         AttachDocument(newDocument);
-        var clampedStart = Math.Clamp(SelectedRange.Start, 0, newDocument.Length);
-        var clampedLength = Math.Clamp(
-            SelectedRange.Length,
-            0,
-            newDocument.Length - clampedStart);
-        var selection = new RichTextRange(clampedStart, clampedLength);
-        var selectionChanged = SelectedRange != selection;
+        Decorations.Reset();
+        var selection = SelectionState.Clamp(newDocument.Length);
+        var selectionChanged = SelectionState != selection;
         // The handler's Document mapper projects the new text and selection
         // together. Updating the old native text's selection here can report
         // that old content back into the newly attached document.
@@ -718,197 +792,137 @@ public sealed class RichEditor : View
         }
     }
 
-    private void OnSelectedRangePropertyChanged(
-        RichTextRange oldRange,
-        RichTextRange newRange)
+    private void OnSelectedRangePropertyChanged(RichTextRange oldRange, RichTextRange newRange)
     {
-        if (_pendingPlatformSelection is null && _pendingProgrammaticSelection is null)
-        {
-            Document.BreakUndoGroupForSelection(newRange);
-        }
+        if (!_updatingSelectionRange) SelectionState = RichTextSelectionState.FromRange(newRange);
+    }
 
+    private void OnSelectionStateChanged(RichTextSelectionState before, RichTextSelectionState after)
+    {
+        _updatingSelectionRange = true;
+        try { SetValue(SelectedRangeProperty, after.Range); }
+        finally { _updatingSelectionRange = false; }
+        if (_pendingPlatformSelection is null && _pendingProgrammaticSelection is null && !_deferNotifications)
+            Document.BreakUndoGroupForSelection(after.Range);
         RefreshTypingFormats();
         if (!_synchronizingSelection && Handler is IRichEditorHandler handler)
         {
-            var characterFormat = _typingCharacterFormat;
-            var paragraphFormat = _typingParagraphFormat;
-            handler.SetSelection(newRange);
-            handler.ApplyTypingFormat(characterFormat, paragraphFormat);
+            handler.SetSelection(after);
+            handler.ApplyTypingFormat(_typingCharacterFormat, _typingParagraphFormat);
         }
-
-        SelectionChanged?.Invoke(
-            this,
-            new RichTextSelectionChangedEventArgs(oldRange, newRange));
+        if (_deferNotifications) return;
+        SelectionChanged?.Invoke(this, new RichTextSelectionChangedEventArgs(before, after));
         RaiseSelectionFormatChanged();
     }
 
     private void AttachDocument(RichTextDocument document)
     {
-        if (ReferenceEquals(_attachedDocument, document))
-        {
-            return;
-        }
-
+        if (ReferenceEquals(_attachedDocument, document)) return;
         document.AttachEditor(this);
         _attachedDocument = document;
-        var weakEditor = new WeakReference<RichEditor>(this);
-        EventHandler<RichTextDocumentChangedEventArgs>? changed = null;
-        changed = (sender, eventArgs) =>
-        {
-            if (weakEditor.TryGetTarget(out var editor))
-            {
-                editor.OnDocumentChanged(sender, eventArgs);
-            }
-            else if (sender is RichTextDocument source)
-            {
-                source.Changed -= changed;
-            }
-        };
-        EventHandler? undoStateChanged = null;
-        undoStateChanged = (sender, eventArgs) =>
-        {
-            if (weakEditor.TryGetTarget(out var editor))
-            {
-                editor.OnUndoStateChanged(sender, eventArgs);
-            }
-            else if (sender is RichTextDocument source)
-            {
-                source.UndoStateChanged -= undoStateChanged;
-            }
-        };
-        _documentChangedSubscription = changed;
-        _undoStateChangedSubscription = undoStateChanged;
-        document.Changed += changed;
-        document.UndoStateChanged += undoStateChanged;
     }
 
     private void DetachDocument(RichTextDocument? document)
     {
-        if (document is null)
-        {
-            return;
-        }
-
-        if (_documentChangedSubscription is not null)
-        {
-            document.Changed -= _documentChangedSubscription;
-            _documentChangedSubscription = null;
-        }
-
-        if (_undoStateChangedSubscription is not null)
-        {
-            document.UndoStateChanged -= _undoStateChangedSubscription;
-            _undoStateChangedSubscription = null;
-        }
-        document.DetachEditor(this);
-        if (ReferenceEquals(_attachedDocument, document))
-        {
-            _attachedDocument = null;
-        }
+        document?.DetachEditor(this);
+        if (ReferenceEquals(_attachedDocument, document)) _attachedDocument = null;
     }
 
-    private void ClampSelectionToDocument()
+    private void ClampSelectionToDocument() => SetSelectionCore(SelectionState.Clamp(Document.Length), fromPlatform: false);
+
+    internal RichTextSelectionState GetSelectionAfterEdit(IEnumerable<RichTextChange> changes, int length)
     {
-        var start = Math.Clamp(SelectedRange.Start, 0, Document.Length);
-        var length = Math.Clamp(SelectedRange.Length, 0, Document.Length - start);
-        SetSelectionCore(new RichTextRange(start, length), fromPlatform: false);
+        if (_pendingProgrammaticSelection is { } requested) requested.Range.Validate(length, nameof(requested));
+        return (_pendingPlatformSelection ?? _pendingProgrammaticSelection ?? SelectionState.Map(changes, length)).Clamp(length);
     }
 
-    private void OnDocumentChanged(object? sender, RichTextDocumentChangedEventArgs eventArgs)
+    internal void SynchronizeDocumentChange(RichTextChangeSet changeSet)
     {
-        var changeSet = eventArgs.ChangeSet;
-        var resultingSelection = _pendingPlatformSelection ??
-            _pendingProgrammaticSelection ??
-            MapSelection(SelectedRange, changeSet, Document.Length);
-
-        var snapshot = Document.CurrentSnapshot;
-        var typingCharacterFormat = snapshot.GetCaretFormat(resultingSelection.Start);
-        var typingParagraphFormat = snapshot.GetParagraphFormat(resultingSelection.Start);
-
+        _deferNotifications = true;
+        _selectionBeforeNotification = SelectionState;
+        Decorations.MapThrough(changeSet);
+        var selection = changeSet.SelectionAfter ?? GetSelectionAfterEdit(changeSet.Changes, Document.Length);
+        SetSelectionCore(selection, fromPlatform: true);
         var handler = Handler as IRichEditorHandler;
-        var appliedToPlatform = handler is not null &&
-            !ReferenceEquals(changeSet.SourceToken, handler.SourceToken);
-        if (appliedToPlatform)
+        if (handler is not null && !ReferenceEquals(changeSet.SourceToken, handler.SourceToken))
         {
             if (changeSet.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
-            {
-                handler!.ApplySnapshot(
-                    snapshot,
-                    resultingSelection,
-                    typingCharacterFormat,
-                    typingParagraphFormat);
-            }
+                handler.ApplySnapshot(Document.CurrentSnapshot, selection.Range, _typingCharacterFormat, _typingParagraphFormat);
             else
-            {
-                handler!.ApplyChanges(
-                    changeSet,
-                    resultingSelection,
-                    typingCharacterFormat,
-                    typingParagraphFormat);
-            }
+                handler.ApplyChanges(changeSet, selection.Range, _typingCharacterFormat, _typingParagraphFormat);
         }
-
-        var selectionChanged = SelectedRange != resultingSelection;
-        SetSelectionCore(
-            resultingSelection,
-            fromPlatform: appliedToPlatform ||
-                changeSet.Origin != RichTextChangeOrigin.Programmatic);
-
         RefreshUndoState();
-        if (AutoSize == EditorAutoSizeOption.TextChanges && changeSet.IsTextChanged)
-        {
-            InvalidateMeasure();
-        }
+        if (AutoSize == EditorAutoSizeOption.TextChanges && changeSet.IsTextChanged) InvalidateMeasure();
+    }
 
-        if (!selectionChanged)
-        {
-            RaiseSelectionFormatChanged();
-        }
+    internal void ApplyDecorationChanges(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after, RichTextRange? dirtyRange = null)
+    {
+        VerifyAccess();
+        var changes = RichTextDocument.CreateDelta(before, after).ToList();
+        if (dirtyRange is { IsEmpty: false } range)
+            changes.Add(new RichTextRangeChange(RichTextChangeKind.CharacterFormat, range, range));
+        if (changes.Count == 0 || Handler is not IRichEditorHandler handler) return;
+        var changeSet = new RichTextChangeSet(Document.Version, Document.Version, RichTextChangeOrigin.Programmatic,
+            [.. changes], tag: null, beforeSnapshot: before, afterSnapshot: after);
+        handler.ApplyDecorations(changeSet);
+    }
 
-        // Public observers must see one coherent committed state. In particular,
-        // a destructive edit can make the previous selection invalid, so publish
-        // content events only after the selection has been advanced to the new
-        // document version.
+    internal void PublishContentChange(RichTextChangeSet changeSet)
+    {
         ContentChanged?.Invoke(this, new RichTextContentChangedEventArgs(changeSet));
-        if (changeSet.IsTextChanged)
-        {
-            TextChanged?.Invoke(this, new RichTextTextChangedEventArgs(changeSet));
-        }
+        if (changeSet.IsTextChanged) TextChanged?.Invoke(this, new RichTextTextChangedEventArgs(changeSet));
     }
 
-    private void OnUndoStateChanged(object? sender, EventArgs eventArgs) => RefreshUndoState();
-
-    private void SetSelectionFromPlatform(RichTextRange range)
+    internal void PublishSelectionChange()
     {
-        range.Validate(Document.Length, nameof(range));
-        SetSelectionCore(range, fromPlatform: true);
+        _deferNotifications = false;
+        foreach (var property in _deferredProperties) base.OnPropertyChanged(property);
+        _deferredProperties.Clear();
+        if (_selectionBeforeNotification != SelectionState)
+            SelectionChanged?.Invoke(this, new RichTextSelectionChangedEventArgs(_selectionBeforeNotification, SelectionState));
+        RaiseSelectionFormatChanged();
+        Commands.Refresh();
+        Decorations.NotifyChanged();
     }
 
-    private void SetSelectionCore(RichTextRange range, bool fromPlatform)
+    internal void EndDocumentChange()
     {
-        range.Validate(Document.Length, nameof(range));
-        if (SelectedRange == range)
-        {
-            RefreshTypingFormats();
-            return;
-        }
+        _deferNotifications = false;
+        _deferredProperties.Clear();
+    }
 
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(string? propertyName = null)
+    {
+        if (_deferNotifications && propertyName is not null)
+        {
+            if (!_deferredProperties.Contains(propertyName)) _deferredProperties.Add(propertyName);
+        }
+        else base.OnPropertyChanged(propertyName);
+    }
+
+    internal void VerifyAccess()
+    {
+        if (Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("An attached document and its editor must be mutated on the editor's owning UI thread. Use an immutable snapshot for background work.");
+    }
+
+    private void SetSelectionFromPlatform(RichTextSelectionState selection) => SetSelectionCore(selection, fromPlatform: true);
+
+    private void SetSelectionCore(RichTextSelectionState selection, bool fromPlatform)
+    {
+        selection.Range.Validate(Document.Length, nameof(selection));
+        if (SelectionState == selection) { RefreshTypingFormats(); return; }
         _synchronizingSelection = fromPlatform;
-        try
-        {
-            SetValue(SelectedRangeProperty, range);
-        }
-        finally
-        {
-            _synchronizingSelection = false;
-        }
+        try { SetValue(SelectionStateProperty, selection); }
+        finally { _synchronizingSelection = false; }
     }
 
     private void RefreshTypingFormats()
     {
         var snapshot = Document.CurrentSnapshot;
-        _typingCharacterFormat = snapshot.GetCaretFormat(SelectedRange.Start);
-        _typingParagraphFormat = snapshot.GetParagraphFormat(SelectedRange.Start);
+        _typingCharacterFormat = snapshot.GetCaretFormat(SelectionState.Active);
+        _typingParagraphFormat = snapshot.GetParagraphFormat(SelectionState.Active);
     }
 
     private void ApplyTypingFormatToHandler()
@@ -919,37 +933,19 @@ public sealed class RichEditor : View
         }
     }
 
-    private void RefreshUndoState()
+    internal void RefreshUndoState()
     {
         var handler = Handler as IRichEditorHandler;
         var useNative = handler?.SupportsNativeUndo == true;
         SetValue(CanUndoPropertyKey, useNative ? handler!.CanUndo : Document.CanUndo);
         SetValue(CanRedoPropertyKey, useNative ? handler!.CanRedo : Document.CanRedo);
-        Commands.Refresh();
+        if (!_deferNotifications) Commands.Refresh();
     }
 
     private void OnAppearanceChanged()
     {
         EffectiveAppearanceChanged?.Invoke(this, EventArgs.Empty);
         RaiseSelectionFormatChanged();
-    }
-
-    private static RichTextRange MapSelection(
-        RichTextRange selection,
-        RichTextChangeSet changes,
-        int documentLength)
-    {
-        var start = selection.Start;
-        var end = selection.End;
-        foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
-        {
-            start = MapPosition(start, textChange);
-            end = MapPosition(end, textChange);
-        }
-
-        start = Math.Clamp(start, 0, documentLength);
-        end = Math.Clamp(end, start, documentLength);
-        return new RichTextRange(start, end - start);
     }
 
     private static bool IsValidAppearanceColor(object? value) =>
@@ -960,18 +956,4 @@ public sealed class RichEditor : View
         float.IsFinite(color.Blue) &&
         float.IsFinite(color.Alpha);
 
-    private static int MapPosition(int position, RichTextTextChange change)
-    {
-        if (position <= change.OldRange.Start)
-        {
-            return position;
-        }
-
-        if (position >= change.OldRange.End)
-        {
-            return checked(position + change.NewRange.Length - change.OldRange.Length);
-        }
-
-        return change.NewRange.End;
-    }
 }

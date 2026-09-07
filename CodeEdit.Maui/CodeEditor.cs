@@ -6,33 +6,64 @@ namespace CodeEdit.Maui;
 /// <summary>A native source-code editor with syntax colors, line numbers, and atomic editing commands.</summary>
 /// <remarks>
 /// Uses an internal <see cref="RichEditor"/> through its public APIs. Syntax colors are
-/// derived document formatting; they preserve undo/redo. Persist source using Document.Text.
+/// view-owned decorations; they do not change source, saved state, or history. Persist source using Document.Text.
 /// </remarks>
 public sealed partial class CodeEditor : ContentView
 {
     /// <summary>Identifies <see cref="Document"/>.</summary>
     public static readonly BindableProperty DocumentProperty = BindableProperty.Create(
-        nameof(Document), typeof(RichTextDocument), typeof(CodeEditor),
-        defaultValueCreator: static view => ((CodeEditor)view).TextView.Document,
-        validateValue: static (_, value) => value is RichTextDocument,
+        nameof(Document), typeof(CodeDocument), typeof(CodeEditor),
+        defaultValueCreator: static view => ((CodeEditor)view)._document,
+        validateValue: static (_, value) => value is CodeDocument,
         coerceValue: static (view, value) =>
         {
             var editor = (CodeEditor)view;
-            editor.TextView.Document = (RichTextDocument)value;
-            return editor.TextView.Document;
+            editor.VerifyAccess();
+            var previous = editor._document;
+            var requested = (CodeDocument)value;
+            editor._document = requested;
+            try
+            {
+                editor.TextView.Document = requested.Source;
+                if (ReferenceEquals(editor.TextView.Document, requested.Source)) return requested;
+                editor._document = previous;
+                return previous;
+            }
+            catch { editor._document = previous; throw; }
         },
-        propertyChanged: static (view, _, value) => ((CodeEditor)view).SetDocument((RichTextDocument)value));
+        propertyChanged: static (view, _, value) => ((CodeEditor)view).SetDocument((CodeDocument)value));
+    /// <summary>Identifies the directional <see cref="SelectionState"/>.</summary>
+    public static readonly BindableProperty SelectionStateProperty = BindableProperty.Create(
+        nameof(SelectionState), typeof(RichTextSelectionState), typeof(CodeEditor), default(RichTextSelectionState), BindingMode.TwoWay,
+        coerceValue: static (view, value) =>
+        {
+            var editor = (CodeEditor)view;
+            editor.VerifyAccess();
+            var selection = (RichTextSelectionState)value;
+            return new RichTextSelectionState(Math.Min(selection.Anchor, editor.Document.Length), Math.Min(selection.Active, editor.Document.Length));
+        },
+        propertyChanged: static (view, _, value) =>
+        {
+            var editor = (CodeEditor)view;
+            if (!editor._synchronizingSelection) editor.TextView.SelectionState = (RichTextSelectionState)value;
+        });
+
     /// <summary>Identifies <see cref="SelectedRange"/>.</summary>
     public static readonly BindableProperty SelectedRangeProperty = BindableProperty.Create(
         nameof(SelectedRange), typeof(RichTextRange), typeof(CodeEditor), RichTextRange.Empty, BindingMode.TwoWay,
         coerceValue: static (view, value) =>
         {
+            ((CodeEditor)view).VerifyAccess();
             var range = (RichTextRange)value;
             var length = ((CodeEditor)view).Document.Length;
             var start = Math.Min(range.Start, length);
             return new RichTextRange(start, Math.Min(range.Length, length - start));
         },
-        propertyChanged: static (view, _, value) => ((CodeEditor)view).TextView.SelectedRange = (RichTextRange)value);
+        propertyChanged: static (view, _, value) =>
+        {
+            var editor = (CodeEditor)view;
+            if (!editor._synchronizingSelection) editor.TextView.SelectedRange = (RichTextRange)value;
+        });
     /// <summary>Identifies <see cref="Highlighter"/>.</summary>
     public static readonly BindableProperty HighlighterProperty = BindableProperty.Create(
         nameof(Highlighter), typeof(ICodeSyntaxHighlighter), typeof(CodeEditor), new CSharpSyntaxHighlighter(),
@@ -60,7 +91,6 @@ public sealed partial class CodeEditor : ContentView
             var editor = (CodeEditor)view;
             editor.TextView.IsReadOnly = (bool)value;
             editor.NativeAdapter?.UpdateConfiguration();
-            editor.Commands.Refresh();
         });
     /// <summary>Identifies <see cref="Placeholder"/>.</summary>
     public static readonly BindableProperty PlaceholderProperty = BindableProperty.Create(
@@ -110,7 +140,10 @@ public sealed partial class CodeEditor : ContentView
 
     private readonly GraphicsView _gutter;
     private CancellationTokenSource? _highlightCancellation;
-    private readonly object _highlightTag = new();
+    private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
+    private bool _synchronizingSelection;
+    private CodeDocument _document = new();
+    private readonly RichTextDecorationLayer _syntaxLayer;
     private Microsoft.Maui.Dispatching.IDispatcherTimer? _compositionTimer;
     private IReadOnlyList<CodeToken> _tokens = Array.Empty<CodeToken>();
     internal RichEditor TextView { get; }
@@ -125,7 +158,10 @@ public sealed partial class CodeEditor : ContentView
             IsSpellCheckEnabled = false,
             IsTextPredictionEnabled = false,
             Keyboard = Keyboard.Create(KeyboardFlags.None),
+            Document = _document.Source,
         };
+        Selection = new CodeTextSelection(TextView.Selection);
+        _syntaxLayer = TextView.Decorations.CreateLayer();
         Commands = new CodeEditorCommands(this);
         _gutter = new GraphicsView { Drawable = new LineNumberDrawable(this), InputTransparent = true };
         var grid = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 0 };
@@ -136,9 +172,8 @@ public sealed partial class CodeEditor : ContentView
         TextView.SelectionChanged += (_, args) =>
         {
             UpdateLines();
-            SetValue(SelectedRangeProperty, TextView.SelectedRange);
+            SynchronizeSelectionProperties();
             OnPropertyChanged(nameof(CaretPosition));
-            Commands.Refresh();
             InvalidateGutter();
             SelectionChanged?.Invoke(this, args);
         };
@@ -168,21 +203,25 @@ public sealed partial class CodeEditor : ContentView
             Pasting?.Invoke(this, args);
             args.Fragment = RichTextDocumentFragment.FromPlainText(args.Fragment.Text);
         };
-        SetValue(DocumentProperty, TextView.Document);
+        SetValue(DocumentProperty, _document);
         UpdateLines();
         UpdateAppearance();
     }
 
-    /// <summary>Gets or sets the stable live source document. Persist code through <see cref="RichTextDocument.Text"/>.</summary>
-    public RichTextDocument Document
+    /// <summary>Gets or sets the stable live source document. Persist code through <see cref="CodeDocument.Text"/>.</summary>
+    public CodeDocument Document
     {
-        get => TextView.Document;
+        get => _document;
         set { ArgumentNullException.ThrowIfNull(value); SetValue(DocumentProperty, value); }
     }
     /// <summary>Gets or sets the selected UTF-16 range, clamped to the source length.</summary>
-    public RichTextRange SelectedRange { get => (RichTextRange)GetValue(SelectedRangeProperty); set => SetValue(SelectedRangeProperty, value); }
-    /// <summary>Gets the underlying live selection facade.</summary>
-    public RichTextSelection Selection => TextView.Selection;
+    public RichTextRange SelectedRange { get => TextView.SelectedRange; set => TextView.SelectedRange = value; }
+    /// <summary>Gets or sets the anchor and active offsets.</summary>
+    public RichTextSelectionState SelectionState { get => TextView.SelectionState; set => TextView.SelectionState = value; }
+    /// <summary>Gets the source-only live selection facade.</summary>
+    public CodeTextSelection Selection { get; }
+    /// <summary>Gets presentation layers. Application layers compose above syntax coloring.</summary>
+    public RichTextDecorations Decorations => TextView.Decorations;
     /// <summary>Gets or sets the highlighter, or null to disable syntax coloring.</summary>
     public ICodeSyntaxHighlighter? Highlighter { get => (ICodeSyntaxHighlighter?)GetValue(HighlighterProperty); set => SetValue(HighlighterProperty, value); }
     /// <summary>Gets or sets the editor palette.</summary>
@@ -207,12 +246,12 @@ public sealed partial class CodeEditor : ContentView
     public bool UseTabs { get => (bool)GetValue(UseTabsProperty); set => SetValue(UseTabsProperty, value); }
     /// <summary>Gets or sets whether Enter copies the current line's leading whitespace.</summary>
     public bool AutoIndent { get => (bool)GetValue(AutoIndentProperty); set => SetValue(AutoIndentProperty, value); }
-    /// <summary>Gets or sets the prefix used by <see cref="ToggleLineComment"/>.</summary>
+    /// <summary>Gets or sets the prefix used by the native line-comment shortcut.</summary>
     public string LineCommentPrefix { get => (string)GetValue(LineCommentPrefixProperty); set => SetValue(LineCommentPrefixProperty, value); }
     /// <summary>Gets the logical line count, including a trailing empty line.</summary>
     public int LineCount => Lines.Count;
-    /// <summary>Gets the one-based position of the selection start.</summary>
-    public CodePosition CaretPosition => Lines.GetPosition(Math.Min(SelectedRange.Start, Lines.Text.Length));
+    /// <summary>Gets the one-based position of the active selection endpoint.</summary>
+    public CodePosition CaretPosition => Lines.GetPosition(Math.Min(SelectionState.Active, Lines.Text.Length));
     /// <summary>Gets the last successfully classified tokens.</summary>
     public IReadOnlyList<CodeToken> Tokens => _tokens;
     /// <summary>Gets whether an undo unit is available.</summary>
@@ -244,6 +283,9 @@ public sealed partial class CodeEditor : ContentView
     public void ClearUndoHistory() => TextView.ClearUndoHistory();
     /// <summary>Selects all source text.</summary>
     public void SelectAll() => TextView.SelectAll();
+    /// <summary>Reveals source without changing the selection.</summary>
+    /// <param name="range">The source range to reveal.</param>
+    public void ScrollIntoView(RichTextRange range) => TextView.ScrollIntoView(range);
     /// <summary>Copies the selection through the native clipboard.</summary>
     /// <returns>The clipboard operation.</returns>
     public Task CopyAsync() => TextView.CopyAsync();
@@ -261,6 +303,7 @@ public sealed partial class CodeEditor : ContentView
 
     private async Task HighlightAsync(TimeSpan delay, CancellationToken cancellationToken)
     {
+        VerifyAccess();
         CancelHighlighting();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _highlightCancellation = cancellation;
@@ -297,9 +340,8 @@ public sealed partial class CodeEditor : ContentView
                 WaitForComposition();
                 return;
             }
-            var formatting = GetForegroundChanges(document.CurrentSnapshot, tokens);
-            document.Edit(edit => edit.SetCharacterFormats(formatting),
-                new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory, tag: _highlightTag));
+            _syntaxLayer.Set(tokens.Select(item => new RichTextDecoration(item.Range,
+                new RichTextDecorationStyle { ForegroundColor = Theme.GetColor(item.Kind) })));
             if (token.IsCancellationRequested || !ReferenceEquals(Document, document)) return;
             _tokens = tokens;
             OnPropertyChanged(nameof(Tokens));
@@ -313,43 +355,6 @@ public sealed partial class CodeEditor : ContentView
     }
 
     internal void CancelHighlighting() => _highlightCancellation?.Cancel();
-
-    private List<RichTextRun> GetForegroundChanges(RichTextDocumentSnapshot snapshot, IReadOnlyList<CodeToken> tokens)
-    {
-        var changes = new List<RichTextRun>();
-        var tokenIndex = 0;
-        foreach (var run in snapshot.Runs)
-        {
-            for (var position = run.Range.Start; position < run.Range.End;)
-            {
-                while (tokenIndex < tokens.Count && tokens[tokenIndex].Range.End <= position) tokenIndex++;
-                var end = run.Range.End;
-                Color? color = null;
-                if (tokenIndex < tokens.Count)
-                {
-                    var token = tokens[tokenIndex];
-                    if (token.Range.Start <= position)
-                    {
-                        end = Math.Min(end, token.Range.End);
-                        color = Theme.GetColor(token.Kind);
-                    }
-                    else end = Math.Min(end, token.Range.Start);
-                }
-                if (!Equals(run.Format.ForegroundColor, color))
-                {
-                    var format = run.Format with { ForegroundColor = color };
-                    if (changes.Count > 0 && changes[^1].Range.End == position && changes[^1].Format == format)
-                    {
-                        var previous = changes[^1].Range;
-                        changes[^1] = new RichTextRun(new RichTextRange(previous.Start, end - previous.Start), format);
-                    }
-                    else changes.Add(new RichTextRun(new RichTextRange(position, end - position), format));
-                }
-                position = end;
-            }
-        }
-        return changes;
-    }
 
     internal async void ScheduleHighlighting()
     {
@@ -381,20 +386,38 @@ public sealed partial class CodeEditor : ContentView
         _compositionTimer.Start();
     }
 
-    private void SetDocument(RichTextDocument document)
+    private void SetDocument(CodeDocument document)
     {
-        TextView.Document = document;
+        _document = document;
+        TextView.Document = document.Source;
         NativeAdapter?.UpdateConfiguration();
-        SetValue(SelectedRangeProperty, TextView.SelectedRange);
+        SynchronizeSelectionProperties();
         UpdateLines();
         ScheduleHighlighting();
+    }
+
+    private void SynchronizeSelectionProperties()
+    {
+        _synchronizingSelection = true;
+        try
+        {
+            SetValue(SelectedRangeProperty, TextView.SelectedRange);
+            SetValue(SelectionStateProperty, TextView.SelectionState);
+        }
+        finally { _synchronizingSelection = false; }
+    }
+
+    private void VerifyAccess()
+    {
+        if (Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("CodeEditor must be mutated on its owning UI thread.");
     }
 
     private void OnContentChanged(object? sender, RichTextContentChangedEventArgs args)
     {
         NativeAdapter?.UpdateConfiguration();
         UpdateLines();
-        if (!ReferenceEquals(args.ChangeSet.Tag, _highlightTag)) ScheduleHighlighting();
+        ScheduleHighlighting();
         if (args.ChangeSet.Origin == RichTextChangeOrigin.User) QueueNativeAutoIndent(args.ChangeSet);
         ContentChanged?.Invoke(this, args);
         if (args.ChangeSet.IsTextChanged) TextChanged?.Invoke(this, new RichTextTextChangedEventArgs(args.ChangeSet));
@@ -405,7 +428,6 @@ public sealed partial class CodeEditor : ContentView
         if (args.PropertyName is nameof(CanUndo) or nameof(CanRedo))
         {
             OnPropertyChanged(args.PropertyName);
-            Commands.Refresh();
         }
     }
 

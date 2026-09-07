@@ -13,6 +13,8 @@
     <EnableDefaultMauiItems>false</EnableDefaultMauiItems>
     <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CsWinRTAotWarningLevel>3</CsWinRTAotWarningLevel>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,6 +30,8 @@
     <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
     <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
     <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.cs" Link="EditorContractTests.cs" />
+    <Compile Include="..\RichEdit.Maui.TestApp\CodeEditorActions.cs" Link="Samples\CodeEditorActions.cs" />
+    <Compile Include="..\RichEdit.Maui.TestApp\RichEditorFormattingCommands.cs" Link="Samples\RichEditorFormattingCommands.cs" />
     <EmbeddedResource Include="..\RichEdit.Maui.TestApp\MainPage.xaml.cs" LogicalName="EditorSampleSource" />
   </ItemGroup>
 

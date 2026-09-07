@@ -103,7 +103,7 @@ internal static class AppleEditorTests
             editor.Redo();
             await Drain();
             Equal("one\nsecond", editor.Document.Text);
-            Equal(RichTextRange.Empty, editor.SelectedRange);
+            Equal(new RichTextRange(10, 0), editor.SelectedRange);
         });
 
         await Test("native formatting without metadata distinguishes defaults from edits", async () =>
@@ -224,7 +224,7 @@ internal static class AppleEditorTests
             editor.Redo();
             await VerifyViewport("redo");
             Equal(source.Insert(31, "edit"), editor.Document.Text);
-            Equal(new RichTextRange(31, 0), editor.SelectedRange);
+            Equal(new RichTextRange(35, 0), editor.SelectedRange);
 
             editor.Document = RichTextDocument.FromPlainText("short");
             editor.Selection.ReplaceText(source);
@@ -367,7 +367,7 @@ internal static class AppleEditorTests
             editor.Undo();
             await Drain();
             Equal(before, editor.Document.RtfText);
-            Equal(RichTextRange.Empty, editor.SelectedRange);
+            Equal(new RichTextRange(0, 5), editor.SelectedRange);
             Equal(false, editor.CanUndo);
             editor.Redo();
             await Drain();

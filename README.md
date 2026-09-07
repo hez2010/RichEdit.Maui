@@ -2,7 +2,7 @@
 
 `RichEdit.Maui` is a native-handler rich-text editor for .NET MAUI. It combines a bindable editor control, a stable live document, immutable versioned snapshots, and atomic range edits.
 
-For source-code editing, [CodeEdit.Maui](CodeEdit.Maui/README.md) builds on the same document and native handlers with C# syntax coloring, line numbers, indentation, line comments, and find/replace. Register it with `builder.UseCodeEditor()` and try the test app's **Code editor** tab.
+For source-code editing, [CodeEdit.Maui](CodeEdit.Maui/README.md) provides C# syntax coloring, line numbers, and native keyboard editing. Register it with `builder.UseCodeEditor()`. The test app's **Code editor** tab demonstrates application toolbar actions and find/replace.
 
 The editor uses each platform's native text stack:
 
@@ -24,9 +24,8 @@ builder
 
 ## Own editor content
 
-Bind one stable `RichTextDocument` to the control. The editor deliberately has no
-`Text` or `RtfText` content properties, so native input and application code cannot
-compete through projection bindings:
+Bind a stable `RichTextDocument` to the control. Native input and application
+edits update that document:
 
 ```xml
 <ContentPage
@@ -44,8 +43,8 @@ compete through projection bindings:
 </ContentPage>
 ```
 
-Create an initial document from RTF and assign it as a whole. Read-only `Text` and
-`RtfText` projections remain on the document for inspection and persistence:
+Create an initial document from RTF and assign it to the editor. Read its `Text`
+and `RtfText` projections for inspection and persistence:
 
 ```csharp
 Editor.Document = RichTextDocument.FromRtf(rtfText);
@@ -77,7 +76,7 @@ Editor.Selection.CharacterFormat.BackgroundColor = Color.FromArgb("#FFF3A3");
 Editor.Selection.ParagraphFormat.Alignment = RichTextAlignment.Center;
 ```
 
-Each selection-format property has a corresponding mixed-state property, such as `IsFontFamilyMixed`. Authored values remain distinct from effective rendering values:
+Each selection-format property has a corresponding mixed-state property, such as `IsFontFamilyMixed`. Authored values and effective rendering values are reported separately:
 
 ```csharp
 var authoredFont = Editor.Selection.CharacterFormat.FontFamily;
@@ -167,9 +166,9 @@ The transaction produces one version change, native batch, undo unit, and change
 
 `CurrentSnapshot` exposes an immutable view of the current version for safe enumeration. Range-bearing values use `RichTextRange`, whose offsets and lengths are UTF-16 code units.
 
-## Grouping edits and derived formatting
+## Grouping edits and authored formatting
 
-`Document.Edit` is an atomic transaction. To combine several existing editing operations into one undo unit, open an undo group:
+`Document.Edit` is an atomic transaction. To combine several editing operations into one undo unit, open an undo group:
 
 ```csharp
 using (Editor.Document.BeginUndoGroup("Insert heading and body"))
@@ -179,9 +178,9 @@ using (Editor.Document.BeginUndoGroup("Insert heading and body"))
 }
 ```
 
-Groups can nest and must close in reverse order. Edits still commit and notify independently; an undo group does not roll back committed edits on an exception. Undo/redo are unavailable until the outermost group closes, and history cannot be cleared while a group is open.
+Groups can nest and must close in reverse order. Edits commit and notify independently; an undo group does not roll back committed edits on an exception. Undo/redo are unavailable until the outermost group closes, and history cannot be cleared while a group is open.
 
-Derived formatting, such as search highlighting or application-generated styles, can preserve existing undo and redo history:
+Application-generated document styles can preserve undo and redo history:
 
 ```csharp
 Editor.Document.Edit(
@@ -189,22 +188,24 @@ Editor.Document.Edit(
     new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory));
 ```
 
-`PreserveHistory` accepts character, paragraph, and default formatting. Text and semantic edits are rejected atomically. This formatting remains document content and is included in RTF. Undo/redo may restore older formatting, so applications that derive it from text should reapply it after history transitions. `DoNotRecord` and `ClearHistory` retain their existing history-clearing behavior.
+`PreserveHistory` accepts character, paragraph, and default formatting. Text and semantic edits are rejected atomically. These formats are document content and are included in RTF. Undo/redo restore formatting from recorded snapshots, so applications that derive styles from text should reapply them after history transitions. Use `Decorations` for view-only syntax colors and search highlights. `ClearHistory` commits the edit and clears undo/redo.
 
 ## MVVM commands
 
-`Commands` exposes `ICommand` instances with editor-aware `CanExecute` state:
+`Commands` exposes `Undo`, `Redo`, `SelectAll`, `Copy`, `Cut`, and `Paste` with editor-aware `CanExecute` state. Native menus and clipboard shortcuts use these same commands.
 
 ```xml
-<Button Text="B"
-        Command="{Binding Source={x:Reference Editor}, Path=Commands.ToggleBold}" />
-
-<Button Text="Underline"
-        Command="{Binding Source={x:Reference Editor}, Path=Commands.ToggleUnderline}"
-        CommandParameter="{x:Static rich:RichTextUnderlineStyle.Single}" />
+<Button Text="Undo"
+        Command="{Binding Source={x:Reference Editor}, Path=Commands.Undo}" />
 ```
 
-Parameterized commands accept `RichTextListCommandRequest`, `RichTextLinkRequest`, `RichTextFieldRequest`, and image values. Advanced toolbars can bind directly to `Selection.CharacterFormat` and `Selection.ParagraphFormat`.
+Formatting toolbar commands belong to the application. The sample's [RichEditorFormattingCommands.cs](RichEdit.Maui.TestApp/RichEditorFormattingCommands.cs) wraps `Selection` operations and owns the list, link, and field command request types. Applications can also use those operations directly or bind to `Selection.CharacterFormat` and `Selection.ParagraphFormat`.
+
+```csharp
+var bold = new Command(Editor.Selection.ToggleBold, () => !Editor.IsReadOnly);
+```
+
+Refresh an application's command state when its editor state changes, as the sample does.
 
 ## Events and editor operations
 
@@ -223,14 +224,15 @@ await Editor.PasteAsync();
 
 Copy and cut from native menus and keyboard shortcuts use the same portable fragments as these methods. Copies within the running application retain formatting that RTF cannot represent; Windows and Apple also publish RTF and plain text for other applications. Paste raises `Pasting`, respects `MaxLength`, and preserves destination typing formatting for plain text. Android's **Paste as plain text** discards the copied formatting.
 
-All platforms use document snapshots for undo and redo, including field instructions, image payloads, and metadata. Selection is not stored in history: the current range is remapped and clamped as content changes. Apple's native undo manager forwards system undo/redo commands to that history, so native typing and programmatic edits remain in one consistent sequence. Undo and redo are disabled while the editor is read-only.
+All platforms use document snapshots for undo and redo, including field instructions, image payloads, and metadata. Undo entries also retain the before/after directional selection. `SelectionState` exposes its anchor and active UTF-16 offsets, while `SelectedRange` is its normalized range. Apple's native undo manager forwards system undo/redo commands to that history, so native typing and programmatic edits remain in one consistent sequence. Undo and redo are disabled while the editor is read-only.
 
 ## Tests
 
 The Windows test project includes a WinUI application host, so its integration tests exercise real `RichEditBox` instances and clipboard commands. Run it on Windows with the matching Windows App SDK runtime installed:
 
 ```powershell
-dotnet test RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj -p:Platform=x64 -p:WindowsPackageType=None
+dotnet build RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj -p:Platform=x64 -p:WindowsPackageType=None
+& ./RichEdit.Maui.Tests/bin/x64/Debug/net10.0-windows10.0.19041.0/RichEdit.Maui.Tests.exe -parallelMode none -nocolor
 ```
 
 The Android test app also includes a debug-only native test mode. Build and install its Debug APK, then launch the main activity with the boolean intent extra `run-editor-tests=true`. Results are written to `cache/editor-tests.txt` in the app's private storage and to the `RichEditTests` logcat tag. Use a dedicated emulator; these checks temporarily exercise its clipboard. Keep fast-deployment overrides consistent with the installed APK when switching SDKs.
@@ -242,3 +244,38 @@ For the Apple debug test mode, launch the test app with `RICHEDIT_RUN_TESTS=1` i
 The reader follows RTF group scoping, Unicode fallback, `\upr`/`\ud` Unicode-alternate, code-page, paragraph-default, and ignorable-destination rules. It accepts ANSI (`\ansicpg`), Mac, PC 437, PC 850, and font-specific `\fcharset`/`\cpg` text; `\ansi` without `\ansicpg` decodes as Windows-1252. Table cells are flattened to tab/newline text. `\line` is represented as U+2028 and `\par` as `\n`, so soft and paragraph breaks remain distinct.
 
 RTF uses opaque 8-bit RGB colors and half-point font sizes. Serialization rounds model values to those wire-format units. Nonzero alpha is degraded to opaque RGB; a fully transparent formatting color means unset/reset instead of an alpha-zero native color.
+
+## Presentation layers
+
+Use `Editor.Decorations` for syntax colors, diagnostics, or search highlights. These overrides never enter the document, its RTF, content events, saved state, or undo history. Layers compose in creation order; properties specified by a later layer override earlier layers. Ranges within each layer must be nonempty, ordered, and non-overlapping. Native painting is deferred during IME composition.
+
+```csharp
+using var matches = Editor.Decorations.CreateLayer();
+matches.Set([new(new RichTextRange(0, 5),
+    new RichTextDecorationStyle { BackgroundColor = Colors.Yellow })]);
+```
+
+Replacing the document clears the layers. Text edits map their ranges, and disposing a layer restores the remaining appearance. `Decorations.Changed` and `Version` describe presentation independently of document changes.
+
+## Selection, history, and saves
+
+```csharp
+Editor.SelectionState = new RichTextSelectionState(anchor: 20, active: 5);
+Editor.ScrollIntoView(Editor.SelectedRange);
+Editor.Document.Undo(); // Restores content and the recorded selection.
+
+var snapshot = Editor.Document.CurrentSnapshot;
+var savePoint = Editor.Document.CreateSavePoint();
+await SaveRtfAsync(snapshot.RtfText); // Application-owned persistence.
+Editor.Document.MarkSaved(savePoint); // Later edits remain modified.
+```
+
+The document exposes `CanUndo`, `CanRedo`, `UndoDescription`, `RedoDescription`, `Undo`, `Redo`, `ClearUndoHistory`, `BeginUndoGroup`, and `IsModified`, including while detached. `MarkSaved()` marks the current state; a captured save point supports asynchronous saves. Undo/redo recognize a saved state independently of the monotonically increasing document version. Editor commands additionally respect `IsReadOnly`.
+
+## Threading and notifications
+
+Create controls on their owning UI thread. Attached document mutations, history operations, and save-state changes require that thread and throw before committing when called elsewhere. Detached document mutations must be serialized by the caller. Immutable snapshots may be inspected on background threads.
+
+Before public notifications, the committed document, native view, selection, and history availability are synchronized. Notification order is document `Changed`, editor `ContentChanged`/`TextChanged`, document projection/history property changes, and finally selection and selection-format notifications. Recursive document mutation from those notifications throws. An exception from an application notification propagates after the transaction has committed.
+
+Awaited clipboard methods propagate their exceptions. Clipboard commands and native menu actions propagate asynchronous exceptions to the application's UI exception handling without logging and suppressing them.

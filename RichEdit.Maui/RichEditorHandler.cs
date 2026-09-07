@@ -28,6 +28,8 @@ internal interface IRichEditorHandler
 
     bool SupportsNativeUndo { get; }
 
+    bool IsComposing { get; }
+
     bool CanUndo { get; }
 
     bool CanRedo { get; }
@@ -46,7 +48,11 @@ internal interface IRichEditorHandler
 
     void ApplyAppearance(RichTextAppearanceChange changes);
 
-    void SetSelection(RichTextRange selection);
+    void ApplyDecorations(RichTextChangeSet changes);
+
+    void SetSelection(RichTextSelectionState selection);
+
+    void ScrollIntoView(RichTextRange range);
 
     void ApplyTypingFormat(
         RichTextCharacterFormat characterFormat,
@@ -108,6 +114,10 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     bool IRichEditorHandler.SupportsNativeUndo => SupportsNativeUndoCore();
 
+    bool IRichEditorHandler.IsComposing => IsComposingCore();
+
+    private partial bool IsComposingCore();
+
     bool IRichEditorHandler.CanUndo => CanUndoCore();
 
     bool IRichEditorHandler.CanRedo => CanRedoCore();
@@ -139,6 +149,10 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             typingCharacterFormat,
             typingParagraphFormat);
 
+    void IRichEditorHandler.ApplyDecorations(RichTextChangeSet changes) => ApplyDecorationsCore(changes);
+
+    private partial void ApplyDecorationsCore(RichTextChangeSet changes);
+
     void IRichEditorHandler.ApplyAppearance(RichTextAppearanceChange changes)
     {
         if ((changes & (RichTextAppearanceChange.Placeholder |
@@ -156,8 +170,9 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         }
     }
 
-    void IRichEditorHandler.SetSelection(RichTextRange selection) =>
-        SetSelectionCore(selection.Start, selection.Length);
+    void IRichEditorHandler.SetSelection(RichTextSelectionState selection) => SetNativeSelectionCore(selection);
+
+    void IRichEditorHandler.ScrollIntoView(RichTextRange range) => ScrollIntoViewCore(range);
 
     void IRichEditorHandler.ApplyTypingFormat(
         RichTextCharacterFormat characterFormat,
@@ -210,7 +225,16 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         RichTextCharacterFormat characterFormat,
         RichTextParagraphFormat paragraphFormat);
 
-    private partial void SetSelectionCore(int start, int length);
+    private void SetSelectionCore(int start, int length)
+    {
+        var range = new RichTextRange(start, length).Clamp(VirtualView.Document.Length);
+        var selection = VirtualView.SelectionState;
+        SetNativeSelectionCore(selection.Range == range ? selection : RichTextSelectionState.FromRange(range));
+    }
+
+    private partial void SetNativeSelectionCore(RichTextSelectionState selection);
+
+    private partial void ScrollIntoViewCore(RichTextRange range);
 
     private partial bool SupportsNativeUndoCore();
 

@@ -108,6 +108,8 @@ public class RichEditText : AppCompatEditText
         return base.OnKeyDown(keyCode, e);
     }
 
+    private static async void ExecuteClipboardCommand(Func<Task> command) => await RichEditorCommands.ExecuteAsync(command);
+
     /// <inheritdoc />
     public override bool OnTextContextMenuItem(int id)
     {
@@ -115,19 +117,19 @@ public class RichEditText : AppCompatEditText
             id == global::Android.Resource.Id.PasteAsPlainText;
         if (isPaste && PasteRequested is { } pasteRequested)
         {
-            _ = RichEditorCommands.ExecuteAsync(() => pasteRequested(id == global::Android.Resource.Id.PasteAsPlainText));
+            ExecuteClipboardCommand(() => pasteRequested(id == global::Android.Resource.Id.PasteAsPlainText));
             return true;
         }
 
         if (id == global::Android.Resource.Id.Copy && CopyRequested is { } copy)
         {
-            _ = RichEditorCommands.ExecuteAsync(copy);
+            ExecuteClipboardCommand(copy);
             return true;
         }
 
         if (id == global::Android.Resource.Id.Cut && CutRequested is { } cut)
         {
-            _ = RichEditorCommands.ExecuteAsync(cut);
+            ExecuteClipboardCommand(cut);
             return true;
         }
 

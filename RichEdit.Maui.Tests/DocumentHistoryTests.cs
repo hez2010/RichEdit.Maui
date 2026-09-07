@@ -131,7 +131,6 @@ public class DocumentHistoryTests
 
     [Theory]
     [InlineData(RichTextUndoBehavior.ClearHistory)]
-    [InlineData(RichTextUndoBehavior.DoNotRecord)]
     public void HistoryCannotBeClearedInsideAnOpenGroup(RichTextUndoBehavior behavior)
     {
         var document = RichTextDocument.FromPlainText("a");

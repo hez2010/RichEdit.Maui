@@ -16,6 +16,7 @@ public partial class RichEditorHandler
     private static readonly byte[] ImagePlaceholder = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
     private bool _applyingDocument;
+    private bool _isComposing;
     private bool _canReadLanguageTag = true;
     private bool _hasCompletedInitialLoad;
     private bool _hasNativeLinks;
@@ -53,6 +54,8 @@ public partial class RichEditorHandler
         platformView.CopyingToClipboard += OnPlatformCopy;
         platformView.CuttingToClipboard += OnPlatformCut;
         platformView.Tapped += OnPlatformTapped;
+        platformView.TextCompositionStarted += OnCompositionStarted;
+        platformView.TextCompositionEnded += OnCompositionEnded;
         _contextFlyout = new TextCommandBarFlyout();
         _selectionFlyout = new TextCommandBarFlyout();
         _contextFlyout.Opening += OnTextFlyoutOpening;
@@ -75,6 +78,9 @@ public partial class RichEditorHandler
         platformView.CopyingToClipboard -= OnPlatformCopy;
         platformView.CuttingToClipboard -= OnPlatformCut;
         platformView.Tapped -= OnPlatformTapped;
+        platformView.TextCompositionStarted -= OnCompositionStarted;
+        platformView.TextCompositionEnded -= OnCompositionEnded;
+        _isComposing = false;
         if (_contextFlyout is not null)
         {
             _contextFlyout.Opening -= OnTextFlyoutOpening;
@@ -99,6 +105,7 @@ public partial class RichEditorHandler
         int selectionStart,
         int selectionLength)
     {
+        document = VirtualView.Decorations.Project(document);
         if (PlatformView is null)
         {
             return;
@@ -249,6 +256,9 @@ public partial class RichEditorHandler
         }
     }
 
+    private partial void ApplyDecorationsCore(RichTextChangeSet changes) => ApplyIncrementalChangesCore(
+        changes, VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+
     private partial void ApplyIncrementalChangesCore(
         RichTextChangeSet changes,
         RichTextRange selection,
@@ -260,7 +270,7 @@ public partial class RichEditorHandler
             return;
         }
 
-        var snapshot = VirtualView.Document.CurrentSnapshot;
+        var snapshot = VirtualView.PresentationSnapshot;
         var affectedRange = changes.GetAffectedRange(snapshot.Length);
         var hasListChanges = changes.Changes.Any(
             static change => change.Kind == RichTextChangeKind.List);
@@ -686,28 +696,32 @@ public partial class RichEditorHandler
         nativeDocument.LoadFromStream(TextSetOptions.FormatRtf, stream);
     }
 
-    private partial void SetSelectionCore(int start, int length)
+    private partial void SetNativeSelectionCore(RichTextSelectionState selection)
     {
-        if (PlatformView is null)
+        if (PlatformView is null) return;
+        var range = selection.Range;
+        var positions = _hasNativeLinks ? GetNativeTextSnapshot() : null;
+        var native = PlatformView.Document.Selection;
+        var wasApplying = _applyingDocument;
+        _applyingDocument = true;
+        try
         {
-            return;
+            native.SetRange(positions?.ToNativePosition(range.Start) ?? range.Start, positions?.ToNativePosition(range.End) ?? range.End);
+            native.Options = selection.IsReversed ? native.Options | SelectionOptions.StartActive : native.Options & ~SelectionOptions.StartActive;
         }
-
-        var textLength = VirtualView?.Document.Text.Length ?? 0;
-        start = Math.Clamp(start, 0, textLength);
-        length = Math.Clamp(length, 0, textLength - start);
-        if (_hasNativeLinks)
-        {
-            var snapshot = GetNativeTextSnapshot();
-            PlatformView.Document.Selection.SetRange(
-                snapshot.ToNativePosition(start),
-                snapshot.ToNativePosition(start + length));
-        }
-        else
-        {
-            PlatformView.Document.Selection.SetRange(start, start + length);
-        }
+        finally { _applyingDocument = wasApplying; }
     }
+
+    private partial void ScrollIntoViewCore(RichTextRange range)
+    {
+        var positions = _hasNativeLinks ? GetNativeTextSnapshot() : null;
+        PlatformView.Document.GetRange(positions?.ToNativePosition(range.Start) ?? range.Start,
+            positions?.ToNativePosition(range.End) ?? range.End).ScrollIntoView(PointOptions.None);
+    }
+
+    private partial bool IsComposingCore() => _isComposing;
+    private void OnCompositionStarted(RichEditBox sender, TextCompositionStartedEventArgs args) => _isComposing = true;
+    private void OnCompositionEnded(RichEditBox sender, TextCompositionEndedEventArgs args) => _isComposing = false;
 
     private partial bool SupportsNativeUndoCore() => false;
 
@@ -799,7 +813,7 @@ public partial class RichEditorHandler
         {
             if (_hasNativeLinks)
             {
-                ApplyDocumentCore(editor.Document.CurrentSnapshot, editor.SelectedRange.Start, editor.SelectedRange.Length);
+                ApplyDocumentCore(editor.PresentationSnapshot, editor.SelectedRange.Start, editor.SelectedRange.Length);
                 ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
                 return;
             }
@@ -810,7 +824,7 @@ public partial class RichEditorHandler
             try
             {
                 ApplyCharacterFormatsIncrementally(
-                    editor.Document.CurrentSnapshot,
+                    editor.PresentationSnapshot,
                     new RichTextRange(0, editor.Document.Length));
                 SetSelectionCore(editor.SelectedRange.Start, editor.SelectedRange.Length);
             }
@@ -1926,7 +1940,8 @@ public partial class RichEditorHandler
         }
 
         var length = end - start;
-        VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken);
+        VirtualView.UpdateDocumentFromPlatform(document, start, length, _sourceToken, selectionState:
+            (selection.Options & SelectionOptions.StartActive) != 0 ? new RichTextSelectionState(end, start) : new RichTextSelectionState(start, end));
         PlatformView.Document.ClearUndoRedoHistory();
         VirtualView.UpdateUndoStateFromPlatform();
         UpdateTypingFormatsFromPlatform();
@@ -2170,7 +2185,8 @@ public partial class RichEditorHandler
         start = Math.Clamp(start, 0, VirtualView.Document.Text.Length);
         end = Math.Clamp(end, start, VirtualView.Document.Text.Length);
         var length = end - start;
-        VirtualView.UpdateSelectionFromPlatform(start, length);
+        VirtualView.UpdateSelectionFromPlatform((selection.Options & SelectionOptions.StartActive) != 0 ?
+            new RichTextSelectionState(end, start) : new RichTextSelectionState(start, end));
         UpdateTypingFormatsFromPlatform();
     }
 
@@ -2197,6 +2213,7 @@ public partial class RichEditorHandler
         _nativeTypingParagraphFormat = MergeWindowsParagraphFormat(
             nativeParagraph,
             previousParagraph);
+        _nativeTypingFormat = VirtualView.Decorations.RestoreTypingFormat(_nativeTypingFormat);
         VirtualView.UpdateTypingFormatsFromPlatform(
             _nativeTypingFormat,
             _nativeTypingParagraphFormat);

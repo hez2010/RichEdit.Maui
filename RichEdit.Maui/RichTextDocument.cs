@@ -19,6 +19,14 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     /// </summary>
     public const char SoftLineBreakCharacter = '\u2028';
 
+    private readonly object _identity = new();
+    private long _nextStateId;
+    private long _stateId;
+    private long _savedStateId;
+    private long _lastSavePointStateId = -1;
+    private long _undoGroupStateId;
+    private RichTextSelectionState? _undoGroupSelection;
+    private RichTextSelectionState? _undoGroupAfterSelection;
     private readonly Stack<UndoEntry> _undo = new();
     private readonly Stack<UndoEntry> _redo = new();
     private readonly Stack<UndoGroup> _undoGroups = new();
@@ -133,9 +141,46 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     /// </summary>
     public RichTextDocumentSnapshot CurrentSnapshot => _snapshot;
 
-    internal bool CanUndo => _undo.Count != 0 && !IsUndoGroupOpen;
+    /// <summary>Gets whether a recorded edit can be undone.</summary>
+    public bool CanUndo => _undo.Count != 0 && !IsUndoGroupOpen;
 
-    internal bool CanRedo => _redo.Count != 0 && !IsUndoGroupOpen;
+    /// <summary>Gets whether an undone edit can be reapplied.</summary>
+    public bool CanRedo => _redo.Count != 0 && !IsUndoGroupOpen;
+
+    /// <summary>Gets the description of the next undo operation.</summary>
+    public string? UndoDescription => CanUndo ? _undo.Peek().Description : null;
+
+    /// <summary>Gets the description of the next redo operation.</summary>
+    public string? RedoDescription => CanRedo ? _redo.Peek().Description : null;
+
+    /// <summary>Gets whether the current content differs from the last marked saved state.</summary>
+    public bool IsModified => _stateId != _savedStateId;
+
+    /// <summary>Captures the current content state before saving its snapshot.</summary>
+    /// <returns>A save point belonging to this document.</returns>
+    public RichTextSavePoint CreateSavePoint()
+    {
+        VerifyAccess();
+        _lastSavePointStateId = _stateId;
+        return new RichTextSavePoint(_identity, _stateId);
+    }
+
+    /// <summary>Marks the current document state as saved.</summary>
+    public void MarkSaved() => MarkSaved(CreateSavePoint());
+
+    /// <summary>Marks a captured state as saved without marking intervening edits as saved.</summary>
+    /// <param name="savePoint">The state whose corresponding snapshot was successfully saved.</param>
+    public void MarkSaved(RichTextSavePoint savePoint)
+    {
+        VerifyNoActiveEdit();
+        if (!ReferenceEquals(savePoint.Owner, _identity))
+            throw new ArgumentException("The save point belongs to a different document.", nameof(savePoint));
+        if (_savedStateId == savePoint.StateId) return;
+        _savedStateId = savePoint.StateId;
+        _notificationInProgress = true;
+        try { OnPropertyChanged(nameof(IsModified)); }
+        finally { _notificationInProgress = false; }
+    }
 
     /// <summary>Gets whether an explicit undo group is open.</summary>
     public bool IsUndoGroupOpen => _undoGroups.Count != 0;
@@ -157,6 +202,9 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         {
             _undoGroupBefore = null;
             _undoGroupDescription = description;
+            _undoGroupStateId = _stateId;
+            _undoGroupSelection = AttachedEditor?.SelectionState;
+            _undoGroupAfterSelection = _undoGroupSelection;
             ResetNativeEditCoalescing();
         }
         _undoGroups.Push(group);
@@ -301,7 +349,8 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         return result;
     }
 
-    internal void Undo()
+    /// <summary>Restores the preceding recorded content and selection. Attached documents require the owning UI thread.</summary>
+    public void Undo()
     {
         VerifyNoActiveEdit();
         if (IsUndoGroupOpen) return;
@@ -311,10 +360,12 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         }
 
         _redo.Push(entry);
-        TransitionTo(entry.Before, RichTextChangeOrigin.Undo);
+        _stateId = entry.BeforeStateId;
+        TransitionTo(entry.Before, RichTextChangeOrigin.Undo, selection: entry.BeforeSelection);
     }
 
-    internal void Redo()
+    /// <summary>Reapplies the next recorded content and selection. Attached documents require the owning UI thread.</summary>
+    public void Redo()
     {
         VerifyNoActiveEdit();
         if (IsUndoGroupOpen) return;
@@ -324,10 +375,12 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         }
 
         _undo.Push(entry);
-        TransitionTo(entry.After, RichTextChangeOrigin.Redo);
+        _stateId = entry.AfterStateId;
+        TransitionTo(entry.After, RichTextChangeOrigin.Redo, selection: entry.AfterSelection);
     }
 
-    internal void ClearUndoHistory()
+    /// <summary>Clears undo and redo without changing content or its saved state.</summary>
+    public void ClearUndoHistory()
     {
         VerifyNoActiveEdit();
         VerifyNoOpenUndoGroup();
@@ -344,17 +397,20 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     internal void AttachEditor(object editor)
     {
+        (editor as RichEditor)?.VerifyAccess();
+        VerifyAccess();
         VerifyCanAttachEditor(editor);
         _attachedEditor = new WeakReference<object>(editor);
     }
 
     internal void VerifyCanAttachEditor(object editor)
     {
+        VerifyNoActiveEdit();
         ArgumentNullException.ThrowIfNull(editor);
         if (!CanAttachEditor(editor))
         {
             throw new InvalidOperationException(
-                "A rich-text document can be attached to only one editor at a time because native undo history is editor-local.");
+                "A rich-text document can be attached to only one editor at a time.");
         }
     }
 
@@ -371,6 +427,12 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             _attachedEditor = null;
         }
     }
+
+    internal RichEditor? AttachedEditor => _attachedEditor is not null && _attachedEditor.TryGetTarget(out var editor) ? editor as RichEditor : null;
+
+    internal void VerifyAccess() => AttachedEditor?.VerifyAccess();
+
+    internal void VerifyAttachmentChange() => VerifyNoActiveEdit();
 
     private RichTextChangeSet ExecuteEdit(
         Action<RichTextDocumentEdit> edit,
@@ -421,7 +483,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         {
             throw new InvalidOperationException("Preserving undo history is supported only for character, paragraph, and default formatting.");
         }
-        if (options.UndoBehavior is RichTextUndoBehavior.DoNotRecord or RichTextUndoBehavior.ClearHistory)
+        if (options.UndoBehavior == RichTextUndoBehavior.ClearHistory)
             VerifyNoOpenUndoGroup();
 
         if (origin != RichTextChangeOrigin.User && options.UndoBehavior != RichTextUndoBehavior.PreserveHistory)
@@ -432,31 +494,33 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         var before = _snapshot;
         var versionBefore = Version;
         var after = snapshot.WithVersion(checked(versionBefore + 1));
+        var beforeStateId = _stateId;
+        var afterStateId = checked(++_nextStateId);
+        var beforeSelection = AttachedEditor?.SelectionState;
+        var afterSelection = AttachedEditor?.GetSelectionAfterEdit(changes, after.Length);
 
         if (IsUndoGroupOpen && options.UndoBehavior is RichTextUndoBehavior.CreateUnit or RichTextUndoBehavior.MergeWithPrevious)
         {
             _undoGroupBefore ??= before;
+            _undoGroupAfterSelection = afterSelection;
         }
         else switch (options.UndoBehavior)
         {
             case RichTextUndoBehavior.CreateUnit:
-                _undo.Push(new UndoEntry(before, after, options.UndoDescription));
+                _undo.Push(new UndoEntry(before, after, options.UndoDescription, beforeStateId, afterStateId, beforeSelection, afterSelection));
                 _redo.Clear();
                 break;
             case RichTextUndoBehavior.MergeWithPrevious:
-                if (_undo.TryPop(out var preceding))
+                if (_undo.TryPeek(out var preceding) && preceding.AfterStateId != _lastSavePointStateId)
                 {
-                    _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription));
+                    _undo.Pop();
+                    _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription ?? preceding.Description, preceding.BeforeStateId, afterStateId, preceding.BeforeSelection, afterSelection));
                 }
                 else
                 {
-                    _undo.Push(new UndoEntry(before, after, options.UndoDescription));
+                    _undo.Push(new UndoEntry(before, after, options.UndoDescription, beforeStateId, afterStateId, beforeSelection, afterSelection));
                 }
 
-                _redo.Clear();
-                break;
-            case RichTextUndoBehavior.DoNotRecord:
-                _undo.Clear();
                 _redo.Clear();
                 break;
             case RichTextUndoBehavior.ClearHistory:
@@ -470,6 +534,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         }
 
         _snapshot = after;
+        _stateId = afterStateId;
         InvalidateRtfCache();
         var changeSet = new RichTextChangeSet(
             versionBefore,
@@ -482,6 +547,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             after,
             options.UndoBehavior,
             options.UndoDescription);
+        changeSet.SelectionAfter = afterSelection;
         RaiseChanged(changeSet, before, undoStateChanged: true);
         return changeSet;
     }
@@ -511,13 +577,14 @@ public sealed class RichTextDocument : INotifyPropertyChanged
                 tag: null,
                 beforeSnapshot: _snapshot,
                 afterSnapshot: _snapshot,
-                undoBehavior: RichTextUndoBehavior.DoNotRecord);
+                undoBehavior: RichTextUndoBehavior.ClearHistory);
         }
 
+        _stateId = checked(++_nextStateId);
         return TransitionTo(
             snapshot,
             origin,
-            RichTextUndoBehavior.DoNotRecord,
+            RichTextUndoBehavior.ClearHistory,
             sourceToken);
     }
 
@@ -525,7 +592,8 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         RichTextDocumentSnapshot snapshot,
         RichTextChangeOrigin origin,
         RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit,
-        object? sourceToken = null)
+        object? sourceToken = null,
+        RichTextSelectionState? selection = null)
     {
         ResetNativeEditCoalescing();
         var before = _snapshot;
@@ -544,6 +612,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
             beforeSnapshot: before,
             afterSnapshot: _snapshot,
             undoBehavior: undoBehavior);
+        changeSet.SelectionAfter = selection;
         RaiseChanged(changeSet, before, undoStateChanged: true);
         return changeSet;
     }
@@ -833,36 +902,33 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         bool undoStateChanged = false)
     {
         _notificationInProgress = true;
+        var editor = AttachedEditor;
         try
         {
-            if (undoStateChanged)
-            {
-                UndoStateChanged?.Invoke(this, EventArgs.Empty);
-            }
-
+            // Complete internal synchronization before application callbacks, regardless
+            // of when those callbacks subscribed to the document.
+            editor?.SynchronizeDocumentChange(changeSet);
+            Changed?.Invoke(this, new RichTextDocumentChangedEventArgs(changeSet));
+            editor?.PublishContentChange(changeSet);
             OnPropertyChanged(nameof(Version));
             OnPropertyChanged(nameof(CurrentSnapshot));
             OnPropertyChanged(nameof(RtfText));
+            OnPropertyChanged(nameof(IsModified));
             if (!string.Equals(previousSnapshot.Text, Text, StringComparison.Ordinal))
             {
                 OnPropertyChanged(nameof(Length));
                 OnPropertyChanged(nameof(Text));
             }
-
             if (previousSnapshot.DefaultCharacterFormat != DefaultCharacterFormat)
-            {
                 OnPropertyChanged(nameof(DefaultCharacterFormat));
-            }
-
             if (previousSnapshot.DefaultParagraphFormat != DefaultParagraphFormat)
-            {
                 OnPropertyChanged(nameof(DefaultParagraphFormat));
-            }
-
-            Changed?.Invoke(this, new RichTextDocumentChangedEventArgs(changeSet));
+            if (undoStateChanged) PublishUndoState();
+            editor?.PublishSelectionChange();
         }
         finally
         {
+            editor?.EndDocumentChange();
             _notificationInProgress = false;
         }
     }
@@ -872,13 +938,21 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         _notificationInProgress = true;
         try
         {
+            AttachedEditor?.RefreshUndoState();
             OnPropertyChanged(nameof(IsUndoGroupOpen));
-            UndoStateChanged?.Invoke(this, EventArgs.Empty);
+            OnPropertyChanged(nameof(IsModified));
+            PublishUndoState();
         }
-        finally
-        {
-            _notificationInProgress = false;
-        }
+        finally { _notificationInProgress = false; }
+    }
+
+    private void PublishUndoState()
+    {
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+        OnPropertyChanged(nameof(UndoDescription));
+        OnPropertyChanged(nameof(RedoDescription));
+        UndoStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void InvalidateRtfCache()
@@ -889,6 +963,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
 
     private void VerifyNoActiveEdit()
     {
+        VerifyAccess();
         if (_editInProgress || _notificationInProgress)
         {
             throw new InvalidOperationException(
@@ -912,9 +987,10 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         {
             if (_undoGroupBefore is { } before && !before.ContentEquals(_snapshot))
             {
-                _undo.Push(new UndoEntry(before, _snapshot, _undoGroupDescription));
+                _undo.Push(new UndoEntry(before, _snapshot, _undoGroupDescription, _undoGroupStateId, _stateId, _undoGroupSelection, _undoGroupAfterSelection));
                 _redo.Clear();
             }
+            if (_undoGroupBefore is { } unchanged && unchanged.ContentEquals(_snapshot)) _stateId = _undoGroupStateId;
             _undoGroupBefore = null;
             _undoGroupDescription = null;
             ResetNativeEditCoalescing();
@@ -939,5 +1015,9 @@ public sealed class RichTextDocument : INotifyPropertyChanged
     private sealed record UndoEntry(
         RichTextDocumentSnapshot Before,
         RichTextDocumentSnapshot After,
-        string? Description);
+        string? Description,
+        long BeforeStateId,
+        long AfterStateId,
+        RichTextSelectionState? BeforeSelection,
+        RichTextSelectionState? AfterSelection);
 }

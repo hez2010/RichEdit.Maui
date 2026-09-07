@@ -20,7 +20,7 @@
         <PackageId>CodeEdit.Maui</PackageId>
         <Authors>hez2010</Authors>
         <Description>A native code editor for .NET MAUI built on RichEdit.Maui.</Description>
-        <Version>0.2.0-preview.1</Version>
+        <Version>0.3.0-preview.1</Version>
         <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageProjectUrl>https://github.com/hez2010/RichEdit.Maui</PackageProjectUrl>
@@ -28,6 +28,8 @@
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <PackageTags>code;editor;maui;syntax;highlighting</PackageTags>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <CsWinRTAotWarningLevel>3</CsWinRTAotWarningLevel>
     </PropertyGroup>
 
     <ItemGroup>

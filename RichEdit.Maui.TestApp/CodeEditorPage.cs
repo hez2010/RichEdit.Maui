@@ -5,6 +5,7 @@ namespace RichEdit.Maui.TestApp;
 public sealed class CodeEditorPage : ContentPage
 {
     private readonly CodeEditor _editor = new() { FontSize = 14, Placeholder = "Write some code…" };
+    private readonly CodeEditorActions _actions;
     private readonly Entry _query = new() { Placeholder = "Find text", MinimumWidthRequest = 160 };
     private readonly Entry _replacement = new() { Placeholder = "Replace with", MinimumWidthRequest = 160 };
     private readonly Label _status = new() { FontSize = 12 };
@@ -13,7 +14,8 @@ public sealed class CodeEditorPage : ContentPage
     public CodeEditorPage()
     {
         Title = "Code editor";
-        _editor.Document = RichTextDocument.FromPlainText(Sample);
+        _actions = new CodeEditorActions(_editor);
+        _editor.Document = CodeDocument.FromPlainText(Sample);
         _editor.SelectionChanged += (_, _) => UpdateStatus();
         _editor.TextChanged += (_, _) => UpdateStatus();
         _editor.HighlightingFailed += (_, args) => _searchStatus.Text = args.Exception.Message;
@@ -21,9 +23,9 @@ public sealed class CodeEditorPage : ContentPage
         var toolbar = new HorizontalStackLayout { Spacing = 6 };
         toolbar.Add(new Button { Text = "Undo", Command = _editor.Commands.Undo });
         toolbar.Add(new Button { Text = "Redo", Command = _editor.Commands.Redo });
-        toolbar.Add(new Button { Text = "Indent", Command = _editor.Commands.Indent });
-        toolbar.Add(new Button { Text = "Outdent", Command = _editor.Commands.Outdent });
-        toolbar.Add(new Button { Text = "//", Command = _editor.Commands.ToggleLineComment });
+        toolbar.Add(EditButton("Indent", _actions.Indent));
+        toolbar.Add(EditButton("Outdent", _actions.Outdent));
+        toolbar.Add(EditButton("//", _actions.ToggleLineComment));
         toolbar.Add(new Button { Text = "Copy", Command = _editor.Commands.Copy });
         toolbar.Add(new Button { Text = "Paste", Command = _editor.Commands.Paste });
         toolbar.Add(Toggle("Wrap", false, value => _editor.WordWrap = value));
@@ -32,14 +34,14 @@ public sealed class CodeEditorPage : ContentPage
         toolbar.Add(Toggle("Dark", false, value => _editor.Theme = value ? CodeEditorTheme.Dark : CodeEditorTheme.Light));
 
         var previous = new Button { Text = "Previous" };
-        previous.Clicked += (_, _) => ShowMatch(_editor.FindPrevious(_query.Text ?? string.Empty));
+        previous.Clicked += (_, _) => ShowMatch(_actions.FindPrevious(_query.Text ?? string.Empty));
         var next = new Button { Text = "Next" };
-        next.Clicked += (_, _) => ShowMatch(_editor.FindNext(_query.Text ?? string.Empty));
-        _query.Completed += (_, _) => ShowMatch(_editor.FindNext(_query.Text ?? string.Empty));
+        next.Clicked += (_, _) => ShowMatch(_actions.FindNext(_query.Text ?? string.Empty));
+        _query.Completed += (_, _) => ShowMatch(_actions.FindNext(_query.Text ?? string.Empty));
         var replace = new Button { Text = "Replace all" };
         replace.Clicked += (_, _) =>
         {
-            var count = _editor.ReplaceAll(_query.Text ?? string.Empty, _replacement.Text ?? string.Empty);
+            var count = _actions.ReplaceAll(_query.Text ?? string.Empty, _replacement.Text ?? string.Empty);
             _searchStatus.Text = $"{count} replaced";
         };
         replace.SetBinding(IsEnabledProperty, new Binding(nameof(CodeEditor.IsReadOnly), source: _editor,
@@ -74,11 +76,19 @@ public sealed class CodeEditorPage : ContentPage
         UpdateStatus();
     }
 
+    private Button EditButton(string text, Action action)
+    {
+        var button = new Button { Text = text, Command = new Command(action) };
+        button.SetBinding(IsEnabledProperty, new Binding(nameof(CodeEditor.IsReadOnly), source: _editor,
+            converter: new InverseBooleanConverter()));
+        return button;
+    }
+
     private void UpdateStatus() => _status.Text = $"Ln {_editor.CaretPosition.Line}, Col {_editor.CaretPosition.Column}    ·    {_editor.LineCount} lines    ·    C#";
 
     private void ShowMatch(RichTextRange? match)
     {
-        _searchStatus.Text = match is null ? "No match" : $"{_editor.FindAll(_query.Text ?? string.Empty).Count} matches";
+        _searchStatus.Text = match is null ? "No match" : $"{_actions.FindAll(_query.Text ?? string.Empty).Count} matches";
         if (match is not null) _editor.Focus();
     }
 
@@ -106,7 +116,7 @@ public sealed class CodeEditorPage : ContentPage
         // Native editing; derived syntax formatting does not create undo units.
         var editor = new CodeEditor
         {
-            Document = RichTextDocument.FromPlainText("Hello, code!"),
+            Document = CodeDocument.FromPlainText("Hello, code!"),
             Theme = CodeEditorTheme.Light,
             IndentSize = 4,
             ShowLineNumbers = true,

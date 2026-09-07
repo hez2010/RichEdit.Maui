@@ -334,7 +334,7 @@ public sealed class LiveRichTextDocumentTests
     }
 
     [Fact]
-    public void DoNotRecordInvalidatesSnapshotBasedUndoHistory()
+    public void ClearHistoryInvalidatesSnapshotBasedUndoHistory()
     {
         var document = new RichTextDocument();
         document.Edit(edit => edit.InsertText(0, "a"));
@@ -343,7 +343,7 @@ public sealed class LiveRichTextDocumentTests
 
         document.Edit(
             edit => edit.InsertText(0, "b"),
-            new RichTextEditOptions(RichTextUndoBehavior.DoNotRecord));
+            new RichTextEditOptions(RichTextUndoBehavior.ClearHistory));
 
         Assert.False(document.CanUndo);
         Assert.False(document.CanRedo);

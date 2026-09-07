@@ -5,6 +5,7 @@ namespace RichEdit.Maui.TestApp;
 
 public partial class MainPage : ContentPage
 {
+    private readonly RichEditorFormattingCommands _formattingCommands;
     private static readonly Color ActiveToolbarColor = Color.FromArgb("#6750A4");
     private static readonly Color InactiveToolbarColor = Color.FromArgb("#EDE9F7");
     private static readonly Color InactiveToolbarTextColor = Color.FromArgb("#2C2440");
@@ -74,6 +75,7 @@ public partial class MainPage : ContentPage
     public MainPage()
     {
         InitializeComponent();
+        _formattingCommands = new RichEditorFormattingCommands(Editor);
 
         FontPicker.ItemsSource = new[] { "Default", "Arial", "Courier New", "Georgia" };
         SizePicker.ItemsSource = new[] { "14", "17", "20", "24", "30" };
@@ -237,73 +239,73 @@ public partial class MainPage : ContentPage
 
     private void OnBoldClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleBold();
+        _formattingCommands.ToggleBold.Execute(null);
         Editor.Focus();
     }
 
     private void OnItalicClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleItalic();
+        _formattingCommands.ToggleItalic.Execute(null);
         Editor.Focus();
     }
 
     private void OnUnderlineClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleUnderline(RichTextUnderlineStyle.Single);
+        _formattingCommands.ToggleUnderline.Execute(RichTextUnderlineStyle.Single);
         Editor.Focus();
     }
 
     private void OnStrikethroughClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleStrikethrough(RichTextStrikethroughStyle.Single);
+        _formattingCommands.ToggleStrikethrough.Execute(RichTextStrikethroughStyle.Single);
         Editor.Focus();
     }
 
     private void OnSuperscriptClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleScript(RichTextScript.Superscript);
+        _formattingCommands.ToggleScript.Execute(RichTextScript.Superscript);
         Editor.Focus();
     }
 
     private void OnSubscriptClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleScript(RichTextScript.Subscript);
+        _formattingCommands.ToggleScript.Execute(RichTextScript.Subscript);
         Editor.Focus();
     }
 
     private void OnBulletedListClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleList(BulletedList);
+        _formattingCommands.ToggleList.Execute(new ListCommandRequest(BulletedList));
         Editor.Focus();
     }
 
     private void OnNumberedListClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ToggleList(NumberedList);
+        _formattingCommands.ToggleList.Execute(new ListCommandRequest(NumberedList));
         Editor.Focus();
     }
 
     private void OnClearListClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ClearList();
+        _formattingCommands.ClearList.Execute(null);
         Editor.Focus();
     }
 
     private void OnOutdentListClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ChangeListLevel(-1);
+        _formattingCommands.OutdentList.Execute(null);
         Editor.Focus();
     }
 
     private void OnIndentListClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.ChangeListLevel(1);
+        _formattingCommands.IndentList.Execute(null);
         Editor.Focus();
     }
 
     private void OnRestartListClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.RestartList(1);
+        _formattingCommands.RestartList.Execute(1);
         Editor.Focus();
     }
 
@@ -333,15 +335,15 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        Editor.Selection.SetLink(
+        _formattingCommands.SetLink.Execute(new LinkRequest(
             "https://github.com/hez2010/RichEdit.Maui",
-            "RichEdit.Maui repository");
+            "RichEdit.Maui repository"));
         Editor.Focus();
     }
 
     private void OnRemoveLinksClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.RemoveLinks();
+        _formattingCommands.RemoveLinks.Execute(null);
         Editor.Focus();
     }
 
@@ -353,15 +355,15 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        Editor.Selection.InsertImage(_sampleImage with { Position = 0 });
+        _formattingCommands.InsertImage.Execute(_sampleImage with { Position = 0 });
         Editor.Focus();
     }
 
     private void OnInsertFieldClicked(object? sender, EventArgs e)
     {
-        Editor.Selection.InsertField(
+        _formattingCommands.InsertField.Execute(new FieldRequest(
             "DATE \\@ \"yyyy-MM-dd\"",
-            DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         Editor.Focus();
     }
 

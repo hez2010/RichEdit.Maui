@@ -27,6 +27,13 @@ public sealed class RichTextSelection : INotifyPropertyChanged
     /// <summary>Gets the current UTF-16 document range.</summary>
     public RichTextRange Range => _editor.SelectedRange;
 
+    /// <summary>Gets the anchor and active endpoints.</summary>
+    public RichTextSelectionState State => _editor.SelectionState;
+    /// <summary>Gets the fixed endpoint.</summary>
+    public int Anchor => State.Anchor;
+    /// <summary>Gets the caret endpoint.</summary>
+    public int Active => State.Active;
+
     /// <summary>Gets the selected logical plain text.</summary>
     public string Text => _editor.Document.GetText(Range);
 
@@ -47,6 +54,20 @@ public sealed class RichTextSelection : INotifyPropertyChanged
     /// <summary>Moves the selection to a validated document range.</summary>
     /// <param name="range">The new range.</param>
     public void Select(RichTextRange range) => _editor.SelectedRange = range;
+
+    /// <summary>Sets a directional selection, clamped to the document.</summary>
+    /// <param name="selection">The new selection.</param>
+    public void Select(RichTextSelectionState selection) => _editor.SelectionState = selection;
+
+    /// <summary>Applies an atomic editor action with an explicit resulting selection.</summary>
+    /// <param name="edit">The content edits.</param>
+    /// <param name="selectionAfter">The selection in the resulting document.</param>
+    /// <param name="options">History and application metadata.</param>
+    public void Edit(Action<RichTextDocumentEdit> edit, RichTextSelectionState selectionAfter, RichTextEditOptions options = default)
+    {
+        _editor.VerifyAccess();
+        if (!_editor.IsReadOnly) _editor.EditDocument(edit, selectionAfter, options);
+    }
 
     /// <summary>Replaces selected content and collapses the caret after the insertion.</summary>
     /// <param name="text">The replacement text. Null is treated as empty.</param>
@@ -407,6 +428,9 @@ public sealed class RichTextSelection : INotifyPropertyChanged
     {
         InvalidateFormatCache();
         OnPropertyChanged(nameof(Range));
+        OnPropertyChanged(nameof(State));
+        OnPropertyChanged(nameof(Anchor));
+        OnPropertyChanged(nameof(Active));
         OnPropertyChanged(nameof(Text));
         OnPropertyChanged(nameof(TypingCharacterFormat));
         OnPropertyChanged(nameof(TypingParagraphFormat));

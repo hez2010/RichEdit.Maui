@@ -7,12 +7,14 @@ namespace RichEdit.Maui.TestApp;
 // These tests use the full control tree and inspect the native text surface.
 internal sealed class CodeEditorTestPage : ContentPage
 {
-    private readonly CodeEditor _editor = new() { Document = RichTextDocument.FromPlainText(new string('x', 300) + "\nlast") };
+    private readonly CodeEditor _editor = new() { Document = CodeDocument.FromPlainText(new string('x', 300) + "\nlast") };
     private readonly Entry _focusTarget = new() { Placeholder = "Focus target" };
     private readonly RichEditor _textView;
+    private readonly CodeEditorActions _actions;
 
     internal CodeEditorTestPage(string? filter)
     {
+        _actions = new CodeEditorActions(_editor);
         _textView = ((Grid)_editor.Content).Children.OfType<RichEditor>().Single();
         var layout = new Grid { RowDefinitions = [new(GridLength.Star), new(GridLength.Auto)] };
         layout.Add(_editor);
@@ -54,7 +56,7 @@ internal sealed class CodeEditorTestPage : ContentPage
                 _editor.ShowLineNumbers = true;
                 _editor.Theme = CodeEditorTheme.Light;
                 _editor.Highlighter = new CSharpSyntaxHighlighter();
-                if (replaceDocument) _editor.Document = RichTextDocument.FromPlainText(source);
+                if (replaceDocument) _editor.Document = CodeDocument.FromPlainText(source);
                 _editor.SelectedRange = RichTextRange.Empty;
                 _editor.Focus();
                 await Task.Delay(60);
@@ -73,6 +75,45 @@ internal sealed class CodeEditorTestPage : ContentPage
             Equal(2, NativeLineCount(), "initial visual lines");
             return Task.CompletedTask;
         }, replaceDocument: false);
+
+        await Test("presentation revisions do not change source or saved state", "class C { }", async () =>
+        {
+            var before = _editor.Document.CurrentSnapshot;
+            var rtf = _textView.Document.RtfText;
+            _editor.Document.MarkSaved();
+            _editor.SelectionState = new RichTextSelectionState(8, 1);
+            _editor.Theme = CodeEditorTheme.Dark;
+            await _editor.RefreshHighlightingAsync();
+            Equal(before.Version, _editor.Document.Version);
+            Equal(rtf, _textView.Document.RtfText);
+            Equal(false, _editor.Document.IsModified);
+            Equal(new RichTextSelectionState(8, 1), _editor.SelectionState);
+            Equal(new CodePosition(1, 2), _editor.CaretPosition);
+            ColorAt(0, _editor.Theme.KeywordColor);
+            using var layer = _editor.Decorations.CreateLayer();
+            layer.Set([new(new RichTextRange(0, 5), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            ColorAt(0, Colors.Green);
+            Equal(before.Version, _editor.Document.Version);
+            layer.Clear();
+            ColorAt(0, _editor.Theme.KeywordColor);
+        });
+
+        await Test("source document undo restores direction and save points", "123456", async () =>
+        {
+            _editor.Document.MarkSaved();
+            _editor.SelectionState = new RichTextSelectionState(4, 1);
+            _editor.Selection.ReplaceText("9");
+            _editor.SelectionState = new RichTextSelectionState(0, 0);
+            _editor.Document.Undo();
+            await _editor.RefreshHighlightingAsync();
+            Equal("123456", _editor.Document.Text);
+            Equal(new RichTextSelectionState(4, 1), _editor.SelectionState);
+            Equal(false, _editor.Document.IsModified);
+            Equal(1, _editor.GetOffset(_editor.CaretPosition));
+            _editor.Document.Redo();
+            Equal("1956", _editor.Document.Text);
+            Equal(new RichTextSelectionState(2, 2), _editor.SelectionState);
+        });
 
         await Test("syntax colors reach native text", "class C { string s = \"hello\"; int n = 42; // comment\n}", () =>
         {
@@ -152,14 +193,14 @@ internal sealed class CodeEditorTestPage : ContentPage
         await Test("block indent and outdent are atomic", "one\ntwo\nthree", () =>
         {
             _editor.SelectedRange = new RichTextRange(0, 8);
-            _editor.Indent();
+            _actions.Indent();
             Equal("    one\n    two\nthree", _editor.Document.Text);
             _editor.Undo();
             Equal("one\ntwo\nthree", _editor.Document.Text);
             Equal(false, _editor.CanUndo);
             _editor.Redo();
             _editor.SelectedRange = new RichTextRange(0, 16);
-            _editor.Outdent();
+            _actions.Outdent();
             Equal("one\ntwo\nthree", _editor.Document.Text);
             return Task.CompletedTask;
         });
@@ -168,10 +209,10 @@ internal sealed class CodeEditorTestPage : ContentPage
         {
             var source = _editor.Document.Text;
             _editor.SelectAll();
-            _editor.ToggleLineComment();
+            _actions.ToggleLineComment();
             Equal("  // first();\n\n\t// second();\n", _editor.Document.Text);
             _editor.SelectAll();
-            _editor.ToggleLineComment();
+            _actions.ToggleLineComment();
             Equal(source, _editor.Document.Text);
             return Task.CompletedTask;
         });
@@ -179,10 +220,10 @@ internal sealed class CodeEditorTestPage : ContentPage
         await Test("find and replace use UTF16 whole words and one undo unit", "foo food FOO foo\u0301 foo", () =>
         {
             var options = new CodeSearchOptions(WholeWord: true);
-            Equal(3, _editor.FindAll("foo", options).Count);
-            Equal(new RichTextRange(0, 3), _editor.FindNext("foo", options));
-            Equal(new RichTextRange(9, 3), _editor.FindNext("foo", options));
-            Equal(3, _editor.ReplaceAll("foo", "bar", options));
+            Equal(3, _actions.FindAll("foo", options).Count);
+            Equal(new RichTextRange(0, 3), _actions.FindNext("foo", options));
+            Equal(new RichTextRange(9, 3), _actions.FindNext("foo", options));
+            Equal(3, _actions.ReplaceAll("foo", "bar", options));
             Equal("bar food bar foo\u0301 bar", _editor.Document.Text);
             _editor.Undo();
             Equal("foo food FOO foo\u0301 foo", _editor.Document.Text);
@@ -194,11 +235,11 @@ internal sealed class CodeEditorTestPage : ContentPage
         {
             _editor.MaxLength = 4;
             _editor.SelectAll();
-            _editor.Indent();
-            Equal(0, _editor.ReplaceAll("a", "long"));
+            _actions.Indent();
+            Equal(0, _actions.ReplaceAll("a", "long"));
             _editor.IsReadOnly = true;
-            _editor.InsertNewLine();
-            _editor.ToggleLineComment();
+            _actions.InsertNewLine();
+            _actions.ToggleLineComment();
             Equal("a\na", _editor.Document.Text);
             Equal(false, _editor.CanUndo);
             return Task.CompletedTask;
@@ -217,7 +258,7 @@ internal sealed class CodeEditorTestPage : ContentPage
         await Test("line numbers and navigation track document replacement", "😀\n日本語\n", async () =>
         {
             Equal(3, _editor.LineCount);
-            _editor.GoToLine(2, 3);
+            _actions.GoToLine(2, 3);
             Equal(new RichTextRange(5, 0), _editor.SelectedRange);
             var gutter = ((Grid)_editor.Content).Children.OfType<GraphicsView>().Single();
             Equal(true, gutter.Width > 0 && gutter.Height > 0, "gutter layout");
@@ -226,7 +267,7 @@ internal sealed class CodeEditorTestPage : ContentPage
             Equal(false, gutter.IsVisible);
             _editor.ShowLineNumbers = true;
             var old = _editor.Document;
-            _editor.Document = RichTextDocument.FromPlainText("class New { }");
+            _editor.Document = CodeDocument.FromPlainText("class New { }");
             old.Edit(edit => edit.InsertText(0, "detached\n"));
             await _editor.RefreshHighlightingAsync();
             Equal(1, _editor.LineCount);
@@ -282,8 +323,8 @@ internal sealed class CodeEditorTestPage : ContentPage
             _editor.Document.Edit(edit => edit.InsertText(2, "c"));
             _editor.Undo();
             await _editor.RefreshHighlightingAsync();
-            _editor.Document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(0, 2),
-                format => format with { ForegroundColor = Colors.Green }), new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory));
+            using var layer = _editor.Decorations.CreateLayer();
+            layer.Set([new(new RichTextRange(0, 2), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             ColorAt(0, Colors.Green);
             Equal(true, _editor.CanUndo);
             Equal(true, _editor.CanRedo);
