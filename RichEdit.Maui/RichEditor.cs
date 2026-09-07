@@ -5,7 +5,7 @@ namespace RichEdit.Maui;
 /// <summary>
 /// A cross-platform native rich-text editor for .NET MAUI.
 /// </summary>
-public sealed class RichEditor : View
+public sealed partial class RichEditor : View
 {
     /// <summary>Identifies the <see cref="Document"/> bindable property.</summary>
     public static readonly BindableProperty DocumentProperty = BindableProperty.Create(
@@ -204,6 +204,7 @@ public sealed class RichEditor : View
     /// </summary>
     public RichEditor()
     {
+        KeyBindings = new EditorKeyBindingCollection(this);
         Decorations = new RichTextDecorations(this);
         Selection = new RichTextSelection(this);
         Commands = new RichEditorCommands(this);

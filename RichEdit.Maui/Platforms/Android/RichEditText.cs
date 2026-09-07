@@ -21,7 +21,7 @@ public sealed class NativeSelectionChangedEventArgs(int start, int end) : EventA
 /// <summary>
 /// Provides the Android editable-text surface used by <see cref="RichEditorHandler"/>.
 /// </summary>
-public class RichEditText : AppCompatEditText
+public partial class RichEditText : AppCompatEditText
 {
     private float _pointerDownX;
     private float _pointerDownY;
@@ -67,6 +67,10 @@ public class RichEditText : AppCompatEditText
     /// <inheritdoc />
     public override bool OnKeyDown(Keycode keyCode, KeyEvent? e)
     {
+        if (EditableText is { } text && BaseInputConnection.GetComposingSpanStart(text) >= 0)
+            return base.OnKeyDown(keyCode, e);
+        if (HandleEditorKey(keyCode, e)) return true;
+
         if (e?.IsCtrlPressed == true &&
             !e.IsAltPressed &&
             e.IsShiftPressed &&
@@ -220,6 +224,7 @@ public class RichEditText : AppCompatEditText
     {
         if (disposing)
         {
+            ResetKeyInput();
             PasteRequested = null;
             CopyRequested = null;
             CutRequested = null;

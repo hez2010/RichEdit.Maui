@@ -1,11 +1,7 @@
-using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Windows.System;
-using Windows.UI.Core;
 using ScrollBarVisibility = Microsoft.UI.Xaml.Controls.ScrollBarVisibility;
 
 namespace CodeEdit.Maui;
@@ -21,7 +17,6 @@ internal sealed partial class CodeEditorNativeAdapter
     private partial void Connect()
     {
         var platformView = PlatformView = _handler.PlatformView;
-        platformView.PreviewKeyDown += OnCodeKeyDown;
         platformView.Loaded += OnCodeLoaded;
         platformView.SizeChanged += OnCodeSizeChanged;
         platformView.TextCompositionStarted += OnCompositionStarted;
@@ -32,7 +27,6 @@ internal sealed partial class CodeEditorNativeAdapter
     private partial void Disconnect()
     {
         var platformView = PlatformView;
-        platformView.PreviewKeyDown -= OnCodeKeyDown;
         platformView.Loaded -= OnCodeLoaded;
         platformView.SizeChanged -= OnCodeSizeChanged;
         platformView.TextCompositionStarted -= OnCompositionStarted;
@@ -72,34 +66,6 @@ internal sealed partial class CodeEditorNativeAdapter
 
     internal partial void ScrollToSelection() => PlatformView.Document.Selection.ScrollIntoView(PointOptions.None);
 
-    private void OnCodeKeyDown(object sender, KeyRoutedEventArgs args)
-    {
-        if (args.Handled || IsComposing || IsDown(VirtualKey.Menu)) return;
-        if (IsDown(VirtualKey.Control))
-        {
-            if (args.Key is VirtualKey.B or VirtualKey.I or VirtualKey.U) args.Handled = true;
-            if ((int)args.Key == 191 || args.Key == VirtualKey.Divide)
-            {
-                Owner.ToggleLineComment();
-                args.Handled = true;
-            }
-            return;
-        }
-        if (Owner.IsReadOnly) return;
-        if (args.Key == VirtualKey.Tab)
-        {
-            if (IsDown(VirtualKey.Shift)) Owner.Outdent();
-            else Owner.Indent();
-            args.Handled = true;
-        }
-        else if (args.Key == VirtualKey.Enter && !IsDown(VirtualKey.Shift))
-        {
-            Owner.InsertNewLine();
-            args.Handled = true;
-        }
-    }
-
-    private static bool IsDown(VirtualKey key) => (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) != 0;
     private void OnCompositionStarted(RichEditBox sender, TextCompositionStartedEventArgs args) => _isComposing = true;
     private void OnCompositionEnded(RichEditBox sender, TextCompositionEndedEventArgs args)
     {

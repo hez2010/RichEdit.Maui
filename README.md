@@ -207,6 +207,60 @@ var bold = new Command(Editor.Selection.ToggleBold, () => !Editor.IsReadOnly);
 
 Refresh an application's command state when its editor state changes, as the sample does.
 
+## Key bindings
+
+`KeyBindings` maps an exact `EditorKey` and `EditorKeyModifiers` combination to an `ICommand`. Add bindings on the editor's UI thread. The last matching binding wins; its command receives `CommandParameter` and runs only when `CanExecute` is true. A disabled binding allows native handling to continue without invoking an earlier binding for that gesture.
+
+```csharp
+var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst()
+    ? EditorKeyModifiers.Meta
+    : EditorKeyModifiers.Control;
+Editor.KeyBindings.Add(new(EditorKey.S, primary, saveCommand));
+```
+
+`Meta` represents Command on Apple platforms and the Windows/Meta key elsewhere. `AltGraph` distinguishes AltGr input from an ordinary Control+Alt shortcut. Available keys depend on the hardware and OS; OS-reserved shortcuts remain outside the editor's control.
+
+`KeyDown` receives hardware-key events before the editor dispatches its bindings and default shortcuts. Set `Handled` to consume an event:
+
+```csharp
+Editor.KeyDown += (_, args) =>
+{
+    if (args.Key == EditorKey.Escape && args.Modifiers == EditorKeyModifiers.None)
+    {
+        CloseApplicationPopup();
+        args.Handled = true;
+    }
+};
+```
+
+Use `KeyBindings` for shortcut overrides: Apple registers these as native key commands with priority over text and focus handling. `KeyDown` also handles hardware events delivered to the text view. Neither API translates soft-keyboard input into synthetic key presses. Native IME composition takes precedence over custom shortcuts. Command exceptions propagate to the application.
+
+## Context menus
+
+`ContextMenuOpening` customizes the native context and text-selection menus. Its `Items` collection accepts MAUI `MenuFlyoutItem`, `MenuFlyoutSubItem`, and `MenuFlyoutSeparator` objects. Set `IncludeDefaultItems` to false to replace the native editing, formatting, and proofing items:
+
+```csharp
+Editor.ContextMenuOpening += (_, args) =>
+{
+    args.Items.Add(new MenuFlyoutSeparator());
+    args.Items.Add(new MenuFlyoutItem { Text = "Insert date", Command = insertDateCommand });
+};
+```
+
+For a reusable replacement menu, assign the standard MAUI attached property:
+
+```csharp
+FlyoutBase.SetContextFlyout(Editor, new MenuFlyout
+{
+    new MenuFlyoutItem { Text = "Copy", Command = Editor.Commands.Copy },
+    new MenuFlyoutItem { Text = "Application action", Command = applicationCommand },
+});
+```
+
+The attached menu supplies the initial custom items and disables native defaults. `ContextMenuOpening` then receives a separate top-level item list for that opening, so adding or removing entries does not modify the configured menu. Menu text, submenus, native separators, `IsEnabled`, `Clicked`, `Command`, and `CommandParameter` are supported. Commands recheck `CanExecute` when invoked. Use `KeyBindings` for shortcuts; menu-item keyboard accelerators and icon sources are not rendered by the native editing-menu adapters.
+
+Menu customization supports Windows and Android, and iOS/Mac Catalyst 16 or later. Earlier Apple versions use their standard native editing menu. Android uses the selection and insertion action modes; separators follow the platform's native menu presentation.
+
 ## Events and editor operations
 
 The control exposes `ContentChanged`, `TextChanged`, `SelectionChanged`, `SelectionFormatChanged`, `EffectiveAppearanceChanged`, `LinkInvoked`, `InlineObjectInvoked`, `Pasting`, and `Completed` events. `ContentChanged` includes the atomic `RichTextChangeSet`, including its origin, old and new versions, and bounded changes.

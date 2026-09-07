@@ -19,6 +19,16 @@ public sealed class CodeEditorPage : ContentPage
         _editor.SelectionChanged += (_, _) => UpdateStatus();
         _editor.TextChanged += (_, _) => UpdateStatus();
         _editor.HighlightingFailed += (_, args) => _searchStatus.Text = args.Exception.Message;
+        var find = new Command(() => _query.Focus());
+        var comment = new Command(_actions.ToggleLineComment, () => !_editor.IsReadOnly);
+        var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Meta : EditorKeyModifiers.Control;
+        _editor.KeyBindings.Add(new(EditorKey.F, primary, find));
+        _editor.ContextMenuOpening += (_, args) =>
+        {
+            args.Items.Add(new MenuFlyoutSeparator());
+            args.Items.Add(new MenuFlyoutItem { Text = "Find…", Command = find });
+            args.Items.Add(new MenuFlyoutItem { Text = "Toggle line comment", Command = comment });
+        };
 
         var toolbar = new HorizontalStackLayout { Spacing = 6 };
         toolbar.Add(new Button { Text = "Undo", Command = _editor.Commands.Undo });

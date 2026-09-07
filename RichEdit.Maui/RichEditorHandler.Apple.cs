@@ -11,7 +11,7 @@ using UIKit;
 namespace RichEdit.Maui.Platforms.Apple
 {
     /// <summary>Provides the Apple native text view used by <see cref="RichEditorHandler"/>.</summary>
-    public class RichTextView : UITextView
+    public partial class RichTextView : UITextView
     {
         private readonly UIColor _defaultPlaceholderColor;
         private readonly UILabel _placeholderLabel;
@@ -134,6 +134,7 @@ namespace RichEdit.Maui.Platforms.Apple
         {
             if (disposing)
             {
+                ResetKeyInput();
                 PasteRequested = null;
                 CopyRequested = null;
                 CutRequested = null;
@@ -237,6 +238,8 @@ namespace RichEdit.Maui
             platformView.CutRequested = VirtualView.CutAsync;
             platformView.NativeAppearanceChanged = OnNativeAppearanceChanged;
             platformView.SetUndoEditor(VirtualView);
+            platformView.KeyDownRequested = VirtualView.SendKeyDown;
+            platformView.EditorKeyBindings = VirtualView.KeyBindings;
             VirtualView.PropertyChanged += OnEditorUndoStateChanged;
             ObserveTextStorage();
         }
@@ -253,6 +256,7 @@ namespace RichEdit.Maui
                 editor.PropertyChanged -= OnEditorUndoStateChanged;
             }
             platformView.SetUndoEditor(null);
+            platformView.ResetKeyInput();
             platformView.PasteRequested = null;
             platformView.CopyRequested = null;
             platformView.CutRequested = null;
@@ -2103,6 +2107,16 @@ namespace RichEdit.Maui
         private sealed class RichTextViewDelegate(RichEditorHandler handler) : UITextViewDelegate
         {
             private readonly WeakReference<RichEditorHandler> _handler = new(handler);
+
+            [SupportedOSPlatform("ios16.0")]
+            [SupportedOSPlatform("maccatalyst16.0")]
+            public override UIMenu? GetEditMenuForText(UITextView textView, NSRange range, UIMenuElement[] suggestedActions) =>
+                _handler.TryGetTarget(out var target) ? target.CreateAppleContextMenu(suggestedActions) : null;
+
+            [SupportedOSPlatform("ios26.0")]
+            [SupportedOSPlatform("maccatalyst26.0")]
+            public override UIMenu? GetEditMenuForText(UITextView textView, NSValue[] ranges, UIMenuElement[] suggestedActions) =>
+                _handler.TryGetTarget(out var target) ? target.CreateAppleContextMenu(suggestedActions) : null;
 
             public override bool ShouldChangeText(
                 UITextView textView,

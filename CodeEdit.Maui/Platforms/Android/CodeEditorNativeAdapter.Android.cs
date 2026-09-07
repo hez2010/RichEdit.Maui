@@ -14,7 +14,6 @@ internal sealed partial class CodeEditorNativeAdapter
     private partial void Connect()
     {
         var platformView = PlatformView = _handler.PlatformView;
-        platformView.KeyPress += OnCodeKeyPress;
         _observer = platformView.ViewTreeObserver;
         if (_observer is not null)
         {
@@ -25,8 +24,6 @@ internal sealed partial class CodeEditorNativeAdapter
 
     private partial void Disconnect()
     {
-        var platformView = PlatformView;
-        platformView.KeyPress -= OnCodeKeyPress;
         if (_observer is { IsAlive: true })
         {
             _observer.ScrollChanged -= OnViewportChanged;
@@ -57,29 +54,4 @@ internal sealed partial class CodeEditorNativeAdapter
     }
 
     private void OnViewportChanged(object? sender, EventArgs args) => Owner.InvalidateGutter();
-    private void OnCodeKeyPress(object? sender, global::Android.Views.View.KeyEventArgs args)
-    {
-        args.Handled = false;
-        var keyEvent = args.Event;
-        if (keyEvent is null || keyEvent.Action != KeyEventActions.Down || keyEvent.IsAltPressed || IsComposing) return;
-        if (keyEvent.IsCtrlPressed && args.KeyCode == Keycode.Slash)
-        {
-            Owner.ToggleLineComment();
-            args.Handled = true;
-        }
-        else if (!keyEvent.IsCtrlPressed && !Owner.IsReadOnly)
-        {
-            if (args.KeyCode == Keycode.Tab)
-            {
-                if (keyEvent.IsShiftPressed) Owner.Outdent();
-                else Owner.Indent();
-                args.Handled = true;
-            }
-            else if (args.KeyCode == Keycode.Enter)
-            {
-                Owner.InsertNewLine();
-                args.Handled = true;
-            }
-        }
-    }
 }

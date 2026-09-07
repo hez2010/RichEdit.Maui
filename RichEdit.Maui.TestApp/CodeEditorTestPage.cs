@@ -5,7 +5,7 @@ using CodeEdit.Maui;
 namespace RichEdit.Maui.TestApp;
 
 // These tests use the full control tree and inspect the native text surface.
-internal sealed class CodeEditorTestPage : ContentPage
+internal sealed partial class CodeEditorTestPage : ContentPage
 {
     private readonly CodeEditor _editor = new() { Document = CodeDocument.FromPlainText(new string('x', 300) + "\nlast") };
     private readonly Entry _focusTarget = new() { Placeholder = "Focus target" };
@@ -429,6 +429,8 @@ internal sealed class CodeEditorTestPage : ContentPage
             return Task.CompletedTask;
         });
 #endif
+
+        await RunInputTests((name, source, action) => Test("input " + name, source, action));
 
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         Save();

@@ -4,6 +4,20 @@ namespace CodeEdit.Maui;
 
 public sealed partial class CodeEditor
 {
+    private void InitializeKeyBindings()
+    {
+        var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Meta : EditorKeyModifiers.Control;
+        KeyBindings.Add(new(EditorKey.Tab, EditorKeyModifiers.None, new Command(Indent, () => !IsReadOnly)));
+        KeyBindings.Add(new(EditorKey.Tab, EditorKeyModifiers.Shift, new Command(Outdent, () => !IsReadOnly)));
+        KeyBindings.Add(new(EditorKey.Enter, EditorKeyModifiers.None, new Command(InsertNewLine, () => !IsReadOnly)));
+        var comment = new Command(ToggleLineComment, () => !IsReadOnly);
+        KeyBindings.Add(new(EditorKey.Slash, primary, comment));
+        KeyBindings.Add(new(EditorKey.Divide, primary, comment));
+        var suppressRichFormatting = new Command(static () => { });
+        foreach (var key in new[] { EditorKey.B, EditorKey.I, EditorKey.U })
+            KeyBindings.Add(new(key, primary, suppressRichFormatting));
+    }
+
     /// <summary>Inserts indentation at the caret, or indents every selected logical line in one undo unit.</summary>
     internal void Indent()
     {

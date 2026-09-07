@@ -169,6 +169,18 @@ public sealed partial class CodeEditor : ContentView
         grid.Add(TextView, 1);
         Content = grid;
         TextView.ContentChanged += OnContentChanged;
+        TextView.KeyDown += (_, args) => KeyDown?.Invoke(this, args);
+        InitializeKeyBindings();
+        TextView.ContextMenuOpening += (_, args) =>
+        {
+            if (FlyoutBase.GetContextFlyout(this) is MenuFlyout menu)
+            {
+                args.Items.Clear();
+                foreach (var item in menu.Cast<IMenuElement>()) args.Items.Add(item);
+                args.IncludeDefaultItems = false;
+            }
+            ContextMenuOpening?.Invoke(this, args);
+        };
         TextView.SelectionChanged += (_, args) =>
         {
             UpdateLines();
@@ -260,6 +272,14 @@ public sealed partial class CodeEditor : ContentView
     public bool CanRedo => TextView.CanRedo;
     /// <summary>Gets the stable MVVM commands.</summary>
     public CodeEditorCommands Commands { get; }
+
+    /// <summary>Gets the text surface's key bindings, including the editable code defaults.</summary>
+    public EditorKeyBindingCollection KeyBindings => TextView.KeyBindings;
+
+    /// <summary>Occurs before built-in hardware-key handling, except while native text composition is active.</summary>
+    public event EventHandler<EditorKeyEventArgs>? KeyDown;
+    /// <summary>Customizes the text surface's native context or selection menu. Apple platforms require version 16 or later.</summary>
+    public event EventHandler<EditorContextMenuEventArgs>? ContextMenuOpening;
 
     /// <summary>Occurs after an atomic source-document change.</summary>
     public event EventHandler<RichTextContentChangedEventArgs>? ContentChanged;

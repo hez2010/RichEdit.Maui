@@ -89,6 +89,8 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             [nameof(RichEditor.MaxLength)] = MapInputConfiguration,
             [nameof(RichEditor.AutoSize)] = MapInputConfiguration,
             [nameof(RichEditor.AcceptsTab)] = MapInputConfiguration,
+            // Native editing menus read the attached MAUI menu when they open.
+            [nameof(IContextFlyoutElement.ContextFlyout)] = static (_, _) => { },
         };
 
     private readonly object _sourceToken = new();

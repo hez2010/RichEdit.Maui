@@ -59,7 +59,9 @@ public partial class RichEditorHandler
         _contextFlyout = new TextCommandBarFlyout();
         _selectionFlyout = new TextCommandBarFlyout();
         _contextFlyout.Opening += OnTextFlyoutOpening;
+        _contextFlyout.Closed += OnTextFlyoutClosed;
         _selectionFlyout.Opening += OnTextFlyoutOpening;
+        _selectionFlyout.Closed += OnTextFlyoutClosed;
         platformView.ContextFlyout = _contextFlyout;
         platformView.SelectionFlyout = _selectionFlyout;
     }
@@ -84,11 +86,15 @@ public partial class RichEditorHandler
         if (_contextFlyout is not null)
         {
             _contextFlyout.Opening -= OnTextFlyoutOpening;
+            _contextFlyout.Closed -= OnTextFlyoutClosed;
+            RestoreTextFlyout(_contextFlyout);
         }
 
         if (_selectionFlyout is not null)
         {
             _selectionFlyout.Opening -= OnTextFlyoutOpening;
+            _selectionFlyout.Closed -= OnTextFlyoutClosed;
+            RestoreTextFlyout(_selectionFlyout);
         }
 
         _contextFlyout = null;
@@ -863,8 +869,14 @@ public partial class RichEditorHandler
 
     private void OnPlatformKeyDown(object sender, KeyRoutedEventArgs eventArgs)
     {
-        if (VirtualView is null)
+        if (VirtualView is null || eventArgs.Handled || _isComposing)
         {
+            return;
+        }
+
+        if (VirtualView.SendKeyDown(GetEditorKey(eventArgs.Key), GetEditorModifiers()))
+        {
+            eventArgs.Handled = true;
             return;
         }
 
@@ -960,6 +972,7 @@ public partial class RichEditorHandler
         }
 
         ConfigureTextFlyoutCommands(flyout);
+        CustomizeTextFlyout(flyout);
     }
 
     internal void ConfigureTextFlyoutCommands(TextCommandBarFlyout flyout)

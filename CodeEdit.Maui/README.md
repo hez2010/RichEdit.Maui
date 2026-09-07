@@ -79,7 +79,7 @@ A `CodeDocument` has immutable source snapshots, atomic text edits, public undo/
 | `ShowLineNumbers` | true | Show logical line numbers aligned with native layout |
 | `MaxLength` | -1 | Maximum UTF-16 source length, or unlimited |
 
-On Windows and Android, hardware Tab and Shift+Tab indent and outdent, and Ctrl+/ toggles line comments. The input settings above configure keyboard behavior and the sample toolbar. Enter inserts a newline with optional indentation; automatic indentation after native newline input is merged with that input's undo unit.
+Default hardware bindings use Tab and Shift+Tab to indent and outdent, and Control+/ (Command+/ on Apple platforms) to toggle line comments. The input settings above configure keyboard behavior and the sample toolbar. Enter inserts a newline with optional indentation; automatic indentation after native newline input is merged with that input's undo unit.
 
 The sample applies block actions and replace-all through one `Document.Edit` transaction, which remaps the selection and records one undo unit. Its actions check read-only state and the length limit before editing. Its line-selection policy excludes a final line when the selection ends at that line's start.
 
@@ -93,6 +93,29 @@ editor.ScrollIntoView(editor.SelectedRange);
 ```
 
 The sample's `CodeEditorActions` supplies `GoToLine`, `FindAll`, `FindNext`, `FindPrevious`, `ReplaceAll`, and `CodeSearchOptions`. Its searches are ordinal and literal, with application-defined word boundaries and optional wraparound.
+
+## Key bindings and context menus
+
+`KeyBindings`, `KeyDown`, and `ContextMenuOpening` operate on the inner text surface. The bindings collection includes CodeEditor's Tab, Shift+Tab, Enter, line-comment, and rich-format-shortcut suppression defaults. Applications can replace or remove any binding; the last matching entry takes precedence.
+
+```csharp
+var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst()
+    ? EditorKeyModifiers.Meta
+    : EditorKeyModifiers.Control;
+editor.KeyBindings.Add(new(EditorKey.F, primary, findCommand));
+
+editor.ContextMenuOpening += (_, args) =>
+{
+    args.Items.Add(new MenuFlyoutSeparator());
+    args.Items.Add(new MenuFlyoutItem { Text = "Find…", Command = findCommand });
+};
+```
+
+`KeyDown.Handled` suppresses further key handling. Bindings check `CanExecute`, pass their command parameter, and preserve native IME composition. These APIs handle hardware keyboards; soft-keyboard edits continue through native text input.
+
+Set `IncludeDefaultItems = false` in `ContextMenuOpening` to supply a replacement menu, or assign a `MenuFlyout` through `FlyoutBase.SetContextFlyout(editor, menu)`. The attached menu also supplies the inner text surface's editing menu. Menu commands can call application-owned helpers such as the sample's search and indentation actions.
+
+The [shared input and menu API](../README.md#key-bindings) documents modifier semantics and supported menu fields. Native menu customization is available on Windows, Android, and iOS/Mac Catalyst 16 or later; earlier Apple versions use their standard menus.
 
 ## Syntax and themes
 

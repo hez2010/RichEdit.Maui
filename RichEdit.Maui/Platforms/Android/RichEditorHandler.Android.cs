@@ -79,6 +79,10 @@ public partial class RichEditorHandler
         platformView.TabRequested = OnPlatformTab;
         platformView.LinkInvoked = OnPlatformLinkInvoked;
         platformView.InlineObjectInvoked = OnPlatformInlineObjectInvoked;
+        platformView.KeyDownRequested = VirtualView.SendKeyDown;
+        _contextMenuCallback = new EditorActionModeCallback(this);
+        platformView.CustomSelectionActionModeCallback = _contextMenuCallback;
+        platformView.CustomInsertionActionModeCallback = _contextMenuCallback;
     }
 
     /// <inheritdoc />
@@ -100,6 +104,12 @@ public partial class RichEditorHandler
         platformView.TabRequested = null;
         platformView.LinkInvoked = null;
         platformView.InlineObjectInvoked = null;
+        platformView.ResetKeyInput();
+        _contextMenuCallback?.Finish();
+        platformView.CustomSelectionActionModeCallback = null;
+        platformView.CustomInsertionActionModeCallback = null;
+        _contextMenuCallback?.Dispose();
+        _contextMenuCallback = null;
         base.DisconnectHandler(platformView);
     }
 

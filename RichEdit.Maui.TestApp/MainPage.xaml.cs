@@ -76,6 +76,14 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
         _formattingCommands = new RichEditorFormattingCommands(Editor);
+        var insertDate = new Command(() => OnInsertFieldClicked(this, EventArgs.Empty), () => !Editor.IsReadOnly);
+        var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Meta : EditorKeyModifiers.Control;
+        Editor.KeyBindings.Add(new(EditorKey.D, primary | EditorKeyModifiers.Shift, insertDate));
+        Editor.ContextMenuOpening += (_, args) =>
+        {
+            args.Items.Add(new MenuFlyoutSeparator());
+            args.Items.Add(new MenuFlyoutItem { Text = "Insert date", Command = insertDate });
+        };
 
         FontPicker.ItemsSource = new[] { "Default", "Arial", "Courier New", "Georgia" };
         SizePicker.ItemsSource = new[] { "14", "17", "20", "24", "30" };
