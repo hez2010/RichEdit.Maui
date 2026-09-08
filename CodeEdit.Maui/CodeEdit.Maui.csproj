@@ -36,6 +36,9 @@
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.100" />
         <InternalsVisibleTo Include="RichEdit.Maui.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
         <None Include="..\LICENSE.txt" Pack="true" PackagePath="LICENSE.txt" />
         <None Include="README.md" Pack="true" PackagePath="README.md" />
     </ItemGroup>

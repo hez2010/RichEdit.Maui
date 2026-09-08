@@ -1,8 +1,9 @@
 #if DEBUG && (ANDROID || IOS || MACCATALYST)
 using Microsoft.Maui.Platform;
 using CodeEdit.Maui;
+using RichEdit.Maui.TestApp;
 
-namespace RichEdit.Maui.TestApp;
+namespace RichEdit.Maui.Tests;
 
 // These tests use the full control tree and inspect the native text surface.
 internal sealed partial class CodeEditorTestPage : ContentPage

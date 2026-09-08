@@ -3,7 +3,7 @@ using RichEdit.Maui;
 
 namespace RichEdit.Maui.TestApp;
 
-public partial class MainPage : ContentPage
+public partial class RichEditorPage : ContentPage
 {
     private readonly RichEditorFormattingCommands _formattingCommands;
     private static readonly Color ActiveToolbarColor = Color.FromArgb("#6750A4");
@@ -72,7 +72,7 @@ public partial class MainPage : ContentPage
     private RichTextImage? _sampleImage;
     private bool _updatingToolbar;
 
-    public MainPage()
+    public RichEditorPage()
     {
         InitializeComponent();
         _formattingCommands = new RichEditorFormattingCommands(Editor);

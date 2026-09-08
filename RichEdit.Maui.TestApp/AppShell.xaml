@@ -9,8 +9,8 @@
     <TabBar>
         <ShellContent
             Title="Rich editor"
-            ContentTemplate="{DataTemplate local:MainPage}"
-            Route="MainPage" />
+            ContentTemplate="{DataTemplate local:RichEditorPage}"
+            Route="RichEditorPage" />
         <ShellContent
             Title="Code editor"
             ContentTemplate="{DataTemplate local:CodeEditorPage}"

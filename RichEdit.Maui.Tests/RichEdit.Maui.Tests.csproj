@@ -1,38 +1,38 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <UseWinUI>true</UseWinUI>
-    <OutputType>Exe</OutputType>
-    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
-    <EnableDefaultMauiItems>false</EnableDefaultMauiItems>
-    <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
-    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <CsWinRTAotWarningLevel>3</CsWinRTAotWarningLevel>
-  </PropertyGroup>
+    <PropertyGroup>
+        <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
+        <UseWinUI>true</UseWinUI>
+        <OutputType>Exe</OutputType>
+        <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+        <EnableDefaultMauiItems>false</EnableDefaultMauiItems>
+        <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
+        <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <CsWinRTAotWarningLevel>3</CsWinRTAotWarningLevel>
+    </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="xunit.v3" Version="4.0.0" />
-  </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="xunit.v3" Version="4.0.0" />
+    </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
-    <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
-    <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.cs" Link="EditorContractTests.cs" />
-    <Compile Include="..\RichEdit.Maui.TestApp\CodeEditorActions.cs" Link="Samples\CodeEditorActions.cs" />
-    <Compile Include="..\RichEdit.Maui.TestApp\RichEditorFormattingCommands.cs" Link="Samples\RichEditorFormattingCommands.cs" />
-    <EmbeddedResource Include="..\RichEdit.Maui.TestApp\MainPage.xaml.cs" LogicalName="EditorSampleSource" />
-  </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
+        <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
+        <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.cs" Link="EditorContractTests.cs" />
+        <Compile Include="..\RichEdit.Maui.TestApp\CodeEditorActions.cs" Link="Samples\CodeEditorActions.cs" />
+        <Compile Include="..\RichEdit.Maui.TestApp\RichEditorFormattingCommands.cs" Link="Samples\RichEditorFormattingCommands.cs" />
+        <EmbeddedResource Include="..\RichEdit.Maui.TestApp\RichEditorPage.xaml.cs" LogicalName="EditorSampleSource" />
+    </ItemGroup>
 
 </Project>

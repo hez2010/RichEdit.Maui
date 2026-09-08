@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:code="clr-namespace:CodeEdit.Maui;assembly=CodeEdit.Maui"
+             xmlns:local="clr-namespace:RichEdit.Maui.TestApp"
+             x:Class="RichEdit.Maui.TestApp.CodeEditorPage"
+             Title="Code editor">
+
+    <ContentPage.Resources>
+        <local:InverseBooleanConverter x:Key="InverseBooleanConverter" />
+    </ContentPage.Resources>
+
+    <Grid Padding="16"
+          RowDefinitions="Auto,Auto,Auto,*,Auto"
+          RowSpacing="10">
+        <Label Text="Code editor"
+               FontSize="24"
+               FontAttributes="Bold" />
+
+        <ScrollView Grid.Row="1"
+                    Orientation="Horizontal">
+            <HorizontalStackLayout Spacing="6">
+                <Button Text="Undo"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Undo}" />
+                <Button Text="Redo"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Redo}" />
+                <Button Text="Indent"
+                        IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
+                        Clicked="OnIndentClicked" />
+                <Button Text="Outdent"
+                        IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
+                        Clicked="OnOutdentClicked" />
+                <Button Text="//"
+                        IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
+                        Clicked="OnToggleLineCommentClicked" />
+                <Button Text="Copy"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Copy}" />
+                <Button Text="Paste"
+                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Paste}" />
+                <HorizontalStackLayout Spacing="0">
+                    <CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=WordWrap, Mode=TwoWay}" />
+                    <Label Text="Wrap"
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Spacing="0">
+                    <CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=ShowLineNumbers, Mode=TwoWay}" />
+                    <Label Text="Line numbers"
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Spacing="0">
+                    <CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Mode=TwoWay}" />
+                    <Label Text="Read only"
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Spacing="0">
+                    <CheckBox CheckedChanged="OnDarkThemeChanged" />
+                    <Label Text="Dark"
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+            </HorizontalStackLayout>
+        </ScrollView>
+
+        <Grid Grid.Row="2"
+              ColumnDefinitions="*,Auto,Auto"
+              RowDefinitions="Auto,Auto"
+              ColumnSpacing="8"
+              RowSpacing="4">
+            <Entry x:Name="QueryEntry"
+                   Placeholder="Find text"
+                   MinimumWidthRequest="160"
+                   Completed="OnFindNext" />
+            <Button Grid.Column="1"
+                    Text="Previous"
+                    Clicked="OnFindPrevious" />
+            <Button Grid.Column="2"
+                    Text="Next"
+                    Clicked="OnFindNext" />
+            <Entry x:Name="ReplacementEntry"
+                   Grid.Row="1"
+                   Placeholder="Replace with"
+                   MinimumWidthRequest="160" />
+            <Button Grid.Row="1"
+                    Grid.Column="1"
+                    Text="Replace all"
+                    IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
+                    Clicked="OnReplaceAllClicked" />
+            <Label x:Name="SearchStatusLabel"
+                   Grid.Row="1"
+                   Grid.Column="2"
+                   FontSize="12"
+                   VerticalOptions="Center" />
+        </Grid>
+
+        <code:CodeEditor x:Name="Editor"
+                         Grid.Row="3"
+                         FontSize="14"
+                         Placeholder="Write some code…" />
+
+        <Label x:Name="StatusLabel"
+               Grid.Row="4"
+               FontSize="12" />
+    </Grid>
+
+</ContentPage>

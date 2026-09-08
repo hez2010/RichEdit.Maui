@@ -13,7 +13,7 @@ public partial class App : Application
 	{
 #if DEBUG && (IOS || MACCATALYST)
         if (Environment.GetEnvironmentVariable("RICHEDIT_RUN_CODE_TESTS") == "1")
-            return new Window(new CodeEditorTestPage(Environment.GetEnvironmentVariable("RICHEDIT_TEST_FILTER")));
+            return new Window(new Tests.CodeEditorTestPage(Environment.GetEnvironmentVariable("RICHEDIT_TEST_FILTER")));
         if (Environment.GetEnvironmentVariable("RICHEDIT_RUN_TESTS") == "1")
         {
             var editor = new RichEditor();

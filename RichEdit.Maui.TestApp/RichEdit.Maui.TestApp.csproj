@@ -81,8 +81,12 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
-      <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
+        <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
+        <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+        <Compile Include="..\RichEdit.Maui.Tests\CodeEditorTestPage*.cs" Link="Tests\%(Filename)%(Extension)" />
     </ItemGroup>
 
 </Project>

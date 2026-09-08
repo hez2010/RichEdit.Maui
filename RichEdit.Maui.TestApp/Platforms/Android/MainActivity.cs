@@ -16,7 +16,7 @@ public class MainActivity : MauiAppCompatActivity
         if (!_testsStarted && Intent?.GetBooleanExtra("run-code-editor-tests", false) == true)
         {
             _testsStarted = true;
-            Microsoft.Maui.Controls.Application.Current!.Windows[0].Page = new CodeEditorTestPage(Intent?.GetStringExtra("test-filter"));
+            Microsoft.Maui.Controls.Application.Current!.Windows[0].Page = new Tests.CodeEditorTestPage(Intent?.GetStringExtra("test-filter"));
         }
         if (!_testsStarted && Intent?.GetBooleanExtra("run-editor-tests", false) == true)
         {

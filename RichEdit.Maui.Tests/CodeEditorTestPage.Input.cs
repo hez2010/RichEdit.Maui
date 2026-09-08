@@ -1,5 +1,5 @@
 #if DEBUG && (ANDROID || IOS || MACCATALYST)
-namespace RichEdit.Maui.TestApp;
+namespace RichEdit.Maui.Tests;
 
 internal sealed partial class CodeEditorTestPage
 {
