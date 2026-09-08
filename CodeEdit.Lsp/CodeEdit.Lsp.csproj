@@ -5,7 +5,6 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
-    <Version>0.3.0-preview.1</Version>
     <Authors>hez2010</Authors>
     <Description>A Language Server Protocol client for CodeEdit.Maui and .NET applications.</Description>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
