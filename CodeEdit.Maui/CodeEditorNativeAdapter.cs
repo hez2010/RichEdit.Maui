@@ -27,6 +27,7 @@ internal sealed partial class CodeEditorNativeAdapter : IDisposable
     private partial void Connect();
     private partial void Disconnect();
     internal partial bool IsComposing { get; }
+    internal partial Color? GetTextColor();
     internal partial bool Post(Action action);
     internal partial void UpdateConfiguration();
     internal partial void ScrollToSelection();

@@ -1,5 +1,6 @@
 using Android.Views;
 using Android.Views.InputMethods;
+using Microsoft.Maui.Platform;
 using RichEdit.Maui.Platforms.Android;
 
 namespace CodeEdit.Maui;
@@ -9,6 +10,7 @@ internal sealed partial class CodeEditorNativeAdapter
     private RichEditText PlatformView = null!;
     private ViewTreeObserver? _observer;
     internal partial bool IsComposing => PlatformView.EditableText is { } text && BaseInputConnection.GetComposingSpanStart(text) >= 0;
+    internal partial Color? GetTextColor() => new global::Android.Graphics.Color(PlatformView.CurrentTextColor).ToColor();
     internal partial bool Post(Action action) => PlatformView.Post(action);
 
     private partial void Connect()

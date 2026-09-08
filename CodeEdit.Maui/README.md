@@ -2,7 +2,7 @@
 
 A native code editor for .NET MAUI, built in C# on `RichEdit.Maui`. It uses the same native text surfaces on Windows, Android, iOS, and Mac Catalyst.
 
-The control provides C# syntax coloring, logical line numbers, horizontal scrolling or word wrapping, and light/dark palettes. It composes a `RichEditor` through public document, selection, clipboard, and history APIs. The sample app supplies toolbar actions and literal find/replace.
+The control provides LSP semantic coloring, logical line numbers, and horizontal scrolling or word wrapping. Applications supply an initialized `CodeEdit.Lsp.LspClient`, choose how it connects to a server, and provide a token-to-color delegate. It composes a `RichEditor` through public document, selection, clipboard, and history APIs. The sample app supplies toolbar actions and literal find/replace.
 
 Syntax colors are view-owned decorations. Highlighting and theme changes do not change document content, versions, saved state, content events, or undo history. Persist source through `Document.Text`; clipboard copies contain source without syntax formatting.
 
@@ -18,8 +18,8 @@ builder.UseMauiApp<App>().UseCodeEditor();
 
 var editor = new CodeEditor
 {
-    Document = CodeDocument.FromPlainText("public class Example\n{\n}\n"),
-    Theme = CodeEditorTheme.Dark,
+    Document = CodeDocument.FromPlainText("public class Example\n{\n}\n", languageId: "csharp"),
+    Theme = static token => token.Type == "keyword" ? Colors.Blue : null,
     FontSize = 14,
     IndentSize = 4,
     ShowLineNumbers = true,
@@ -42,7 +42,7 @@ XAML and MVVM work with the same control:
     WordWrap="False" />
 ```
 
-Give the editor a bounded area, such as a `Grid` row with `Height="*"`. It owns native scrolling. The test app's **Code editor** tab demonstrates the control with editing, search, wrapping, and theme controls; its page is written entirely in C#.
+Give the editor a bounded area, such as a `Grid` row with `Height="*"`. It owns native scrolling. The sample app's **Code editor** tab demonstrates the control with editing, search, wrapping, and theme controls; its page is written entirely in C#.
 
 ## Work with source
 
@@ -117,31 +117,82 @@ Set `IncludeDefaultItems = false` in `ContextMenuOpening` to supply a replacemen
 
 The [shared input and menu API](../README.md#key-bindings) documents modifier semantics and supported menu fields. Native menu customization is available on Windows, Android, and iOS/Mac Catalyst 16 or later; earlier Apple versions use their standard menus.
 
-## Syntax and themes
+## Language servers and themes
 
-`CSharpSyntaxHighlighter` is the default. It classifies keywords, strings and character literals, comments, numbers, and preprocessor directives, including verbatim and raw strings. It performs lexical coloring: contextual keywords are always colored, and interpolation expressions are not parsed separately. Compiler diagnostics, completion, semantic classification, and folding are outside this version's scope.
-
-Implement `ICodeSyntaxHighlighter` to supply another language or compiler-based classification. Return ordered, nonempty, non-overlapping `CodeToken` ranges using UTF-16 offsets. Unclassified text uses the theme's `TextColor`.
-
-Highlighting is debounced by 120 ms and runs on a worker thread over an immutable source string. Highlighters must be thread-safe and should observe cancellation. Results are validated and discarded when superseded, when the document changes, or when the handler disconnects. Presentation waits until IME composition has ended and replaces the syntax decoration layer. CodeEditor reclassifies text after undo/redo. Application layers created through `Decorations.CreateLayer()` compose above syntax colors, so diagnostics or search highlights can be managed independently.
+Language integration uses [CodeEdit.Lsp](../CodeEdit.Lsp/README.md). The application implements its `LspConnection` contract and initializes a client. Connections may dispatch to an in-process server directly or use an application's chosen transport to an existing server. The library supplies the client APIs and source-generated payload metadata; connection implementations belong to the application.
 
 ```csharp
-editor.Highlighter = new CSharpSyntaxHighlighter();
-await editor.RefreshHighlightingAsync(); // Call on the UI thread; also useful in tests.
+using CodeEdit.Lsp;
 
-editor.Theme = CodeEditorTheme.Dark with
+// applicationConnection is an application-owned implementation of LspConnection.
+var client = await LspClient.ConnectAsync(applicationConnection, new()
 {
-    CommentColor = Color.FromArgb("#85B98C"),
-};
+    RootUri = new Uri("file:///workspace/"),
+});
 
-editor.Highlighter = null; // Disable syntax coloring.
+editor.LanguageServer = client;
+editor.Document = new CodeDocument(source, new Uri("file:///workspace/Example.cs"), "csharp");
+await editor.RefreshHighlightingAsync();
 ```
 
-Automatic failures raise `HighlightingFailed`; an awaited explicit refresh propagates errors to its caller. Highlighting scans the complete source and updates changed presentation ranges. Native readback removes presentation overrides before committing authored content. This version is intended for ordinary source documents, not a virtualized multi-gigabyte file viewer.
+`CodeDocument.Uri` is a stable absolute URI, and `LanguageId` is a standard LSP language identifier. Omitted values create a unique untitled URI and use `plaintext`. Set the language explicitly for language-specific features. A client can be shared by multiple editors. Each editor opens and synchronizes its own document; replacing the source or client, or disconnecting the native handler, closes that session. The application disposes the shared client when finished with it.
+
+Semantic-token requests are debounced by 120 ms. Full tokens are requested when supported, with a whole-document range fallback. Tokens are decoded against the negotiated server legend and retain the server's type and modifier names. Results are discarded when superseded, when the source changes, or when the handler disconnects. Presentation waits until IME composition has ended and replaces the syntax decoration layer. Source notifications remain ordered across rapid edits and undo/redo.
+
+```csharp
+editor.Theme = token => token.Type switch
+{
+    "comment" => Colors.ForestGreen,
+    "variable" when token.Modifiers.Contains("readonly") => Colors.Teal,
+    _ => null,
+};
+
+editor.TextColor = Colors.Black;
+editor.BackgroundColor = Colors.White;
+
+editor.Theme = null; // Clear syntax colors while keeping language services attached.
+```
+
+`CodeEditorTheme` is a `Color? (SemanticToken token)` delegate. It receives the complete token, including its source range, type, and modifiers. Returning null leaves that token's normal appearance unchanged. The callback runs on the UI thread and should be fast and avoid modifying the editor. Assigning a new delegate recolors cached tokens without another language-server request. Color choices and token mapping belong to the application.
+
+`TextColor` sets the normal source and line-number color; null uses the native default. `BackgroundColor` styles the text surface and gutter. Without a theme delegate or language server, source remains uncolored. The former `ICodeSyntaxHighlighter`, `CSharpSyntaxHighlighter`, and five-category token API have been removed.
+
+Use `GetLanguageDocumentAsync()` on the UI thread to obtain the synchronized, editor-owned LSP session:
+
+```csharp
+var language = await editor.GetLanguageDocumentAsync();
+if (language is not null)
+{
+    var position = editor.GetLspPosition(editor.SelectionState.Active);
+    var completions = await language.GetCompletionsAsync(position);
+    var hover = await language.GetHoverAsync(position);
+}
+```
+
+The session provides completion, resolve, hover, definition, reference, formatting, rename, and generic LSP requests. A source edit cancels requests for an older revision. `LspMethods` supplies additional typed contracts, and source-generated metadata supports custom typed methods without reflection. Applications own completion UI, hover presentation, navigation, and workspace edit application. `CodeDocument` is the source of truth; change it through its editing API and let the editor synchronize the session.
+
+`Diagnostics` and `DiagnosticsChanged` expose server diagnostics on the UI thread. Versioned diagnostics are checked against the current LSP revision, and edits clear the collection. Servers may omit diagnostic versions; such notifications are associated with the currently attached document, and the client cannot establish their original revision. Application layers created through `Decorations.CreateLayer()` compose above syntax colors and can present diagnostics or search results independently.
+
+Apply returned text edits only against the exact snapshot used for the request:
+
+```csharp
+var language = await editor.GetLanguageDocumentAsync();
+if (language is not null)
+{
+    var snapshot = editor.Document.CurrentSnapshot;
+    var edits = await language.FormatAsync(editor.IndentSize, !editor.UseTabs);
+    if (edits is not null)
+        editor.ApplyLanguageServerEdits(edits, snapshot, "Format document");
+}
+```
+
+`ApplyLanguageServerEdits` validates ranges and overlaps before applying one undoable transaction. It returns false for stale snapshots, read-only or composing editors, and changes that exceed `MaxLength`. LSP coordinates are zero-based UTF-16 positions; use `GetLspPosition` and the `GetOffset(LspPosition)` overload to convert them. Existing `CodePosition` APIs remain one-based.
+
+Automatic failures raise `LanguageServerFailed`; explicitly awaited requests and refreshes propagate errors to their caller. Semantic coloring and diagnostic notifications do not change source versions, saved state, selection, RTF, or undo history. The Code editor sample accepts a shared client through its `CodeEditorPage(LspClient?)` constructor.
 
 ## Validation
 
-The library targets .NET 10 on Windows, Android, iOS, and Mac Catalyst. Windows integration tests use a real WinUI `RichEditBox` and cover native input, focus changes, undo/redo, clipboard conversion, scrolling, asynchronous cancellation, and the sample editing helpers. Native adapters in the code package use public platform APIs for keyboard shortcuts, IME state, wrapping, and visible-line geometry; they do not read or change RichEditor internals.
+The library targets .NET 10 on Windows, Android, iOS, and Mac Catalyst. Native adapters in the code package use public platform APIs for keyboard shortcuts, IME state, wrapping, and visible-line geometry; they do not read or change RichEditor internals.
 
 Build and run the focused tests on Windows with the installed MAUI workload and Windows App SDK runtime:
 
@@ -150,7 +201,7 @@ dotnet build RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj -p:Platform=x64 -p:W
 & ./RichEdit.Maui.Tests/bin/x64/Debug/net10.0-windows10.0.19041.0/RichEdit.Maui.Tests.exe -class RichEdit.Maui.Tests.CodeEditorTests
 ```
 
-The executable uses xUnit's in-process runner. Add `-p:SkipMauiWorkloadManifest=true` to the build when validating the .NET 10 targets with the locally installed workload. Mobile native behavior requires device or simulator validation.
+The executable uses xUnit's in-process runner. Add `-p:SkipMauiWorkloadManifest=true` to the build when validating the .NET 10 targets with the locally installed workload.
 
 ## Threading and notifications
 

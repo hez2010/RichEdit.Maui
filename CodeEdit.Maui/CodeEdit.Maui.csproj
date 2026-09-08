@@ -33,6 +33,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\CodeEdit.Lsp\CodeEdit.Lsp.csproj" />
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.100" />
         <InternalsVisibleTo Include="RichEdit.Maui.Tests" />

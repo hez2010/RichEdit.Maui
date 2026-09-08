@@ -8,7 +8,8 @@ namespace RichEdit.Maui.Tests;
 // These tests use the full control tree and inspect the native text surface.
 internal sealed partial class CodeEditorTestPage : ContentPage
 {
-    private readonly CodeEditor _editor = new() { Document = CodeDocument.FromPlainText(new string('x', 300) + "\nlast") };
+    private readonly CodeEditor _editor = new() { Document = CodeDocument.FromPlainText(new string('x', 300) + "\nlast"), TextColor = Colors.Black, BackgroundColor = Colors.White };
+    private readonly TestLanguageServer _languageServer = new();
     private readonly Entry _focusTarget = new() { Placeholder = "Focus target" };
     private readonly RichEditor _textView;
     private readonly CodeEditorActions _actions;
@@ -30,6 +31,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             await RunAsync(filter);
         };
     }
+
+    private Color TokenColor(string type) => _editor.Theme!(new(0, 1, type, []))!;
 
     private async Task RunAsync(string? filter)
     {
@@ -55,8 +58,16 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 _editor.AutoIndent = true;
                 _editor.WordWrap = false;
                 _editor.ShowLineNumbers = true;
-                _editor.Theme = CodeEditorTheme.Light;
-                _editor.Highlighter = new CSharpSyntaxHighlighter();
+                _editor.Theme = static token => token.Type switch
+                {
+                    "keyword" => Colors.Blue,
+                    "string" => Colors.Maroon,
+                    "comment" => Colors.Green,
+                    "number" => Colors.DarkCyan,
+                    "macro" => Colors.Purple,
+                    _ => null,
+                };
+                _editor.LanguageServer = _languageServer.Client;
                 if (replaceDocument) _editor.Document = CodeDocument.FromPlainText(source);
                 _editor.SelectedRange = RichTextRange.Empty;
                 _editor.Focus();
@@ -83,20 +94,20 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             var rtf = _textView.Document.RtfText;
             _editor.Document.MarkSaved();
             _editor.SelectionState = new RichTextSelectionState(8, 1);
-            _editor.Theme = CodeEditorTheme.Dark;
+            _editor.Theme = static _ => Colors.Purple;
             await _editor.RefreshHighlightingAsync();
             Equal(before.Version, _editor.Document.Version);
             Equal(rtf, _textView.Document.RtfText);
             Equal(false, _editor.Document.IsModified);
             Equal(new RichTextSelectionState(8, 1), _editor.SelectionState);
             Equal(new CodePosition(1, 2), _editor.CaretPosition);
-            ColorAt(0, _editor.Theme.KeywordColor);
+            ColorAt(0, TokenColor("keyword"));
             using var layer = _editor.Decorations.CreateLayer();
             layer.Set([new(new RichTextRange(0, 5), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             ColorAt(0, Colors.Green);
             Equal(before.Version, _editor.Document.Version);
             layer.Clear();
-            ColorAt(0, _editor.Theme.KeywordColor);
+            ColorAt(0, TokenColor("keyword"));
         });
 
         await Test("source document undo restores direction and save points", "123456", async () =>
@@ -118,11 +129,11 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("syntax colors reach native text", "class C { string s = \"hello\"; int n = 42; // comment\n}", () =>
         {
-            ColorAt(0, _editor.Theme.KeywordColor);
-            ColorAt(_editor.Document.Text.IndexOf('"'), _editor.Theme.StringColor);
-            ColorAt(_editor.Document.Text.IndexOf("42", StringComparison.Ordinal), _editor.Theme.NumberColor);
-            ColorAt(_editor.Document.Text.IndexOf("//", StringComparison.Ordinal), _editor.Theme.CommentColor);
-            ColorAt(6, _editor.Theme.TextColor);
+            ColorAt(0, TokenColor("keyword"));
+            ColorAt(_editor.Document.Text.IndexOf('"'), TokenColor("string"));
+            ColorAt(_editor.Document.Text.IndexOf("42", StringComparison.Ordinal), TokenColor("number"));
+            ColorAt(_editor.Document.Text.IndexOf("//", StringComparison.Ordinal), TokenColor("comment"));
+            ColorAt(6, _editor.TextColor!);
             Equal(false, _editor.CanUndo, "initial highlighting history");
             return Task.CompletedTask;
         });
@@ -134,10 +145,10 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             {
                 Equal(true, _focusTarget.Focus(), "move focus away");
                 await Task.Delay(60);
-                ColorAt(0, _editor.Theme.KeywordColor);
+                ColorAt(0, TokenColor("keyword"));
                 Equal(true, _editor.Focus(), "focus editor");
                 await Task.Delay(60);
-                ColorAt(0, _editor.Theme.KeywordColor);
+                ColorAt(0, TokenColor("keyword"));
             }
             Equal(version, _editor.Document.Version, "focus document version");
             Equal(false, _editor.CanUndo, "focus history");
@@ -150,14 +161,14 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.Undo();
             var selection = _editor.SelectedRange;
             var document = _editor.Document;
-            _editor.Theme = CodeEditorTheme.Dark;
+            _editor.Theme = static _ => Colors.Purple;
             await _editor.RefreshHighlightingAsync();
             Equal(true, ReferenceEquals(document, _editor.Document), "document identity");
             Equal(selection, _editor.SelectedRange, "selection after theme");
             Equal(false, _editor.CanUndo, "theme undo");
             Equal(true, _editor.CanRedo, "theme redo");
-            ColorAt(0, _editor.Theme.KeywordColor);
-            ColorAt(6, _editor.Theme.TextColor);
+            ColorAt(0, TokenColor("keyword"));
+            ColorAt(6, _editor.TextColor!);
             _editor.Redo();
             Equal("class D { }", _editor.Document.Text);
         });
@@ -167,8 +178,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             EditorContractTests.NativeReplace(_textView, "public ");
             await _editor.RefreshHighlightingAsync();
             Equal("public class C { }", _editor.Document.Text);
-            ColorAt(0, _editor.Theme.KeywordColor);
-            ColorAt(6, _editor.Theme.TextColor);
+            ColorAt(0, TokenColor("keyword"));
+            ColorAt(6, _editor.TextColor!);
             _editor.Undo();
             Equal("class C { }", _editor.Document.Text);
             Equal(false, _editor.CanUndo, "typing undo units");
@@ -248,11 +259,11 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("disabling highlighting restores native default color", "return 42;", async () =>
         {
-            _editor.Highlighter = null;
+            _editor.LanguageServer = null;
             await _editor.RefreshHighlightingAsync();
             Equal(0, _editor.Tokens.Count);
-            ColorAt(0, _editor.Theme.TextColor);
-            ColorAt(7, _editor.Theme.TextColor);
+            ColorAt(0, _editor.TextColor!);
+            ColorAt(7, _editor.TextColor!);
             Equal(false, _editor.CanUndo);
         });
 
@@ -272,7 +283,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             old.Edit(edit => edit.InsertText(0, "detached\n"));
             await _editor.RefreshHighlightingAsync();
             Equal(1, _editor.LineCount);
-            ColorAt(0, _editor.Theme.KeywordColor);
+            ColorAt(0, TokenColor("keyword"));
         });
 
         await Test("word wrap updates native layout", new string('x', 300) + "\nlast", async () =>
@@ -291,7 +302,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.IsReadOnly = false;
             _editor.MaxLength = 1000;
             _editor.MaxLength = -1;
-            _editor.Theme = CodeEditorTheme.Dark;
+            _editor.Theme = static _ => Colors.Purple;
             await _editor.RefreshHighlightingAsync();
             await Task.Delay(30);
             Equal(unwrapped, NativeLineCount(), "wrapping after input and appearance updates");
@@ -319,7 +330,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("derived formatting preserves both history directions", "a", async () =>
         {
-            _editor.Highlighter = null;
+            _editor.LanguageServer = null;
             _editor.Document.Edit(edit => edit.InsertText(1, "b"));
             _editor.Document.Edit(edit => edit.InsertText(2, "c"));
             _editor.Undo();
@@ -361,7 +372,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 #endif
             await Task.Delay(300);
             Equal("int ", _editor.Document.Text);
-            ColorAt(0, _editor.Theme.KeywordColor);
+            ColorAt(0, TokenColor("keyword"));
             var count = 0;
             while (_editor.CanUndo && count++ < 8) _editor.Undo();
             Equal("", _editor.Document.Text, "composition undo");

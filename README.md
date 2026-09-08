@@ -2,7 +2,7 @@
 
 `RichEdit.Maui` is a native-handler rich-text editor for .NET MAUI. It combines a bindable editor control, a stable live document, immutable versioned snapshots, and atomic range edits.
 
-For source-code editing, [CodeEdit.Maui](CodeEdit.Maui/README.md) provides C# syntax coloring, line numbers, and native keyboard editing. Register it with `builder.UseCodeEditor()`. The test app's **Code editor** tab demonstrates application toolbar actions and find/replace.
+For source-code editing, [CodeEdit.Maui](CodeEdit.Maui/README.md) provides LSP semantic coloring, line numbers, and native keyboard editing. [CodeEdit.Lsp](CodeEdit.Lsp/README.md) supplies the client API with application-owned connections. Register it with `builder.UseCodeEditor()`. The sample app's **Code editor** tab demonstrates application toolbar actions and find/replace.
 
 The editor uses each platform's native text stack:
 
@@ -282,16 +282,16 @@ All platforms use document snapshots for undo and redo, including field instruct
 
 ## Tests
 
-The Windows test project includes a WinUI application host, so its integration tests exercise real `RichEditBox` instances and clipboard commands. Run it on Windows with the matching Windows App SDK runtime installed:
+Run the Windows tests with the matching Windows App SDK runtime installed:
 
 ```powershell
 dotnet build RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj -p:Platform=x64 -p:WindowsPackageType=None
 & ./RichEdit.Maui.Tests/bin/x64/Debug/net10.0-windows10.0.19041.0/RichEdit.Maui.Tests.exe -parallelMode none -nocolor
 ```
 
-The Android test app also includes a debug-only native test mode. Build and install its Debug APK, then launch the main activity with the boolean intent extra `run-editor-tests=true`. Results are written to `cache/editor-tests.txt` in the app's private storage and to the `RichEditTests` logcat tag. Use a dedicated emulator; these checks temporarily exercise its clipboard. Keep fast-deployment overrides consistent with the installed APK when switching SDKs.
+The Android test app also includes a debug-only native test mode. Build and install its Debug APK, then launch the main activity with the boolean intent extra `run-editor-tests=true`. Results are written to `cache/editor-tests.txt` in the app's private storage and to the `RichEditTests` logcat tag. Keep fast-deployment overrides consistent with the installed APK when switching SDKs.
 
-For the Apple debug test mode, launch the test app with `RICHEDIT_RUN_TESTS=1` in its environment. With `simctl`, use `SIMCTL_CHILD_RICHEDIT_RUN_TESTS=1 xcrun simctl launch <device> <bundle-id>`. Results are written to `Library/Caches/apple-editor-tests.txt` inside the app's data container. This mode uses test-owned clipboard data and replaces the simulator clipboard contents.
+For the Apple debug test mode, launch the test app with `RICHEDIT_RUN_TESTS=1` in its environment. With `simctl`, use `SIMCTL_CHILD_RICHEDIT_RUN_TESTS=1 xcrun simctl launch <device> <bundle-id>`. Results are written to `Library/Caches/apple-editor-tests.txt` inside the app's data container.
 
 ## RTF behavior
 

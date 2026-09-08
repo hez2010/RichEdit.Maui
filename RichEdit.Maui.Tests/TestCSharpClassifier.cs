@@ -1,14 +1,14 @@
 using System.Collections.Frozen;
 using RichEdit.Maui;
 
-namespace CodeEdit.Maui;
+namespace RichEdit.Maui.Tests;
 
 /// <summary>A dependency-free lexical C# highlighter, including comments and verbatim/raw strings.</summary>
 /// <remarks>
 /// This is lexical coloring, not compiler classification. Contextual keywords are colored
 /// wherever they occur. Interpolation expressions are not parsed or classified separately.
 /// </remarks>
-public sealed class CSharpSyntaxHighlighter : ICodeSyntaxHighlighter
+internal sealed class TestCSharpClassifier
 {
     private static readonly FrozenSet<string> Keywords = (
         "abstract as base bool break byte case catch char checked class const continue decimal default delegate " +
@@ -176,3 +176,6 @@ public sealed class CSharpSyntaxHighlighter : ICodeSyntaxHighlighter
         if ((position & 1023) == 0) cancellationToken.ThrowIfCancellationRequested();
     }
 }
+
+internal enum CodeTokenKind { Keyword, String, Comment, Number, Preprocessor }
+internal readonly record struct CodeToken(RichTextRange Range, CodeTokenKind Kind);

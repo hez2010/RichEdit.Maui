@@ -1,6 +1,7 @@
 #if IOS || MACCATALYST
 using CoreGraphics;
 using Foundation;
+using Microsoft.Maui.Platform;
 using RichEdit.Maui.Platforms.Apple;
 using UIKit;
 
@@ -9,10 +10,12 @@ namespace CodeEdit.Maui;
 internal sealed partial class CodeEditorNativeAdapter
 {
     private RichTextView PlatformView = null!;
+    private UIColor _defaultTextColor = null!;
     private IDisposable? _scrollObservation;
     private IDisposable? _boundsObservation;
     private CGSize _viewportSize;
     internal partial bool IsComposing => PlatformView.MarkedTextRange is not null;
+    internal partial Color? GetTextColor() => _defaultTextColor.ToColor();
     internal partial bool Post(Action action)
     {
         PlatformView.BeginInvokeOnMainThread(action);
@@ -22,6 +25,7 @@ internal sealed partial class CodeEditorNativeAdapter
     private partial void Connect()
     {
         PlatformView = _handler.PlatformView;
+        _defaultTextColor = PlatformView.TextColor ?? UIColor.Label;
         _scrollObservation = PlatformView.AddObserver("contentOffset", NSKeyValueObservingOptions.New, _ => Owner.InvalidateGutter());
         _boundsObservation = PlatformView.AddObserver("bounds", NSKeyValueObservingOptions.New, _ =>
         {

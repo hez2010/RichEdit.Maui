@@ -2,6 +2,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.Maui.Platform;
 using ScrollBarVisibility = Microsoft.UI.Xaml.Controls.ScrollBarVisibility;
 
 namespace CodeEdit.Maui;
@@ -12,6 +13,7 @@ internal sealed partial class CodeEditorNativeAdapter
     private bool _isComposing;
     private ScrollViewer? _scrollViewer;
     internal partial bool IsComposing => _isComposing;
+    internal partial Color? GetTextColor() => (PlatformView.Foreground as Microsoft.UI.Xaml.Media.SolidColorBrush)?.Color.ToColor();
     internal partial bool Post(Action action) => PlatformView.DispatcherQueue.TryEnqueue(() => action());
 
     private partial void Connect()

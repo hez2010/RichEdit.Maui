@@ -27,6 +27,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\CodeEdit.Lsp\CodeEdit.Lsp.csproj" />
         <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
         <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.cs" Link="EditorContractTests.cs" />

@@ -89,4 +89,10 @@
         <Compile Include="..\RichEdit.Maui.Tests\CodeEditorTestPage*.cs" Link="Tests\%(Filename)%(Extension)" />
     </ItemGroup>
 
+    <ItemGroup>
+        <Compile Include="..\RichEdit.Maui.Tests\TestCSharpClassifier.cs" Link="Tests\TestCSharpClassifier.cs" />
+        <Compile Include="..\RichEdit.Maui.Tests\TestLanguageServer.cs" Link="Tests\TestLanguageServer.cs" />
+        <Compile Include="..\RichEdit.Maui.Tests\TestLspConnection.cs" Link="Tests\TestLspConnection.cs" />
+    </ItemGroup>
+
 </Project>

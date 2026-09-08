@@ -12,8 +12,14 @@ public sealed class CodeDocument : INotifyPropertyChanged
 
     /// <summary>Creates a source document with empty history and a clean saved state.</summary>
     /// <param name="text">The initial source, or null for empty source.</param>
-    public CodeDocument(string? text = null)
+    /// <param name="uri">A stable absolute URI for LSP, or null to create a unique untitled URI.</param>
+    /// <param name="languageId">The standard LSP language identifier.</param>
+    public CodeDocument(string? text = null, Uri? uri = null, string languageId = "plaintext")
     {
+        if (uri is { IsAbsoluteUri: false }) throw new ArgumentException("The document URI must be absolute.", nameof(uri));
+        ArgumentException.ThrowIfNullOrWhiteSpace(languageId);
+        Uri = uri ?? new Uri($"untitled:{Guid.NewGuid():N}");
+        LanguageId = languageId;
         Source = RichTextDocument.FromPlainText(text);
         Source.Changed += (_, args) => Changed?.Invoke(this, args);
         Source.PropertyChanged += (_, args) =>
@@ -26,9 +32,15 @@ public sealed class CodeDocument : INotifyPropertyChanged
 
     /// <summary>Creates a source document with normalized line endings.</summary>
     /// <param name="text">The source text.</param>
+    /// <param name="uri">The absolute document URI, or null for an untitled document.</param>
+    /// <param name="languageId">The standard LSP language identifier.</param>
     /// <returns>A new source document.</returns>
-    public static CodeDocument FromPlainText(string? text) => new(text);
+    public static CodeDocument FromPlainText(string? text, Uri? uri = null, string languageId = "plaintext") => new(text, uri, languageId);
 
+    /// <summary>Gets the stable LSP document URI.</summary>
+    public Uri Uri { get; }
+    /// <summary>Gets the standard LSP language identifier.</summary>
+    public string LanguageId { get; }
     /// <summary>Gets the monotonically increasing content revision.</summary>
     public long Version => Source.Version;
     /// <summary>Gets the UTF-16 source length.</summary>
