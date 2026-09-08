@@ -31,7 +31,7 @@ public class WindowsEditorTests
         grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition());
         grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = Microsoft.UI.Xaml.GridLength.Auto });
         Microsoft.UI.Xaml.Controls.Grid.SetRow(button, 1);
-        grid.Children.Add(fixture.Handler.PlatformView);
+        grid.Children.Add(fixture.Handler.ContainerView ?? fixture.Handler.PlatformView);
         grid.Children.Add(button);
         var window = _sampleWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = grid;
@@ -79,7 +79,7 @@ public class WindowsEditorTests
         grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition());
         grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = Microsoft.UI.Xaml.GridLength.Auto });
         Microsoft.UI.Xaml.Controls.Grid.SetRow(focusTarget, 1);
-        grid.Children.Add(fixture.Handler.PlatformView);
+        grid.Children.Add(fixture.Handler.ContainerView ?? fixture.Handler.PlatformView);
         grid.Children.Add(focusTarget);
         var window = _sampleWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = grid;
@@ -247,7 +247,7 @@ public class WindowsEditorTests
         var start = editor.Document.CurrentSnapshot.Paragraphs.First(paragraph =>
             paragraph.Format.List is not null && text[paragraph.Start] == '…').Start;
         var window = _sampleWindow ??= new Microsoft.UI.Xaml.Window();
-        window.Content = fixture.Handler.PlatformView;
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
             window.Activate();
@@ -668,7 +668,11 @@ internal static class WindowsTestHost
                         {
                             try
                             {
-                                MauiApp = MauiApp.CreateBuilder().Build();
+                                MauiApp = MauiApp.CreateBuilder().ConfigureMauiHandlers(handlers =>
+                                {
+                                    handlers.AddHandler<Microsoft.Maui.Controls.Layout, Microsoft.Maui.Handlers.LayoutHandler>();
+                                    handlers.AddHandler<Microsoft.Maui.Controls.Button, Microsoft.Maui.Handlers.ButtonHandler>();
+                                }).Build();
                                 completion.SetResult(dispatcher);
                             }
                             catch (Exception exception)

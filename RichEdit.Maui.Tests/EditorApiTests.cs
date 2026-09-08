@@ -93,7 +93,7 @@ public class EditorApiTests
     {
         using var fixture = new RichFixture(RichTextDocument.FromPlainText("abcdef"));
         var window = _selectionWindow ??= new Microsoft.UI.Xaml.Window();
-        window.Content = fixture.Handler.PlatformView;
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
             window.Activate();

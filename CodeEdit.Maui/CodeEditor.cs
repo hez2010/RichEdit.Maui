@@ -249,6 +249,9 @@ public sealed partial class CodeEditor : ContentView
 
     /// <summary>Gets explicit source-range folding. The application owns discovery, UI, and expansion policy.</summary>
     public RichTextFolding Folding => TextView.Folding;
+
+    /// <summary>Gets source-anchored views whose content and actions are supplied by the application.</summary>
+    public RichTextAdornments Adornments => TextView.Adornments;
     /// <summary>Gets or sets the token-to-color callback, or null to leave tokens uncolored.</summary>
     public CodeEditorTheme? Theme { get => (CodeEditorTheme?)GetValue(ThemeProperty); set => SetValue(ThemeProperty, value); }
     /// <summary>Gets or sets the normal text and line-number color, or null for the native default.</summary>

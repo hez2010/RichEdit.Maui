@@ -8,6 +8,7 @@ public sealed partial class CodeEditorPage : ContentPage
     private readonly CodeEditorActions _actions;
     private readonly bool _useSampleLanguageServer;
     private Tests.TestLanguageServer? _sampleLanguageServer;
+    private CodeEditorFoldIndicators? _foldIndicators;
 
     public CodeEditorPage() : this(null) => _useSampleLanguageServer = true;
 
@@ -39,6 +40,7 @@ public sealed partial class CodeEditorPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        _foldIndicators ??= new CodeEditorFoldIndicators(Editor);
         if (!_useSampleLanguageServer || _sampleLanguageServer is not null) return;
         _sampleLanguageServer = new();
         Editor.LanguageServer = _sampleLanguageServer.Client;
@@ -47,6 +49,8 @@ public sealed partial class CodeEditorPage : ContentPage
     protected override async void OnDisappearing()
     {
         base.OnDisappearing();
+        _foldIndicators?.Dispose();
+        _foldIndicators = null;
         if (_sampleLanguageServer is not { } server) return;
         _sampleLanguageServer = null;
         Editor.LanguageServer = null;

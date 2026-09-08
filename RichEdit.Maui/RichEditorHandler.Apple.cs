@@ -231,6 +231,7 @@ namespace RichEdit.Maui
         protected override void ConnectHandler(RichTextView platformView)
         {
             base.ConnectHandler(platformView);
+            ConnectAdornments();
             _textViewDelegate = new RichTextViewDelegate(this);
             platformView.Delegate = _textViewDelegate;
             platformView.PasteRequested = OnPlatformPasteAsync;
@@ -248,6 +249,7 @@ namespace RichEdit.Maui
         protected override void DisconnectHandler(RichTextView platformView)
         {
             VirtualView?.Commands.Disconnect();
+            DisconnectAdornments();
             _pendingNativeChange = null;
             if (_observedTextStorage is { } storage) storage.DidProcessEditing -= OnTextStorageProcessed;
             _observedTextStorage = null;

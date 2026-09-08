@@ -32,6 +32,8 @@
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
         <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.cs" Link="EditorContractTests.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.Folding.cs" Link="EditorContractTests.Folding.cs" />
+        <Compile Include="..\RichEdit.Maui.TestApp\EditorContractTests.Adornments.cs" Link="EditorContractTests.Adornments.cs" />
+        <Compile Include="..\RichEdit.Maui.TestApp\CodeEditorFoldIndicators.cs" Link="Samples\CodeEditorFoldIndicators.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\CodeEditorActions.cs" Link="Samples\CodeEditorActions.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\RichEditorFormattingCommands.cs" Link="Samples\RichEditorFormattingCommands.cs" />
         <EmbeddedResource Include="..\RichEdit.Maui.TestApp\RichEditorPage.xaml.cs" LogicalName="EditorSampleSource" />

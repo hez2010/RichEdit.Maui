@@ -70,6 +70,23 @@ Editor.Folding.ExpandAll();
 
 `SetCollapsedRanges` replaces the set; `CollapsedRanges` and `Changed` expose its current state. Ranges track text edits, and nested folds expand independently. Fold discovery, user-interface actions, and expansion during navigation belong to the application. The same API is available on `CodeEditor`; see its [folding contract and sample](CodeEdit.Maui/README.md#range-folding).
 
+## Anchored views
+
+`Adornments` displays ordinary MAUI views at UTF-16 source positions. Buttons, image buttons, and custom views retain their normal input and accessibility behavior. They live outside the document, so adding or removing them does not change source, selection, saved state, or undo/redo history.
+
+```csharp
+Editor.Adornments.MarginWidth = 32;
+var button = new Button { Text = "+", WidthRequest = 24, HeightRequest = 20, Padding = 0 };
+button.Clicked += (_, _) => ShowAnnotation();
+var annotation = Editor.Adornments.Add(position, button, RichTextAdornmentPlacement.LeftMargin);
+
+annotation.Dispose(); // Removes only this view; Adornments.Clear() removes all views.
+```
+
+`Text` placement overlays the source position without reserving inline space; `LeftMargin` uses the explicitly configured margin. Both follow native scrolling and layout. An optional `Point` offset adjusts placement. Views are clipped to the editor viewport, and anchors inside collapsed text are hidden. Applications choose sizes, overlap policy, appearance, and click actions.
+
+Anchors move after text inserted at their position. Deletion or replacement containing an anchor removes its view; replacing the document clears the collection. Undo does not recreate removed views. Add only unparented views, and mutate the collection on the editor's UI thread. `CodeEditor.Adornments` exposes the same API. The sample uses it for clickable fold indicators, with all folding-specific UI in the sample.
+
 ## Selection and formatting
 
 `Selection` is a stable live facade. Formatting a nonempty selection updates only that range; formatting a caret changes the typing format:

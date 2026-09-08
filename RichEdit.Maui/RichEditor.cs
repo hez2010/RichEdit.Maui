@@ -207,6 +207,7 @@ public sealed partial class RichEditor : View
         KeyBindings = new EditorKeyBindingCollection(this);
         Decorations = new RichTextDecorations(this);
         Folding = new RichTextFolding(this);
+        Adornments = new RichTextAdornments(this);
         Selection = new RichTextSelection(this);
         Commands = new RichEditorCommands(this);
         AttachDocument(Document);
@@ -307,6 +308,9 @@ public sealed partial class RichEditor : View
 
     /// <summary>Gets the explicitly controlled, view-owned collapsed source ranges.</summary>
     public RichTextFolding Folding { get; }
+
+    /// <summary>Gets the source-anchored views displayed outside document content and undo/redo history.</summary>
+    public RichTextAdornments Adornments { get; }
 
     internal RichTextDocumentSnapshot PresentationSnapshot => Decorations.Project(Document.CurrentSnapshot);
 
@@ -784,6 +788,7 @@ public sealed partial class RichEditor : View
         AttachDocument(newDocument);
         Decorations.Reset();
         Folding.Reset();
+        Adornments.Clear();
         var selection = SelectionState.Clamp(newDocument.Length);
         var selectionChanged = SelectionState != selection;
         // The handler's Document mapper projects the new text and selection
@@ -849,6 +854,7 @@ public sealed partial class RichEditor : View
         _selectionBeforeNotification = SelectionState;
         Decorations.MapThrough(changeSet);
         var foldingChanged = Folding.MapThrough(changeSet);
+        Adornments.MapThrough(changeSet);
         var selection = changeSet.SelectionAfter ?? GetSelectionAfterEdit(changeSet.Changes, Document.Length);
         SetSelectionCore(selection, fromPlatform: true);
         var handler = Handler as IRichEditorHandler;

@@ -215,7 +215,7 @@ public class FoldingTests
         var replacement = new RichEditorHandler();
         replacement.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
         editor.Handler = replacement;
-        _window.Content = replacement.PlatformView;
+        _window.Content = replacement.ContainerView ?? replacement.PlatformView;
         try
         {
             await Task.Delay(60);
@@ -241,7 +241,7 @@ public class FoldingTests
         handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
         editor.Handler = handler;
         _window ??= new Microsoft.UI.Xaml.Window();
-        _window.Content = handler.PlatformView;
+        _window.Content = handler.ContainerView ?? handler.PlatformView;
         _window.Activate();
         try { await test(editor, handler); }
         finally

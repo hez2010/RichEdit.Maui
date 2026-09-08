@@ -29,12 +29,15 @@ internal static partial class EditorContractTests
         editor.AutoSize = EditorAutoSizeOption.Disabled;
         editor.ReturnCommand = null;
         editor.ReturnCommandParameter = null;
+        editor.Adornments.Clear();
+        editor.Adornments.MarginWidth = 0;
         editor.Document = new RichTextDocument();
     }
 
     private static IEnumerable<Case> CreateCases()
     {
         foreach (var test in FoldingCases()) yield return test;
+        foreach (var test in AdornmentCases()) yield return test;
 #if ANDROID || IOS || MACCATALYST
         foreach (var test in CharacterFormattingTests.Cases) yield return test;
 #endif

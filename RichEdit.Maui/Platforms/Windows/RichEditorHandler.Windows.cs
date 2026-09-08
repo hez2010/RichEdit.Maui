@@ -44,6 +44,7 @@ public partial class RichEditorHandler
     protected override void ConnectHandler(RichEditBox platformView)
     {
         base.ConnectHandler(platformView);
+        ConnectAdornments();
         platformView.TextChanging += OnNativeDocumentChanged;
         platformView.SelectionChanged += OnNativeSelectionChanged;
         platformView.ActualThemeChanged += OnPlatformThemeChanged;
@@ -70,6 +71,7 @@ public partial class RichEditorHandler
     protected override void DisconnectHandler(RichEditBox platformView)
     {
         VirtualView?.Commands.Disconnect();
+        DisconnectAdornments();
         platformView.TextChanging -= OnNativeDocumentChanged;
         platformView.SelectionChanged -= OnNativeSelectionChanged;
         platformView.ActualThemeChanged -= OnPlatformThemeChanged;

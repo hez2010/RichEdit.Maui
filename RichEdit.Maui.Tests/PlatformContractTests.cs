@@ -26,7 +26,7 @@ public class PlatformContractTests
             grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = Microsoft.UI.Xaml.GridLength.Auto });
             var focusTarget = new Microsoft.UI.Xaml.Controls.Button { Content = "Focus target" };
             Microsoft.UI.Xaml.Controls.Grid.SetRow(focusTarget, 1);
-            grid.Children.Add(handler.PlatformView);
+            grid.Children.Add(handler.ContainerView ?? handler.PlatformView);
             grid.Children.Add(focusTarget);
             _window.Content = grid;
             _window.Activate();

@@ -66,6 +66,7 @@ public partial class RichEditorHandler
     protected override void ConnectHandler(RichEditText platformView)
     {
         base.ConnectHandler(platformView);
+        ConnectAdornments();
         _formatWatcher = new NativeFormatWatcher(this);
         WatchNativeFormats();
         platformView.TextChanged += OnNativeDocumentChanged;
@@ -89,6 +90,7 @@ public partial class RichEditorHandler
     protected override void DisconnectHandler(RichEditText platformView)
     {
         VirtualView?.Commands.Disconnect();
+        DisconnectAdornments();
         _watchedText?.RemoveSpan(_formatWatcher);
         _watchedText = null;
         _formatWatcher?.Dispose();

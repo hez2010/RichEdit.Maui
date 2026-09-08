@@ -321,7 +321,7 @@ public class CodeEditorTests
         grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition());
         grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = Microsoft.UI.Xaml.GridLength.Auto });
         Microsoft.UI.Xaml.Controls.Grid.SetRow(button, 1);
-        grid.Children.Add(fixture.Handler.PlatformView);
+        grid.Children.Add(fixture.Handler.ContainerView ?? fixture.Handler.PlatformView);
         grid.Children.Add(button);
         var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = grid;
@@ -456,7 +456,7 @@ public class CodeEditorTests
         using var fixture = new CodeEditorFixture(string.Join('\n', Enumerable.Range(1, 100).Select(i => $"line {i}")));
         var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 350));
-        window.Content = fixture.Handler.PlatformView;
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
             window.Activate();
@@ -486,7 +486,7 @@ public class CodeEditorTests
         using var fixture = new CodeEditorFixture("first row\nsecond row\nthird row");
         var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 350));
-        window.Content = fixture.Handler.PlatformView;
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
             window.Activate();
