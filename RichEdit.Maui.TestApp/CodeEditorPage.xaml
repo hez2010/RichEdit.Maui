@@ -11,7 +11,7 @@
     </ContentPage.Resources>
 
     <Grid Padding="16"
-          RowDefinitions="Auto,Auto,Auto,*,Auto"
+          RowDefinitions="Auto,Auto,Auto,Auto,*,Auto"
           RowSpacing="10">
         <Label Text="Code editor"
                FontSize="24"
@@ -60,7 +60,19 @@
             </HorizontalStackLayout>
         </ScrollView>
 
-        <Grid Grid.Row="2"
+        <VerticalStackLayout Grid.Row="2" Spacing="4">
+            <ScrollView Orientation="Horizontal">
+                <HorizontalStackLayout Spacing="6">
+                    <Button x:Name="CollapseSelectionButton" Text="Collapse selection" Clicked="OnCollapseSelectionClicked" />
+                    <Button x:Name="ExpandAtCaretButton" Text="Expand at caret" Clicked="OnExpandAtCaretClicked" />
+                    <Button x:Name="ExpandAllButton" Text="Expand all" Clicked="OnExpandAllClicked" />
+                </HorizontalStackLayout>
+            </ScrollView>
+            <Label Text="Select code to collapse it. Place the caret at a fold boundary to expand it."
+                   FontSize="12" />
+        </VerticalStackLayout>
+
+        <Grid Grid.Row="3"
               ColumnDefinitions="*,Auto,Auto"
               RowDefinitions="Auto,Auto"
               ColumnSpacing="8"
@@ -92,12 +104,12 @@
         </Grid>
 
         <code:CodeEditor x:Name="Editor"
-                         Grid.Row="3"
+                         Grid.Row="4"
                          FontSize="14"
                          Placeholder="Write some code…" />
 
         <Label x:Name="StatusLabel"
-               Grid.Row="4"
+               Grid.Row="5"
                FontSize="12" />
     </Grid>
 

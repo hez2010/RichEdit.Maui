@@ -480,6 +480,29 @@ public class CodeEditorTests
         }
     });
 
+    [Fact]
+    public Task FoldingGutterKeepsPartialLinesAndSkipsJoinedLines() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new CodeEditorFixture("first row\nsecond row\nthird row");
+        var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 350));
+        window.Content = fixture.Handler.PlatformView;
+        try
+        {
+            window.Activate();
+            fixture.Editor.Folding.Collapse(new(0, 5));
+            await Task.Delay(80);
+            Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.NativeAdapter!.GetVisibleLines().Select(line => line.Number));
+            fixture.Editor.Folding.SetCollapsedRanges([new(5, 12)]);
+            await Task.Delay(80);
+            Assert.Equal(new[] { 1, 3 }, fixture.Editor.NativeAdapter.GetVisibleLines().Select(line => line.Number));
+            fixture.Editor.Folding.ExpandAll();
+            await Task.Delay(80);
+            Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.NativeAdapter.GetVisibleLines().Select(line => line.Number));
+        }
+        finally { window.Content = null; }
+    });
+
     private static IEnumerable<Microsoft.UI.Xaml.DependencyObject> Descendants(Microsoft.UI.Xaml.DependencyObject parent)
     {
         yield return parent;

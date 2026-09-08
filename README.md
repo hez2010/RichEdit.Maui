@@ -58,6 +58,18 @@ operations. RTF serialization is lazy and cached by document version.
 
 Control appearance properties such as `FontFamily`, `FontSize`, and `TextColor` are rendering fallbacks. They are not authored document formatting and are never serialized into `RtfText`.
 
+## Range folding
+
+`Editor.Folding` collapses UTF-16 source ranges without changing document content, selection, persistence, or undo history:
+
+```csharp
+Editor.Folding.Collapse(new RichTextRange(start, length));
+Editor.Folding.Expand(new RichTextRange(start, length));
+Editor.Folding.ExpandAll();
+```
+
+`SetCollapsedRanges` replaces the set; `CollapsedRanges` and `Changed` expose its current state. Ranges track text edits, and nested folds expand independently. Fold discovery, user-interface actions, and expansion during navigation belong to the application. The same API is available on `CodeEditor`; see its [folding contract and sample](CodeEdit.Maui/README.md#range-folding).
+
 ## Selection and formatting
 
 `Selection` is a stable live facade. Formatting a nonempty selection updates only that range; formatting a caret changes the typing format:

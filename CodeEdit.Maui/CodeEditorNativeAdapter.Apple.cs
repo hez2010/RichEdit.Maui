@@ -72,12 +72,14 @@ internal sealed partial class CodeEditorNativeAdapter
         var first = Owner.Lines.GetLineIndex(Math.Clamp(start, 0, Owner.Document.Length));
         for (var index = first; index < Owner.LineCount; index++)
         {
-            using var position = PlatformView.GetPosition(PlatformView.BeginningOfDocument, Owner.Lines.GetRange(index).Start);
+            if (GetVisibleLineStart(index) is not { } startOffset) continue;
+            using var position = PlatformView.GetPosition(PlatformView.BeginningOfDocument, startOffset);
             if (position is null) break;
             var rect = PlatformView.GetCaretRectForPosition(position);
             var top = rect.Y - offset.Y;
             if (top >= PlatformView.Bounds.Height) break;
-            if (top + rect.Height > 0) result.Add(new(index + 1, (float)top, (float)rect.Height));
+            if (top + rect.Height > 0 && (result.Count == 0 || Math.Abs(result[^1].Top - (double)top) > 0.5))
+                result.Add(new(index + 1, (float)top, (float)rect.Height));
         }
         return result;
     }

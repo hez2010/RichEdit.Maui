@@ -262,6 +262,7 @@ namespace RichEdit.Maui
             platformView.CutRequested = null;
             platformView.NativeAppearanceChanged = null;
             platformView.Delegate = null!;
+            DisconnectFolding();
             _textViewDelegate?.Dispose();
             _textViewDelegate = null;
             base.DisconnectHandler(platformView);

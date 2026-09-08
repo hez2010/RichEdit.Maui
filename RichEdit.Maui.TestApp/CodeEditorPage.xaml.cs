@@ -20,6 +20,7 @@ public sealed partial class CodeEditorPage : ContentPage
         ApplyTheme(false);
         Editor.SelectionChanged += (_, _) => UpdateStatus();
         Editor.TextChanged += (_, _) => UpdateStatus();
+        Editor.Folding.Changed += (_, _) => UpdateStatus();
         Editor.LanguageServerFailed += (_, args) => SearchStatusLabel.Text = args.Exception.Message;
         var find = new Command(() => QueryEntry.Focus());
         var comment = new Command(_actions.ToggleLineComment, () => !Editor.IsReadOnly);
@@ -59,6 +60,12 @@ public sealed partial class CodeEditorPage : ContentPage
 
     private void OnToggleLineCommentClicked(object? sender, EventArgs e) => _actions.ToggleLineComment();
 
+    private void OnCollapseSelectionClicked(object? sender, EventArgs e) => _actions.CollapseSelection();
+
+    private void OnExpandAtCaretClicked(object? sender, EventArgs e) => _actions.ExpandAtCaret();
+
+    private void OnExpandAllClicked(object? sender, EventArgs e) => Editor.Folding.ExpandAll();
+
     private void OnFindPrevious(object? sender, EventArgs e) => ShowMatch(_actions.FindPrevious(QueryEntry.Text ?? string.Empty));
 
     private void OnFindNext(object? sender, EventArgs e) => ShowMatch(_actions.FindNext(QueryEntry.Text ?? string.Empty));
@@ -88,7 +95,13 @@ public sealed partial class CodeEditorPage : ContentPage
         };
     }
 
-    private void UpdateStatus() => StatusLabel.Text = $"Ln {Editor.CaretPosition.Line}, Col {Editor.CaretPosition.Column}    ·    {Editor.LineCount} lines    ·    C#";
+    private void UpdateStatus()
+    {
+        StatusLabel.Text = $"Ln {Editor.CaretPosition.Line}, Col {Editor.CaretPosition.Column}    ·    {Editor.LineCount} lines    ·    {Editor.Folding.CollapsedRanges.Count} folded    ·    C#";
+        CollapseSelectionButton.IsEnabled = !Editor.SelectedRange.IsEmpty;
+        ExpandAtCaretButton.IsEnabled = _actions.GetFoldAtCaret() is not null;
+        ExpandAllButton.IsEnabled = Editor.Folding.CollapsedRanges.Count > 0;
+    }
 
     private void ShowMatch(RichTextRange? match)
     {
@@ -121,6 +134,7 @@ public sealed partial class CodeEditorPage : ContentPage
 
             public string Describe()
             {
+                // Select these lines, then choose Collapse selection above.
                 var message = $"Count: {_value}";
                 return message;
             }

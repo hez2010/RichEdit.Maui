@@ -206,6 +206,7 @@ public sealed partial class RichEditor : View
     {
         KeyBindings = new EditorKeyBindingCollection(this);
         Decorations = new RichTextDecorations(this);
+        Folding = new RichTextFolding(this);
         Selection = new RichTextSelection(this);
         Commands = new RichEditorCommands(this);
         AttachDocument(Document);
@@ -303,6 +304,9 @@ public sealed partial class RichEditor : View
 
     /// <summary>Gets the view-owned layers for syntax colors, diagnostics, and other nonpersistent appearance.</summary>
     public RichTextDecorations Decorations { get; }
+
+    /// <summary>Gets the explicitly controlled, view-owned collapsed source ranges.</summary>
+    public RichTextFolding Folding { get; }
 
     internal RichTextDocumentSnapshot PresentationSnapshot => Decorations.Project(Document.CurrentSnapshot);
 
@@ -779,6 +783,7 @@ public sealed partial class RichEditor : View
         DetachDocument(oldDocument);
         AttachDocument(newDocument);
         Decorations.Reset();
+        Folding.Reset();
         var selection = SelectionState.Clamp(newDocument.Length);
         var selectionChanged = SelectionState != selection;
         // The handler's Document mapper projects the new text and selection
@@ -791,6 +796,7 @@ public sealed partial class RichEditor : View
         {
             RaiseSelectionFormatChanged();
         }
+        if (Handler is not IRichEditorHandler) Folding.NotifyChanged();
     }
 
     private void OnSelectedRangePropertyChanged(RichTextRange oldRange, RichTextRange newRange)
@@ -842,6 +848,7 @@ public sealed partial class RichEditor : View
         _deferNotifications = true;
         _selectionBeforeNotification = SelectionState;
         Decorations.MapThrough(changeSet);
+        var foldingChanged = Folding.MapThrough(changeSet);
         var selection = changeSet.SelectionAfter ?? GetSelectionAfterEdit(changeSet.Changes, Document.Length);
         SetSelectionCore(selection, fromPlatform: true);
         var handler = Handler as IRichEditorHandler;
@@ -852,6 +859,7 @@ public sealed partial class RichEditor : View
             else
                 handler.ApplyChanges(changeSet, selection.Range, _typingCharacterFormat, _typingParagraphFormat);
         }
+        if (foldingChanged) handler?.ApplyFolding();
         RefreshUndoState();
         if (AutoSize == EditorAutoSizeOption.TextChanges && changeSet.IsTextChanged) InvalidateMeasure();
     }
@@ -884,6 +892,7 @@ public sealed partial class RichEditor : View
         RaiseSelectionFormatChanged();
         Commands.Refresh();
         Decorations.NotifyChanged();
+        Folding.NotifyChanged();
     }
 
     internal void EndDocumentChange()

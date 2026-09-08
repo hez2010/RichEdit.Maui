@@ -95,6 +95,7 @@ public partial class RichEditorHandler
         _formatWatcher = null;
         platformView.TextChanged -= OnNativeDocumentChanged;
         platformView.NativeSelectionChanged -= OnNativeSelectionChanged;
+        DisconnectFolding();
         platformView.EditingCompleted -= OnNativeEditingCompleted;
         platformView.PasteRequested = null;
         platformView.CopyRequested = null;
@@ -891,6 +892,7 @@ public partial class RichEditorHandler
             PlatformView.InputType = inputType;
             PlatformView.SetSingleLine(false);
             PlatformView.TransformationMethod = SoftLineBreakTransformation;
+            if (!editor.Folding.EffectiveRanges.IsEmpty) ApplyFoldingCore();
             PlatformView.SetHorizontallyScrolling(false);
             // InputType installs a key listener, including when the view was read-only.
             // Apply the read-only state after configuring the requested keyboard.

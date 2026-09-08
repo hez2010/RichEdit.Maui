@@ -5,6 +5,8 @@ namespace RichEdit.Maui;
 /// <summary>Nonpersistent character appearance. Null properties leave the underlying appearance unchanged.</summary>
 public sealed record RichTextDecorationStyle
 {
+    // Used only by the Windows folding projection, never authored formatting.
+    internal bool? Hidden { get; init; }
     /// <summary>Gets the foreground override.</summary>
     public Color? ForegroundColor { get; init; }
     /// <summary>Gets the background override.</summary>
@@ -16,6 +18,7 @@ public sealed record RichTextDecorationStyle
 
     internal RichTextCharacterFormat Apply(RichTextCharacterFormat format) => format with
     {
+        Hidden = Hidden ?? format.Hidden,
         ForegroundColor = ForegroundColor ?? format.ForegroundColor,
         BackgroundColor = BackgroundColor ?? format.BackgroundColor,
         Underline = Underline ?? format.Underline,
@@ -206,11 +209,13 @@ public sealed class RichTextDecorations
             BackgroundColor = !Equals(restored.BackgroundColor, observed.BackgroundColor) ? typing.BackgroundColor : restored.BackgroundColor,
             Underline = restored.Underline != observed.Underline ? typing.Underline : restored.Underline,
             UnderlineColor = !Equals(restored.UnderlineColor, observed.UnderlineColor) ? typing.UnderlineColor : restored.UnderlineColor,
+            Hidden = restored.Hidden != observed.Hidden ? typing.Hidden : restored.Hidden,
         };
     }
 
     private static RichTextCharacterFormat Restore(RichTextCharacterFormat observed, RichTextCharacterFormat authored, RichTextCharacterFormat display) => observed with
     {
+        Hidden = authored.Hidden != display.Hidden && observed.Hidden == display.Hidden ? authored.Hidden : observed.Hidden,
         ForegroundColor = !Equals(authored.ForegroundColor, display.ForegroundColor) && SameColor(observed.ForegroundColor, display.ForegroundColor) ? authored.ForegroundColor : observed.ForegroundColor,
         BackgroundColor = !Equals(authored.BackgroundColor, display.BackgroundColor) && SameColor(observed.BackgroundColor, display.BackgroundColor) ? authored.BackgroundColor : observed.BackgroundColor,
         Underline = authored.Underline != display.Underline && observed.Underline == display.Underline ? authored.Underline : observed.Underline,
@@ -285,7 +290,7 @@ public sealed class RichTextDecorations
         })) _refreshQueued = false;
     }
 
-    private void Invalidate()
+    internal void Invalidate()
     {
         Version++;
         _projectionSource = null;

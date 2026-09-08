@@ -32,4 +32,11 @@ internal sealed partial class CodeEditorNativeAdapter : IDisposable
     internal partial void UpdateConfiguration();
     internal partial void ScrollToSelection();
     internal partial IReadOnlyList<VisibleCodeLine> GetVisibleLines();
+
+    private int? GetVisibleLineStart(int index)
+    {
+        var range = Owner.Lines.GetRange(index);
+        if (Owner.Folding.GetCollapsedRange(range.Start) is not { } folded) return range.Start;
+        return folded.End <= range.End ? folded.End : null;
+    }
 }

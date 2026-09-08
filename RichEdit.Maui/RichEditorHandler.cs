@@ -50,6 +50,8 @@ internal interface IRichEditorHandler
 
     void ApplyDecorations(RichTextChangeSet changes);
 
+    void ApplyFolding();
+
     void SetSelection(RichTextSelectionState selection);
 
     void ScrollIntoView(RichTextRange range);
@@ -131,6 +133,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         RichTextParagraphFormat typingParagraphFormat)
     {
         ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+        ApplyFoldingCore();
         ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
         if (SupportsNativeUndoCore())
         {
@@ -152,6 +155,10 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             typingParagraphFormat);
 
     void IRichEditorHandler.ApplyDecorations(RichTextChangeSet changes) => ApplyDecorationsCore(changes);
+
+    void IRichEditorHandler.ApplyFolding() => ApplyFoldingCore();
+
+    private partial void ApplyFoldingCore();
 
     private partial void ApplyDecorationsCore(RichTextChangeSet changes);
 
@@ -292,6 +299,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             editor.Document.CurrentSnapshot,
             editor.SelectedRange.Start,
             editor.SelectedRange.Length);
+        handler.ApplyFoldingCore();
         handler.ApplyTypingFormatCore(
             editor.Selection.TypingCharacterFormat,
             editor.Selection.TypingParagraphFormat);
@@ -301,6 +309,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         }
 
         editor.UpdateUndoStateFromPlatform();
+        editor.Folding.NotifyChanged();
     }
 
     private static void MapPlaceholder(RichEditorHandler handler, RichEditor editor) =>

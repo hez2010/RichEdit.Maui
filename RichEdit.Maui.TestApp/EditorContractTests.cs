@@ -7,7 +7,7 @@ namespace RichEdit.Maui.TestApp;
 // Compiled into both the mobile test app and the Windows integration tests.
 // Each case operates on a real handler. Native edits deliberately enter through
 // the platform text API, rather than calling back into the document model.
-internal static class EditorContractTests
+internal static partial class EditorContractTests
 {
     internal sealed record Case(string Name, Func<RichEditor, Task> Run);
 
@@ -34,6 +34,7 @@ internal static class EditorContractTests
 
     private static IEnumerable<Case> CreateCases()
     {
+        foreach (var test in FoldingCases()) yield return test;
 #if ANDROID || IOS || MACCATALYST
         foreach (var test in CharacterFormattingTests.Cases) yield return test;
 #endif

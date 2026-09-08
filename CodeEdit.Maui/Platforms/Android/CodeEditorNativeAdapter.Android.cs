@@ -46,11 +46,13 @@ internal sealed partial class CodeEditorNativeAdapter
         var first = Owner.Lines.GetLineIndex(Math.Min(layout.GetLineStart(firstVisual), Owner.Document.Length));
         for (var index = first; index < Owner.LineCount; index++)
         {
-            var visual = layout.GetLineForOffset(Owner.Lines.GetRange(index).Start);
+            if (GetVisibleLineStart(index) is not { } start) continue;
+            var visual = layout.GetLineForOffset(start);
             var top = layout.GetLineTop(visual) + PlatformView.CompoundPaddingTop - PlatformView.ScrollY;
             if (top >= PlatformView.Height) break;
             var height = layout.GetLineBottom(visual) - layout.GetLineTop(visual);
-            if (top + height > 0) result.Add(new(index + 1, top / density, height / density));
+            if (top + height > 0 && (result.Count == 0 || Math.Abs(result[^1].Top - top / density) > 0.5f))
+                result.Add(new(index + 1, top / density, height / density));
         }
         return result;
     }

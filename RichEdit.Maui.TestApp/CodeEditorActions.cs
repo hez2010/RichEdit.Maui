@@ -10,6 +10,25 @@ internal readonly record struct CodeSearchOptions(bool MatchCase = false, bool W
 // Toolbar actions are application policy. Native shortcuts keep their internal implementation.
 internal sealed class CodeEditorActions(CodeEditor editor)
 {
+    public void CollapseSelection()
+    {
+        var range = editor.SelectedRange;
+        if (range.IsEmpty) return;
+        editor.Folding.Collapse(range);
+        editor.SelectedRange = new(range.Start, 0);
+    }
+
+    public RichTextRange? GetFoldAtCaret() => editor.Folding.CollapsedRanges
+        .Where(range => range.Start <= editor.SelectionState.Active && editor.SelectionState.Active <= range.End)
+        .OrderByDescending(static range => range.Length)
+        .Select(static range => (RichTextRange?)range)
+        .FirstOrDefault();
+
+    public void ExpandAtCaret()
+    {
+        if (GetFoldAtCaret() is { } range) editor.Folding.Expand(range);
+    }
+
     /// <summary>Inserts indentation at the caret, or indents every selected logical line in one undo unit.</summary>
     public void Indent()
     {

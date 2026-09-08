@@ -94,6 +94,29 @@ editor.ScrollIntoView(editor.SelectedRange);
 
 The sample's `CodeEditorActions` supplies `GoToLine`, `FindAll`, `FindNext`, `FindPrevious`, `ReplaceAll`, and `CodeSearchOptions`. Its searches are ordinal and literal, with application-defined word boundaries and optional wraparound.
 
+## Range folding
+
+`Folding` provides explicit, view-owned range folding. Applications choose the ranges and when to collapse or expand them:
+
+```csharp
+var range = editor.SelectedRange;
+if (!range.IsEmpty)
+    editor.Folding.Collapse(range);
+
+editor.Folding.Expand(range); // Removes this exact collapsed range.
+editor.Folding.ExpandAll();
+```
+
+`SetCollapsedRanges(ranges)` replaces the collapsed set atomically. `CollapsedRanges` exposes its current source ranges, and `Changed` reports changes. Nested ranges retain independent state: expanding a parent leaves its collapsed children in place. Overlapping ranges are hidden as a union; `GetCollapsedRange(offset)` returns the union containing a character, or null. Use an entry from `CollapsedRanges` with `Expand` to remove an individual fold.
+
+Ranges use the document's UTF-16 offsets and can include line terminators or text within one line. Folding removes the range's layout space while retaining the complete source in `Document.Text`, selection, clipboard operations, and language-server synchronization. Source versions, saved state, and undo history are unaffected. Line numbers continue to refer to source lines.
+
+Ranges track text edits. Insertions at either boundary remain visible; insertions inside a fold stay inside it. Replacing or deleting an entire folded range removes that fold. Document replacement clears the collapsed set. Undo and redo operate on source and do not restore discarded fold state. After edits, use the remapped ranges in `CollapsedRanges` when calling `Expand`.
+
+The control does not discover folds, request LSP folding ranges, add folding shortcuts or gutter actions, or expand folds during navigation. Applications can request `LspMethods.FoldingRanges` through `GetLanguageDocumentAsync()` and convert the response to source ranges themselves. Folding mutations require the UI thread and throw `InvalidOperationException` during IME composition; they are not queued for later.
+
+Expand a fold explicitly when its text needs a visible native caret or selection. Source selection and document-edit APIs can address collapsed text directly, including a completely collapsed document.
+
 ## Key bindings and context menus
 
 `KeyBindings`, `KeyDown`, and `ContextMenuOpening` operate on the inner text surface. The bindings collection includes CodeEditor's Tab, Shift+Tab, Enter, line-comment, and rich-format-shortcut suppression defaults. Applications can replace or remove any binding; the last matching entry takes precedence.

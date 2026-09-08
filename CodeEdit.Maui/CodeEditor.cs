@@ -170,6 +170,7 @@ public sealed partial class CodeEditor : ContentView
         };
         Selection = new CodeTextSelection(TextView.Selection);
         _syntaxLayer = TextView.Decorations.CreateLayer();
+        TextView.Folding.Changed += (_, _) => InvalidateGutter();
         Commands = new CodeEditorCommands(this);
         _gutter = new GraphicsView { Drawable = new LineNumberDrawable(this), InputTransparent = true };
         TextView.BackgroundColor = BackgroundColor;
@@ -245,6 +246,9 @@ public sealed partial class CodeEditor : ContentView
     public CodeTextSelection Selection { get; }
     /// <summary>Gets presentation layers. Application layers compose above syntax coloring.</summary>
     public RichTextDecorations Decorations => TextView.Decorations;
+
+    /// <summary>Gets explicit source-range folding. The application owns discovery, UI, and expansion policy.</summary>
+    public RichTextFolding Folding => TextView.Folding;
     /// <summary>Gets or sets the token-to-color callback, or null to leave tokens uncolored.</summary>
     public CodeEditorTheme? Theme { get => (CodeEditorTheme?)GetValue(ThemeProperty); set => SetValue(ThemeProperty, value); }
     /// <summary>Gets or sets the normal text and line-number color, or null for the native default.</summary>
