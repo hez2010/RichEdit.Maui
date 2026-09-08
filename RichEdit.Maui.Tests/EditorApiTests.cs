@@ -234,6 +234,73 @@ public class EditorApiTests
     });
 
     [Fact]
+    public Task ForegroundDecorationsRestoreAuthoredColorsAcrossRunBoundaries() => WindowsTestHost.RunAsync(() =>
+    {
+        var document = RichTextDocument.FromPlainText("abcdef");
+        document.Edit(edit => edit.SetCharacterFormat(new(1, 4), new()
+        {
+            ForegroundColor = Colors.Red,
+            BackgroundColor = Colors.Yellow,
+            FontWeight = 700,
+            Underline = RichTextUnderlineStyle.Double,
+        }));
+        using var fixture = new RichFixture(document);
+        var editor = fixture.Editor;
+        editor.TextColor = Colors.Navy;
+        editor.SelectionState = new(5, 1);
+        var snapshot = document.CurrentSnapshot;
+        var version = document.Version;
+        using var layer = editor.Decorations.CreateLayer();
+        layer.Set([new(new(0, 4), new() { ForegroundColor = Colors.Green })]);
+        Assert.Equal(Colors.Green, fixture.Foreground(0));
+        Assert.Equal(Colors.Green, fixture.Foreground(3));
+        Assert.Equal(Colors.Red, fixture.Foreground(4));
+
+        layer.Set([
+            new(new(0, 1), new() { ForegroundColor = Colors.Purple }),
+            new(new(5, 1), new() { ForegroundColor = Colors.Purple }),
+        ]);
+        Assert.Equal(Colors.Purple, fixture.Foreground(0));
+        Assert.Equal(Colors.Purple, fixture.Foreground(5));
+        for (var position = 1; position < 5; position++)
+        {
+            Assert.Equal(Colors.Red, fixture.Foreground(position));
+            var format = fixture.Handler.PlatformView.Document.GetRange(position, position + 1).CharacterFormat;
+            Assert.Equal(700, format.Weight);
+            Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 255, 0), format.BackgroundColor);
+            Assert.Equal(UnderlineType.Double, format.Underline);
+        }
+        layer.Clear();
+        Assert.Equal(Colors.Navy, fixture.Foreground(0));
+        Assert.Equal(Colors.Navy, fixture.Foreground(5));
+        Assert.Equal(Colors.Red, fixture.Foreground(2));
+        Assert.Equal(new RichTextSelectionState(5, 1), editor.SelectionState);
+        Assert.True(fixture.Handler.PlatformView.Document.Selection.Options.HasFlag(SelectionOptions.StartActive));
+        Assert.Same(snapshot, document.CurrentSnapshot);
+        Assert.Equal(version, document.Version);
+    });
+
+    [Fact]
+    public Task DecorationRepairRestoresFormattingWhenProjectionsAreEqual() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new RichFixture(RichTextDocument.FromPlainText("abc"));
+        var editor = fixture.Editor;
+        using var layer = editor.Decorations.CreateLayer();
+        layer.Set([new(new(0, 3), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
+        var snapshot = editor.PresentationSnapshot;
+        var format = fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat;
+        format.ForegroundColor = Windows.UI.Color.FromArgb(255, 255, 0, 0);
+        format.BackgroundColor = Windows.UI.Color.FromArgb(255, 0, 0, 255);
+
+        editor.ApplyDecorationChanges(snapshot, snapshot, new(1, 1));
+
+        Assert.Equal(Colors.Green, fixture.Foreground(1));
+        Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 255, 0), format.BackgroundColor);
+        await Task.Yield();
+        Assert.All(editor.Document.CurrentSnapshot.Runs, run => Assert.Null(run.Format.ForegroundColor));
+    });
+
+    [Fact]
     public Task NativeTypingWithinADecorationStaysPlainAndRetainsPresentation() => WindowsTestHost.RunAsync(async () =>
     {
         using var fixture = new RichFixture(RichTextDocument.FromPlainText("abc"));

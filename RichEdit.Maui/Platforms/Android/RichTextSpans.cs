@@ -11,10 +11,14 @@ internal sealed class RichSoftLineBreakTransformation : global::Android.Text.Met
     protected override char[] GetReplacement() => ['\n'];
 }
 
-internal sealed class RichCharacterMetadataSpan(RichTextCharacterFormat format) : MetricAffectingSpan
+// Authored metadata must not invalidate text metrics whenever presentation changes.
+internal sealed class RichCharacterMetadataSpan(RichTextCharacterFormat format) : Java.Lang.Object
 {
     public RichTextCharacterFormat Format { get; } = format;
+}
 
+internal sealed class RichCharacterEffectsSpan(RichTextCharacterFormat format) : CharacterStyle
+{
     public override void UpdateDrawState(TextPaint? textPaint)
     {
         if (textPaint is null)
@@ -22,30 +26,32 @@ internal sealed class RichCharacterMetadataSpan(RichTextCharacterFormat format) 
             return;
         }
 
-        ApplyMetricState(textPaint);
-
-        if (Format.Hidden)
+        if (format.Hidden)
         {
             textPaint.Color = global::Android.Graphics.Color.Transparent;
         }
 
-        if (Format.Shadow)
+        if (format.Shadow)
         {
             textPaint.SetShadowLayer(1f, 1f, 1f, textPaint.Color);
         }
 
-        if (Format.Outline)
+        if (format.Outline)
         {
             textPaint.SetStyle(global::Android.Graphics.Paint.Style.Stroke);
             textPaint.StrokeWidth = Math.Max(textPaint.TextSize / 16f, 1f);
         }
     }
+}
 
-    public override void UpdateMeasureState(TextPaint? textPaint) => ApplyMetricState(textPaint);
+internal sealed class RichSmallCapsSpan : MetricAffectingSpan
+{
+    public override void UpdateDrawState(TextPaint? textPaint) => Apply(textPaint);
+    public override void UpdateMeasureState(TextPaint? textPaint) => Apply(textPaint);
 
-    private void ApplyMetricState(TextPaint? textPaint)
+    private static void Apply(TextPaint? textPaint)
     {
-        if (textPaint is not null && Format.SmallCaps)
+        if (textPaint is not null)
         {
             textPaint.FontFeatureSettings = "'smcp' 1";
         }

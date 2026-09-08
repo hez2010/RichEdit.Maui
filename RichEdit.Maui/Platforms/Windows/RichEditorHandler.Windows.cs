@@ -262,14 +262,23 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void ApplyDecorationsCore(RichTextChangeSet changes) => ApplyIncrementalChangesCore(
-        changes, VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+    private partial void ApplyDecorationsCore(RichTextChangeSet changes) =>
+        ApplyIncrementalChangesCore(changes, VirtualView.SelectedRange, VirtualView.TypingCharacterFormat,
+            VirtualView.TypingParagraphFormat, GetPreviousDecorationSnapshot(changes));
 
     private partial void ApplyIncrementalChangesCore(
         RichTextChangeSet changes,
         RichTextRange selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
+        => ApplyIncrementalChangesCore(changes, selection, typingCharacterFormat, typingParagraphFormat, GetPreviousFormattingSnapshot(changes));
+
+    private void ApplyIncrementalChangesCore(
+        RichTextChangeSet changes,
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat,
+        RichTextDocumentSnapshot? previousSnapshot)
     {
         if (PlatformView is null)
         {
@@ -328,7 +337,8 @@ public partial class RichEditorHandler
             {
                 ApplyCharacterFormatsIncrementally(
                     snapshot,
-                    affectedRange);
+                    affectedRange,
+                    previousSnapshot);
             }
 
             if (changes.Changes.Any(static change => change.Kind is
@@ -503,46 +513,48 @@ public partial class RichEditorHandler
 
     private void ApplyCharacterFormatsIncrementally(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange affectedRange)
+        RichTextRange affectedRange,
+        RichTextDocumentSnapshot? previousSnapshot = null)
     {
         if (snapshot.Length == 0 || affectedRange.IsEmpty)
         {
             return;
         }
 
-        var positions = GetNativeTextSnapshot();
         var nativeDocument = PlatformView.Document;
+        // Without hidden hyperlink instructions, native and logical UTF-16 offsets match.
+        var positions = _hasNativeLinks ? GetNativeTextSnapshot() : null;
         var reset = nativeDocument.GetDefaultCharacterFormat();
         var characterFormats = new Dictionary<RichTextCharacterFormat, ITextCharacterFormat>();
         // TOM notifies every live range on formatting changes. Reuse one range so
         // thousands of token ranges do not accumulate until their wrappers are collected.
         var nativeRange = nativeDocument.GetRange(0, 0);
         var rangeFormat = nativeRange.CharacterFormat;
-        for (var index = snapshot.FindRunIndex(affectedRange.Start);
-             index < snapshot.Runs.Length;
-             index++)
+        foreach (var change in GetCharacterFormatChanges(snapshot, affectedRange, previousSnapshot))
         {
-            var run = snapshot.Runs[index];
-            if (run.Start >= affectedRange.End)
+            var format = snapshot.ResolveCharacterFormat(change.Format);
+            var previousFormat = change.PreviousFormat is { } previous ? previousSnapshot!.ResolveCharacterFormat(previous) : null;
+            if (format != previousFormat)
             {
-                break;
+                nativeRange.SetRange(positions?.ToNativePosition(change.Range.Start) ?? change.Range.Start,
+                    positions?.ToNativePosition(change.Range.End) ?? change.Range.End);
+                // WinUI's live LanguageTag setter also changes TextScript, unlike SetClone.
+                // Keep the existing projection semantics when the language changes.
+                if (previousFormat is not null && previousFormat.LanguageTag == format.LanguageTag)
+                {
+                    ApplyCharacterFormat(rangeFormat, format, previousFormat, reset);
+                }
+                else
+                {
+                    if (!characterFormats.TryGetValue(format, out var nativeFormat))
+                    {
+                        nativeFormat = reset.GetClone();
+                        ApplyCharacterFormat(nativeFormat, format);
+                        characterFormats.Add(format, nativeFormat);
+                    }
+                    rangeFormat.SetClone(nativeFormat);
+                }
             }
-
-            var start = Math.Max(run.Start, affectedRange.Start);
-            var end = Math.Min(run.End, affectedRange.End);
-            if (end <= start)
-            {
-                continue;
-            }
-
-            if (!characterFormats.TryGetValue(run.Format, out var nativeFormat))
-            {
-                nativeFormat = reset.GetClone();
-                ApplyCharacterFormat(nativeFormat, snapshot.ResolveCharacterFormat(run.Format));
-                characterFormats.Add(run.Format, nativeFormat);
-            }
-            nativeRange.SetRange(positions.ToNativePosition(start), positions.ToNativePosition(end));
-            rangeFormat.SetClone(nativeFormat);
         }
     }
 
@@ -1097,69 +1109,81 @@ public partial class RichEditorHandler
 
     private void ApplyCharacterFormat(
         ITextCharacterFormat native,
-        RichTextCharacterFormat format)
+        RichTextCharacterFormat format,
+        RichTextCharacterFormat? previous = null,
+        ITextCharacterFormat? reset = null)
     {
-        if ((format.FontFamily ?? VirtualView.FontFamily) is { } fontFamily)
+        if (previous is null || previous.FontFamily != format.FontFamily)
         {
-            native.Name = fontFamily;
+            if ((format.FontFamily ?? VirtualView.FontFamily ?? reset?.Name) is { } fontFamily)
+                native.Name = fontFamily;
         }
 
-        if ((format.FontSize ?? VirtualView.FontSize) is { } fontSize)
+        if (previous is null || previous.FontSize != format.FontSize)
         {
-            native.Size = (float)fontSize;
+            if ((format.FontSize ?? VirtualView.FontSize ?? reset?.Size) is { } fontSize)
+                native.Size = (float)fontSize;
         }
-        native.Weight = format.FontWeight;
-        native.Italic = format.Italic ? FormatEffect.On : FormatEffect.Off;
-        native.Underline = ToNativeUnderline(format.Underline);
-        native.Strikethrough = format.Strikethrough == RichTextStrikethroughStyle.None
-            ? FormatEffect.Off
-            : FormatEffect.On;
-        if ((format.ForegroundColor ?? ResolveTextColor()) is { } foregroundColor)
+        if (previous?.FontWeight != format.FontWeight) native.Weight = format.FontWeight;
+        if (previous?.Italic != format.Italic) native.Italic = format.Italic ? FormatEffect.On : FormatEffect.Off;
+        if (previous?.Underline != format.Underline) native.Underline = ToNativeUnderline(format.Underline);
+        if (previous?.Strikethrough != format.Strikethrough)
+            native.Strikethrough = format.Strikethrough == RichTextStrikethroughStyle.None ? FormatEffect.Off : FormatEffect.On;
+        if (previous is null || previous.ForegroundColor != format.ForegroundColor)
         {
-            native.ForegroundColor = ToWindowsColor(foregroundColor);
+            if ((format.ForegroundColor ?? ResolveTextColor()) is { } foregroundColor)
+                native.ForegroundColor = ToWindowsColor(foregroundColor);
         }
-        // Each caller supplies a pristine default-format clone. Leaving its background
-        // untouched and later using SetClone is the WinUI reset path; RichEdit ignores
-        // alpha on text backgrounds.
-        if (format.BackgroundColor is { Alpha: > 0 } backgroundColor)
+        if (previous is null || previous.BackgroundColor != format.BackgroundColor)
         {
-            native.BackgroundColor = ToWindowsColor(backgroundColor);
-        }
-
-        native.Position = (float)format.BaselineOffset;
-        // TOM treats subscript and superscript as mutually exclusive effects.
-        // Clear the opposite effect first so that the requested effect is the
-        // final write instead of immediately being cancelled.
-        switch (format.Script)
-        {
-            case RichTextScript.Subscript:
-                native.Superscript = FormatEffect.Off;
-                native.Subscript = FormatEffect.On;
-                break;
-            case RichTextScript.Superscript:
-                native.Subscript = FormatEffect.Off;
-                native.Superscript = FormatEffect.On;
-                break;
-            default:
-                native.Subscript = FormatEffect.Off;
-                native.Superscript = FormatEffect.Off;
-                break;
+            if (format.BackgroundColor is { Alpha: > 0 } backgroundColor)
+                native.BackgroundColor = ToWindowsColor(backgroundColor);
+            else if (previous is not null)
+                native.BackgroundColor = TextConstants.AutoColor;
         }
 
-        native.Spacing = (float)format.CharacterSpacing;
-        native.FontStretch = ToNativeFontStretch(format.HorizontalScale);
-        native.SmallCaps = format.SmallCaps ? FormatEffect.On : FormatEffect.Off;
-        native.AllCaps = format.AllCaps ? FormatEffect.On : FormatEffect.Off;
-        native.Outline = format.Outline ? FormatEffect.On : FormatEffect.Off;
-        native.Hidden = format.Hidden ? FormatEffect.On : FormatEffect.Off;
-        if (!string.IsNullOrWhiteSpace(format.LanguageTag))
+        if (previous?.BaselineOffset != format.BaselineOffset || previous?.Script != format.Script)
+        {
+            native.Position = (float)format.BaselineOffset;
+            // TOM treats subscript and superscript as mutually exclusive effects.
+            // Clear the opposite effect first so the requested effect is the final write.
+            switch (format.Script)
+            {
+                case RichTextScript.Subscript:
+                    native.Superscript = FormatEffect.Off;
+                    native.Subscript = FormatEffect.On;
+                    break;
+                case RichTextScript.Superscript:
+                    native.Subscript = FormatEffect.Off;
+                    native.Superscript = FormatEffect.On;
+                    break;
+                default:
+                    native.Subscript = FormatEffect.Off;
+                    native.Superscript = FormatEffect.Off;
+                    break;
+            }
+        }
+
+        if (previous?.CharacterSpacing != format.CharacterSpacing) native.Spacing = (float)format.CharacterSpacing;
+        if (previous?.HorizontalScale != format.HorizontalScale) native.FontStretch = ToNativeFontStretch(format.HorizontalScale);
+        if (previous?.SmallCaps != format.SmallCaps || previous?.AllCaps != format.AllCaps)
+        {
+            native.SmallCaps = format.SmallCaps ? FormatEffect.On : FormatEffect.Off;
+            native.AllCaps = format.AllCaps ? FormatEffect.On : FormatEffect.Off;
+        }
+        if (previous?.Outline != format.Outline) native.Outline = format.Outline ? FormatEffect.On : FormatEffect.Off;
+        if (previous?.Hidden != format.Hidden) native.Hidden = format.Hidden ? FormatEffect.On : FormatEffect.Off;
+        if (previous is null && !string.IsNullOrWhiteSpace(format.LanguageTag))
         {
             native.LanguageTag = format.LanguageTag;
         }
 
-        if (format.Kerning != RichTextFeatureMode.Automatic)
+        if (previous?.Kerning != format.Kerning)
         {
-            native.Kerning = format.Kerning == RichTextFeatureMode.Enabled ? 1f : 0f;
+            if (format.Kerning != RichTextFeatureMode.Automatic)
+                native.Kerning = format.Kerning == RichTextFeatureMode.Enabled ? 1f : 0f;
+            else if (reset is not null)
+                native.Kerning = reset.Kerning;
         }
     }
 

@@ -297,13 +297,22 @@ public partial class RichEditorHandler
     }
 
     private partial void ApplyDecorationsCore(RichTextChangeSet changes) => ApplyIncrementalChangesCore(
-        changes, VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+        changes, VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat,
+        GetPreviousDecorationSnapshot(changes));
 
     private partial void ApplyIncrementalChangesCore(
         RichTextChangeSet changes,
         RichTextRange selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
+        => ApplyIncrementalChangesCore(changes, selection, typingCharacterFormat, typingParagraphFormat, GetPreviousFormattingSnapshot(changes));
+
+    private void ApplyIncrementalChangesCore(
+        RichTextChangeSet changes,
+        RichTextRange selection,
+        RichTextCharacterFormat typingCharacterFormat,
+        RichTextParagraphFormat typingParagraphFormat,
+        RichTextDocumentSnapshot? previousSnapshot)
     {
         if (PlatformView?.EditableText is not { } editable)
         {
@@ -324,6 +333,10 @@ public partial class RichEditorHandler
         _applyingDocument = true;
         _projectionGeneration++;
         var filters = editable.GetFilters();
+        // These callbacks are ignored during projection; avoid crossing JNI for every span.
+        var formatWatcher = _formatWatcher;
+        if (formatWatcher is not null) editable.RemoveSpan(formatWatcher);
+        PlatformView.BeginBatchEdit();
         try
         {
             editable.SetFilters([]);
@@ -342,7 +355,7 @@ public partial class RichEditorHandler
                     RichTextChangeKind.CharacterFormat or
                     RichTextChangeKind.DefaultFormat))
             {
-                ApplyCharacterFormatsIncrementally(editable, snapshot, characterRange);
+                ApplyCharacterFormatsIncrementally(editable, snapshot, characterRange, previousSnapshot);
             }
 
             var paragraphRange = GetAffectedParagraphRange(changes, snapshot.Text);
@@ -396,6 +409,9 @@ public partial class RichEditorHandler
         finally
         {
             editable.SetFilters(filters);
+            PlatformView.EndBatchEdit();
+            if (formatWatcher is not null)
+                editable.SetSpan(formatWatcher, 0, editable.Length(), SpanTypes.InclusiveInclusive);
             _applyingDocument = false;
         }
     }
@@ -403,35 +419,66 @@ public partial class RichEditorHandler
     private void ApplyCharacterFormatsIncrementally(
         ISpannable editable,
         RichTextDocumentSnapshot snapshot,
-        RichTextRange range)
+        RichTextRange range,
+        RichTextDocumentSnapshot? previousSnapshot = null)
     {
         if (range.IsEmpty || snapshot.Length == 0)
         {
             return;
         }
 
-        range = ExpandCharacterSpanRange(editable, range, snapshot.Length);
-        RemoveCharacterSpans(editable, range.Start, range.End);
-        for (var index = snapshot.FindRunIndex(range.Start);
-             index < snapshot.Runs.Length;
-             index++)
+        var ranges = new List<RichTextRange>();
+        if (previousSnapshot is null)
+            ranges.Add(ExpandCharacterSpanRange(editable, range, snapshot.Length));
+        else
         {
-            var run = snapshot.Runs[index];
-            if (run.Start >= range.End)
+            foreach (var change in GetCharacterFormatChanges(snapshot, range, previousSnapshot))
             {
-                break;
+                if (ranges.Count > 0 && ranges[^1].End >= change.Range.End) continue;
+                var expanded = ExpandCharacterSpanRange(editable, change.Range, snapshot.Length);
+                while (ranges.Count > 0 && ranges[^1].End >= expanded.Start)
+                {
+                    var previous = ranges[^1];
+                    var start = Math.Min(previous.Start, expanded.Start);
+                    expanded = new(start, Math.Max(previous.End, expanded.End) - start);
+                    ranges.RemoveAt(ranges.Count - 1);
+                }
+                ranges.Add(expanded);
+            }
+        }
+
+        var metadataRanges = new List<RichTextRange>();
+        foreach (var affected in ranges)
+        {
+            // Rebuild whole intersecting spans so their ordering and unaffected tails survive.
+            RemoveCharacterSpans(editable, affected.Start, affected.End);
+            for (var index = snapshot.FindRunIndex(affected.Start); index < snapshot.Runs.Length; index++)
+            {
+                var run = snapshot.Runs[index];
+                if (run.Start >= affected.End) break;
+                var start = Math.Max(run.Start, affected.Start);
+                var end = Math.Min(run.End, affected.End);
+                if (end > start) ApplyCharacterFormat(editable, start, end, run.Format, snapshot.DefaultCharacterFormat, includeMetadata: false);
             }
 
-            var start = Math.Max(run.Start, range.Start);
-            var end = Math.Min(run.End, range.End);
-            if (end > start)
+            // Keep metadata aligned with normalized model runs when formatting boundaries disappear.
+            // This also avoids leaving thousands of equivalent metadata fragments after clearing a layer.
+            var metadataStart = snapshot.Runs[snapshot.FindRunIndex(affected.Start)].Start;
+            var metadataEnd = snapshot.Runs[snapshot.FindRunIndex(affected.End - 1)].End;
+            if (metadataRanges.Count > 0 && metadataRanges[^1].End >= metadataStart)
+                metadataRanges[^1] = new(metadataRanges[^1].Start, metadataEnd - metadataRanges[^1].Start);
+            else
+                metadataRanges.Add(new(metadataStart, metadataEnd - metadataStart));
+        }
+
+        foreach (var affected in metadataRanges)
+        {
+            RemoveSpans<RichCharacterMetadataSpan>(editable, affected.Start, affected.End);
+            for (var index = snapshot.FindRunIndex(affected.Start); index < snapshot.Runs.Length; index++)
             {
-                ApplyCharacterFormat(
-                    editable,
-                    start,
-                    end,
-                    run.Format,
-                    snapshot.DefaultCharacterFormat);
+                var run = snapshot.Runs[index];
+                if (run.Start >= affected.End) break;
+                editable.SetSpan(new RichCharacterMetadataSpan(run.Format), run.Start, run.End, SpanTypes.ExclusiveExclusive);
             }
         }
     }
@@ -619,9 +666,11 @@ public partial class RichEditorHandler
         ISpanned text,
         int start,
         int end) =>
-        GetSpans<CharacterStyle>(text, start, end)
+        GetSpans<Java.Lang.Object>(text, start, end)
             .Where(static span => span is
                 RichCharacterMetadataSpan or
+                RichCharacterEffectsSpan or
+                RichSmallCapsSpan or
                 StyleSpan or
                 UnderlineSpan or
                 StrikethroughSpan or
@@ -636,12 +685,11 @@ public partial class RichEditorHandler
                 ScaleXSpan or
                 RichLetterSpacingSpan or
                 RichBaselineOffsetSpan or
-                LocaleSpan)
-            .Cast<Java.Lang.Object>();
+                LocaleSpan);
 
     private static void RemoveCharacterSpans(ISpannable text, int start, int end)
     {
-        foreach (var span in EnumerateCharacterSpans(text, start, end).ToArray())
+        foreach (var span in EnumerateCharacterSpans(text, start, end).Where(static span => span is not RichCharacterMetadataSpan).ToArray())
         {
             text.RemoveSpan(span);
         }
@@ -874,7 +922,8 @@ public partial class RichEditorHandler
         int start,
         int end,
         RichTextCharacterFormat format,
-        RichTextCharacterFormat? inheritedFormat = null)
+        RichTextCharacterFormat? inheritedFormat = null,
+        bool includeMetadata = true)
     {
         if (end <= start)
         {
@@ -892,11 +941,13 @@ public partial class RichEditorHandler
             };
         }
 
-        text.SetSpan(
-            new RichCharacterMetadataSpan(authoredFormat),
-            start,
-            end,
-            SpanTypes.ExclusiveExclusive);
+        if (includeMetadata)
+            text.SetSpan(new RichCharacterMetadataSpan(authoredFormat), start, end, SpanTypes.ExclusiveExclusive);
+
+        if (format.SmallCaps)
+            text.SetSpan(new RichSmallCapsSpan(), start, end, SpanTypes.ExclusiveExclusive);
+        if (format.Hidden || format.Shadow || format.Outline)
+            text.SetSpan(new RichCharacterEffectsSpan(format), start, end, SpanTypes.ExclusiveExclusive);
 
         var style = TypefaceStyle.Normal;
         if (format.Bold)
@@ -1247,6 +1298,7 @@ public partial class RichEditorHandler
                 position,
                 text.Length,
                 SpanType<CharacterStyle>.Value);
+            end = Math.Min(end, editable.NextSpanTransition(position, text.Length, SpanType<RichCharacterMetadataSpan>.Value));
             if (end <= position)
             {
                 end = position + 1;
@@ -1753,7 +1805,7 @@ public partial class RichEditorHandler
     {
         if (_applyingDocument || VirtualView is null ||
             span is not (CharacterStyle or IParagraphStyle) ||
-            span is RichCharacterMetadataSpan or RichParagraphMetadataSpan ||
+            span is RichCharacterMetadataSpan or RichCharacterEffectsSpan or RichSmallCapsSpan or RichParagraphMetadataSpan ||
             (text.GetSpanFlags(span) & SpanTypes.Composing) != 0)
         {
             return;
@@ -1867,7 +1919,7 @@ public partial class RichEditorHandler
         }
 
         return GetSpans<CharacterStyle>(text, start, end)
-            .Where(span => span is not RichCharacterMetadataSpan)
+            .Where(span => span is not (RichCharacterEffectsSpan or RichSmallCapsSpan))
             .Where(span => (text.GetSpanFlags(span) & SpanTypes.Composing) == 0)
             .Any(span => text.GetSpanStart(span) >= start && text.GetSpanEnd(span) <= end);
     }

@@ -34,6 +34,9 @@ internal static class EditorContractTests
 
     private static IEnumerable<Case> CreateCases()
     {
+#if ANDROID || IOS || MACCATALYST
+        foreach (var test in CharacterFormattingTests.Cases) yield return test;
+#endif
         yield return new("directional selection, document history and saved state", async editor =>
         {
             editor.Selection.ReplaceText("123456");
@@ -843,7 +846,7 @@ internal static class EditorContractTests
         });
     }
 
-    private static IEnumerable<(string, RichTextCharacterFormat)> CharacterFormats()
+    internal static IEnumerable<(string, RichTextCharacterFormat)> CharacterFormats()
     {
         var f = RichTextCharacterFormat.Default;
         yield return ("font family", f with { FontFamily = "Arial" });

@@ -223,6 +223,42 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat);
 
+    private static RichTextDocumentSnapshot? GetPreviousDecorationSnapshot(RichTextChangeSet changes)
+    {
+        // Native formatting repairs add a separate range, or have equal projections.
+        // In either case the projected snapshot is insufficient to describe native state.
+        var before = changes.BeforeSnapshot;
+        return changes.Changes is [{ Kind: RichTextChangeKind.CharacterFormat }] &&
+            before is not null && changes.AfterSnapshot is { } after && !before.ContentEquals(after) ? before : null;
+    }
+
+    private RichTextDocumentSnapshot? GetPreviousFormattingSnapshot(RichTextChangeSet changes) =>
+        changes.BeforeSnapshot is { } snapshot && changes.Changes.All(static change => change.Kind is
+            RichTextChangeKind.CharacterFormat or RichTextChangeKind.ParagraphFormat or RichTextChangeKind.DefaultFormat or
+            RichTextChangeKind.Metadata or RichTextChangeKind.Field)
+            ? VirtualView.Decorations.Project(snapshot) : null;
+
+    private static IEnumerable<(RichTextRange Range, RichTextCharacterFormat Format, RichTextCharacterFormat? PreviousFormat)>
+        GetCharacterFormatChanges(RichTextDocumentSnapshot snapshot, RichTextRange range, RichTextDocumentSnapshot? previousSnapshot)
+    {
+        // A queued native repair can outlive a text edit that shortens the document.
+        range = range.Clamp(snapshot.Length);
+        var index = snapshot.FindRunIndex(range.Start);
+        var previousIndex = previousSnapshot?.FindRunIndex(range.Start) ?? 0;
+        for (var position = range.Start; position < range.End;)
+        {
+            var run = snapshot.Runs[index];
+            var previousRun = previousSnapshot?.Runs[previousIndex];
+            var end = Math.Min(run.End, range.End);
+            if (previousRun is not null) end = Math.Min(end, previousRun.End);
+            if (previousRun?.Format != run.Format || previousSnapshot?.DefaultCharacterFormat != snapshot.DefaultCharacterFormat)
+                yield return (new(position, end - position), run.Format, previousRun?.Format);
+            position = end;
+            if (run.End == end) index++;
+            if (previousRun?.End == end) previousIndex++;
+        }
+    }
+
     private partial void ApplyTypingFormatCore(
         RichTextCharacterFormat characterFormat,
         RichTextParagraphFormat paragraphFormat);

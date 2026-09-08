@@ -383,8 +383,9 @@ namespace RichEdit.Maui
                 PlatformView.TextStorage.BeginEditing();
                 try
                 {
+                    var before = GetPreviousDecorationSnapshot(changes);
                     foreach (var change in changes.Changes)
-                        ApplyCharacterFormatsIncrementally(VirtualView.PresentationSnapshot, change.NewRange);
+                        ApplyCharacterFormatsIncrementally(VirtualView.PresentationSnapshot, change.NewRange, before);
                 }
                 finally { PlatformView.TextStorage.EndEditing(); }
                 ApplyTypingFormatCore(VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
@@ -439,53 +440,63 @@ namespace RichEdit.Maui
         }
         private void ApplyCharacterFormatsIncrementally(
             RichTextDocumentSnapshot snapshot,
-            RichTextRange range)
+            RichTextRange range,
+            RichTextDocumentSnapshot? previousSnapshot = null)
         {
             if (range.IsEmpty || snapshot.Length == 0)
             {
                 return;
             }
 
-            for (var index = snapshot.FindRunIndex(range.Start);
-                 index < snapshot.Runs.Length;
-                 index++)
+            var formats = new Dictionary<(RichTextCharacterFormat? Before, RichTextCharacterFormat After),
+                (NSMutableDictionary Attributes, NSObject[] Removed)>();
+            try
             {
-                var run = snapshot.Runs[index];
-                if (run.Start >= range.End)
+                foreach (var change in GetCharacterFormatChanges(snapshot, range, previousSnapshot))
                 {
-                    break;
-                }
+                    var key = (change.PreviousFormat, change.Format);
+                    if (!formats.TryGetValue(key, out var update))
+                    {
+                        var attributes = CreateCharacterAttributes(change.Format, snapshot.DefaultCharacterFormat);
+                        NSObject[] removed;
+                        if (change.PreviousFormat is { } previous)
+                        {
+                            using var oldAttributes = CreateCharacterAttributes(previous, previousSnapshot!.DefaultCharacterFormat);
+                            removed = oldAttributes.Keys.Where(key => !attributes.ContainsKey(key)).ToArray();
+                            foreach (var attribute in attributes.Keys)
+                            {
+                                // Metadata describes authored values; native attributes include inherited values.
+                                var unchanged = attribute.Equals(CharacterMetadataKey)
+                                    ? previous == change.Format
+                                    : oldAttributes[attribute] is { } value && attributes[attribute].IsEqual(value);
+                                if (unchanged) attributes.Remove(attribute);
+                            }
+                        }
+                        else
+                        {
+                            removed =
+                            [
+                                UIStringAttributeKey.BackgroundColor, UIStringAttributeKey.UnderlineColor,
+                                UIStringAttributeKey.StrikethroughColor, UIStringAttributeKey.StrokeColor,
+                                UIStringAttributeKey.StrokeWidth, UIStringAttributeKey.Shadow,
+                                UIStringAttributeKey.Ligature, UIStringAttributeKey.WritingDirection,
+                            ];
+                        }
+                        update = (attributes, removed);
+                        formats.Add(key, update);
+                    }
 
-                var start = Math.Max(run.Start, range.Start);
-                var end = Math.Min(run.End, range.End);
-                if (end <= start)
-                {
-                    continue;
+                    var nativeRange = new NSRange(change.Range.Start, change.Range.Length);
+                    foreach (var attribute in update.Removed)
+                        PlatformView.TextStorage.RemoveAttribute((NSString)attribute, nativeRange);
+                    if (update.Attributes.Count != 0)
+                        PlatformView.TextStorage.AddAttributes(update.Attributes, nativeRange);
                 }
-
-                using var attributes = CreateCharacterAttributes(
-                    run.Format,
-                    snapshot.DefaultCharacterFormat);
-                var nativeRange = new NSRange(start, end - start);
-                RemoveOptionalCharacterAttributes(nativeRange);
-                PlatformView.TextStorage.AddAttributes(attributes, nativeRange);
             }
-        }
-
-        private void RemoveOptionalCharacterAttributes(NSRange range)
-        {
-            // Character refreshes must not replace paragraph styles, links, list
-            // metadata, or text attachments. Remove only character attributes
-            // which CreateCharacterAttributes may intentionally omit, then merge
-            // the current character attributes into the attributed string.
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.BackgroundColor, range);
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.UnderlineColor, range);
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.StrikethroughColor, range);
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.StrokeColor, range);
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.StrokeWidth, range);
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.Shadow, range);
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.Ligature, range);
-            PlatformView.TextStorage.RemoveAttribute(UIStringAttributeKey.WritingDirection, range);
+            finally
+            {
+                foreach (var update in formats.Values) update.Attributes.Dispose();
+            }
         }
 
         private partial void ApplyTypingFormatCore(
