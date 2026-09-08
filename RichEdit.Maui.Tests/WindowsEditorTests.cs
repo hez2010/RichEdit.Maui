@@ -69,18 +69,11 @@ public class WindowsEditorTests
     [Fact]
     public Task FocusingTheSampleDocumentDoesNotCreateHistory() => WindowsTestHost.RunAsync(async () =>
     {
-        using var source = typeof(WindowsEditorTests).Assembly.GetManifestResourceStream("EditorSampleSource")!;
-        using var reader = new StreamReader(source);
-        var sample = System.Text.RegularExpressions.Regex.Match(reader.ReadToEnd(), "(?s)Editor\\.Document = RichTextDocument\\.FromRtf\\(\"\"\"\\r?\\n(?<rtf>.*?)\\r?\\n(?<indent>[ \\t]*)\"\"\"\\);");
-        Assert.True(sample.Success);
-        var indent = sample.Groups["indent"].Value;
-        var rtf = string.Join("\n", sample.Groups["rtf"].Value.Split('\n')
-            .Select(line => line.StartsWith(indent, StringComparison.Ordinal) ? line[indent.Length..] : line));
         using var fixture = new EditorFixture();
         var editor = fixture.Editor;
         editor.FontSize = 17;
         editor.TextColor = Microsoft.Maui.Graphics.Color.FromArgb("#212121");
-        editor.Document = RichTextDocument.FromRtf(rtf);
+        editor.Document = LoadSampleDocument();
         var focusTarget = new Microsoft.UI.Xaml.Controls.Button { Content = "Focus target" };
         var grid = new Microsoft.UI.Xaml.Controls.Grid();
         grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition());
@@ -231,6 +224,68 @@ public class WindowsEditorTests
         Assert.All(editor.Document.CurrentSnapshot.Paragraphs, paragraph => Assert.Null(paragraph.Format.List));
         editor.Undo();
         Assert.True(withImage.ContentEquals(editor.Document.CurrentSnapshot));
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task IndentingAnImportedBulletKeepsMarkersOutOfNativeText(bool useSample) => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new EditorFixture();
+        var editor = fixture.Editor;
+        editor.Document = useSample ? LoadSampleDocument() : RichTextDocument.FromRtf("""
+            {\rtf1\ansi\ansicpg1252\uc1\deff0
+            {\fonttbl{\f0 Times New Roman;}{\f1\fcharset2 Symbol;}}
+            {\*\listtable{\list\listsimple{\listlevel\levelnfc23\levelstartat1
+            {\leveltext\'01\u183 ?;}{\levelnumbers;}\f1\fi-360\li360\tx360}\listid1}}
+            {\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}
+            \pard before\par
+            \pard\fi-360\li360\tx360\ls1\fs24 \'85\par
+            \pard after}
+            """);
+        var text = editor.Document.Text;
+        var start = editor.Document.CurrentSnapshot.Paragraphs.First(paragraph =>
+            paragraph.Format.List is not null && text[paragraph.Start] == '…').Start;
+        var window = _sampleWindow ??= new Microsoft.UI.Xaml.Window();
+        window.Content = fixture.Handler.PlatformView;
+        try
+        {
+            window.Activate();
+            fixture.Handler.PlatformView.Focus(FocusState.Programmatic);
+            await Task.Delay(50);
+            Assert.Equal(text, fixture.NativeText);
+            editor.SelectedRange = new RichTextRange(start + 1, 0);
+            editor.ClearUndoHistory();
+            editor.Selection.ChangeListLevel(1);
+            AssertList(1);
+            editor.Selection.ChangeListLevel(1);
+            AssertList(2);
+            editor.Selection.ChangeListLevel(-1);
+            AssertList(1);
+            editor.Undo();
+            AssertList(2);
+            editor.Redo();
+            AssertList(1);
+            editor.Selection.ChangeListLevel(-1);
+            AssertList(0);
+            fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "!");
+            text = text.Insert(start + 1, "!");
+            await Task.Delay(50);
+            Assert.Equal(text, editor.Document.Text);
+            Assert.Equal(text, fixture.NativeText);
+
+            void AssertList(int level)
+            {
+                Assert.Equal(text, editor.Document.Text);
+                Assert.Equal(text, fixture.NativeText);
+                Assert.Equal(new RichTextRange(start + 1, 0), editor.SelectedRange);
+                Assert.Equal(level, editor.Document.CurrentSnapshot.GetParagraphFormat(start).List!.Level);
+                var native = fixture.Handler.PlatformView.Document.GetRange(start, start + 1).ParagraphFormat;
+                Assert.Equal(MarkerType.Bullet, native.ListType);
+                Assert.Equal(18 * (level + 1), native.LeftIndent);
+            }
+        }
+        finally { window.Content = null; }
     });
 
     [Fact]
@@ -484,6 +539,18 @@ public class WindowsEditorTests
         Assert.Equal(new RichTextRange(11, 0), fixture.Editor.SelectedRange);
         Assert.Equal("hello\rworld\r", fixture.Handler.PlatformView.Document.GetRange(0, 12).Text);
     });
+
+    private static RichTextDocument LoadSampleDocument()
+    {
+        using var source = typeof(WindowsEditorTests).Assembly.GetManifestResourceStream("EditorSampleSource")!;
+        using var reader = new StreamReader(source);
+        var sample = System.Text.RegularExpressions.Regex.Match(reader.ReadToEnd(), "(?s)Editor\\.Document = RichTextDocument\\.FromRtf\\(\"\"\"\\r?\\n(?<rtf>.*?)\\r?\\n(?<indent>[ \\t]*)\"\"\"\\);");
+        Assert.True(sample.Success);
+        var indent = sample.Groups["indent"].Value;
+        var rtf = string.Join("\n", sample.Groups["rtf"].Value.Split('\n')
+            .Select(line => line.StartsWith(indent, StringComparison.Ordinal) ? line[indent.Length..] : line));
+        return RichTextDocument.FromRtf(rtf);
+    }
 
     private sealed class EditorFixture : IDisposable
     {

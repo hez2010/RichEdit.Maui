@@ -1433,11 +1433,18 @@ internal static class RtfCodec
                 if (!definitionsById.TryGetValue(list.Id, out var definition))
                 {
                     definition = new ListDefinition(definitions.Count + 1, list.Id);
+                    var id = new RichTextListId(list.Id);
+                    var source = _document.Lists[id];
+                    // Keep ancestor levels even when no paragraph currently uses them.
+                    // RichEdit imports listtext as content when the first level is empty.
+                    for (var level = 0; level < source.Levels.Length; level++)
+                    {
+                        definition.AddLevel(RichTextListConversions.ToNative(id, level, null, source));
+                    }
+
                     definitionsById.Add(list.Id, definition);
                     definitions.Add(definition);
                 }
-
-                definition.AddLevel(list);
             }
 
             var nextOverrideId = 0;
