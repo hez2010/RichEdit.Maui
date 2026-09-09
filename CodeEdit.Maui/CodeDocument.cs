@@ -5,7 +5,7 @@ namespace CodeEdit.Maui;
 
 /// <summary>A live plain-source document with atomic edits, snapshots, and document-owned history.</summary>
 /// <remarks>Line endings are normalized to LF. Attached documents are mutated on the editor's UI thread.</remarks>
-public sealed class CodeDocument : INotifyPropertyChanged
+public sealed partial class CodeDocument : INotifyPropertyChanged
 {
     private CodeDocumentSnapshot? _snapshot;
     internal RichTextDocument Source { get; }

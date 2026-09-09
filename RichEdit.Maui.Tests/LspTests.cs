@@ -89,7 +89,7 @@ public sealed class LspTests
         Check(texts.Count == 1, "Closing one document closed another document.");
         await client.DisposeAsync();
         Check(texts.IsEmpty, "Client disposal failed to close documents.");
-        Check(calls.TakeLast(2).SequenceEqual(["shutdown", "exit"]), "Shutdown must precede exit.");
+        Check(calls.TakeLast(2).SequenceEqual((string[])["shutdown", "exit"]), "Shutdown must precede exit.");
     }
 
     [Theory]
@@ -218,7 +218,7 @@ public sealed class LspTests
         var legend = new SemanticTokensLegend(["keyword", "customType"], ["readonly", "static"]);
         var tokens = LspText.DecodeSemanticTokens(text, new([0, 3, 5, 0, 0, 1, 0, 4, 1, 3, 0, 5, 5, 1, 0]), legend, cancellationToken: TestContext.Current.CancellationToken);
         Check(tokens.Count == 3 && tokens[0].Start == 3 && tokens[1].Start == 10 && tokens[2].Start == 15, "UTF-16, CRLF, or U+2028 positions were decoded incorrectly.");
-        Check(tokens[1].Modifiers.SequenceEqual(["readonly", "static"]), "Modifier bits were decoded incorrectly.");
+        Check(tokens[1].Modifiers.SequenceEqual((string[])["readonly", "static"]), "Modifier bits were decoded incorrectly.");
         Check(LspText.GetPosition(text, 15) == new LspPosition(1, 5), "U+2028 is not an LSP line terminator.");
         Check(LspText.DecodeSemanticTokens("abc\nnext", new([0, 1, 100, 0, 0]), legend, cancellationToken: TestContext.Current.CancellationToken).Single().Length == 2, "Single-line tokens must be clipped at line end.");
         Assert.ThrowsAny<InvalidDataException>(() => LspText.DecodeSemanticTokens("abc", new([0, 0]), legend, cancellationToken: TestContext.Current.CancellationToken));

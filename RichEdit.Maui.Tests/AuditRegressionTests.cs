@@ -12,7 +12,7 @@ public sealed class AuditRegressionTests
         {
             edit.InsertText(0, "first\nsecond");
             var listId = edit.CreateList(new RichTextListDefinition(
-            [
+            (RichTextListLevelDefinition[])[
                 new RichTextListLevelDefinition
                 {
                     Marker = new RichTextListMarker.Bullet("*"),
@@ -73,7 +73,7 @@ public sealed class AuditRegressionTests
     public void NativeFormattingDeltaIncludesChangesInsideMergedRuns()
     {
         var before = new RichTextDocumentSnapshot("abcd", runs:
-        [
+        (RichTextRun[])[
             new RichTextRun(0, 1, RichTextCharacterFormat.Default),
             new RichTextRun(1, 1, RichTextCharacterFormat.Default with { FontWeight = 700 }),
             new RichTextRun(2, 2, RichTextCharacterFormat.Default with { Italic = true }),

@@ -33,7 +33,7 @@ public sealed record RichTextDecoration(RichTextRange Range, RichTextDecorationS
 
 /// <summary>Owns one independently replaceable set of decorations for an editor.</summary>
 /// <remarks>Layers compose in creation order. Later layers override earlier layers only for properties they specify.</remarks>
-public sealed class RichTextDecorationLayer : IDisposable
+public sealed partial class RichTextDecorationLayer : IDisposable
 {
     private RichTextDecorations? _owner;
     internal ImmutableArray<RichTextDecoration> Items { get; set; } = [];

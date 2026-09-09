@@ -48,7 +48,7 @@ public class BatchCharacterFormattingTests
         document.Edit(edit =>
         {
             edit.InsertText(2, "cd");
-            edit.SetCharacterFormats([new(new RichTextRange(1, 3), new() { Italic = true })]);
+            edit.SetCharacterFormats((RichTextRun[])[new(new RichTextRange(1, 3), new() { Italic = true })]);
             edit.UpdateCharacterFormat(new RichTextRange(2, 2), format => format with { FontWeight = 700 });
         });
         Assert.False(document.CurrentSnapshot.GetCharacterFormat(0).Italic);

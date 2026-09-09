@@ -6,7 +6,7 @@ using CodeEdit.Lsp;
 namespace RichEdit.Maui.Tests;
 
 // In-process sample server shared by the tests and TestApp.
-internal sealed class TestLanguageServer : IDisposable
+internal sealed partial class TestLanguageServer : IDisposable
 {
     private readonly ConcurrentDictionary<string, string> _documents = new(StringComparer.Ordinal);
     private readonly TestLspConnection _server;
@@ -72,7 +72,7 @@ internal sealed class TestLanguageServer : IDisposable
                 var position = new LspPosition(line, offset - starts[line]);
                 var end = text.IndexOfAny(['\r', '\n'], offset);
                 if (end < 0 || end > item.Range.End) end = item.Range.End;
-                data.AddRange([position.Line - lastLine, position.Line == lastLine ? position.Character - lastCharacter : position.Character,
+                data.AddRange((int[])[position.Line - lastLine, position.Line == lastLine ? position.Character - lastCharacter : position.Character,
                     end - offset, (int)item.Kind, 0]);
                 lastLine = position.Line;
                 lastCharacter = position.Character;

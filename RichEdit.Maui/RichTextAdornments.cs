@@ -13,7 +13,7 @@ public enum RichTextAdornmentPlacement
 }
 
 /// <summary>A view attached to a UTF-16 source position, outside the document and its history.</summary>
-public sealed class RichTextAdornment : IDisposable
+public sealed partial class RichTextAdornment : IDisposable
 {
     private readonly RichTextAdornments _owner;
 
@@ -47,7 +47,7 @@ public sealed class RichTextAdornment : IDisposable
 /// Views are clipped to the editor viewport. Applications own content, actions, offsets, and overlap policy.
 /// All mutations require the editor's UI thread.
 /// </remarks>
-public sealed class RichTextAdornments : IReadOnlyList<RichTextAdornment>
+public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment>
 {
     private readonly RichEditor _editor;
     private readonly List<RichTextAdornment> _items = [];
@@ -163,7 +163,7 @@ public sealed class RichTextAdornments : IReadOnlyList<RichTextAdornment>
 
 // Position changes must only arrange the overlay. Invalidating its desired size would remeasure the
 // native text control, which can scroll back to its caret while the user is scrolling elsewhere.
-internal sealed class RichTextAdornmentLayout : Layout
+internal sealed partial class RichTextAdornmentLayout : Layout
 {
     private readonly RichTextAdornments _adornments;
 

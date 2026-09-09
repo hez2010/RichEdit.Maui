@@ -3,6 +3,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using WinRT;
 
 namespace RichEdit.Maui;
 
@@ -12,16 +13,19 @@ public partial class RichEditorHandler
     private ScrollViewer? _adornmentScroller;
     private double _appliedAdornmentMargin;
 
+    [DynamicWindowsRuntimeCast(typeof(Panel))]
     private partial void AttachAdornmentOverlay()
     {
-        if (ContainerView is not Microsoft.UI.Xaml.Controls.Panel container) return;
+        if (ContainerView is not Panel container) return;
         var overlay = VirtualView.Adornments.Overlay.ToPlatform(MauiContext!);
         if (!container.Children.Contains(overlay)) container.Children.Add(overlay);
     }
 
+    [DynamicWindowsRuntimeCast(typeof(Panel))]
+    [DynamicWindowsRuntimeCast(typeof(UIElement))]
     private partial void DetachAdornmentOverlay()
     {
-        if (ContainerView is Microsoft.UI.Xaml.Controls.Panel container && VirtualView.Adornments.Overlay.Handler?.PlatformView is UIElement overlay)
+        if (ContainerView is Panel container && VirtualView.Adornments.Overlay.Handler?.PlatformView is UIElement overlay)
             container.Children.Remove(overlay);
     }
 
@@ -53,13 +57,15 @@ public partial class RichEditorHandler
 
     private partial Rect GetAdornmentViewport() => new(0, 0, _adornmentView.ActualWidth, _adornmentView.ActualHeight);
 
+    [DynamicWindowsRuntimeCast(typeof(UIElement))]
     partial void CommitAdornmentLayout() => (VirtualView.Adornments.Overlay.Handler?.PlatformView as UIElement)?.InvalidateArrange();
 
+    [DynamicWindowsRuntimeCast(typeof(UIElement))]
     private partial Rect? GetAdornmentAnchor(int position)
     {
         if (!_adornmentView.IsLoaded) return null;
         var origin = (_adornmentScroller?.Content as UIElement)?.TransformToVisual(_adornmentView).TransformPoint(new(0, 0))
-            ?? new global::Windows.Foundation.Point(_adornmentView.Padding.Left, _adornmentView.Padding.Top);
+            ?? new Windows.Foundation.Point(_adornmentView.Padding.Left, _adornmentView.Padding.Top);
         _adornmentView.Document.GetRange(position, position).GetRect(
             PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var rect, out _);
         return new(rect.X + origin.X, rect.Y + origin.Y, rect.Width, rect.Height);
@@ -74,6 +80,7 @@ public partial class RichEditorHandler
     private void OnAdornmentSizeChanged(object sender, SizeChangedEventArgs args) => QueueAdornmentLayout();
     private void OnAdornmentScrolled(object? sender, ScrollViewerViewChangedEventArgs args) => QueueAdornmentLayout();
 
+    [DynamicWindowsRuntimeCast(typeof(ScrollViewer))]
     private void ConnectAdornmentScroller()
     {
         if (_adornmentScroller is not null) _adornmentScroller.ViewChanged -= OnAdornmentScrolled;

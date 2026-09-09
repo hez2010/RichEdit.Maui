@@ -51,7 +51,7 @@ public sealed class RtfArchitectureTests
         var document = new RichTextDocument(
             "First\nSecond",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list }),
                 new RichTextParagraph(6, RichTextParagraphFormat.Default with { NativeList = list }),
             ]);
@@ -80,7 +80,7 @@ public sealed class RtfArchitectureTests
         var document = new RichTextDocument(
             "Alpha",
             paragraphs:
-            [new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list })]);
+            (RichTextParagraph[])[new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list })]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
 
@@ -110,11 +110,11 @@ public sealed class RtfArchitectureTests
         var document = new RichTextDocument(
             "Alpha\nBeta",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list }),
                 new RichTextParagraph(6, RichTextParagraphFormat.Default with { NativeList = list }),
             ],
-            listPictures: [picture]);
+            listPictures: (RichTextListPicture[])[picture]);
 
         var rtf = document.ToRtf();
         var parsed = RichTextDocument.FromRtf(rtf);
@@ -185,7 +185,7 @@ public sealed class RtfArchitectureTests
         var document = new RichTextDocument(
             "Top\nChild\nPeer\nAgain",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = topLevel }),
                 new RichTextParagraph(4, RichTextParagraphFormat.Default with { NativeList = bulletLevel }),
                 new RichTextParagraph(10, RichTextParagraphFormat.Default with { NativeList = letterLevel }),
@@ -223,7 +223,7 @@ public sealed class RtfArchitectureTests
         var document = new RichTextDocument(
             "A\nB\nC\nD\nE\nF",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = List(0) }),
                 new RichTextParagraph(2, RichTextParagraphFormat.Default with { NativeList = List(1, 5) }),
                 new RichTextParagraph(4, RichTextParagraphFormat.Default with { NativeList = List(1, 5) }),
@@ -286,7 +286,7 @@ public sealed class RtfArchitectureTests
         var parsed = RichTextDocument.FromRtf(@"{\rtf1\ansi one\line two\par three}");
 
         Assert.Equal($"one{RichTextDocument.SoftLineBreakCharacter}two\nthree", parsed.Text);
-        Assert.Equal([0, 8], parsed.Paragraphs.Select(paragraph => paragraph.Start));
+        Assert.Equal((int[])[0, 8], parsed.Paragraphs.Select(paragraph => paragraph.Start));
     }
 
     [Fact]
@@ -322,11 +322,11 @@ public sealed class RtfArchitectureTests
         };
         var document = new RichTextDocument(
             "plain rich",
-            [
+            (RichTextRun[])[
                 new RichTextRun(0, 6, defaultFormat),
                 new RichTextRun(6, 4, emphasized),
             ],
-            [new RichTextParagraph(0, centered)],
+            (RichTextParagraph[])[new RichTextParagraph(0, centered)],
             defaultCharacterFormat: defaultFormat);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
@@ -358,7 +358,7 @@ public sealed class RtfArchitectureTests
         var format = RichTextCharacterFormat.Default with { Underline = underline };
         var document = new RichTextDocument(
             "x",
-            [new RichTextRun(0, 1, format)]);
+            (RichTextRun[])[new RichTextRun(0, 1, format)]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
 
@@ -397,7 +397,7 @@ public sealed class RtfArchitectureTests
         };
         var document = new RichTextDocument(
             "x",
-            [new RichTextRun(0, 1, format)]);
+            (RichTextRun[])[new RichTextRun(0, 1, format)]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf()).GetCharacterFormat(0);
 
@@ -443,7 +443,7 @@ public sealed class RtfArchitectureTests
         };
         var document = new RichTextDocument(
             "x",
-            paragraphs: [new RichTextParagraph(0, format)]);
+            paragraphs: (RichTextParagraph[])[new RichTextParagraph(0, format)]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf()).GetParagraphFormat(0);
 
@@ -484,7 +484,7 @@ public sealed class RtfArchitectureTests
         };
         var document = new RichTextDocument(
             "x",
-            paragraphs: [new RichTextParagraph(0, format)]);
+            paragraphs: (RichTextParagraph[])[new RichTextParagraph(0, format)]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf()).GetParagraphFormat(0);
 
@@ -525,7 +525,7 @@ public sealed class RtfArchitectureTests
         var format = RichTextParagraphFormat.Default with { BackgroundColor = background };
         var document = new RichTextDocument(
             "x",
-            paragraphs: [new RichTextParagraph(0, format)]);
+            paragraphs: (RichTextParagraph[])[new RichTextParagraph(0, format)]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf()).GetParagraphFormat(0);
 
@@ -542,8 +542,8 @@ public sealed class RtfArchitectureTests
         };
         var document = new RichTextDocument(
             "OpenAI",
-            [new RichTextRun(0, 6, linkFormat)],
-            links: [new RichTextLink(0, 6, "https://openai.com/docs?q=rtf", "Open docs")]);
+            (RichTextRun[])[new RichTextRun(0, 6, linkFormat)],
+            links: (RichTextLink[])[new RichTextLink(0, 6, "https://openai.com/docs?q=rtf", "Open docs")]);
 
         var rtf = document.ToRtf();
         var parsed = RichTextDocument.FromRtf(rtf);
@@ -562,7 +562,7 @@ public sealed class RtfArchitectureTests
     {
         var document = new RichTextDocument(
             "2026-07-18",
-            fields: [new RichTextField(0, 10, "DATE \\@ \"yyyy-MM-dd\"")]);
+            fields: (RichTextField[])[new RichTextField(0, 10, "DATE \\@ \"yyyy-MM-dd\"")]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
 
@@ -576,7 +576,7 @@ public sealed class RtfArchitectureTests
     {
         var document = new RichTextDocument(
             "abc",
-            fields: [new RichTextField(1, 0, "PAGE")]);
+            fields: (RichTextField[])[new RichTextField(1, 0, "PAGE")]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
 
@@ -589,9 +589,9 @@ public sealed class RtfArchitectureTests
     {
         var document = new RichTextDocument(
             "abc",
-            links: [new RichTextLink(0, 3, "https://example.test")],
+            links: (RichTextLink[])[new RichTextLink(0, 3, "https://example.test")],
             fields:
-            [
+            (RichTextField[])[
                 new RichTextField(0, 0, "PAGE"),
                 new RichTextField(0, 0, "NUMPAGES"),
             ]);
@@ -599,7 +599,7 @@ public sealed class RtfArchitectureTests
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
 
         Assert.Equal(2, parsed.Fields.Length);
-        Assert.Equal(["PAGE", "NUMPAGES"], parsed.Fields.Select(field => field.Instruction));
+        Assert.Equal((string[])["PAGE", "NUMPAGES"], parsed.Fields.Select(field => field.Instruction));
         Assert.Single(parsed.Links);
     }
 
@@ -608,8 +608,8 @@ public sealed class RtfArchitectureTests
     {
         var document = new RichTextDocument(
             "abcdefgh",
-            links: [new RichTextLink(3, 5, "https://example.test")],
-            fields: [new RichTextField(0, 5, "MERGEFIELD Name")]);
+            links: (RichTextLink[])[new RichTextLink(3, 5, "https://example.test")],
+            fields: (RichTextField[])[new RichTextField(0, 5, "MERGEFIELD Name")]);
 
         var parsed = RichTextDocument.FromRtf(document.ToRtf());
 
@@ -638,12 +638,12 @@ public sealed class RtfArchitectureTests
         };
         var document = new RichTextDocument(
             $"a{RichTextDocument.ObjectReplacementCharacter}b",
-            [
+            (RichTextRun[])[
                 new RichTextRun(0, 1, RichTextCharacterFormat.Default),
                 new RichTextRun(1, 1, imageFormat),
                 new RichTextRun(2, 1, RichTextCharacterFormat.Default),
             ],
-            images: [image]);
+            images: (RichTextImage[])[image]);
 
         var rtf = document.ToRtf();
         var parsed = RichTextDocument.FromRtf(rtf);
@@ -670,10 +670,10 @@ public sealed class RtfArchitectureTests
         const string text = "Field Link \uFFFC";
         var document = new RichTextDocument(
             text,
-            links: [new RichTextLink(6, 4, "https://example.test")],
-            fields: [new RichTextField(0, 5, "DATE")],
+            links: (RichTextLink[])[new RichTextLink(6, 4, "https://example.test")],
+            fields: (RichTextField[])[new RichTextField(0, 5, "DATE")],
             images:
-            [
+            (RichTextImage[])[
                 RichTextImage.FromBytes(
                     text.Length - 1,
                     "image/png",
@@ -700,7 +700,7 @@ public sealed class RtfArchitectureTests
         var document = new RichTextDocument(
             "AB",
             runs:
-            [
+            (RichTextRun[])[
                 new RichTextRun(0, 1, RichTextCharacterFormat.Default),
                 new RichTextRun(
                     1,

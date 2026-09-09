@@ -4,7 +4,7 @@ using RichEdit.Maui;
 namespace CodeEdit.Maui;
 
 /// <summary>A stable source-only selection facade.</summary>
-public sealed class CodeTextSelection : INotifyPropertyChanged
+public sealed partial class CodeTextSelection : INotifyPropertyChanged
 {
     private readonly RichTextSelection _selection;
     internal CodeTextSelection(RichTextSelection selection)

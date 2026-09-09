@@ -1,4 +1,7 @@
 using Microsoft.Maui.Graphics;
+#if WINDOWS
+using Microsoft.UI.Xaml;
+#endif
 
 namespace RichEdit.Maui.TestApp;
 
@@ -154,6 +157,9 @@ internal static partial class EditorContractTests
         MinimumWidthRequest = 0, MinimumHeightRequest = 0, Padding = 0, Command = new Command(action),
     };
 
+#if WINDOWS
+    [WinRT.DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.Controls.Button))]
+#endif
     private static void InvokeAdornment(Button button)
     {
 #if WINDOWS
@@ -167,6 +173,9 @@ internal static partial class EditorContractTests
 #endif
     }
 
+#if WINDOWS
+    [WinRT.DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
+#endif
     private static Rect NativeAdornmentBounds(RichEditor editor, Button button)
     {
         var handler = (RichEditorHandler)editor.Handler!;

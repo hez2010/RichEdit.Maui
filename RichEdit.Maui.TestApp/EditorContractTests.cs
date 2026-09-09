@@ -1,6 +1,10 @@
 using Microsoft.Maui;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
+#if WINDOWS
+using Microsoft.UI.Xaml.Controls;
+using WinRT;
+#endif
 
 namespace RichEdit.Maui.TestApp;
 
@@ -34,6 +38,9 @@ internal static partial class EditorContractTests
         editor.Document = new RichTextDocument();
     }
 
+#if WINDOWS
+    [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
+#endif
     private static IEnumerable<Case> CreateCases()
     {
         foreach (var test in FoldingCases()) yield return test;
@@ -102,7 +109,7 @@ internal static partial class EditorContractTests
             var before = editor.Document.CurrentSnapshot;
             var rtf = editor.Document.RtfText;
             using var layer = editor.Decorations.CreateLayer();
-            layer.Set([new(new RichTextRange(0, 3), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            layer.Set((RichTextDecoration[])[new(new RichTextRange(0, 3), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             editor.SelectionState = new RichTextSelectionState(1, 1);
             await Verify(editor);
             Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
@@ -902,7 +909,7 @@ internal static partial class EditorContractTests
     private static RichTextImage Image() => RichTextImage.FromBytes(0, "image/png",
         Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), 12, 12);
 
-    private static RichTextListDefinition List(RichTextListNumberStyle style) => new([
+    private static RichTextListDefinition List(RichTextListNumberStyle style) => new((RichTextListLevelDefinition[])[
         new RichTextListLevelDefinition { Marker = new RichTextListMarker.Number(style, 3), Prefix = "(", Suffix = ")", LeadingIndent = 24, FirstLineIndent = -12, MarkerTab = 24 },
         new RichTextListLevelDefinition { Marker = new RichTextListMarker.Number(style, 1), Prefix = "", Suffix = ".", LeadingIndent = 48, FirstLineIndent = -12, MarkerTab = 48 },
     ]);
@@ -923,6 +930,9 @@ internal static partial class EditorContractTests
 
     public static Task Drain() => Task.Delay(20);
 
+#if WINDOWS
+    [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
+#endif
     public static string NativeText(RichEditor editor)
     {
 #if WINDOWS
@@ -944,6 +954,9 @@ internal static partial class EditorContractTests
 #endif
     }
 
+#if WINDOWS
+    [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
+#endif
     public static void NativeSelect(RichEditor editor, RichTextRange range, bool backwards = false)
     {
 #if WINDOWS
@@ -957,6 +970,9 @@ internal static partial class EditorContractTests
 #endif
     }
 
+#if WINDOWS
+    [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
+#endif
     public static void NativeReplace(RichEditor editor, string text)
     {
         if (text.Length == 0 && editor.SelectedRange.IsEmpty) return;
@@ -976,6 +992,10 @@ internal static partial class EditorContractTests
 #endif
     }
 
+#if WINDOWS
+    [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
+    [DynamicWindowsRuntimeCast(typeof(Panel))]
+#endif
     private static void SetNativeFocus(RichEditor editor, bool focused)
     {
 #if WINDOWS

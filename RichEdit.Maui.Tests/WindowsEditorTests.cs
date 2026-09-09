@@ -10,7 +10,7 @@ using DataPackage = Windows.ApplicationModel.DataTransfer.DataPackage;
 namespace RichEdit.Maui.Tests;
 
 [Collection("Native editor")]
-public class WindowsEditorTests
+public partial class WindowsEditorTests
 {
     private static Microsoft.UI.Xaml.Window? _sampleWindow;
 
@@ -202,7 +202,7 @@ public class WindowsEditorTests
         var editor = fixture.Editor;
         editor.Selection.ReplaceText("one\ntwo\n");
         editor.SelectAll();
-        editor.Selection.SetList(new RichTextListDefinition([
+        editor.Selection.SetList(new RichTextListDefinition((RichTextListLevelDefinition[])[
             new RichTextListLevelDefinition
             {
                 Marker = new RichTextListMarker.Bullet(marker), Prefix = "", Suffix = "",
@@ -552,7 +552,7 @@ public class WindowsEditorTests
         return RichTextDocument.FromRtf(rtf);
     }
 
-    private sealed class EditorFixture : IDisposable
+    private sealed partial class EditorFixture : IDisposable
     {
         public RichEditor Editor { get; } = new();
         public RichEditorHandler Handler { get; } = new();

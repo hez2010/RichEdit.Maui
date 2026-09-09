@@ -3,7 +3,7 @@ using CodeEdit.Maui;
 namespace RichEdit.Maui.TestApp;
 
 // Fold discovery, button appearance, grouping, and expansion are sample policy.
-internal sealed class CodeEditorFoldIndicators : IDisposable
+internal sealed partial class CodeEditorFoldIndicators : IDisposable
 {
     private readonly CodeEditor _editor;
     private readonly List<RichTextAdornment> _indicators = [];

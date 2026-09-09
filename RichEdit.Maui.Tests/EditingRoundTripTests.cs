@@ -50,7 +50,7 @@ public class EditingRoundTripTests
         document.Edit(edit =>
         {
             edit.InsertText(0, "one");
-            var list = edit.CreateList(new RichTextListDefinition([
+            var list = edit.CreateList(new RichTextListDefinition((RichTextListLevelDefinition[])[
                 new RichTextListLevelDefinition
                 {
                     Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),

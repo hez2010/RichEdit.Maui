@@ -373,7 +373,7 @@ public sealed class RichTextDocumentEdit
         }
 
         Snapshot = Snapshot.With(lists: Snapshot.Lists.SetItem(listId, definition));
-        _changes.Add(CreateListDefinitionChange([listId]));
+        _changes.Add(CreateListDefinitionChange((RichTextListId[])[listId]));
     }
 
     /// <summary>Applies an existing list definition to intersecting paragraphs.</summary>

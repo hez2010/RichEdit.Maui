@@ -5,7 +5,7 @@ using Microsoft.UI.Text;
 
 namespace RichEdit.Maui.Tests;
 
-public class EditorApiTests
+public partial class EditorApiTests
 {
     private static Microsoft.UI.Xaml.Window? _selectionWindow;
     [Fact]
@@ -217,8 +217,8 @@ public class EditorApiTests
         document.Changed += (_, _) => changes++;
         using var foreground = editor.Decorations.CreateLayer();
         using var background = editor.Decorations.CreateLayer();
-        foreground.Set([new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
-        background.Set([new(new(1, 1), new() { BackgroundColor = Colors.Yellow })]);
+        foreground.Set((RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
+        background.Set((RichTextDecoration[])[new(new(1, 1), new() { BackgroundColor = Colors.Yellow })]);
         Assert.Equal(Colors.Green, fixture.Foreground(1));
         Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 255, 0), fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat.BackgroundColor);
         editor.SelectionState = new(2, 0);
@@ -251,12 +251,12 @@ public class EditorApiTests
         var snapshot = document.CurrentSnapshot;
         var version = document.Version;
         using var layer = editor.Decorations.CreateLayer();
-        layer.Set([new(new(0, 4), new() { ForegroundColor = Colors.Green })]);
+        layer.Set((RichTextDecoration[])[new(new(0, 4), new() { ForegroundColor = Colors.Green })]);
         Assert.Equal(Colors.Green, fixture.Foreground(0));
         Assert.Equal(Colors.Green, fixture.Foreground(3));
         Assert.Equal(Colors.Red, fixture.Foreground(4));
 
-        layer.Set([
+        layer.Set((RichTextDecoration[])[
             new(new(0, 1), new() { ForegroundColor = Colors.Purple }),
             new(new(5, 1), new() { ForegroundColor = Colors.Purple }),
         ]);
@@ -286,7 +286,7 @@ public class EditorApiTests
         using var fixture = new RichFixture(RichTextDocument.FromPlainText("abc"));
         var editor = fixture.Editor;
         using var layer = editor.Decorations.CreateLayer();
-        layer.Set([new(new(0, 3), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
+        layer.Set((RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
         var snapshot = editor.PresentationSnapshot;
         var format = fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat;
         format.ForegroundColor = Windows.UI.Color.FromArgb(255, 255, 0, 0);
@@ -306,7 +306,7 @@ public class EditorApiTests
         using var fixture = new RichFixture(RichTextDocument.FromPlainText("abc"));
         var editor = fixture.Editor;
         using var layer = editor.Decorations.CreateLayer();
-        layer.Set([new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
+        layer.Set((RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
         editor.SelectionState = new(1, 1);
         fixture.Handler.PlatformView.Document.Selection.TypeText("x");
         await Task.Delay(100);
@@ -329,7 +329,7 @@ public class EditorApiTests
         });
     }
 
-    private sealed class RichFixture : IDisposable
+    private sealed partial class RichFixture : IDisposable
     {
         internal RichEditor Editor { get; }
         internal RichEditorHandler Handler { get; } = new();

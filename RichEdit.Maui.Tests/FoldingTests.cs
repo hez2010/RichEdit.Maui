@@ -134,8 +134,8 @@ public class FoldingTests
         var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcdefgh") };
         var range = new RichTextRange(2, 4);
         editor.Folding.Collapse(range);
-        Assert.Throws<ArgumentException>(() => editor.Folding.SetCollapsedRanges([new(1, 2), new(5, 0)]));
-        Assert.Throws<ArgumentOutOfRangeException>(() => editor.Folding.SetCollapsedRanges([new(1, 2), new(6, 3)]));
+        Assert.Throws<ArgumentException>(() => editor.Folding.SetCollapsedRanges((RichTextRange[])[new(1, 2), new(5, 0)]));
+        Assert.Throws<ArgumentOutOfRangeException>(() => editor.Folding.SetCollapsedRanges((RichTextRange[])[new(1, 2), new(6, 3)]));
         Assert.Equal(range, Assert.Single(editor.Folding.CollapsedRanges));
         var notifications = 0;
         editor.Folding.Changed += (_, _) => notifications++;

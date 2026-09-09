@@ -1,4 +1,8 @@
 using Microsoft.Maui.Graphics;
+#if WINDOWS
+using Microsoft.UI.Xaml.Controls;
+using WinRT;
+#endif
 
 namespace RichEdit.Maui.TestApp;
 
@@ -39,7 +43,7 @@ internal static partial class EditorContractTests
             var before = FoldingCaretRect(editor, 13).Y;
             var outer = new RichTextRange(5, 8);
             var inner = new RichTextRange(9, 4);
-            editor.Folding.SetCollapsedRanges([inner, outer]);
+            editor.Folding.SetCollapsedRanges((RichTextRange[])[inner, outer]);
             await Task.Delay(80);
             var both = FoldingCaretRect(editor, 13).Y;
             editor.Folding.Expand(outer);
@@ -104,7 +108,7 @@ internal static partial class EditorContractTests
             editor.SelectedRange = new(5, 3);
             editor.Selection.CharacterFormat.Bold = true;
             using var colors = editor.Decorations.CreateLayer();
-            colors.Set([new(new(0, editor.Document.Length), new() { ForegroundColor = Colors.Blue })]);
+            colors.Set((RichTextDecoration[])[new(new(0, editor.Document.Length), new() { ForegroundColor = Colors.Blue })]);
             await Verify(editor);
             Equal(false, editor.Document.GetCharacterFormat(new(5, 3)).RepresentativeFormat.Hidden);
             editor.Folding.ExpandAll();
@@ -143,6 +147,9 @@ internal static partial class EditorContractTests
         });
     }
 
+#if WINDOWS
+    [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
+#endif
     private static Rect FoldingCaretRect(RichEditor editor, int offset)
     {
 #if WINDOWS

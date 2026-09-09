@@ -117,7 +117,7 @@ public sealed class RtfCodecFixTests
         var document = new RichTextDocument(
             "with\nwithout",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(
                     0,
                     RichTextParagraphFormat.Default with { TabStops = [stop] }),
@@ -145,7 +145,7 @@ public sealed class RtfCodecFixTests
         var document = new RichTextDocument(
             "boxed\nplain",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(0, RichTextParagraphFormat.Default),
                 new RichTextParagraph(
                     6,
@@ -191,7 +191,7 @@ public sealed class RtfCodecFixTests
         var document = new RichTextDocument(
             "clear",
             runs:
-            [
+            (RichTextRun[])[
                 new RichTextRun(
                     0,
                     5,

@@ -4,6 +4,7 @@ using NativeMenuFlyout = Microsoft.UI.Xaml.Controls.MenuFlyout;
 using NativeMenuFlyoutItem = Microsoft.UI.Xaml.Controls.MenuFlyoutItem;
 using NativeMenuFlyoutSubItem = Microsoft.UI.Xaml.Controls.MenuFlyoutSubItem;
 using NativeMenuFlyoutSeparator = Microsoft.UI.Xaml.Controls.MenuFlyoutSeparator;
+using WinRT;
 
 namespace RichEdit.Maui;
 
@@ -80,6 +81,7 @@ public partial class RichEditorHandler
         return button;
     }
 
+    [DynamicWindowsRuntimeCast(typeof(TextCommandBarFlyout))]
     private void OnTextFlyoutClosed(object? sender, object args)
     {
         if (sender is TextCommandBarFlyout flyout) RestoreTextFlyout(flyout);

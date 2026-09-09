@@ -5,7 +5,7 @@ namespace RichEdit.Maui;
 /// <summary>
 /// Exposes bindable authored and effective character formatting for a selection.
 /// </summary>
-public sealed class RichTextSelectionCharacterFormat : BindableObject
+public sealed partial class RichTextSelectionCharacterFormat : BindableObject
 {
     private readonly RichTextSelection _selection;
 
@@ -381,7 +381,7 @@ public sealed class RichTextSelectionCharacterFormat : BindableObject
 /// <summary>
 /// Exposes bindable paragraph formatting for a selection.
 /// </summary>
-public sealed class RichTextSelectionParagraphFormat : BindableObject
+public sealed partial class RichTextSelectionParagraphFormat : BindableObject
 {
     private readonly RichTextSelection _selection;
 

@@ -29,7 +29,7 @@ public sealed partial class CodeEditor
             foreach (var character in Document.Text.AsSpan(line.Start, SelectedRange.Start - line.Start))
                 column += character == '\t' ? IndentSize - column % IndentSize : 1;
             var indentation = UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize);
-            ApplyEdits([new(SelectedRange, indentation)], "Indent");
+            ApplyEdits((CodeTextEdit[])[new(SelectedRange, indentation)], "Indent");
             return;
         }
         var (first, last) = Lines.GetSelectedLines(SelectedRange);
@@ -61,7 +61,7 @@ public sealed partial class CodeEditor
     internal void InsertNewLine()
     {
         if (IsReadOnly) return;
-        ApplyEdits([new(SelectedRange, "\n" + (AutoIndent ? GetIndentation(SelectedRange.Start) : string.Empty))], "New line");
+        ApplyEdits((CodeTextEdit[])[new(SelectedRange, "\n" + (AutoIndent ? GetIndentation(SelectedRange.Start) : string.Empty))], "New line");
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>
@@ -138,7 +138,7 @@ public sealed partial class CodeEditor
         {
             if (ReferenceEquals(NativeAdapter, handler) && !handler.IsComposing && AutoIndent && !IsReadOnly && CanUndo &&
                 ReferenceEquals(Document, document) && document.Version == version && SelectedRange == caret)
-                ApplyEdits([new(caret, indentation)], "New line", RichTextUndoBehavior.MergeWithPrevious);
+                ApplyEdits((CodeTextEdit[])[new(caret, indentation)], "New line", RichTextUndoBehavior.MergeWithPrevious);
         });
     }
 

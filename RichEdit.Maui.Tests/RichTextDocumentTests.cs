@@ -16,8 +16,8 @@ public sealed class RichTextDocumentTests
         };
         var document = new RichTextDocument(
             "a\r\nb\rc",
-            [new RichTextRun(2, 1, Bold)],
-            [new RichTextParagraph(2, centered)]);
+            (RichTextRun[])[new RichTextRun(2, 1, Bold)],
+            (RichTextParagraph[])[new RichTextParagraph(2, centered)]);
 
         Assert.Equal("a\nb\nc", document.Text);
         Assert.Collection(
@@ -25,7 +25,7 @@ public sealed class RichTextDocumentTests
             run => Assert.Equal(new RichTextRun(0, 2, RichTextCharacterFormat.Default), run),
             run => Assert.Equal(new RichTextRun(2, 1, Bold), run),
             run => Assert.Equal(new RichTextRun(3, 2, RichTextCharacterFormat.Default), run));
-        Assert.Equal([0, 2, 4], document.Paragraphs.Select(paragraph => paragraph.Start));
+        Assert.Equal((int[])[0, 2, 4], document.Paragraphs.Select(paragraph => paragraph.Start));
         Assert.Equal(centered, document.GetParagraphFormat(2));
     }
 
@@ -54,7 +54,7 @@ public sealed class RichTextDocumentTests
         var document = new RichTextDocument(
             "clear",
             runs:
-            [
+            (RichTextRun[])[
                 new RichTextRun(
                     0,
                     5,
@@ -70,7 +70,7 @@ public sealed class RichTextDocumentTests
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "x",
             runs:
-            [
+            (RichTextRun[])[
                 new RichTextRun(
                     0,
                     1,
@@ -82,7 +82,7 @@ public sealed class RichTextDocumentTests
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "x",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(
                     0,
                     RichTextParagraphFormat.Default with
@@ -93,7 +93,7 @@ public sealed class RichTextDocumentTests
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             RichTextDocument.ObjectReplacementCharacter.ToString(),
             images:
-            [
+            (RichTextImage[])[
                 RichTextImage.FromBytes(
                     0,
                     "image/png",
@@ -107,7 +107,7 @@ public sealed class RichTextDocumentTests
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "x",
             runs:
-            [
+            (RichTextRun[])[
                 new RichTextRun(
                     0,
                     1,
@@ -119,7 +119,7 @@ public sealed class RichTextDocumentTests
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "x",
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(
                     0,
                     RichTextParagraphFormat.Default with
@@ -140,7 +140,7 @@ public sealed class RichTextDocumentTests
         var document = new RichTextDocument(
             $"x{RichTextDocument.ObjectReplacementCharacter}",
             runs:
-            [
+            (RichTextRun[])[
                 new RichTextRun(
                     0,
                     2,
@@ -153,7 +153,7 @@ public sealed class RichTextDocumentTests
                     }),
             ],
             paragraphs:
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(
                     0,
                     RichTextParagraphFormat.Default with
@@ -165,7 +165,7 @@ public sealed class RichTextDocumentTests
                     }),
             ],
             images:
-            [
+            (RichTextImage[])[
                 RichTextImage.FromBytes(
                     1,
                     "image/png",
@@ -202,14 +202,14 @@ public sealed class RichTextDocumentTests
         var document = new RichTextDocument(
             "item",
             paragraphs:
-            [new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list })],
-            listPictures: [picture]);
+            (RichTextParagraph[])[new RichTextParagraph(0, RichTextParagraphFormat.Default with { NativeList = list })],
+            listPictures: (RichTextListPicture[])[picture]);
 
         var replaced = document.Replace(4..4, "!");
         var merged = replaced.MergeNativeSnapshot(
             replaced.Text,
             replaced.Runs,
-            [new RichTextParagraph(
+            (RichTextParagraph[])[new RichTextParagraph(
                 0,
                 RichTextParagraphFormat.Default with
                 {
@@ -253,7 +253,7 @@ public sealed class RichTextDocumentTests
         };
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "item",
-            paragraphs: [new RichTextParagraph(0, missingPictureList)]));
+            paragraphs: (RichTextParagraph[])[new RichTextParagraph(0, missingPictureList)]));
 
         var numberedPictureList = missingPictureList with
         {
@@ -261,7 +261,7 @@ public sealed class RichTextDocumentTests
         };
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "item",
-            paragraphs: [new RichTextParagraph(0, numberedPictureList)]));
+            paragraphs: (RichTextParagraph[])[new RichTextParagraph(0, numberedPictureList)]));
     }
 
     [Fact]
@@ -269,14 +269,14 @@ public sealed class RichTextDocumentTests
     {
         var document = new RichTextDocument(
             $"ab{RichTextDocument.ObjectReplacementCharacter}cdef",
-            [
+            (RichTextRun[])[
                 new RichTextRun(0, 2, Bold),
                 new RichTextRun(2, 5, Italic),
             ],
-            links: [new RichTextLink(3, 4, "https://example.test", "tip")],
-            fields: [new RichTextField(0, 2, "DATE")],
+            links: (RichTextLink[])[new RichTextLink(3, 4, "https://example.test", "tip")],
+            fields: (RichTextField[])[new RichTextField(0, 2, "DATE")],
             images:
-            [
+            (RichTextImage[])[
                 RichTextImage.FromBytes(
                     2,
                     "image/png",
@@ -302,10 +302,10 @@ public sealed class RichTextDocumentTests
         const string originalText = "Field Link \uFFFC";
         var document = new RichTextDocument(
             originalText,
-            links: [new RichTextLink(6, 4, "https://example.test", "tip")],
-            fields: [new RichTextField(0, 5, "DATE")],
+            links: (RichTextLink[])[new RichTextLink(6, 4, "https://example.test", "tip")],
+            fields: (RichTextField[])[new RichTextField(0, 5, "DATE")],
             images:
-            [
+            (RichTextImage[])[
                 RichTextImage.FromBytes(
                     originalText.Length - 1,
                     "image/png",
@@ -317,8 +317,8 @@ public sealed class RichTextDocumentTests
         var updatedText = $"X{originalText}";
         var merged = document.MergeNativeSnapshot(
             updatedText,
-            [new RichTextRun(0, updatedText.Length, RichTextCharacterFormat.Default)],
-            [new RichTextParagraph(0, RichTextParagraphFormat.Default)],
+            (RichTextRun[])[new RichTextRun(0, updatedText.Length, RichTextCharacterFormat.Default)],
+            (RichTextParagraph[])[new RichTextParagraph(0, RichTextParagraphFormat.Default)],
             links: null,
             images: null,
             RichTextCharacterFormat.Default,
@@ -337,11 +337,11 @@ public sealed class RichTextDocumentTests
         var paragraphBackground = Microsoft.Maui.Graphics.Color.FromRgb(0x12, 0x34, 0x56);
         var document = new RichTextDocument(
             "ab\ncd",
-            [
+            (RichTextRun[])[
                 new RichTextRun(0, 2, shadow),
                 new RichTextRun(2, 3, RichTextCharacterFormat.Default),
             ],
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(
                     0,
                     RichTextParagraphFormat.Default with
@@ -353,7 +353,7 @@ public sealed class RichTextDocumentTests
 
         var merged = document.MergeNativeSnapshot(
             document.Text,
-            [new RichTextRun(0, document.Text.Length, RichTextCharacterFormat.Default)],
+            (RichTextRun[])[new RichTextRun(0, document.Text.Length, RichTextCharacterFormat.Default)],
             document.Paragraphs.Select(paragraph =>
                 new RichTextParagraph(paragraph.Start, RichTextParagraphFormat.Default)),
             links: null,
@@ -521,7 +521,7 @@ public sealed class RichTextDocumentTests
         Assert.Throws<ArgumentException>(() => new RichTextDocument(
             "abcd",
             links:
-            [
+            (RichTextLink[])[
                 new RichTextLink(0, 3, "https://one.test"),
                 new RichTextLink(2, 2, "https://two.test"),
             ]));

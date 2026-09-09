@@ -10,7 +10,7 @@ public partial class RichEditorPage : ContentPage
     private static readonly Color InactiveToolbarColor = Color.FromArgb("#EDE9F7");
     private static readonly Color InactiveToolbarTextColor = Color.FromArgb("#2C2440");
     private static readonly RichTextListDefinition BulletedList = new(
-    [
+    (RichTextListLevelDefinition[])[
         new RichTextListLevelDefinition
         {
             Marker = new RichTextListMarker.Bullet("•"),
@@ -40,7 +40,7 @@ public partial class RichEditorPage : ContentPage
         },
     ]);
     private static readonly RichTextListDefinition NumberedList = new(
-    [
+    (RichTextListLevelDefinition[])[
         new RichTextListLevelDefinition
         {
             Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),

@@ -27,7 +27,7 @@ public class AdornmentTests
         using var indicators = new CodeEditorFoldIndicators(editor);
         var outer = new RichTextRange(5, 8);
         var inner = new RichTextRange(9, 4);
-        editor.Folding.SetCollapsedRanges([outer, inner]);
+        editor.Folding.SetCollapsedRanges((RichTextRange[])[outer, inner]);
         Assert.Single(editor.Adornments);
         ClickSampleIndicator(editor);
         Assert.Equal(inner, Assert.Single(editor.Folding.CollapsedRanges));
@@ -43,7 +43,7 @@ public class AdornmentTests
     {
         var editor = new CodeEditor { Document = new("one ABC two DEF end") };
         using var indicators = new CodeEditorFoldIndicators(editor);
-        editor.Folding.SetCollapsedRanges([new(4, 3), new(12, 3)]);
+        editor.Folding.SetCollapsedRanges((RichTextRange[])[new(4, 3), new(12, 3)]);
         var row = Assert.IsType<HorizontalStackLayout>(Assert.Single(editor.Adornments).View);
         Assert.Equal(2, row.Count);
         ((Button)row[0]).Command.Execute(null);

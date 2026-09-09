@@ -6,7 +6,7 @@ namespace RichEdit.Maui;
 /// <summary>
 /// Represents a stable, observable rich-text document that supports atomic range edits.
 /// </summary>
-public sealed class RichTextDocument : INotifyPropertyChanged
+public sealed partial class RichTextDocument : INotifyPropertyChanged
 {
     /// <summary>
     /// The object-replacement character used to reserve a logical text position for an
@@ -998,7 +998,7 @@ public sealed class RichTextDocument : INotifyPropertyChanged
         RaiseUndoStateChanged();
     }
 
-    private sealed class UndoGroup(RichTextDocument document) : IDisposable
+    private sealed partial class UndoGroup(RichTextDocument document) : IDisposable
     {
         private RichTextDocument? _document = document;
         public void Dispose()

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Storage.Streams;
+using WinRT;
 
 namespace RichEdit.Maui;
 
@@ -978,6 +979,7 @@ public partial class RichEditorHandler
         await RichEditorCommands.ExecuteAsync(VirtualView.CutAsync);
     }
 
+    [DynamicWindowsRuntimeCast(typeof(TextCommandBarFlyout))]
     private void OnTextFlyoutOpening(object? sender, object args)
     {
         if (sender is not TextCommandBarFlyout flyout || VirtualView is null)
@@ -989,6 +991,7 @@ public partial class RichEditorHandler
         CustomizeTextFlyout(flyout);
     }
 
+    [DynamicWindowsRuntimeCast(typeof(StandardUICommand))]
     internal void ConfigureTextFlyoutCommands(TextCommandBarFlyout flyout)
     {
         // Native flyout copy/cut call TOM directly and bypass the control's
@@ -1803,6 +1806,7 @@ public partial class RichEditorHandler
             ? null
             : Color.FromRgba(color.R, color.G, color.B, color.A);
 
+    [DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.Media.SolidColorBrush))]
     private Color? ResolveTextColor()
     {
         if (VirtualView.TextColor is { } textColor)

@@ -8,11 +8,12 @@ using CodeEdit.Lsp;
 using RichEdit.Maui.TestApp;
 using Clipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
 using DataPackage = Windows.ApplicationModel.DataTransfer.DataPackage;
+using Microsoft.UI.Xaml;
 
 namespace RichEdit.Maui.Tests;
 
 [Collection("Native editor")]
-public class CodeEditorTests
+public partial class CodeEditorTests
 {
     private static Microsoft.UI.Xaml.Window? _gutterWindow;
     private static MauiApp? _controlTestApp;
@@ -451,6 +452,7 @@ public class CodeEditorTests
     });
 
     [Fact]
+    [WinRT.DynamicWindowsRuntimeCast(typeof(UIElement))]
     public Task GutterUsesNativeLayoutAndTracksScrolling() => WindowsTestHost.RunAsync(async () =>
     {
         using var fixture = new CodeEditorFixture(string.Join('\n', Enumerable.Range(1, 100).Select(i => $"line {i}")));
@@ -493,7 +495,7 @@ public class CodeEditorTests
             fixture.Editor.Folding.Collapse(new(0, 5));
             await Task.Delay(80);
             Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.NativeAdapter!.GetVisibleLines().Select(line => line.Number));
-            fixture.Editor.Folding.SetCollapsedRanges([new(5, 12)]);
+            fixture.Editor.Folding.SetCollapsedRanges((RichTextRange[])[new(5, 12)]);
             await Task.Delay(80);
             Assert.Equal(new[] { 1, 3 }, fixture.Editor.NativeAdapter.GetVisibleLines().Select(line => line.Number));
             fixture.Editor.Folding.ExpandAll();
@@ -514,6 +516,8 @@ public class CodeEditorTests
     [InlineData(4, 7, true)]
     [InlineData(4, 8, false)] // Include ccc's newline without folding ddd.
     [InlineData(5, 4, true)] // Partial endpoint lines still fold as whole lines.
+    [WinRT.DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
+    [WinRT.DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.Controls.Button))]
     public Task SampleFoldingKeepsHeaderEllipsisAndFollowingLine(int start, int length, bool clickEllipsis) => WindowsTestHost.RunAsync(async () =>
     {
         const string source = "aaa\nbbb\nccc\nddd";
@@ -620,7 +624,7 @@ public class CodeEditorTests
         var snapshot = editor.Document.CurrentSnapshot;
         Assert.Equal(new LspPosition(0, 3), editor.GetLspPosition(3));
         Assert.Equal(7, editor.GetOffset(new LspPosition(1, 0)));
-        Assert.True(editor.ApplyLanguageServerEdits([
+        Assert.True(editor.ApplyLanguageServerEdits((LspTextEdit[])[
             new(new(new(0, 3), new(0, 6)), "name"),
             new(new(new(1, 0), new(1, 3)), "baz")], snapshot));
         Assert.Equal("😀 name\nbaz", editor.Document.Text);
@@ -630,10 +634,10 @@ public class CodeEditorTests
         Assert.Equal(snapshot.Text, editor.Document.Text);
         Assert.False(editor.CanUndo);
         Assert.True(editor.CanRedo);
-        Assert.False(editor.ApplyLanguageServerEdits([new(new(new(0, 0), new(0, 2)), "x")], snapshot));
+        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 2)), "x")], snapshot));
         var otherSnapshot = editor.Document.CurrentSnapshot;
         editor.Document = new(otherSnapshot.Text);
-        Assert.False(editor.ApplyLanguageServerEdits([new(new(new(0, 0), new(0, 2)), "x")], otherSnapshot));
+        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 2)), "x")], otherSnapshot));
     });
 
     [Fact]
@@ -642,13 +646,13 @@ public class CodeEditorTests
         using var fixture = new CodeEditorFixture("abcd");
         var editor = fixture.Editor;
         var snapshot = editor.Document.CurrentSnapshot;
-        Assert.Throws<ArgumentException>(() => editor.ApplyLanguageServerEdits([
+        Assert.Throws<ArgumentException>(() => editor.ApplyLanguageServerEdits((LspTextEdit[])[
             new(new(new(0, 0), new(0, 3)), "x"), new(new(new(0, 2), new(0, 4)), "y")], snapshot));
-        Assert.Throws<ArgumentOutOfRangeException>(() => editor.ApplyLanguageServerEdits([new(new(new(0, 8), new(0, 9)), "x")], snapshot));
+        Assert.Throws<ArgumentOutOfRangeException>(() => editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 8), new(0, 9)), "x")], snapshot));
         editor.MaxLength = 4;
-        Assert.False(editor.ApplyLanguageServerEdits([new(new(new(0, 0), new(0, 0)), "long")], snapshot));
+        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 0)), "long")], snapshot));
         editor.IsReadOnly = true;
-        Assert.False(editor.ApplyLanguageServerEdits([new(new(new(0, 0), new(0, 1)), "x")], snapshot));
+        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 1)), "x")], snapshot));
         Assert.Equal("abcd", editor.Document.Text);
         Assert.False(editor.CanUndo);
     });
@@ -719,7 +723,7 @@ public class CodeEditorTests
         Assert.False(editor.CanUndo);
     });
 
-    private sealed class CodeTestApplication : Microsoft.Maui.Controls.Application;
+    private sealed partial class CodeTestApplication : Microsoft.Maui.Controls.Application;
 
     private static Microsoft.Maui.Graphics.Color TokenColor(CodeEditor editor, string type) => editor.Theme!(new(0, 1, type, []))!;
 
@@ -741,7 +745,7 @@ public class CodeEditorTests
         }
     }
 
-    private sealed class CodeEditorFixture : IDisposable
+    private sealed partial class CodeEditorFixture : IDisposable
     {
         internal TestLanguageServer LanguageServer { get; }
         internal CodeEditor Editor { get; }

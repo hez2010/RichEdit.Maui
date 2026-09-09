@@ -292,7 +292,7 @@ public sealed record EditorKeyBinding
 }
 
 /// <summary>An editor's UI-thread-owned key bindings. The last matching entry takes precedence.</summary>
-public sealed class EditorKeyBindingCollection : Collection<EditorKeyBinding>
+public sealed partial class EditorKeyBindingCollection : Collection<EditorKeyBinding>
 {
     private readonly RichEditor _editor;
     internal EditorKeyBindingCollection(RichEditor editor) => _editor = editor;

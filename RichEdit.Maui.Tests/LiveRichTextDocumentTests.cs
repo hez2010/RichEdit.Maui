@@ -5,7 +5,7 @@ namespace RichEdit.Maui.Tests;
 public sealed class LiveRichTextDocumentTests
 {
     private static RichTextListDefinition CreateBulletList() => new(
-    [
+    (RichTextListLevelDefinition[])[
         new RichTextListLevelDefinition
         {
             Marker = new RichTextListMarker.Bullet("•"),
@@ -15,7 +15,7 @@ public sealed class LiveRichTextDocumentTests
     ]);
 
     private static readonly RichTextListDefinition NumberedOutline = new(
-    [
+    (RichTextListLevelDefinition[])[
         new RichTextListLevelDefinition
         {
             Marker = new RichTextListMarker.Number(RichTextListNumberStyle.UpperRoman, 4),
@@ -463,7 +463,7 @@ public sealed class LiveRichTextDocumentTests
     public void SingleLevelListExtendsItsCallerDefinedStyleAndOutdentsToPlainText()
     {
         var list = new RichTextListDefinition(
-        [
+        (RichTextListLevelDefinition[])[
             new RichTextListLevelDefinition
             {
                 Marker = new RichTextListMarker.Bullet("-"),
@@ -522,7 +522,7 @@ public sealed class LiveRichTextDocumentTests
         var readback = previous.MergeNativeSnapshot(
             previous.Text,
             previous.Runs,
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(0, new RichTextParagraphFormat
                 {
                     NativeList = new RichTextListFormat
@@ -560,7 +560,7 @@ public sealed class LiveRichTextDocumentTests
         var readback = previous.MergeNativeSnapshot(
             previous.Text,
             previous.Runs,
-            [
+            (RichTextParagraph[])[
                 new RichTextParagraph(0, previous.GetParagraphFormat(0) with
                 {
                     NativeList = previous.GetParagraphFormat(0).NativeList! with
@@ -660,7 +660,7 @@ public sealed class LiveRichTextDocumentTests
         document.Edit(edit => edit.DeleteText(new RichTextRange(4, 10)));
 
         Assert.Equal("one\nfour", document.Text);
-        Assert.Equal([0, 4], document.CurrentSnapshot.Paragraphs.Select(static item => item.Range.Start));
+        Assert.Equal((int[])[0, 4], document.CurrentSnapshot.Paragraphs.Select(static item => item.Range.Start));
         Assert.All(document.CurrentSnapshot.Paragraphs, paragraph =>
             Assert.NotNull(paragraph.Format.List));
         Assert.Single(document.CurrentSnapshot.Lists);

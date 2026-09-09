@@ -5,7 +5,7 @@ namespace RichEdit.Maui;
 /// <summary>
 /// Represents one editor's current selection, typing formats, and selection commands.
 /// </summary>
-public sealed class RichTextSelection : INotifyPropertyChanged
+public sealed partial class RichTextSelection : INotifyPropertyChanged
 {
     private readonly RichEditor _editor;
     private RichTextCharacterFormat[]? _cachedCharacterFormats;

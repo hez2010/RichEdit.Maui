@@ -49,7 +49,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
             foreach (var character in editor.Document.Text.AsSpan(line.Start, editor.SelectedRange.Start - line.Start))
                 column += character == '\t' ? editor.IndentSize - column % editor.IndentSize : 1;
             var indentation = editor.UseTabs ? "\t" : new string(' ', editor.IndentSize - column % editor.IndentSize);
-            ApplyEdits([new(editor.SelectedRange, indentation)], "Indent");
+            ApplyEdits((CodeTextEdit[])[new(editor.SelectedRange, indentation)], "Indent");
             return;
         }
         var (first, last) = GetSelectedLines();
@@ -81,7 +81,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
     public void InsertNewLine()
     {
         if (editor.IsReadOnly) return;
-        ApplyEdits([new(editor.SelectedRange, "\n" + (editor.AutoIndent ? GetIndentation(editor.SelectedRange.Start) : string.Empty))], "New line");
+        ApplyEdits((CodeTextEdit[])[new(editor.SelectedRange, "\n" + (editor.AutoIndent ? GetIndentation(editor.SelectedRange.Start) : string.Empty))], "New line");
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>

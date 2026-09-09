@@ -81,7 +81,7 @@ internal sealed record FieldRequest
 }
 
 // Application toolbar bindings wrap the library's selection operations.
-internal sealed class RichEditorFormattingCommands : IDisposable
+internal sealed partial class RichEditorFormattingCommands : IDisposable
 {
     private readonly RichEditor _editor;
     private readonly Command[] _commands;
