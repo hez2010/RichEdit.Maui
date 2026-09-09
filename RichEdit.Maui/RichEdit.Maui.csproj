@@ -46,7 +46,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.100" />
+        <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.101" />
         <InternalsVisibleTo Include="RichEdit.Maui.Tests" />
     </ItemGroup>
 
