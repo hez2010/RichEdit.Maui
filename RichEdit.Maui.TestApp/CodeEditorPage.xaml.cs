@@ -102,7 +102,7 @@ public sealed partial class CodeEditorPage : ContentPage
     private void UpdateStatus()
     {
         StatusLabel.Text = $"Ln {Editor.CaretPosition.Line}, Col {Editor.CaretPosition.Column}    ·    {Editor.LineCount} lines    ·    {Editor.Folding.CollapsedRanges.Count} folded    ·    C#";
-        CollapseSelectionButton.IsEnabled = !Editor.SelectedRange.IsEmpty;
+        CollapseSelectionButton.IsEnabled = _actions.GetCollapseRange() is not null;
         ExpandAtCaretButton.IsEnabled = _actions.GetFoldAtCaret() is not null;
         ExpandAllButton.IsEnabled = Editor.Folding.CollapsedRanges.Count > 0;
     }

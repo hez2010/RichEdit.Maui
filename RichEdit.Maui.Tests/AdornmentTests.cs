@@ -76,6 +76,20 @@ public class AdornmentTests
     });
 
     [Fact]
+    public Task SampleEllipsisStaysWithHeaderWhenTextIsInsertedAfterFold() => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new CodeEditor { Document = new("aaa\nbbb\nccc\nddd"), SelectedRange = new(4, 7) };
+        using var indicators = new CodeEditorFoldIndicators(editor);
+        new CodeEditorActions(editor).CollapseSelection();
+        var range = Assert.Single(editor.Folding.CollapsedRanges);
+        editor.Document.Edit(edit => edit.InsertText(range.End, "\n"));
+        Assert.Equal(range, Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(range.End, Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.Text).Position);
+        editor.Undo();
+        Assert.Equal(range.End, Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.Text).Position);
+    });
+
+    [Fact]
     public Task AdornmentsSurviveHandlerReattachment() => WithNativeEditor(async (editor, handler) =>
     {
         editor.Document = RichTextDocument.FromPlainText("head\nbody\ntail");

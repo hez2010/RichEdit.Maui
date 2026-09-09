@@ -510,6 +510,69 @@ public class CodeEditorTests
             foreach (var child in Descendants(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
 
+    [Theory]
+    [InlineData(4, 7, true)]
+    [InlineData(4, 8, false)] // Include ccc's newline without folding ddd.
+    [InlineData(5, 4, true)] // Partial endpoint lines still fold as whole lines.
+    public Task SampleFoldingKeepsHeaderEllipsisAndFollowingLine(int start, int length, bool clickEllipsis) => WindowsTestHost.RunAsync(async () =>
+    {
+        const string source = "aaa\nbbb\nccc\nddd";
+        using var fixture = new CodeEditorFixture(source);
+        var editor = fixture.Editor;
+        using var indicators = new CodeEditorFoldIndicators(editor);
+        var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 350));
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
+        try
+        {
+            window.Activate();
+            editor.Document.Edit(edit => edit.InsertText(editor.Document.Length, "!"));
+            editor.Undo();
+            await editor.RefreshHighlightingAsync();
+            await Task.Delay(100);
+            var snapshot = editor.Document.CurrentSnapshot;
+            var before = editor.NativeAdapter!.GetVisibleLines();
+            editor.SelectedRange = new(start, length);
+            new CodeEditorActions(editor).CollapseSelection();
+            await Task.Delay(100);
+
+            Assert.Equal(new RichTextRange(7, 4), Assert.Single(editor.Folding.CollapsedRanges));
+            Assert.Equal(source, editor.Document.Text);
+            Assert.Same(snapshot, editor.Document.CurrentSnapshot);
+            Assert.True(editor.CanRedo);
+            var visible = editor.NativeAdapter.GetVisibleLines();
+            Assert.Equal(new[] { 1, 2, 4 }, visible.Select(line => line.Number));
+            var header = visible.Single(line => line.Number == 2);
+            Assert.Equal(before.Single(line => line.Number == 2).Top, header.Top);
+            Assert.Equal(before.Single(line => line.Number == 3).Top, visible.Single(line => line.Number == 4).Top);
+
+            var suffix = Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.Text);
+            var ellipsis = Assert.IsType<Microsoft.Maui.Controls.Button>(suffix.View);
+            Assert.Equal("…", ellipsis.Text);
+            var gutter = Assert.IsType<Microsoft.Maui.Controls.HorizontalStackLayout>(
+                Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.LeftMargin).View);
+            Assert.InRange(Math.Abs(ellipsis.Bounds.Center.Y - header.Top - header.Height / 2), 0, 1);
+            Assert.InRange(Math.Abs(gutter.Bounds.Center.Y - header.Top - header.Height / 2), 0, 1);
+
+            var nativeEllipsis = (Microsoft.UI.Xaml.FrameworkElement)ellipsis.Handler!.PlatformView!;
+            var origin = nativeEllipsis.TransformToVisual(fixture.Handler.PlatformView).TransformPoint(new(0, 0));
+            Assert.InRange(Math.Abs(origin.Y - ellipsis.Bounds.Y), 0, 1);
+            Assert.True(origin.X > gutter.Bounds.Right, "The ellipsis follows the header in the text area.");
+
+            var button = clickEllipsis ? ellipsis : (Microsoft.Maui.Controls.Button)gutter[0];
+            var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer((Microsoft.UI.Xaml.Controls.Button)button.Handler!.PlatformView!);
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            await Task.Delay(100);
+            Assert.Empty(editor.Folding.CollapsedRanges);
+            Assert.Empty(editor.Adornments);
+            Assert.Equal(new[] { 1, 2, 3, 4 }, editor.NativeAdapter.GetVisibleLines().Select(line => line.Number));
+            Assert.Same(snapshot, editor.Document.CurrentSnapshot);
+            editor.Redo();
+            Assert.Equal(source + "!", editor.Document.Text);
+        }
+        finally { window.Content = null; }
+    });
+
     [Fact]
     public Task RegistrationCreatesTheCompleteControlAndWrappedGutter() => WindowsTestHost.RunAsync(async () =>
     {

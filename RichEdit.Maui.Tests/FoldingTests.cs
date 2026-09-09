@@ -26,9 +26,10 @@ public class FoldingTests
         var editor = new CodeEditor { Document = new("head\none\ntwo\ntail"), SelectedRange = new(5, 8) };
         var actions = new CodeEditorActions(editor);
         actions.CollapseSelection();
-        Assert.Equal(new RichTextRange(5, 8), Assert.Single(editor.Folding.CollapsedRanges));
-        Assert.Equal(new RichTextRange(5, 0), editor.SelectedRange);
-        Assert.Equal(new RichTextRange(5, 8), actions.GetFoldAtCaret());
+        Assert.Equal(new RichTextRange(8, 4), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new RichTextRange(8, 0), editor.SelectedRange);
+        editor.SelectedRange = new(5, 0); // The entire visible header can be used with Expand at caret.
+        Assert.Equal(new RichTextRange(8, 4), actions.GetFoldAtCaret());
         actions.ExpandAtCaret();
         Assert.Empty(editor.Folding.CollapsedRanges);
         Assert.Equal("head\none\ntwo\ntail", editor.Document.Text);
@@ -55,6 +56,21 @@ public class FoldingTests
         Assert.Null(editor.Folding.GetCollapsedRange(inner.End));
         editor.Folding.ExpandAll();
         Assert.Empty(editor.Folding.CollapsedRanges);
+    });
+
+    [Theory]
+    [InlineData(4, 0)]
+    [InlineData(4, 2)]
+    [InlineData(4, 4)] // A selection ending at the next line's start still selects only one line.
+    public Task SampleLeavesSingleLineSelectionsVisible(int start, int length) => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new CodeEditor { Document = new("aaa\nbbb\nccc\nddd"), SelectedRange = new(start, length) };
+        var actions = new CodeEditorActions(editor);
+        Assert.Null(actions.GetCollapseRange());
+        actions.CollapseSelection();
+        Assert.Empty(editor.Folding.CollapsedRanges);
+        Assert.Equal(new RichTextRange(start, length), editor.SelectedRange);
+        Assert.False(editor.CanUndo);
     });
 
     [Fact]

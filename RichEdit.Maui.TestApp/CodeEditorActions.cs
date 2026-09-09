@@ -12,14 +12,23 @@ internal sealed class CodeEditorActions(CodeEditor editor)
 {
     public void CollapseSelection()
     {
-        var range = editor.SelectedRange;
-        if (range.IsEmpty) return;
+        if (GetCollapseRange() is not { } range) return;
         editor.Folding.Collapse(range);
         editor.SelectedRange = new(range.Start, 0);
     }
 
+    public RichTextRange? GetCollapseRange()
+    {
+        if (editor.SelectedRange.IsEmpty) return null;
+        var (first, last) = GetSelectedLines();
+        if (first == last) return null;
+        // Keep the first line as the fold header and the final newline as its line break.
+        var start = editor.GetLineRange(first).End;
+        return new RichTextRange(start, editor.GetLineRange(last).End - start);
+    }
+
     public RichTextRange? GetFoldAtCaret() => editor.Folding.CollapsedRanges
-        .Where(range => range.Start <= editor.SelectionState.Active && editor.SelectionState.Active <= range.End)
+        .Where(range => editor.GetLineRange(editor.GetPosition(range.Start).Line).Start <= editor.SelectionState.Active && editor.SelectionState.Active <= range.End)
         .OrderByDescending(static range => range.Length)
         .Select(static range => (RichTextRange?)range)
         .FirstOrDefault();

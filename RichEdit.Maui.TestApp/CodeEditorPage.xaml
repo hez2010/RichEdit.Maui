@@ -68,7 +68,7 @@
                     <Button x:Name="ExpandAllButton" Text="Expand all" Clicked="OnExpandAllClicked" />
                 </HorizontalStackLayout>
             </ScrollView>
-            <Label Text="Select code to collapse it. Click the ▸ indicator beside a folded range to expand it."
+            <Label Text="Select multiple lines to collapse, keeping the first line visible. Click ▸ or … to expand."
                    FontSize="12" />
         </VerticalStackLayout>
 
