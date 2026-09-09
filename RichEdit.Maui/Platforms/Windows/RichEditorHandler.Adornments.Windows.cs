@@ -53,6 +53,8 @@ public partial class RichEditorHandler
         var padding = _adornmentView.Padding;
         _adornmentView.Padding = new(padding.Left + width - _appliedAdornmentMargin, padding.Top, padding.Right, padding.Bottom);
         _appliedAdornmentMargin = width;
+        // The queued adornment pass needs the text surface's new origin, not its pre-padding layout.
+        _adornmentView.UpdateLayout();
     }
 
     private partial Rect GetAdornmentViewport() => new(0, 0, _adornmentView.ActualWidth, _adornmentView.ActualHeight);

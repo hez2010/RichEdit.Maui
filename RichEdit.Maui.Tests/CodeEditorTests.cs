@@ -518,6 +518,7 @@ public partial class CodeEditorTests
     [InlineData(5, 4, true)] // Partial endpoint lines still fold as whole lines.
     [WinRT.DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
     [WinRT.DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.Controls.Button))]
+    [WinRT.DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.UIElement))]
     public Task SampleFoldingKeepsHeaderEllipsisAndFollowingLine(int start, int length, bool clickEllipsis) => WindowsTestHost.RunAsync(async () =>
     {
         const string source = "aaa\nbbb\nccc\nddd";
@@ -561,7 +562,13 @@ public partial class CodeEditorTests
             var nativeEllipsis = (Microsoft.UI.Xaml.FrameworkElement)ellipsis.Handler!.PlatformView!;
             var origin = nativeEllipsis.TransformToVisual(fixture.Handler.PlatformView).TransformPoint(new(0, 0));
             Assert.InRange(Math.Abs(origin.Y - ellipsis.Bounds.Y), 0, 1);
-            Assert.True(origin.X > gutter.Bounds.Right, "The ellipsis follows the header in the text area.");
+            var scroller = Descendants(fixture.Handler.PlatformView).OfType<Microsoft.UI.Xaml.Controls.ScrollViewer>().First();
+            var textOrigin = ((Microsoft.UI.Xaml.UIElement)scroller.Content).TransformToVisual(fixture.Handler.PlatformView).TransformPoint(new(0, 0));
+            fixture.Handler.PlatformView.Document.GetRange(suffix.Position, suffix.Position).GetRect(
+                PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var caret, out _);
+            var expectedX = textOrigin.X + caret.X + suffix.Offset.X;
+            Assert.True(Math.Abs(origin.X - expectedX) <= 1,
+                $"Ellipsis must use its offset before scrolling: actual={origin.X}, expected={expectedX}, text origin={textOrigin.X}, caret={caret.X}.");
 
             var button = clickEllipsis ? ellipsis : (Microsoft.Maui.Controls.Button)gutter[0];
             var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer((Microsoft.UI.Xaml.Controls.Button)button.Handler!.PlatformView!);
