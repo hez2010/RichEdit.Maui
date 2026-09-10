@@ -7,6 +7,12 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial void OffsetAdornmentScroll(double verticalDelta)
+    {
+        var inset = PlatformView.AdjustedContentInset;
+        var maximum = Math.Max(-inset.Top, PlatformView.ContentSize.Height - PlatformView.Bounds.Height + inset.Bottom);
+        PlatformView.SetContentOffset(new(PlatformView.ContentOffset.X, Math.Clamp(PlatformView.ContentOffset.Y + verticalDelta, -inset.Top, maximum)), false);
+    }
     private RichEdit.Maui.Platforms.Apple.RichTextView _adornmentView = null!;
     private IDisposable? _adornmentScrollObservation;
     private IDisposable? _adornmentBoundsObservation;
@@ -57,9 +63,10 @@ public partial class RichEditorHandler
 
     private partial Rect? GetAdornmentAnchor(int position)
     {
-        using var nativePosition = _adornmentView.GetPosition(_adornmentView.BeginningOfDocument, position);
+        using var nativePosition = _adornmentView.GetDisplayPosition(_adornmentView.BeginningOfDocument, position);
         if (nativePosition is null) return null;
-        var rect = _adornmentView.GetCaretRectForPosition(nativePosition);
+        NativeGeometryQueryCount++;
+        var rect = _adornmentView.GetDisplayCaret(nativePosition);
         return new(rect.X - _adornmentView.ContentOffset.X, rect.Y - _adornmentView.ContentOffset.Y, rect.Width, rect.Height);
     }
 }

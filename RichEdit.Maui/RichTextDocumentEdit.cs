@@ -61,7 +61,9 @@ public sealed class RichTextDocumentEdit
         range.Validate(Snapshot.Text.Length, nameof(range));
         var before = Snapshot;
         Snapshot = Snapshot.Replace(range.ToRange(), text, format);
-        _changes.AddRange(RichTextDocument.CreateDelta(before, Snapshot));
+        if (before.Text != Snapshot.Text)
+            _changes.Add(new RichTextTextChange(range, RichTextDocumentSnapshot.NormalizeText(text)));
+        _changes.AddRange(RichTextDocument.CreateDelta(before, Snapshot).Where(static change => change.Kind != RichTextChangeKind.Text));
     }
 
     /// <summary>Replaces a range with an immutable rich document fragment.</summary>

@@ -39,7 +39,7 @@ internal sealed partial class CodeEditorFoldIndicators : IDisposable
             var hidden = _editor.Folding.GetCollapsedRange(range.Start)!.Value;
             // Line folds leave an empty tail after the visible header, where an overlay cannot cover code.
             if (IsLineEnd(range.Start) && IsLineEnd(hidden.End))
-                _indicators.Add(_editor.Adornments.Add(hidden.End, CreateExpandButton(range, "…"), offset: new Point(6, 0)));
+                _indicators.Add(_editor.Adornments.Add(hidden.End, CreateExpandButton(range, "…"), options: new() { Offset = new Point(6, 0) }));
             // With the sample's unwrapped code, intervals separated by no visible newline share a row.
             if (rows.Count > 0 && !_editor.Document.Text.AsSpan(coveredEnd, range.Start - coveredEnd).Contains('\n'))
             {
@@ -56,7 +56,7 @@ internal sealed partial class CodeEditorFoldIndicators : IDisposable
             var buttons = new HorizontalStackLayout { Spacing = 2 };
             foreach (var range in row.Ranges)
                 buttons.Add(CreateExpandButton(range, "▸"));
-            _indicators.Add(_editor.Adornments.Add(row.Position, buttons, RichTextAdornmentPlacement.LeftMargin));
+            _indicators.Add(_editor.Adornments.Add(row.Position, buttons, new() { Placement = RichTextAdornmentPlacement.LeftMargin }));
         }
     }
 

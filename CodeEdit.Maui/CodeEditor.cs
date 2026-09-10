@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using CodeEdit.Lsp;
 using RichEdit.Maui;
 
 namespace CodeEdit.Maui;
@@ -33,7 +32,7 @@ public sealed partial class CodeEditor : ContentView
             }
             catch { editor._document = previous; throw; }
         },
-        propertyChanged: static (view, _, value) => ((CodeEditor)view).SetDocument((CodeDocument)value));
+        propertyChanged: static (view, old, value) => ((CodeEditor)view).SetDocument(old as CodeDocument, (CodeDocument)value));
     /// <summary>Identifies the directional <see cref="SelectionState"/>.</summary>
     public static readonly BindableProperty SelectionStateProperty = BindableProperty.Create(
         nameof(SelectionState), typeof(RichTextSelectionState), typeof(CodeEditor), default(RichTextSelectionState), BindingMode.TwoWay,
@@ -66,11 +65,6 @@ public sealed partial class CodeEditor : ContentView
             var editor = (CodeEditor)view;
             if (!editor._synchronizingSelection) editor.TextView.SelectedRange = (RichTextRange)value;
         });
-    /// <summary>Identifies <see cref="Theme"/>.</summary>
-    public static readonly BindableProperty ThemeProperty = BindableProperty.Create(
-        nameof(Theme), typeof(CodeEditorTheme), typeof(CodeEditor), null,
-        coerceValue: static (view, value) => { ((CodeEditor)view).VerifyAccess(); return value; },
-        propertyChanged: static (view, _, _) => ((CodeEditor)view).RefreshTheme());
     /// <summary>Identifies <see cref="TextColor"/>.</summary>
     public static readonly BindableProperty TextColorProperty = BindableProperty.Create(
         nameof(TextColor), typeof(Color), typeof(CodeEditor), null,
@@ -146,14 +140,9 @@ public sealed partial class CodeEditor : ContentView
 #endif
 
     private readonly GraphicsView _gutter;
-    private CancellationTokenSource? _highlightCancellation;
-    private bool _themeRefreshQueued;
     private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
     private bool _synchronizingSelection;
     private CodeDocument _document = new();
-    private readonly RichTextDecorationLayer _syntaxLayer;
-    private Microsoft.Maui.Dispatching.IDispatcherTimer? _compositionTimer;
-    private IReadOnlyList<SemanticToken> _tokens = Array.Empty<SemanticToken>();
     internal RichEditor TextView { get; }
     internal CodeEditorNativeAdapter? NativeAdapter { get; private set; }
     internal CodeLineMap Lines { get; private set; } = new(string.Empty);
@@ -169,7 +158,6 @@ public sealed partial class CodeEditor : ContentView
             Document = _document.Source,
         };
         Selection = new CodeTextSelection(TextView.Selection);
-        _syntaxLayer = TextView.Decorations.CreateLayer();
         TextView.Folding.Changed += (_, _) => InvalidateGutter();
         Commands = new CodeEditorCommands(this);
         _gutter = new GraphicsView { Drawable = new LineNumberDrawable(this), InputTransparent = true };
@@ -179,6 +167,7 @@ public sealed partial class CodeEditor : ContentView
         grid.Add(_gutter);
         grid.Add(TextView, 1);
         Content = grid;
+        InitializeObservation();
         TextView.ContentChanged += OnContentChanged;
         TextView.KeyDown += (_, args) => KeyDown?.Invoke(this, args);
         InitializeKeyBindings();
@@ -208,9 +197,6 @@ public sealed partial class CodeEditor : ContentView
         };
         TextView.HandlerChanging += (_, _) =>
         {
-            CancelHighlighting();
-            ResetLanguageDocument();
-            _compositionTimer?.Stop();
             NativeAdapter?.Dispose();
             NativeAdapter = null;
         };
@@ -219,7 +205,6 @@ public sealed partial class CodeEditor : ContentView
             if (TextView.Handler is RichEditorHandler handler)
             {
                 NativeAdapter = new CodeEditorNativeAdapter(this, handler);
-                ScheduleHighlighting();
             }
         };
         TextView.Pasting += (_, args) =>
@@ -244,7 +229,7 @@ public sealed partial class CodeEditor : ContentView
     public RichTextSelectionState SelectionState { get => TextView.SelectionState; set => TextView.SelectionState = value; }
     /// <summary>Gets the source-only live selection facade.</summary>
     public CodeTextSelection Selection { get; }
-    /// <summary>Gets presentation layers. Application layers compose above syntax coloring.</summary>
+    /// <summary>Gets independently owned presentation layers in creation order.</summary>
     public RichTextDecorations Decorations => TextView.Decorations;
 
     /// <summary>Gets explicit source-range folding. The application owns discovery, UI, and expansion policy.</summary>
@@ -252,8 +237,6 @@ public sealed partial class CodeEditor : ContentView
 
     /// <summary>Gets source-anchored views whose content and actions are supplied by the application.</summary>
     public RichTextAdornments Adornments => TextView.Adornments;
-    /// <summary>Gets or sets the token-to-color callback, or null to leave tokens uncolored.</summary>
-    public CodeEditorTheme? Theme { get => (CodeEditorTheme?)GetValue(ThemeProperty); set => SetValue(ThemeProperty, value); }
     /// <summary>Gets or sets the normal text and line-number color, or null for the native default.</summary>
     public Color? TextColor { get => (Color?)GetValue(TextColorProperty); set => SetValue(TextColorProperty, value); }
     /// <summary>Gets or sets the monospaced font family.</summary>
@@ -282,8 +265,6 @@ public sealed partial class CodeEditor : ContentView
     public int LineCount => Lines.Count;
     /// <summary>Gets the one-based position of the active selection endpoint.</summary>
     public CodePosition CaretPosition => Lines.GetPosition(Math.Min(SelectionState.Active, Lines.Text.Length));
-    /// <summary>Gets the last successfully rendered LSP semantic tokens.</summary>
-    public IReadOnlyList<SemanticToken> Tokens => _tokens;
     /// <summary>Gets whether an undo unit is available.</summary>
     public bool CanUndo => TextView.CanUndo;
     /// <summary>Gets whether a redo unit is available.</summary>
@@ -301,6 +282,8 @@ public sealed partial class CodeEditor : ContentView
 
     /// <summary>Occurs after an atomic source-document change.</summary>
     public event EventHandler<RichTextContentChangedEventArgs>? ContentChanged;
+    /// <summary>Occurs after a replacement source document is attached and view state is synchronized.</summary>
+    public event EventHandler<CodeDocumentReplacedEventArgs>? DocumentChanged;
     /// <summary>Occurs after logical source text changes.</summary>
     public event EventHandler<RichTextTextChangedEventArgs>? TextChanged;
     /// <summary>Occurs after the caret or selection changes.</summary>
@@ -332,112 +315,14 @@ public sealed partial class CodeEditor : ContentView
     /// <returns>The clipboard operation.</returns>
     public Task PasteAsync() => TextView.PasteAsync();
 
-    /// <summary>Requests LSP semantic tokens for the current source and updates native syntax colors.</summary>
-    /// <param name="cancellationToken">Cancellation for this refresh.</param>
-    /// <returns>A task completing after classification and presentation. Call on the UI thread.</returns>
-    public Task RefreshHighlightingAsync(CancellationToken cancellationToken = default) => HighlightAsync(TimeSpan.Zero, cancellationToken);
-
-    private async Task HighlightAsync(TimeSpan delay, CancellationToken cancellationToken)
+    private void SetDocument(CodeDocument? previous, CodeDocument document)
     {
-        VerifyAccess();
-        CancelHighlighting();
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _highlightCancellation = cancellation;
-        var token = cancellation.Token;
-        var document = Document;
-        var version = document.Version;
-        try
-        {
-            if (delay > TimeSpan.Zero) await Task.Delay(delay, token);
-            var languageDocument = await GetLanguageDocumentAsync(token);
-            var tokens = languageDocument is null ? Array.Empty<SemanticToken>() : await languageDocument.GetSemanticTokensAsync(token);
-            // Always leave a possible document notification before applying formatting.
-            await Task.Yield();
-            if (token.IsCancellationRequested || !ReferenceEquals(Document, document) || document.Version != version) return;
-            if (!ApplyTheme(tokens, document, version, token)) return;
-            if (token.IsCancellationRequested || !ReferenceEquals(Document, document)) return;
-            _tokens = tokens;
-            OnPropertyChanged(nameof(Tokens));
-            InvalidateGutter();
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested && !cancellationToken.IsCancellationRequested) { }
-        finally
-        {
-            if (ReferenceEquals(_highlightCancellation, cancellation)) _highlightCancellation = null;
-        }
-    }
-
-    internal void CancelHighlighting() => _highlightCancellation?.Cancel();
-
-    private void RefreshTheme()
-    {
-        if (NativeAdapter is null || _themeRefreshQueued) return;
-        _themeRefreshQueued = true;
-        if (!Dispatcher.Dispatch(() =>
-        {
-            _themeRefreshQueued = false;
-            try { ApplyTheme(_tokens, Document, Document.Version); }
-            catch (Exception exception) { LanguageServerFailed?.Invoke(this, new(exception)); }
-        })) _themeRefreshQueued = false;
-    }
-
-    private bool ApplyTheme(IReadOnlyList<SemanticToken> tokens, CodeDocument document, long version, CancellationToken cancellationToken = default)
-    {
-        if (NativeAdapter?.IsComposing == true) { WaitForComposition(); return false; }
-        var theme = Theme;
-        var decorations = new List<RichTextDecoration>();
-        if (theme is not null)
-        {
-            foreach (var token in tokens)
-            {
-                var color = theme(token);
-                if (cancellationToken.IsCancellationRequested || !ReferenceEquals(Document, document) || document.Version != version || !ReferenceEquals(Theme, theme)) return false;
-                if (color is not null) decorations.Add(new(new(token.Start, token.Length), new() { ForegroundColor = color }));
-            }
-        }
-        _syntaxLayer.Set(decorations);
-        return true;
-    }
-
-    internal async void ScheduleHighlighting()
-    {
-        CancelHighlighting();
-        _compositionTimer?.Stop();
-        _tokens = Array.Empty<SemanticToken>();
-        OnPropertyChanged(nameof(Tokens));
-        if (NativeAdapter is null) return;
-        if (NativeAdapter.IsComposing) { WaitForComposition(); return; }
-        try { await HighlightAsync(TimeSpan.FromMilliseconds(120), CancellationToken.None); }
-        catch (Exception exception) { LanguageServerFailed?.Invoke(this, new CodeLanguageServerFailedEventArgs(exception)); }
-    }
-
-    private void WaitForComposition()
-    {
-        if (_compositionTimer is null)
-        {
-            _compositionTimer = Dispatcher.CreateTimer();
-            _compositionTimer.Interval = TimeSpan.FromMilliseconds(100);
-            _compositionTimer.Tick += (_, _) =>
-            {
-                if (NativeAdapter?.IsComposing != true)
-                {
-                    _compositionTimer.Stop();
-                    ScheduleHighlighting();
-                }
-            };
-        }
-        _compositionTimer.Start();
-    }
-
-    private void SetDocument(CodeDocument document)
-    {
-        ResetLanguageDocument();
         _document = document;
         TextView.Document = document.Source;
         NativeAdapter?.UpdateConfiguration();
         SynchronizeSelectionProperties();
         UpdateLines();
-        ScheduleHighlighting();
+        if (!ReferenceEquals(previous, document)) DocumentChanged?.Invoke(this, new(previous, document));
     }
 
     private void SynchronizeSelectionProperties()
@@ -461,8 +346,6 @@ public sealed partial class CodeEditor : ContentView
     {
         NativeAdapter?.UpdateConfiguration();
         UpdateLines();
-        SynchronizeLanguageDocument();
-        ScheduleHighlighting();
         if (args.ChangeSet.Origin == RichTextChangeOrigin.User) QueueNativeAutoIndent(args.ChangeSet);
         ContentChanged?.Invoke(this, args);
         if (args.ChangeSet.IsTextChanged) TextChanged?.Invoke(this, new RichTextTextChangedEventArgs(args.ChangeSet));
@@ -520,7 +403,7 @@ public sealed partial class CodeEditor : ContentView
             canvas.FontSize = (float)owner.FontSize;
             if (owner.NativeAdapter is not { } handler) return;
             if ((owner.TextColor ?? owner.TextView.TextColor ?? handler.GetTextColor()) is { } color) canvas.FontColor = color;
-            foreach (var line in handler.GetVisibleLines())
+            foreach (var line in owner.GetVisibleLines())
             {
                 canvas.Font = new Microsoft.Maui.Graphics.Font(owner.FontFamily, line.Number == owner.CaretPosition.Line ? 700 : 400);
                 canvas.DrawString(line.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), 0, line.Top,

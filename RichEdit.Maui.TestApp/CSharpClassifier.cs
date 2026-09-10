@@ -1,14 +1,14 @@
 using System.Collections.Frozen;
 using RichEdit.Maui;
 
-namespace RichEdit.Maui.Tests;
+namespace RichEdit.Maui.TestApp;
 
 /// <summary>A dependency-free lexical C# highlighter, including comments and verbatim/raw strings.</summary>
 /// <remarks>
 /// This is lexical coloring, not compiler classification. Contextual keywords are colored
 /// wherever they occur. Interpolation expressions are not parsed or classified separately.
 /// </remarks>
-internal sealed class TestCSharpClassifier
+internal sealed class CSharpClassifier
 {
     private static readonly FrozenSet<string> Keywords = (
         "abstract as base bool break byte case catch char checked class const continue decimal default delegate " +

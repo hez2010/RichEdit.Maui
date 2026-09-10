@@ -23,6 +23,25 @@ public sealed class NativeSelectionChangedEventArgs(int start, int end) : EventA
 /// </summary>
 public partial class RichEditText : AppCompatEditText
 {
+    /// <inheritdoc />
+    protected override void OnMeasure(int widthMeasureSpec, int heightMeasureSpec)
+    {
+        // A fill-aligned editor uses the bounded viewport width. Measuring its entire
+        // text for an intrinsic width first would then rebuild layout at the fill width.
+        if (MeasureSpec.GetMode(widthMeasureSpec) == MeasureSpecMode.AtMost &&
+            ProjectionHandler?.VirtualView.HorizontalOptions.Alignment == LayoutAlignment.Fill)
+            widthMeasureSpec = MeasureSpec.MakeMeasureSpec(MeasureSpec.GetSize(widthMeasureSpec), MeasureSpecMode.Exactly);
+        base.OnMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    /// <inheritdoc />
+    public override bool OnPreDraw()
+    {
+        var result = base.OnPreDraw();
+        ProjectionHandler?.OnNativeLayoutCompleted();
+        return result;
+    }
+
     private float _pointerDownX;
     private float _pointerDownY;
 
@@ -46,6 +65,7 @@ public partial class RichEditText : AppCompatEditText
     /// <param name="context">The Android context.</param>
     public RichEditText(Context context) : base(context)
     {
+        SetEditableFactory(new SourceEditableFactory(this));
     }
 
     /// <summary>Initializes a managed wrapper for an existing Java peer.</summary>
@@ -109,7 +129,18 @@ public partial class RichEditText : AppCompatEditText
             return true;
         }
 
-        return base.OnKeyDown(keyCode, e);
+        if (e is not null) ProjectionHandler?.PrepareNativeSourceKey(GetEditorKey(keyCode, e), GetEditorModifiers(e));
+        var handled = base.OnKeyDown(keyCode, e);
+        if (ProjectionHandler is { } projection && keyCode is Keycode.DpadUp or Keycode.DpadDown)
+        {
+            while (projection.IsDisplayReservationLine(SelectionEnd))
+            {
+                var before = SelectionEnd;
+                handled |= base.OnKeyDown(keyCode, e);
+                if (before == SelectionEnd) break;
+            }
+        }
+        return handled;
     }
 
     private static async void ExecuteClipboardCommand(Func<Task> command) => await RichEditorCommands.ExecuteAsync(command);
@@ -166,6 +197,8 @@ public partial class RichEditText : AppCompatEditText
             _pointerDownY = e.GetY();
         }
 
+        PointerObserved?.Invoke(e);
+        if (ObserveSourceDrag(e)) return true;
         var handled = base.OnTouchEvent(e);
         if (e.ActionMasked != MotionEventActions.Up)
         {

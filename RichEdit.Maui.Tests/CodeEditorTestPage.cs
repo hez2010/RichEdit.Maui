@@ -9,7 +9,6 @@ namespace RichEdit.Maui.Tests;
 internal sealed partial class CodeEditorTestPage : ContentPage
 {
     private readonly CodeEditor _editor = new() { Document = CodeDocument.FromPlainText(new string('x', 300) + "\nlast"), TextColor = Colors.Black, BackgroundColor = Colors.White };
-    private readonly TestLanguageServer _languageServer = new();
     private readonly Entry _focusTarget = new() { Placeholder = "Focus target" };
     private readonly RichEditor _textView;
     private readonly CodeEditorActions _actions;
@@ -32,7 +31,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         };
     }
 
-    private Color TokenColor(string type) => _editor.Theme!(new(0, 1, type, []))!;
+    private Color TokenColor(string type) => _editor.Coloring().Palette!(new(new(0, 1), Enum.Parse<CodeTokenKind>(type == "macro" ? "Preprocessor" : type, true)))!;
 
     private async Task RunAsync(string? filter)
     {
@@ -58,21 +57,21 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 _editor.AutoIndent = true;
                 _editor.WordWrap = false;
                 _editor.ShowLineNumbers = true;
-                _editor.Theme = static token => token.Type switch
+                _editor.Coloring().Palette = static token => token.Kind switch
                 {
-                    "keyword" => Colors.Blue,
-                    "string" => Colors.Maroon,
-                    "comment" => Colors.Green,
-                    "number" => Colors.DarkCyan,
-                    "macro" => Colors.Purple,
+                    CodeTokenKind.Keyword => Colors.Blue,
+                    CodeTokenKind.String => Colors.Maroon,
+                    CodeTokenKind.Comment => Colors.Green,
+                    CodeTokenKind.Number => Colors.DarkCyan,
+                    CodeTokenKind.Preprocessor => Colors.Purple,
                     _ => null,
                 };
-                _editor.LanguageServer = _languageServer.Client;
+                _editor.Coloring().Enabled = true;
                 if (replaceDocument) _editor.Document = CodeDocument.FromPlainText(source);
                 _editor.SelectedRange = RichTextRange.Empty;
                 _editor.Focus();
                 await Task.Delay(60);
-                await _editor.RefreshHighlightingAsync();
+                await _editor.Coloring().RefreshAsync();
                 await action();
                 await EditorContractTests.Verify(_textView);
                 results[index] = $"PASS {name}";
@@ -94,8 +93,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             var rtf = _textView.Document.RtfText;
             _editor.Document.MarkSaved();
             _editor.SelectionState = new RichTextSelectionState(8, 1);
-            _editor.Theme = static _ => Colors.Purple;
-            await _editor.RefreshHighlightingAsync();
+            _editor.Coloring().Palette = static _ => Colors.Purple;
+            await _editor.Coloring().RefreshAsync();
             Equal(before.Version, _editor.Document.Version);
             Equal(rtf, _textView.Document.RtfText);
             Equal(false, _editor.Document.IsModified);
@@ -103,7 +102,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(new CodePosition(1, 2), _editor.CaretPosition);
             ColorAt(0, TokenColor("keyword"));
             using var layer = _editor.Decorations.CreateLayer();
-            layer.Set([new(new RichTextRange(0, 5), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            layer.TrySet(_editor.Document.Revision, [new(new RichTextRange(0, 5), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             ColorAt(0, Colors.Green);
             Equal(before.Version, _editor.Document.Version);
             layer.Clear();
@@ -117,7 +116,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.Selection.ReplaceText("9");
             _editor.SelectionState = new RichTextSelectionState(0, 0);
             _editor.Document.Undo();
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             Equal("123456", _editor.Document.Text);
             Equal(new RichTextSelectionState(4, 1), _editor.SelectionState);
             Equal(false, _editor.Document.IsModified);
@@ -161,8 +160,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.Undo();
             var selection = _editor.SelectedRange;
             var document = _editor.Document;
-            _editor.Theme = static _ => Colors.Purple;
-            await _editor.RefreshHighlightingAsync();
+            _editor.Coloring().Palette = static _ => Colors.Purple;
+            await _editor.Coloring().RefreshAsync();
             Equal(true, ReferenceEquals(document, _editor.Document), "document identity");
             Equal(selection, _editor.SelectedRange, "selection after theme");
             Equal(false, _editor.CanUndo, "theme undo");
@@ -176,14 +175,14 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         await Test("native typing is highlighted and remains undoable", "class C { }", async () =>
         {
             EditorContractTests.NativeReplace(_textView, "public ");
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             Equal("public class C { }", _editor.Document.Text);
             ColorAt(0, TokenColor("keyword"));
             ColorAt(6, _editor.TextColor!);
             _editor.Undo();
             Equal("class C { }", _editor.Document.Text);
             Equal(false, _editor.CanUndo, "typing undo units");
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             Equal(true, _editor.CanRedo, "highlighting keeps redo");
             _editor.Redo();
             Equal("public class C { }", _editor.Document.Text);
@@ -259,9 +258,9 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("disabling highlighting restores native default color", "return 42;", async () =>
         {
-            _editor.LanguageServer = null;
-            await _editor.RefreshHighlightingAsync();
-            Equal(0, _editor.Tokens.Count);
+            _editor.Coloring().Enabled = false;
+            await _editor.Coloring().RefreshAsync();
+            Equal(0, _editor.Coloring().Tokens.Count);
             ColorAt(0, _editor.TextColor!);
             ColorAt(7, _editor.TextColor!);
             Equal(false, _editor.CanUndo);
@@ -281,7 +280,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             var old = _editor.Document;
             _editor.Document = CodeDocument.FromPlainText("class New { }");
             old.Edit(edit => edit.InsertText(0, "detached\n"));
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             Equal(1, _editor.LineCount);
             ColorAt(0, TokenColor("keyword"));
         });
@@ -302,12 +301,12 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.IsReadOnly = false;
             _editor.MaxLength = 1000;
             _editor.MaxLength = -1;
-            _editor.Theme = static _ => Colors.Purple;
-            await _editor.RefreshHighlightingAsync();
+            _editor.Coloring().Palette = static _ => Colors.Purple;
+            await _editor.Coloring().RefreshAsync();
             await Task.Delay(30);
             Equal(unwrapped, NativeLineCount(), "wrapping after input and appearance updates");
             EditorContractTests.NativeReplace(_textView, "// ");
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             await Task.Delay(30);
             Equal(unwrapped, NativeLineCount(), "wrapping after typing and highlighting");
         });
@@ -319,7 +318,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 _editor.Selection.ReplaceText("one ");
                 using (_editor.Document.BeginUndoGroup()) _editor.Selection.ReplaceText("two ");
             }
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             Equal("one two start", _editor.Document.Text);
             _editor.Undo();
             Equal("start", _editor.Document.Text);
@@ -330,13 +329,13 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("derived formatting preserves both history directions", "a", async () =>
         {
-            _editor.LanguageServer = null;
+            _editor.Coloring().Enabled = false;
             _editor.Document.Edit(edit => edit.InsertText(1, "b"));
             _editor.Document.Edit(edit => edit.InsertText(2, "c"));
             _editor.Undo();
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             using var layer = _editor.Decorations.CreateLayer();
-            layer.Set([new(new RichTextRange(0, 2), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            layer.TrySet(_editor.Document.Revision, [new(new RichTextRange(0, 2), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             ColorAt(0, Colors.Green);
             Equal(true, _editor.CanUndo);
             Equal(true, _editor.CanRedo);
@@ -357,7 +356,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             using var composing = new Java.Lang.String("int");
             using var committed = new Java.Lang.String("int ");
             connection.SetComposingText(composing, 1);
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             Equal(0, Android.Views.InputMethods.BaseInputConnection.GetComposingSpanStart(native.EditableText!), "composition start");
             Equal(3, Android.Views.InputMethods.BaseInputConnection.GetComposingSpanEnd(native.EditableText!), "composition end");
             connection.CommitText(committed, 1);
@@ -365,7 +364,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 #else
             var native = (UIKit.UITextView)_textView.Handler!.PlatformView!;
             native.SetMarkedText("int", new Foundation.NSRange(3, 0));
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
             Equal(true, native.MarkedTextRange is not null, "marked range");
             native.UnmarkText();
             native.InsertText(" ");
@@ -443,6 +442,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 #endif
 
         await RunInputTests((name, source, action) => Test("input " + name, source, action));
+        await RunFeatureTests((name, source, action) => Test(name, source, action));
 
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         Save();
@@ -483,11 +483,15 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         return ((Android.Widget.EditText)_textView.Handler!.PlatformView!).Layout!.LineCount;
 #else
         var native = (UIKit.UITextView)_textView.Handler!.PlatformView!;
-        // The fixture uses a uniform font. Caret geometry works with both TextKit
-        // versions without accessing LayoutManager and forcing TextKit 1.
-        var first = native.GetCaretRectForPosition(native.BeginningOfDocument);
-        var last = native.GetCaretRectForPosition(native.EndOfDocument);
-        return 1 + (int)Math.Round((last.Y - first.Y) / first.Height);
+        var manager = native.LayoutManager;
+        manager.EnsureLayoutForTextContainer(native.TextContainer);
+        var count = 0;
+        for (nuint glyph = 0; glyph < manager.NumberOfGlyphs; count++)
+        {
+            manager.GetLineFragmentUsedRect(glyph, out var range, true);
+            glyph = (nuint)(range.Location + range.Length);
+        }
+        return count + (native.Text is not { Length: > 0 } text || text.EndsWith('\n') ? 1 : 0);
 #endif
     }
 

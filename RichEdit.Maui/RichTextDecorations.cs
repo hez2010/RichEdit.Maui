@@ -38,20 +38,28 @@ public sealed partial class RichTextDecorationLayer : IDisposable
     private RichTextDecorations? _owner;
     internal ImmutableArray<RichTextDecoration> Items { get; set; } = [];
     internal ImmutableArray<RichTextDecoration> PendingItems { get; set; }
+    internal ImmutableArray<RichTextDecoration> PaintedItems { get; set; }
+    internal RichTextRevision PendingRevision { get; set; }
     internal bool RemovalPending { get; set; }
     internal RichTextDecorationLayer(RichTextDecorations owner) => _owner = owner;
 
     /// <summary>Replaces the layer atomically with ordered, non-overlapping ranges in the current document.</summary>
+    /// <param name="revision">The source revision used to calculate these decorations.</param>
     /// <param name="decorations">The new decorations. Ranges are validated before any appearance changes.</param>
-    public void Set(IEnumerable<RichTextDecoration> decorations)
+    /// <returns>False when the revision is stale, foreign, or invalid.</returns>
+    public bool TrySet(RichTextRevision revision, IEnumerable<RichTextDecoration> decorations)
     {
         ObjectDisposedException.ThrowIf(_owner is null, this);
         ArgumentNullException.ThrowIfNull(decorations);
-        _owner.Set(this, [.. decorations]);
+        return _owner.TrySet(this, revision, [.. decorations]);
     }
 
     /// <summary>Removes all decorations in this layer.</summary>
-    public void Clear() => Set([]);
+    public void Clear()
+    {
+        ObjectDisposedException.ThrowIf(_owner is null, this);
+        _owner.Set(this, []);
+    }
 
     /// <summary>Removes this layer and restores the remaining presentation.</summary>
     public void Dispose()
@@ -108,18 +116,33 @@ public sealed class RichTextDecorations
         }
         if ((_editor.Handler as IRichEditorHandler)?.IsComposing == true)
         {
+            if (layer.PendingItems.IsDefault) layer.PaintedItems = layer.Items;
+            layer.Items = items;
             layer.PendingItems = items;
+            layer.PendingRevision = _editor.Document.Revision;
+            Invalidate();
+            NotifyChanged();
             QueueRefresh();
             return;
         }
+        var before = ProjectPainted(_editor.Document.CurrentSnapshot);
+        var hadPending = !layer.PendingItems.IsDefault;
         layer.PendingItems = default;
-        if (_dirtyRange is null && layer.Items.AsSpan().SequenceEqual(items.AsSpan())) return;
-        var before = Project(_editor.Document.CurrentSnapshot);
+        layer.PaintedItems = default;
+        if (!hadPending && _dirtyRange is null && layer.Items.AsSpan().SequenceEqual(items.AsSpan())) return;
         layer.Items = items;
         Invalidate();
         _editor.ApplyDecorationChanges(before, Project(_editor.Document.CurrentSnapshot), _dirtyRange);
         _dirtyRange = null;
         NotifyChanged();
+    }
+
+    internal bool TrySet(RichTextDecorationLayer layer, RichTextRevision revision, ImmutableArray<RichTextDecoration> items)
+    {
+        _editor.VerifyAccess();
+        if (revision != _editor.Document.Revision) return false;
+        Set(layer, items);
+        return true;
     }
 
     internal void Remove(RichTextDecorationLayer layer)
@@ -130,26 +153,30 @@ public sealed class RichTextDecorations
         else _layers.Remove(layer);
     }
 
-    internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot)
+    private RichTextDocumentSnapshot ProjectPainted(RichTextDocumentSnapshot snapshot) => Project(snapshot, painted: true);
+
+    internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot, bool painted = false)
     {
+        if (painted && _layers.All(static layer => layer.PendingItems.IsDefault)) painted = false;
         if (ReferenceEquals(snapshot, _projection)) return snapshot;
-        if (ReferenceEquals(snapshot, _projectionSource)) return _projection!;
+        if (!painted && ReferenceEquals(snapshot, _projectionSource)) return _projection!;
         var projected = snapshot;
         foreach (var layer in _layers)
         {
-            if (layer.Items.IsEmpty) continue;
+            var items = painted && !layer.PendingItems.IsDefault ? layer.PaintedItems : layer.Items;
+            if (items.IsEmpty) continue;
             var runs = new List<RichTextRun>();
             var index = 0;
             foreach (var run in projected.Runs)
             {
                 for (var position = run.Start; position < run.End;)
                 {
-                    while (index < layer.Items.Length && layer.Items[index].Range.End <= position) index++;
+                    while (index < items.Length && items[index].Range.End <= position) index++;
                     var end = run.End;
                     var format = run.Format;
-                    if (index < layer.Items.Length)
+                    if (index < items.Length)
                     {
-                        var decoration = layer.Items[index];
+                        var decoration = items[index];
                         if (decoration.Range.Start <= position)
                         {
                             end = Math.Min(end, decoration.Range.End);
@@ -163,6 +190,7 @@ public sealed class RichTextDecorations
             }
             projected = projected.With(runs: runs);
         }
+        if (painted) return projected;
         _projectionSource = snapshot;
         return _projection = projected;
     }
@@ -170,7 +198,7 @@ public sealed class RichTextDecorations
     internal RichTextDocumentSnapshot RestoreAuthoredSnapshot(RichTextDocumentSnapshot observed, RichTextRange replacement)
     {
         var source = _editor.Document.CurrentSnapshot;
-        var projected = Project(source);
+        var projected = ProjectPainted(source);
         if (ReferenceEquals(source, projected)) return observed;
         var authored = source.RemapText(observed.Text, replacement);
         projected = projected.RemapText(observed.Text, replacement);
@@ -197,7 +225,7 @@ public sealed class RichTextDecorations
     {
         var source = _editor.Document.CurrentSnapshot;
         var position = _editor.SelectionState.Active;
-        var projected = Project(source);
+        var projected = ProjectPainted(source);
         if (ReferenceEquals(source, projected)) return observed;
         var original = source.GetCaretFormat(position);
         var display = projected.GetCaretFormat(position);
@@ -236,8 +264,17 @@ public sealed class RichTextDecorations
             }).Where(static item => !item.Range.IsEmpty)];
         foreach (var layer in _layers)
         {
-            layer.Items = Map(layer.Items);
-            if (!layer.PendingItems.IsDefault) layer.PendingItems = Map(layer.PendingItems);
+            if (!layer.PendingItems.IsDefault)
+            {
+                layer.PaintedItems = Map(layer.PaintedItems);
+                if (layer.PendingRevision != _editor.Document.Revision)
+                {
+                    layer.Items = layer.RemovalPending ? [] : layer.PaintedItems;
+                    layer.PendingItems = default;
+                    layer.PaintedItems = default;
+                }
+            }
+            else layer.Items = Map(layer.Items);
         }
         if (changes.SourceToken is not null && ReferenceEquals(changes.SourceToken, (_editor.Handler as IRichEditorHandler)?.SourceToken))
         {
@@ -255,7 +292,7 @@ public sealed class RichTextDecorations
 
     internal void Reset()
     {
-        foreach (var layer in _layers) { layer.Items = []; layer.PendingItems = default; }
+        foreach (var layer in _layers) { layer.Items = []; layer.PendingItems = default; layer.PaintedItems = default; }
         _dirtyRange = null;
         Invalidate();
     }
@@ -276,16 +313,26 @@ public sealed class RichTextDecorations
         {
             _refreshQueued = false;
             if ((_editor.Handler as IRichEditorHandler)?.IsComposing == true) { QueueRefresh(); return; }
+            var before = ProjectPainted(_editor.Document.CurrentSnapshot);
+            var pending = false;
             foreach (var layer in _layers.ToArray())
             {
-                if (!layer.PendingItems.IsDefault) Set(layer, layer.PendingItems);
-                if (layer.RemovalPending) _layers.Remove(layer);
+                if (layer.RemovalPending) { _layers.Remove(layer); pending = true; }
+                else if (!layer.PendingItems.IsDefault)
+                {
+                    if (layer.PendingRevision != _editor.Document.Revision) layer.Items = layer.PaintedItems;
+                    layer.PendingItems = default;
+                    layer.PaintedItems = default;
+                    pending = true;
+                }
             }
-            if (_dirtyRange is not null)
+            if (pending || _dirtyRange is not null)
             {
+                if (pending) Invalidate();
                 var snapshot = Project(_editor.Document.CurrentSnapshot);
-                _editor.ApplyDecorationChanges(snapshot, snapshot, _dirtyRange);
+                _editor.ApplyDecorationChanges(before, snapshot, _dirtyRange);
                 _dirtyRange = null;
+                NotifyChanged();
             }
         })) _refreshQueued = false;
     }

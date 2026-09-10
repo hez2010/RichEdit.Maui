@@ -40,11 +40,11 @@ internal static class CharacterFormattingTests
                 using var second = editor.Decorations.CreateLayer();
                 RichTextDecoration[] lower = [new(new(1, 10), new() { BackgroundColor = Colors.Yellow, Underline = RichTextUnderlineStyle.Double })];
                 RichTextDecoration[] upper = [new(new(4, 10), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Pink })];
-                first.Set(lower);
-                second.Set(upper);
+                first.TrySet(editor.Document.Revision, lower);
+                second.TrySet(editor.Document.Revision, upper);
                 AssertMatchesFullRender(editor, [lower, upper], "overlapping layers");
                 lower = [new(new(2, 8), new() { BackgroundColor = Colors.Blue, Underline = RichTextUnderlineStyle.Wave })];
-                first.Set(lower);
+                first.TrySet(editor.Document.Revision, lower);
                 AssertMatchesFullRender(editor, [lower, upper], "changed layer boundaries");
                 second.Clear();
                 AssertMatchesFullRender(editor, [lower], "upper layer cleared");
@@ -69,11 +69,11 @@ internal static class CharacterFormattingTests
                     new(new(index * line.Length + 7, 2), new() { ForegroundColor = Colors.Blue }),
                 }).ToArray();
                 var timer = Stopwatch.StartNew();
-                layer.Set(items);
+                layer.TrySet(editor.Document.Revision, items);
                 var initial = timer.Elapsed.TotalMilliseconds;
                 var recolored = items.Select(item => item with { Style = new() { ForegroundColor = Colors.Purple } }).ToArray();
                 timer.Restart();
-                layer.Set(recolored);
+                layer.TrySet(editor.Document.Revision, recolored);
                 var recolor = timer.Elapsed.TotalMilliseconds;
                 timer.Restart();
                 layer.Clear();
@@ -99,7 +99,7 @@ internal static class CharacterFormattingTests
         {
             Document = document, FontFamily = editor.FontFamily, FontSize = editor.FontSize, TextColor = editor.TextColor,
         };
-        foreach (var items in layers) reference.Decorations.CreateLayer().Set(items);
+        foreach (var items in layers) reference.Decorations.CreateLayer().TrySet(reference.Document.Revision, items);
         var handler = new RichEditorHandler();
         handler.SetMauiContext(editor.Handler!.MauiContext!);
         reference.Handler = handler;
@@ -119,7 +119,7 @@ internal static class CharacterFormattingTests
         }
     }
 
-    private static object Capture(RichEditor editor, int position)
+    internal static object Capture(RichEditor editor, int position)
     {
 #if ANDROID
         var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;

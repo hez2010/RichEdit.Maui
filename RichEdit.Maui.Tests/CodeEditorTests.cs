@@ -4,7 +4,6 @@ using Microsoft.Maui.Hosting;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Text;
 using CodeEdit.Maui;
-using CodeEdit.Lsp;
 using RichEdit.Maui.TestApp;
 using Clipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
 using DataPackage = Windows.ApplicationModel.DataTransfer.DataPackage;
@@ -17,6 +16,41 @@ public partial class CodeEditorTests
 {
     private static Microsoft.UI.Xaml.Window? _gutterWindow;
     private static MauiApp? _controlTestApp;
+    [Fact]
+    public Task ApplicationCompletionAndTrackedPlaceholdersUsePublicApis() => WindowsTestHost.RunAsync(async () =>
+    {
+        var app = _controlTestApp ??= MauiApp.CreateBuilder().UseMauiApp<CodeTestApplication>().UseCodeEditor().Build();
+        var editor = new CodeEditor { Document = new CodeDocument("Con") };
+        var host = new Microsoft.Maui.Controls.Grid { Children = { editor } };
+        var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
+        window.Content = host.ToPlatform(new MauiContext(app.Services));
+        try
+        {
+            window.Activate();
+            ((IView)host).Measure(660, 350);
+            ((IView)host).Arrange(new(0, 0, 660, 350));
+            using var features = new CodeEditorFeatures(editor, host);
+            editor.SelectedRange = new(3, 0);
+            await features.ShowCompletionsAsync();
+            Assert.True(features.AcceptCompletion(0));
+            Assert.Equal("Console", editor.Document.Text);
+            editor.Undo();
+            Assert.Equal("Con", editor.Document.Text);
+            editor.Document = new CodeDocument();
+            features.InsertSnippet();
+            Assert.Equal("name", editor.Selection.Text);
+            Assert.True(editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(editor.SelectedRange, "answer")]));
+            Assert.True(features.NextPlaceholder());
+            Assert.Equal("value", editor.Selection.Text);
+            Assert.True(features.NextPlaceholder(previous: true));
+            Assert.Equal("answer", editor.Selection.Text);
+            editor.Document = new CodeDocument("replacement");
+            Assert.False(features.NextPlaceholder());
+            await Task.Delay(200);
+        }
+        finally { window.Content = null; editor.Handler?.DisconnectHandler(); editor.TextView.Handler?.DisconnectHandler(); }
+    });
+
     [Fact]
     public Task PlainTextLoadingNormalizesLineEndingsWithoutHistory() => WindowsTestHost.RunAsync(() =>
     {
@@ -189,10 +223,10 @@ public partial class CodeEditorTests
         var textChanges = 0;
         editor.TextChanged += (_, _) => textChanges++;
         var selection = editor.SelectedRange;
-        await editor.RefreshHighlightingAsync();
+        await editor.Coloring().RefreshAsync();
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 0));
-        editor.Theme = static _ => Microsoft.Maui.Graphics.Colors.Purple;
-        await editor.RefreshHighlightingAsync();
+        editor.Coloring().Palette = static _ => Microsoft.Maui.Graphics.Colors.Purple;
+        await editor.Coloring().RefreshAsync();
         Assert.Same(document, editor.Document);
         Assert.Equal(source, editor.Document.Text);
         Assert.Equal(0, textChanges);
@@ -212,17 +246,17 @@ public partial class CodeEditorTests
         editor.TextView.Document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(2, 8),
             format => format with { FontWeight = 700, BackgroundColor = Microsoft.Maui.Graphics.Colors.Yellow }));
         var before = editor.TextView.Document.CurrentSnapshot;
-        await editor.RefreshHighlightingAsync();
+        await editor.Coloring().RefreshAsync();
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 0));
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 3));
         Assert.Equal(editor.TextColor!, NativeColor(fixture, 6));
         Assert.Equal(700, fixture.Handler.PlatformView.Document.GetRange(3, 4).CharacterFormat.Weight);
         Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 255, 0), fixture.Handler.PlatformView.Document.GetRange(3, 4).CharacterFormat.BackgroundColor);
-        editor.Theme = static _ => Microsoft.Maui.Graphics.Colors.Purple;
-        await editor.RefreshHighlightingAsync();
+        editor.Coloring().Palette = static _ => Microsoft.Maui.Graphics.Colors.Purple;
+        await editor.Coloring().RefreshAsync();
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 3));
-        editor.LanguageServer = null;
-        await editor.RefreshHighlightingAsync();
+        editor.Coloring().Enabled = false;
+        await editor.Coloring().RefreshAsync();
         Assert.True(before.ContentEquals(editor.TextView.Document.CurrentSnapshot));
         Assert.Equal(editor.TextColor!, NativeColor(fixture, 3));
     });
@@ -245,10 +279,10 @@ public partial class CodeEditorTests
             editor.ContentChanged += (_, args) => changes.Add(args.ChangeSet);
 
             var timer = System.Diagnostics.Stopwatch.StartNew();
-            await editor.RefreshHighlightingAsync();
-            output.WriteLine($"Initial highlighting: {timer.Elapsed.TotalMilliseconds:F1} ms (2,000 lines, {editor.Tokens.Count} tokens)");
+            await editor.Coloring().RefreshAsync();
+            output.WriteLine($"Initial highlighting: {timer.Elapsed.TotalMilliseconds:F1} ms (2,000 lines, {editor.Coloring().Tokens.Count} tokens)");
             Assert.Equal(2000, editor.LineCount);
-            Assert.Equal(4400, editor.Tokens.Count);
+            Assert.Equal(4400, editor.Coloring().Tokens.Count);
             Assert.Empty(changes);
             Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, source.IndexOf("public", StringComparison.Ordinal)));
             Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, source.LastIndexOf("return", StringComparison.Ordinal)));
@@ -256,13 +290,13 @@ public partial class CodeEditorTests
             Assert.Equal(TokenColor(editor, "comment"), NativeColor(fixture, source.LastIndexOf("//", StringComparison.Ordinal)));
 
             timer.Restart();
-            editor.Theme = static _ => Microsoft.Maui.Graphics.Colors.Purple;
-            await editor.RefreshHighlightingAsync();
+            editor.Coloring().Palette = static _ => Microsoft.Maui.Graphics.Colors.Purple;
+            await editor.Coloring().RefreshAsync();
             output.WriteLine($"Theme change and highlighting: {timer.Elapsed.TotalMilliseconds:F1} ms");
             Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, source.LastIndexOf("return", StringComparison.Ordinal)));
             Assert.Equal(TokenColor(editor, "comment"), NativeColor(fixture, source.LastIndexOf("//", StringComparison.Ordinal)));
             var version = editor.Document.Version;
-            await editor.RefreshHighlightingAsync();
+            await editor.Coloring().RefreshAsync();
             Assert.Equal(version, editor.Document.Version);
             Assert.Equal(source, editor.Document.Text);
             Assert.Equal(selection, editor.SelectedRange);
@@ -278,13 +312,13 @@ public partial class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture(string.Concat(Enumerable.Repeat("class A { }\n", 40)));
         var editor = fixture.Editor;
-        await editor.RefreshHighlightingAsync();
+        await editor.Coloring().RefreshAsync();
         var start = editor.Document.Text.LastIndexOf("class", StringComparison.Ordinal);
         var previousFormat = editor.TextView.Document.CurrentSnapshot.Runs.First(run => run.Range.Start <= start && run.Range.End > start).Format;
         editor.Document.Edit(edit => edit.ReplaceText(new RichTextRange(start, 5), "other"));
         var changes = new List<RichTextChangeSet>();
         editor.ContentChanged += (_, args) => changes.Add(args.ChangeSet);
-        await editor.RefreshHighlightingAsync();
+        await editor.Coloring().RefreshAsync();
         Assert.Empty(changes);
         Assert.Equal(editor.TextColor!, NativeColor(fixture, start));
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 0));
@@ -298,18 +332,18 @@ public partial class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture("class C { }");
         var editor = fixture.Editor;
-        await editor.RefreshHighlightingAsync();
+        await editor.Coloring().RefreshAsync();
         editor.SelectedRange = new RichTextRange(0, 0);
         fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "public ");
         Assert.Equal("public class C { }", editor.Document.Text);
-        await editor.RefreshHighlightingAsync();
+        await editor.Coloring().RefreshAsync();
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 0));
         Assert.All(editor.TextView.Document.CurrentSnapshot.Runs, run => Assert.Null(run.Format.ForegroundColor));
         Assert.Null(editor.TextView.Document.CurrentSnapshot.Runs.First(run => run.Start <= 6 && run.End > 6).Format.ForegroundColor);
         editor.Undo();
         Assert.Equal("class C { }", editor.Document.Text);
         Assert.False(editor.CanUndo);
-        await editor.RefreshHighlightingAsync();
+        await editor.Coloring().RefreshAsync();
         Assert.True(editor.CanRedo);
     });
 
@@ -329,7 +363,7 @@ public partial class CodeEditorTests
         try
         {
             window.Activate();
-            await fixture.Editor.RefreshHighlightingAsync();
+            await fixture.Editor.Coloring().RefreshAsync();
             await Task.Delay(100);
             var version = fixture.Editor.Document.Version;
             for (var i = 0; i < 3; i++)
@@ -352,9 +386,9 @@ public partial class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture(string.Empty);
         fixture.Handler.PlatformView.Document.Selection.TypeText("int");
-        await fixture.Editor.RefreshHighlightingAsync();
+        await fixture.Editor.Coloring().RefreshAsync();
         fixture.Handler.PlatformView.Document.Selection.TypeText(" x");
-        await fixture.Editor.RefreshHighlightingAsync();
+        await fixture.Editor.Coloring().RefreshAsync();
         Assert.Equal("int x", fixture.Editor.Document.Text);
         fixture.Editor.Undo();
         Assert.Empty(fixture.Editor.Document.Text);
@@ -380,10 +414,10 @@ public partial class CodeEditorTests
     public Task DisablingColoringClearsNativeColorsWithoutATextEdit() => WindowsTestHost.RunAsync(async () =>
     {
         using var fixture = new CodeEditorFixture("return 42;");
-        await fixture.Editor.RefreshHighlightingAsync();
-        fixture.Editor.LanguageServer = null;
-        await fixture.Editor.RefreshHighlightingAsync();
-        Assert.Empty(fixture.Editor.Tokens);
+        await fixture.Editor.Coloring().RefreshAsync();
+        fixture.Editor.Coloring().Enabled = false;
+        await fixture.Editor.Coloring().RefreshAsync();
+        Assert.Empty(fixture.Editor.Coloring().Tokens);
         Assert.Equal(fixture.Editor.TextColor!, NativeColor(fixture, 0));
         Assert.False(fixture.Editor.CanUndo);
     });
@@ -391,18 +425,18 @@ public partial class CodeEditorTests
     [Fact]
     public Task StaleClassificationCannotOverwriteANewerDocument() => WindowsTestHost.RunAsync(async () =>
     {
-        var highlighter = new BlockingLanguageServerResponse();
+        var highlighter = new BlockingClassification();
         using var fixture = new CodeEditorFixture("old");
-        fixture.LanguageServer.SemanticTokensHandler = highlighter.GetTokensAsync;
-        var pending = fixture.Editor.RefreshHighlightingAsync();
+        fixture.Editor.Coloring().ClassifyAsync = highlighter.GetTokensAsync;
+        var pending = fixture.Editor.Coloring().RefreshAsync();
         await highlighter.Started.Task;
         fixture.Editor.Document = CodeDocument.FromPlainText("class New {}");
-        fixture.LanguageServer.SemanticTokensHandler = null;
-        await fixture.Editor.RefreshHighlightingAsync();
+        fixture.Editor.Coloring().ClassifyAsync = null;
+        await fixture.Editor.Coloring().RefreshAsync();
         highlighter.Release.TrySetResult();
         await pending;
-        var token = Assert.Single(fixture.Editor.Tokens);
-        Assert.Equal((0, 5), (token.Start, token.Length));
+        var token = Assert.Single(fixture.Editor.Coloring().Tokens);
+        Assert.Equal((0, 5), (token.Range.Start, token.Range.Length));
         Assert.Equal("class New {}", fixture.Editor.Document.Text);
     });
 
@@ -410,8 +444,8 @@ public partial class CodeEditorTests
     public Task InvalidProviderRangesAreRejectedBeforeNativeFormatting() => WindowsTestHost.RunAsync(async () =>
     {
         using var fixture = new CodeEditorFixture("x");
-        fixture.LanguageServer.SemanticTokensHandler = (_, _) => Task.FromResult<SemanticTokens?>(new([0, 0, 1, 100, 0]));
-        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Editor.RefreshHighlightingAsync(TestContext.Current.CancellationToken));
+        fixture.Editor.Coloring().ClassifyAsync = (_, _) => Task.FromResult<IReadOnlyList<CodeToken>>((CodeToken[])[new(new(0, 2), CodeTokenKind.Keyword)]);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => fixture.Editor.Coloring().RefreshAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, fixture.Editor.Document.Version);
         Assert.False(fixture.Editor.CanUndo);
     });
@@ -419,16 +453,16 @@ public partial class CodeEditorTests
     [Fact]
     public Task DisconnectCancelsPendingClassification() => WindowsTestHost.RunAsync(async () =>
     {
-        var highlighter = new BlockingLanguageServerResponse();
+        var highlighter = new BlockingClassification();
         var fixture = new CodeEditorFixture("old");
-        fixture.LanguageServer.SemanticTokensHandler = highlighter.GetTokensAsync;
-        var pending = fixture.Editor.RefreshHighlightingAsync();
+        fixture.Editor.Coloring().ClassifyAsync = highlighter.GetTokensAsync;
+        var pending = fixture.Editor.Coloring().RefreshAsync();
         await highlighter.Started.Task;
         fixture.Dispose();
         highlighter.Release.TrySetResult();
         await pending;
         Assert.Null(fixture.Editor.NativeAdapter);
-        Assert.Empty(fixture.Editor.Tokens);
+        Assert.Empty(fixture.Editor.Coloring().Tokens);
     });
 
     [Fact]
@@ -446,7 +480,7 @@ public partial class CodeEditorTests
             Assert.False(run.Format.Bold);
             Assert.Null(run.Format.ForegroundColor);
         });
-        await fixture.Editor.RefreshHighlightingAsync();
+        await fixture.Editor.Coloring().RefreshAsync();
         fixture.Editor.Undo();
         Assert.Empty(fixture.Editor.Document.Text);
     });
@@ -462,15 +496,15 @@ public partial class CodeEditorTests
         try
         {
             window.Activate();
-            await fixture.Editor.RefreshHighlightingAsync();
+            await fixture.Editor.Coloring().RefreshAsync();
             await Task.Delay(150);
-            var lines = fixture.Editor.NativeAdapter!.GetVisibleLines();
+            var lines = fixture.Editor.GetVisibleLines();
             Assert.NotEmpty(lines);
             Assert.Equal(1, lines[0].Number);
             Assert.True(lines.Zip(lines.Skip(1)).All(pair => pair.First.Top < pair.Second.Top));
             new CodeEditorActions(fixture.Editor).GoToLine(90);
             await Task.Delay(100);
-            lines = fixture.Editor.NativeAdapter!.GetVisibleLines();
+            lines = fixture.Editor.GetVisibleLines();
             Assert.NotEmpty(lines);
             var scrollViewer = Descendants(fixture.Handler.PlatformView).OfType<Microsoft.UI.Xaml.Controls.ScrollViewer>().First();
             Assert.True(lines[0].Number > 1, $"First={lines[0]}, selected={fixture.Editor.SelectedRange}, native={fixture.Handler.PlatformView.Document.Selection.StartPosition}, scroll={scrollViewer.VerticalOffset}, height={fixture.Handler.PlatformView.ActualHeight}, content={scrollViewer.Content?.GetType()}, origin={(scrollViewer.Content as Microsoft.UI.Xaml.UIElement)?.TransformToVisual(fixture.Handler.PlatformView).TransformPoint(new Windows.Foundation.Point(0, 0))}");
@@ -494,13 +528,13 @@ public partial class CodeEditorTests
             window.Activate();
             fixture.Editor.Folding.Collapse(new(0, 5));
             await Task.Delay(80);
-            Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.NativeAdapter!.GetVisibleLines().Select(line => line.Number));
+            Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.GetVisibleLines().Select(line => line.Number));
             fixture.Editor.Folding.SetCollapsedRanges((RichTextRange[])[new(5, 12)]);
             await Task.Delay(80);
-            Assert.Equal(new[] { 1, 3 }, fixture.Editor.NativeAdapter.GetVisibleLines().Select(line => line.Number));
+            Assert.Equal(new[] { 1, 3 }, fixture.Editor.GetVisibleLines().Select(line => line.Number));
             fixture.Editor.Folding.ExpandAll();
             await Task.Delay(80);
-            Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.NativeAdapter.GetVisibleLines().Select(line => line.Number));
+            Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.GetVisibleLines().Select(line => line.Number));
         }
         finally { window.Content = null; }
     });
@@ -533,10 +567,10 @@ public partial class CodeEditorTests
             window.Activate();
             editor.Document.Edit(edit => edit.InsertText(editor.Document.Length, "!"));
             editor.Undo();
-            await editor.RefreshHighlightingAsync();
+            await editor.Coloring().RefreshAsync();
             await Task.Delay(100);
             var snapshot = editor.Document.CurrentSnapshot;
-            var before = editor.NativeAdapter!.GetVisibleLines();
+            var before = editor.GetVisibleLines();
             editor.SelectedRange = new(start, length);
             new CodeEditorActions(editor).CollapseSelection();
             await Task.Delay(100);
@@ -545,17 +579,17 @@ public partial class CodeEditorTests
             Assert.Equal(source, editor.Document.Text);
             Assert.Same(snapshot, editor.Document.CurrentSnapshot);
             Assert.True(editor.CanRedo);
-            var visible = editor.NativeAdapter.GetVisibleLines();
+            var visible = editor.GetVisibleLines();
             Assert.Equal(new[] { 1, 2, 4 }, visible.Select(line => line.Number));
             var header = visible.Single(line => line.Number == 2);
             Assert.Equal(before.Single(line => line.Number == 2).Top, header.Top);
             Assert.Equal(before.Single(line => line.Number == 3).Top, visible.Single(line => line.Number == 4).Top);
 
-            var suffix = Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.Text);
+            var suffix = Assert.Single(editor.Adornments, item => item.Options.Placement == RichTextAdornmentPlacement.Overlay);
             var ellipsis = Assert.IsType<Microsoft.Maui.Controls.Button>(suffix.View);
             Assert.Equal("…", ellipsis.Text);
             var gutter = Assert.IsType<Microsoft.Maui.Controls.HorizontalStackLayout>(
-                Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.LeftMargin).View);
+                Assert.Single(editor.Adornments, item => item.Options.Placement == RichTextAdornmentPlacement.LeftMargin).View);
             Assert.InRange(Math.Abs(ellipsis.Bounds.Center.Y - header.Top - header.Height / 2), 0, 1);
             Assert.InRange(Math.Abs(gutter.Bounds.Center.Y - header.Top - header.Height / 2), 0, 1);
 
@@ -566,7 +600,7 @@ public partial class CodeEditorTests
             var textOrigin = ((Microsoft.UI.Xaml.UIElement)scroller.Content).TransformToVisual(fixture.Handler.PlatformView).TransformPoint(new(0, 0));
             fixture.Handler.PlatformView.Document.GetRange(suffix.Position, suffix.Position).GetRect(
                 PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var caret, out _);
-            var expectedX = textOrigin.X + caret.X + suffix.Offset.X;
+            var expectedX = textOrigin.X + caret.X + suffix.Options.Offset.X;
             Assert.True(Math.Abs(origin.X - expectedX) <= 1,
                 $"Ellipsis must use its offset before scrolling: actual={origin.X}, expected={expectedX}, text origin={textOrigin.X}, caret={caret.X}.");
 
@@ -576,7 +610,7 @@ public partial class CodeEditorTests
             await Task.Delay(100);
             Assert.Empty(editor.Folding.CollapsedRanges);
             Assert.Empty(editor.Adornments);
-            Assert.Equal(new[] { 1, 2, 3, 4 }, editor.NativeAdapter.GetVisibleLines().Select(line => line.Number));
+            Assert.Equal(new[] { 1, 2, 3, 4 }, editor.GetVisibleLines().Select(line => line.Number));
             Assert.Same(snapshot, editor.Document.CurrentSnapshot);
             editor.Redo();
             Assert.Equal(source + "!", editor.Document.Text);
@@ -591,7 +625,6 @@ public partial class CodeEditorTests
         var editor = new CodeEditor
         {
             Document = CodeDocument.FromPlainText("// A long logical line wraps across several visual rows. " + new string('x', 180) + "\nclass Example\n{\n    string value = \"Hello\";\n}\n"),
-            Theme = static _ => Microsoft.Maui.Graphics.Colors.Purple,
             WordWrap = true,
         };
         var native = editor.ToPlatform(new MauiContext(app.Services));
@@ -603,11 +636,11 @@ public partial class CodeEditorTests
             window.Activate();
             ((IView)editor).Measure(660, 350);
             ((IView)editor).Arrange(new Microsoft.Maui.Graphics.Rect(0, 0, 660, 350));
-            await editor.RefreshHighlightingAsync();
+            await editor.Coloring().RefreshAsync();
             await Task.Delay(150);
             Assert.NotNull(editor.NativeAdapter);
             Assert.True(editor.Width > 0);
-            var lines = editor.NativeAdapter.GetVisibleLines();
+            var lines = editor.GetVisibleLines();
             Assert.Contains(lines, line => line.Number == 6);
             Assert.True(lines[1].Top - lines[0].Top > lines[0].Height * 2);
             var bitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
@@ -623,116 +656,26 @@ public partial class CodeEditorTests
     });
 
     [Fact]
-    public Task LanguageServerTextEditsUseTheRequestedSnapshotAndOneUndoUnit() => WindowsTestHost.RunAsync(async () =>
+    public Task ApplicationPaletteRecolorsWithoutRunningAnalysis() => WindowsTestHost.RunAsync(async () =>
     {
-        using var fixture = new CodeEditorFixture("😀 foo\nbar");
+        using var fixture = new CodeEditorFixture("return 42;");
         var editor = fixture.Editor;
-        editor.SelectAll();
-        var snapshot = editor.Document.CurrentSnapshot;
-        Assert.Equal(new LspPosition(0, 3), editor.GetLspPosition(3));
-        Assert.Equal(7, editor.GetOffset(new LspPosition(1, 0)));
-        Assert.True(editor.ApplyLanguageServerEdits((LspTextEdit[])[
-            new(new(new(0, 3), new(0, 6)), "name"),
-            new(new(new(1, 0), new(1, 3)), "baz")], snapshot));
-        Assert.Equal("😀 name\nbaz", editor.Document.Text);
-        Assert.Equal(editor.Document.Length, editor.SelectedRange.Length);
-        await editor.RefreshHighlightingAsync();
-        editor.Undo();
-        Assert.Equal(snapshot.Text, editor.Document.Text);
-        Assert.False(editor.CanUndo);
-        Assert.True(editor.CanRedo);
-        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 2)), "x")], snapshot));
-        var otherSnapshot = editor.Document.CurrentSnapshot;
-        editor.Document = new(otherSnapshot.Text);
-        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 2)), "x")], otherSnapshot));
-    });
-
-    [Fact]
-    public Task InvalidLanguageServerEditsLeaveSourceAndHistoryUntouched() => WindowsTestHost.RunAsync(() =>
-    {
-        using var fixture = new CodeEditorFixture("abcd");
-        var editor = fixture.Editor;
-        var snapshot = editor.Document.CurrentSnapshot;
-        Assert.Throws<ArgumentException>(() => editor.ApplyLanguageServerEdits((LspTextEdit[])[
-            new(new(new(0, 0), new(0, 3)), "x"), new(new(new(0, 2), new(0, 4)), "y")], snapshot));
-        Assert.Throws<ArgumentOutOfRangeException>(() => editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 8), new(0, 9)), "x")], snapshot));
-        editor.MaxLength = 4;
-        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 0)), "long")], snapshot));
-        editor.IsReadOnly = true;
-        Assert.False(editor.ApplyLanguageServerEdits((LspTextEdit[])[new(new(new(0, 0), new(0, 1)), "x")], snapshot));
-        Assert.Equal("abcd", editor.Document.Text);
-        Assert.False(editor.CanUndo);
-    });
-
-    [Fact]
-    public Task LanguageServerDiagnosticsFollowDocumentIdentityAndVersion() => WindowsTestHost.RunAsync(async () =>
-    {
-        using var fixture = new CodeEditorFixture("class C {}");
-        var editor = fixture.Editor;
-        var session = (await editor.GetLanguageDocumentAsync())!;
-        Assert.Equal(editor.Document.Uri, session.Uri);
-        Assert.Equal("csharp", session.LanguageId);
-        var initialRevision = session.CurrentSnapshot.Version;
-        var sourceVersion = editor.Document.Version;
-        var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        editor.DiagnosticsChanged += (_, _) => changed.TrySetResult();
-        LspDiagnostic[] diagnostics = [new() { Range = new(new(0, 0), new(0, 5)), Message = "test", Severity = 2 }];
-        await fixture.LanguageServer.PublishDiagnosticsAsync(new(editor.Document.Uri.AbsoluteUri, diagnostics, initialRevision));
-        await changed.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("test", Assert.Single(editor.Diagnostics).Message);
-        Assert.Equal(sourceVersion, editor.Document.Version);
-        Assert.False(editor.CanUndo);
-        editor.Document.Edit(edit => edit.InsertText(editor.Document.Length, " "));
-        Assert.Empty(editor.Diagnostics);
-        await fixture.LanguageServer.PublishDiagnosticsAsync(new(editor.Document.Uri.AbsoluteUri, diagnostics, initialRevision));
-        await Task.Delay(30);
-        Assert.Empty(editor.Diagnostics);
-        await fixture.LanguageServer.PublishDiagnosticsAsync(new("untitled:another", diagnostics, session.CurrentSnapshot.Version));
-        await Task.Delay(30);
-        Assert.Empty(editor.Diagnostics);
-        editor.LanguageServer = null;
-        await editor.GetLanguageDocumentAsync();
-        Assert.Empty(editor.Diagnostics);
-    });
-
-    [Fact]
-    public Task ThemeReceivesCompleteTokensAndRecolorsWithoutARequest() => WindowsTestHost.RunAsync(async () =>
-    {
-        using var fixture = new CodeEditorFixture("abc", new(["customType"], ["readonly", "static"]));
-        fixture.LanguageServer.SemanticTokensHandler = (_, _) => Task.FromResult<SemanticTokens?>(new([0, 1, 1, 0, 3, 0, 1, 1, 0, 0]));
-        var editor = fixture.Editor;
-        var uiThread = Environment.CurrentManagedThreadId;
-        var seen = new List<SemanticToken>();
-        editor.Theme = token =>
-        {
-            Assert.Equal(uiThread, Environment.CurrentManagedThreadId);
-            seen.Add(token);
-            return token.Type == "customType" && token.Modifiers.Contains("readonly") ? Microsoft.Maui.Graphics.Colors.Magenta : null;
-        };
-        await editor.RefreshHighlightingAsync();
-        Assert.Equal(2, editor.Tokens.Count);
-        Assert.Same(editor.Tokens[0], seen[0]);
-        Assert.Equal((1, 1), (seen[0].Start, seen[0].Length));
-        Assert.Equal(new[] { "readonly", "static" }, seen[0].Modifiers);
+        var colors = editor.Coloring();
+        await colors.RefreshAsync();
+        var requests = colors.AnalysisRequests;
+        var tokens = colors.Tokens;
+        colors.Palette = static _ => Microsoft.Maui.Graphics.Colors.Magenta;
         Assert.Equal(Microsoft.Maui.Graphics.Colors.Magenta, NativeColor(fixture, 1));
-        Assert.Equal(editor.TextColor, NativeColor(fixture, 2));
-
-        var requests = fixture.LanguageServer.SemanticTokenRequests;
-        var tokens = editor.Tokens;
-        var cleared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        editor.Decorations.Changed += (_, _) => cleared.TrySetResult();
-        editor.Theme = null;
-        await cleared.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        colors.Palette = null;
         Assert.Equal(editor.TextColor, NativeColor(fixture, 1));
-        Assert.Same(tokens, editor.Tokens);
-        Assert.Equal(requests, fixture.LanguageServer.SemanticTokenRequests);
-        Assert.Equal(0, editor.Document.Version);
+        Assert.Same(tokens, colors.Tokens);
+        Assert.Equal(requests, colors.AnalysisRequests);
         Assert.False(editor.CanUndo);
     });
 
     private sealed partial class CodeTestApplication : Microsoft.Maui.Controls.Application;
 
-    private static Microsoft.Maui.Graphics.Color TokenColor(CodeEditor editor, string type) => editor.Theme!(new(0, 1, type, []))!;
+    private static Microsoft.Maui.Graphics.Color TokenColor(CodeEditor editor, string type) => editor.Coloring().Palette!(new(new(0, 1), Enum.Parse<CodeTokenKind>(type == "macro" ? "Preprocessor" : type, true)))!;
 
     private static Microsoft.Maui.Graphics.Color NativeColor(CodeEditorFixture fixture, int position)
     {
@@ -740,48 +683,38 @@ public partial class CodeEditorTests
         return Microsoft.Maui.Graphics.Color.FromRgba(color.R, color.G, color.B, color.A);
     }
 
-    private sealed class BlockingLanguageServerResponse
+    private sealed class BlockingClassification
     {
         internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal async Task<SemanticTokens?> GetTokensAsync(string text, CancellationToken cancellationToken)
+        internal async Task<IReadOnlyList<CodeToken>> GetTokensAsync(string text, CancellationToken cancellationToken)
         {
             Started.TrySetResult();
             await Release.Task;
-            return new([0, 0, text.Length, 2, 0]);
+            return (CodeToken[])[new(new(0, text.Length), CodeTokenKind.Comment)];
         }
     }
 
     private sealed partial class CodeEditorFixture : IDisposable
     {
-        internal TestLanguageServer LanguageServer { get; }
         internal CodeEditor Editor { get; }
         internal RichEditorHandler Handler { get; } = new();
-        internal CodeEditorFixture(string source, SemanticTokensLegend? legend = null)
+        internal CodeEditorFixture(string source)
         {
-            LanguageServer = new(legend);
             Editor = new CodeEditor
             {
-                Document = CodeDocument.FromPlainText(source, languageId: "csharp"), LanguageServer = LanguageServer.Client,
+                Document = CodeDocument.FromPlainText(source),
                 TextColor = Microsoft.Maui.Graphics.Colors.Black, BackgroundColor = Microsoft.Maui.Graphics.Colors.White,
-                Theme = static token => token.Type switch
-                {
-                    "keyword" => Microsoft.Maui.Graphics.Colors.Blue,
-                    "string" => Microsoft.Maui.Graphics.Colors.Maroon,
-                    "comment" => Microsoft.Maui.Graphics.Colors.Green,
-                    "number" => Microsoft.Maui.Graphics.Colors.DarkCyan,
-                    "macro" => Microsoft.Maui.Graphics.Colors.Purple,
-                    _ => null,
-                },
             };
             Handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
             Editor.TextView.Handler = Handler;
+            _ = Editor.Coloring();
         }
         public void Dispose()
         {
             Editor.TextView.Handler = null;
             ((IElementHandler)Handler).DisconnectHandler();
-            LanguageServer.Dispose();
+            Editor.Coloring().Dispose();
         }
     }
 }

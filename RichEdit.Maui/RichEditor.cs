@@ -204,6 +204,7 @@ public sealed partial class RichEditor : View
     /// </summary>
     public RichEditor()
     {
+        TextLayout = new RichTextLayout(this);
         KeyBindings = new EditorKeyBindingCollection(this);
         Decorations = new RichTextDecorations(this);
         Folding = new RichTextFolding(this);
@@ -244,6 +245,12 @@ public sealed partial class RichEditor : View
 
     /// <summary>Occurs after an atomic content transaction is committed.</summary>
     public event EventHandler<RichTextContentChangedEventArgs>? ContentChanged;
+
+    /// <summary>Occurs after a replacement document is attached and view presentation is cleared.</summary>
+    public event EventHandler<RichTextDocumentReplacedEventArgs>? DocumentChanged;
+
+    /// <summary>Gets visible native geometry and hit testing in this editor's coordinates.</summary>
+    public RichTextLayout TextLayout { get; }
 
     /// <summary>Occurs when logical text changes.</summary>
     public event EventHandler<RichTextTextChangedEventArgs>? TextChanged;
@@ -786,7 +793,9 @@ public sealed partial class RichEditor : View
         newDocument.VerifyCanAttachEditor(this);
         DetachDocument(oldDocument);
         AttachDocument(newDocument);
+        SetCompositionState(default);
         Decorations.Reset();
+        TextLayout.Invalidate();
         Folding.Reset();
         Adornments.Clear();
         var selection = SelectionState.Clamp(newDocument.Length);
@@ -802,6 +811,7 @@ public sealed partial class RichEditor : View
             RaiseSelectionFormatChanged();
         }
         if (Handler is not IRichEditorHandler) Folding.NotifyChanged();
+        DocumentChanged?.Invoke(this, new(oldDocument, newDocument));
     }
 
     private void OnSelectedRangePropertyChanged(RichTextRange oldRange, RichTextRange newRange)
@@ -861,7 +871,7 @@ public sealed partial class RichEditor : View
         if (handler is not null && !ReferenceEquals(changeSet.SourceToken, handler.SourceToken))
         {
             if (changeSet.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
-                handler.ApplySnapshot(Document.CurrentSnapshot, selection.Range, _typingCharacterFormat, _typingParagraphFormat);
+                handler.ApplyDocument(selection.Range, _typingCharacterFormat, _typingParagraphFormat);
             else
                 handler.ApplyChanges(changeSet, selection.Range, _typingCharacterFormat, _typingParagraphFormat);
         }

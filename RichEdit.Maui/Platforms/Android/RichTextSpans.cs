@@ -74,6 +74,23 @@ internal sealed class RichImageMetadataSpan(RichTextImage image) : CharacterStyl
     }
 }
 
+internal sealed class RichAdornmentSpan(int width, int height, int baseline) : ReplacementSpan
+{
+    public override int GetSize(global::Android.Graphics.Paint paint, Java.Lang.ICharSequence? text, int start, int end,
+        global::Android.Graphics.Paint.FontMetricsInt? metrics)
+    {
+        if (metrics is not null)
+        {
+            metrics.Ascent = metrics.Top = -baseline;
+            metrics.Descent = metrics.Bottom = height - baseline;
+        }
+        return width;
+    }
+
+    public override void Draw(global::Android.Graphics.Canvas canvas, Java.Lang.ICharSequence? text, int start, int end,
+        float x, int top, int y, int bottom, global::Android.Graphics.Paint paint) { }
+}
+
 internal sealed class RichFontSizeSpan(double size, float pixels) : MetricAffectingSpan
 {
     public double Size { get; } = size;

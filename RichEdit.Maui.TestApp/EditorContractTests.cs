@@ -45,6 +45,9 @@ internal static partial class EditorContractTests
     {
         foreach (var test in FoldingCases()) yield return test;
         foreach (var test in AdornmentCases()) yield return test;
+        foreach (var test in LayoutCases()) yield return test;
+        foreach (var test in ProjectionCases()) yield return test;
+        foreach (var test in PerformanceCases()) yield return test;
 #if ANDROID || IOS || MACCATALYST
         foreach (var test in CharacterFormattingTests.Cases) yield return test;
 #endif
@@ -109,7 +112,7 @@ internal static partial class EditorContractTests
             var before = editor.Document.CurrentSnapshot;
             var rtf = editor.Document.RtfText;
             using var layer = editor.Decorations.CreateLayer();
-            layer.Set((RichTextDecoration[])[new(new RichTextRange(0, 3), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new RichTextRange(0, 3), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             editor.SelectionState = new RichTextSelectionState(1, 1);
             await Verify(editor);
             Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
@@ -995,13 +998,23 @@ internal static partial class EditorContractTests
 #if WINDOWS
     [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
     [DynamicWindowsRuntimeCast(typeof(Panel))]
+    [DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.FrameworkElement))]
 #endif
     private static void SetNativeFocus(RichEditor editor, bool focused)
     {
 #if WINDOWS
         var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
         if (focused) native.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-        else ((Microsoft.UI.Xaml.Controls.Panel)native.Parent).Children.OfType<Microsoft.UI.Xaml.Controls.Button>().Single().Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        else
+        {
+            for (var parent = native.Parent as Microsoft.UI.Xaml.FrameworkElement; parent is not null; parent = parent.Parent as Microsoft.UI.Xaml.FrameworkElement)
+                if (parent is Panel panel && panel.Children.OfType<Microsoft.UI.Xaml.Controls.Button>().FirstOrDefault() is { } button)
+                {
+                    button.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+                    return;
+                }
+            throw new InvalidOperationException("The test host has no alternate focus target.");
+        }
 #elif ANDROID
         var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;
         if (focused) native.RequestFocus();
@@ -1018,7 +1031,24 @@ internal static partial class EditorContractTests
 #endif
     }
 
+#if WINDOWS
+    private static Task SetPlainClipboard(string text) => WithClipboardAccess(() => Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default.SetTextAsync(text));
+
+    internal static async Task WithClipboardAccess(Func<Task> action)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { await action(); return; }
+            catch (System.Runtime.InteropServices.COMException exception) when (exception.HResult == unchecked((int)0x800401D0) && attempt < 10)
+            {
+                // Desktop clipboard ownership is shared with applications outside this test process.
+                await Task.Delay(25);
+            }
+        }
+    }
+#else
     private static Task SetPlainClipboard(string text) => Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default.SetTextAsync(text);
+#endif
 
     public static void SameContent(RichTextDocumentSnapshot expected, RichTextDocumentSnapshot actual)
     {

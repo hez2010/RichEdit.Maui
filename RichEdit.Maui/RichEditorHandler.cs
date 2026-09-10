@@ -34,8 +34,7 @@ internal interface IRichEditorHandler
 
     bool CanRedo { get; }
 
-    void ApplySnapshot(
-        RichTextDocumentSnapshot snapshot,
+    void ApplyDocument(
         RichTextRange selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat);
@@ -118,7 +117,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     bool IRichEditorHandler.SupportsNativeUndo => SupportsNativeUndoCore();
 
-    bool IRichEditorHandler.IsComposing => IsComposingCore();
+    bool IRichEditorHandler.IsComposing => VirtualView.Composition.IsActive || IsComposingCore();
 
     private partial bool IsComposingCore();
 
@@ -126,13 +125,12 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     bool IRichEditorHandler.CanRedo => CanRedoCore();
 
-    void IRichEditorHandler.ApplySnapshot(
-        RichTextDocumentSnapshot snapshot,
+    void IRichEditorHandler.ApplyDocument(
         RichTextRange selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
     {
-        ApplyDocumentCore(snapshot, selection.Start, selection.Length);
+        ApplyCurrentDocument(selection.Start, selection.Length);
         ApplyFoldingCore();
         ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
         if (SupportsNativeUndoCore())
@@ -154,7 +152,25 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             typingCharacterFormat,
             typingParagraphFormat);
 
-    void IRichEditorHandler.ApplyDecorations(RichTextChangeSet changes) => ApplyDecorationsCore(changes);
+    void IRichEditorHandler.ApplyDecorations(RichTextChangeSet changes)
+    {
+        var updating = _updatingDisplayProjection;
+        _updatingDisplayProjection = true;
+        try
+        {
+            changes = PrepareDisplayChanges(changes);
+            // A layer update can coincide with queued widget removal or resizing. Its
+            // composed delta may therefore include native text/objects as well as paint.
+            if (changes.Changes.Any(static change => change.Kind is not (RichTextChangeKind.CharacterFormat or RichTextChangeKind.Metadata)))
+            {
+                ApplyDisplayChangesCore(changes, VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+                ApplyFoldingCore();
+            }
+            else ApplyDecorationsCore(changes);
+            CompleteDisplayProjection();
+        }
+        finally { _updatingDisplayProjection = updating; }
+    }
 
     void IRichEditorHandler.ApplyFolding() => ApplyFoldingCore();
 
@@ -179,9 +195,9 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         }
     }
 
-    void IRichEditorHandler.SetSelection(RichTextSelectionState selection) => SetNativeSelectionCore(selection);
+    void IRichEditorHandler.SetSelection(RichTextSelectionState selection) => SetNativeSelectionCore(NativeProjection.ToDisplay(selection));
 
-    void IRichEditorHandler.ScrollIntoView(RichTextRange range) => ScrollIntoViewCore(range);
+    void IRichEditorHandler.ScrollIntoView(RichTextRange range) => ScrollIntoViewCore(NativeProjection.ToDisplay(range));
 
     void IRichEditorHandler.ApplyTypingFormat(
         RichTextCharacterFormat characterFormat,
@@ -219,17 +235,6 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
             typingParagraphFormat);
     }
 
-    private partial void ApplyDocumentCore(
-        RichTextDocumentSnapshot document,
-        int selectionStart,
-        int selectionLength);
-
-    private partial void ApplyIncrementalChangesCore(
-        RichTextChangeSet changes,
-        RichTextRange selection,
-        RichTextCharacterFormat typingCharacterFormat,
-        RichTextParagraphFormat typingParagraphFormat);
-
     private static RichTextDocumentSnapshot? GetPreviousDecorationSnapshot(RichTextChangeSet changes)
     {
         // Native formatting repairs add a separate range, or have equal projections.
@@ -243,7 +248,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         changes.BeforeSnapshot is { } snapshot && changes.Changes.All(static change => change.Kind is
             RichTextChangeKind.CharacterFormat or RichTextChangeKind.ParagraphFormat or RichTextChangeKind.DefaultFormat or
             RichTextChangeKind.Metadata or RichTextChangeKind.Field)
-            ? VirtualView.Decorations.Project(snapshot) : null;
+            ? ReferenceEquals(changes.AfterSnapshot, DisplayPresentationSnapshot) ? snapshot : VirtualView.Decorations.Project(snapshot) : null;
 
     private static IEnumerable<(RichTextRange Range, RichTextCharacterFormat Format, RichTextCharacterFormat? PreviousFormat)>
         GetCharacterFormatChanges(RichTextDocumentSnapshot snapshot, RichTextRange range, RichTextDocumentSnapshot? previousSnapshot)
@@ -274,7 +279,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
     {
         var range = new RichTextRange(start, length).Clamp(VirtualView.Document.Length);
         var selection = VirtualView.SelectionState;
-        SetNativeSelectionCore(selection.Range == range ? selection : RichTextSelectionState.FromRange(range));
+        SetNativeSelectionCore(NativeProjection.ToDisplay(selection.Range == range ? selection : RichTextSelectionState.FromRange(range)));
     }
 
     private partial void SetNativeSelectionCore(RichTextSelectionState selection);
@@ -295,20 +300,10 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     private static void MapDocument(RichEditorHandler handler, RichEditor editor)
     {
-        handler.ApplyDocumentCore(
-            editor.Document.CurrentSnapshot,
-            editor.SelectedRange.Start,
-            editor.SelectedRange.Length);
-        handler.ApplyFoldingCore();
-        handler.ApplyTypingFormatCore(
+        ((IRichEditorHandler)handler).ApplyDocument(
+            editor.SelectedRange,
             editor.Selection.TypingCharacterFormat,
             editor.Selection.TypingParagraphFormat);
-        if (handler.SupportsNativeUndoCore())
-        {
-            handler.ClearUndoHistoryCore();
-        }
-
-        editor.UpdateUndoStateFromPlatform();
         editor.Folding.NotifyChanged();
     }
 

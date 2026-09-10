@@ -202,7 +202,7 @@ internal sealed partial class CodeEditorTestPage
 #endif
             SendNativeKey(EditorKey.K, EditorKeyModifiers.Control);
             Equal(1, invoked);
-            await _editor.RefreshHighlightingAsync();
+            await _editor.Coloring().RefreshAsync();
         });
 
 #if ANDROID

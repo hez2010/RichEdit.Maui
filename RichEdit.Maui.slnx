@@ -1,5 +1,4 @@
 <Solution>
-  <Project Path="CodeEdit.Lsp/CodeEdit.Lsp.csproj" />
   <Project Path="CodeEdit.Maui/CodeEdit.Maui.csproj" />
   <Project Path="RichEdit.Maui.TestApp/RichEdit.Maui.TestApp.csproj" />
   <Project Path="RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj" />

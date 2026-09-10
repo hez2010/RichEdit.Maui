@@ -23,7 +23,7 @@ internal static partial class EditorContractTests
             var invoked = 0;
             var button = AdornmentButton(() => invoked++);
             editor.Adornments.MarginWidth = 32;
-            var item = editor.Adornments.Add(5, button, RichTextAdornmentPlacement.LeftMargin);
+            var item = editor.Adornments.Add(5, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
             await Task.Delay(150);
             Equal(true, button.Handler is not null, "native adornment handler");
             Equal(true, button.Bounds.Width > 0 && button.Bounds.X >= 0, $"visible adornment: {button.Bounds}");
@@ -35,7 +35,7 @@ internal static partial class EditorContractTests
             item.Dispose();
             Equal(null, button.Parent);
             // A removed application-owned view can be attached again.
-            using var replacement = editor.Adornments.Add(10, button, RichTextAdornmentPlacement.LeftMargin);
+            using var replacement = editor.Adornments.Add(10, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
             await Task.Delay(100);
             InvokeAdornment(button);
             await Task.Delay(50);
@@ -54,7 +54,7 @@ internal static partial class EditorContractTests
             editor.Document = RichTextDocument.FromPlainText("head\nbody\ntail");
             editor.Adornments.MarginWidth = 32;
             var button = AdornmentButton(() => { });
-            var item = editor.Adornments.Add(5, button, RichTextAdornmentPlacement.LeftMargin);
+            var item = editor.Adornments.Add(5, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
             editor.SelectedRange = new(0, 0);
             NativeReplace(editor, "prefix\n");
             await Verify(editor);
@@ -83,7 +83,7 @@ internal static partial class EditorContractTests
             editor.Adornments.MarginWidth = 32;
             var range = new RichTextRange(5, 8);
             var button = AdornmentButton(() => editor.Folding.Expand(range));
-            using var item = editor.Adornments.Add(13, button, RichTextAdornmentPlacement.LeftMargin);
+            using var item = editor.Adornments.Add(13, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
             await Task.Delay(150);
             var before = NativeAdornmentBounds(editor, button);
             editor.Folding.Collapse(range);
@@ -106,7 +106,7 @@ internal static partial class EditorContractTests
             editor.Adornments.MarginWidth = 32;
             var position = editor.Document.Text.IndexOf("Line 90\n", StringComparison.Ordinal);
             var button = AdornmentButton(() => { });
-            using var item = editor.Adornments.Add(position, button, RichTextAdornmentPlacement.LeftMargin);
+            using var item = editor.Adornments.Add(position, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
             editor.SelectedRange = new(0, 0);
             editor.ScrollIntoView(new(0, 0));
             await Task.Delay(150);
@@ -117,7 +117,7 @@ internal static partial class EditorContractTests
             var native = NativeAdornmentBounds(editor, button);
             Equal(true, Math.Abs(native.Y - button.Bounds.Y) < 2, $"scroll native alignment: {native}, {button.Bounds}");
             var inline = AdornmentButton(() => { });
-            var transient = editor.Adornments.Add(position, inline, offset: new Point(6, 0));
+            var transient = editor.Adornments.Add(position, inline, options: new() { Offset = new Point(6, 0) });
             await Task.Delay(100);
             Equal(true, inline.Bounds.X > button.Bounds.X && button.Bounds.X >= 0, "adding a text overlay preserves the scrolled viewport");
             transient.Dispose();
@@ -139,7 +139,7 @@ internal static partial class EditorContractTests
             var range = new RichTextRange(0, editor.Document.Length);
             editor.Adornments.MarginWidth = 32;
             var button = AdornmentButton(() => editor.Folding.Expand(range));
-            using var item = editor.Adornments.Add(range.End, button, RichTextAdornmentPlacement.LeftMargin);
+            using var item = editor.Adornments.Add(range.End, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
             editor.Folding.Collapse(range);
             await Task.Delay(150);
             Equal(true, button.Bounds.X >= 0 && button.Bounds.Width > 0, $"fully folded indicator: {button.Bounds}");

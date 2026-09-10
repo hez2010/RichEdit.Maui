@@ -6,6 +6,10 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private (RichTextRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
+    partial void PreserveAdornmentScrollAnchor(int position, double top) => _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);
+    private partial void OffsetAdornmentScroll(double verticalDelta) => PlatformView.ScrollTo(PlatformView.ScrollX,
+        Math.Max(0, PlatformView.ScrollY + (int)Math.Round(verticalDelta * LayoutDensity)));
     private RichEdit.Maui.Platforms.Android.RichEditText _adornmentView = null!;
     private ViewTreeObserver? _adornmentObserver;
     private int _appliedAdornmentMargin;
@@ -89,6 +93,7 @@ public partial class RichEditorHandler
     private partial Rect? GetAdornmentAnchor(int position)
     {
         if (_adornmentView.Layout is not { } layout) return null;
+        NativeGeometryQueryCount += 5;
         var density = _adornmentView.Resources?.DisplayMetrics?.Density ?? 1f;
         var line = layout.GetLineForOffset(position);
         return new((layout.GetPrimaryHorizontal(position) + _adornmentView.CompoundPaddingLeft - _adornmentView.ScrollX) / density,
@@ -97,6 +102,15 @@ public partial class RichEditorHandler
     }
 
     private void OnAdornmentViewportChanged(object? sender, EventArgs args) => QueueAdornmentLayout();
+
+    internal void OnNativeLayoutCompleted()
+    {
+        if (_applyingDocument || _adornmentScrollAnchor is not { } anchor) return;
+        _adornmentScrollAnchor = null;
+        if (anchor.Revision == VirtualView.Document.Revision && GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(anchor.Position), RichTextCaretAffinity.Downstream) is { } bounds)
+            OffsetAdornmentScroll(bounds.Y - anchor.Top);
+        QueueAdornmentLayout();
+    }
 
     private void OnAdornmentNativeAttached(object? sender, EventArgs args)
     {

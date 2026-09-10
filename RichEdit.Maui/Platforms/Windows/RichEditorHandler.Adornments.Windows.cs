@@ -9,6 +9,8 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial void OffsetAdornmentScroll(double verticalDelta) =>
+        _adornmentScroller?.ChangeView(null, Math.Max(0, _adornmentScroller.VerticalOffset + verticalDelta), null, true);
     private RichEditBox _adornmentView = null!;
     private ScrollViewer? _adornmentScroller;
     private double _appliedAdornmentMargin;
@@ -68,7 +70,9 @@ public partial class RichEditorHandler
         if (!_adornmentView.IsLoaded) return null;
         var origin = (_adornmentScroller?.Content as UIElement)?.TransformToVisual(_adornmentView).TransformPoint(new(0, 0))
             ?? new Windows.Foundation.Point(_adornmentView.Padding.Left, _adornmentView.Padding.Top);
-        _adornmentView.Document.GetRange(position, position).GetRect(
+        var nativePosition = NativePositionFromDisplay(position);
+        NativeGeometryQueryCount++;
+        _adornmentView.Document.GetRange(nativePosition, nativePosition).GetRect(
             PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var rect, out _);
         return new(rect.X + origin.X, rect.Y + origin.Y, rect.Width, rect.Height);
     }

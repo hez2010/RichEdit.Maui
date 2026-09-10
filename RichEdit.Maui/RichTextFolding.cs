@@ -52,7 +52,7 @@ public sealed class RichTextFolding
             throw new InvalidOperationException("Folding cannot be changed during text composition.");
         SetRangesCore(items);
 #if WINDOWS
-        _layer.Set(CreateDecorations());
+        _layer.TrySet(_editor.Document.Revision, CreateDecorations());
 #endif
         (_editor.Handler as IRichEditorHandler)?.ApplyFolding();
         NotifyChanged();
@@ -157,12 +157,8 @@ public sealed class RichTextFolding
     private static RichTextRange Map(RichTextRange range, RichTextTextChange change)
     {
         var old = change.OldRange;
-        var delta = change.NewRange.Length - old.Length;
-        if (old.End <= range.Start) return new(range.Start + delta, range.Length);
-        if (old.Start >= range.End) return range;
         if (old.Start <= range.Start && old.End >= range.End) return default;
-        var start = old.Start <= range.Start ? change.NewRange.End : range.Start;
-        var end = old.End >= range.End ? old.Start : range.End + delta;
-        return new(start, Math.Max(0, end - start));
+        return RichTextPositionMap.Map(range, change, RichTextTrackingAffinity.AfterInsertion,
+            RichTextTrackingAffinity.BeforeInsertion, RichTextTrackingDeletionBehavior.Preserve)!.Value;
     }
 }

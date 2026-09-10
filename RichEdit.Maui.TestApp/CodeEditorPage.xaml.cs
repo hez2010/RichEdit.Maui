@@ -1,28 +1,23 @@
 using CodeEdit.Maui;
-using CodeEdit.Lsp;
 
 namespace RichEdit.Maui.TestApp;
 
 public sealed partial class CodeEditorPage : ContentPage
 {
     private readonly CodeEditorActions _actions;
-    private readonly bool _useSampleLanguageServer;
-    private Tests.TestLanguageServer? _sampleLanguageServer;
+    private CodeColorizer? _colorizer;
     private CodeEditorFoldIndicators? _foldIndicators;
+    private CodeEditorFeatures? _features;
 
-    public CodeEditorPage() : this(null) => _useSampleLanguageServer = true;
-
-    public CodeEditorPage(LspClient? languageServer)
+    public CodeEditorPage()
     {
         InitializeComponent();
         _actions = new CodeEditorActions(Editor);
-        Editor.Document = CodeDocument.FromPlainText(Sample, languageId: "csharp");
-        Editor.LanguageServer = languageServer;
+        Editor.Document = CodeDocument.FromPlainText(Sample);
         ApplyTheme(false);
         Editor.SelectionChanged += (_, _) => UpdateStatus();
         Editor.TextChanged += (_, _) => UpdateStatus();
         Editor.Folding.Changed += (_, _) => UpdateStatus();
-        Editor.LanguageServerFailed += (_, args) => SearchStatusLabel.Text = args.Exception.Message;
         var find = new Command(() => QueryEntry.Focus());
         var comment = new Command(_actions.ToggleLineComment, () => !Editor.IsReadOnly);
         var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Meta : EditorKeyModifiers.Control;
@@ -41,22 +36,31 @@ public sealed partial class CodeEditorPage : ContentPage
     {
         base.OnAppearing();
         _foldIndicators ??= new CodeEditorFoldIndicators(Editor);
-        if (!_useSampleLanguageServer || _sampleLanguageServer is not null) return;
-        _sampleLanguageServer = new();
-        Editor.LanguageServer = _sampleLanguageServer.Client;
+        _colorizer ??= new CodeColorizer(Editor);
+        _features ??= new CodeEditorFeatures(Editor, EditorHost);
+        _colorizer.Failed += OnColoringFailed;
+        ApplyTheme(DarkThemeCheckBox.IsChecked);
     }
 
-    protected override async void OnDisappearing()
+    protected override void OnDisappearing()
     {
         base.OnDisappearing();
         _foldIndicators?.Dispose();
         _foldIndicators = null;
-        if (_sampleLanguageServer is not { } server) return;
-        _sampleLanguageServer = null;
-        Editor.LanguageServer = null;
-        try { await server.Client.DisposeAsync(); }
-        catch (Exception exception) { SearchStatusLabel.Text = exception.Message; }
+        _colorizer?.Dispose();
+        _colorizer = null;
+        _features?.Dispose();
+        _features = null;
     }
+
+    private async void OnCompleteClicked(object? sender, EventArgs args)
+    {
+        if (_features is not null) await _features.ShowCompletionsAsync();
+    }
+    private void OnSnippetClicked(object? sender, EventArgs args) => _features?.InsertSnippet();
+    private void OnNextPlaceholderClicked(object? sender, EventArgs args) => _features?.NextPlaceholder();
+
+    private void OnColoringFailed(object? sender, Exception exception) => SearchStatusLabel.Text = exception.Message;
 
     private void OnIndentClicked(object? sender, EventArgs e) => _actions.Indent();
 
@@ -86,15 +90,13 @@ public sealed partial class CodeEditorPage : ContentPage
     {
         Editor.BackgroundColor = dark ? Color.FromArgb("#1E1E1E") : Colors.White;
         Editor.TextColor = dark ? Colors.LightGray : Colors.Black;
-        Editor.Theme = token => token.Type switch
+        if (_colorizer is not null) _colorizer.Palette = token => token.Kind switch
         {
-            "keyword" or "modifier" => dark ? Colors.LightSkyBlue : Colors.Blue,
-            "string" or "regexp" => dark ? Colors.LightSalmon : Colors.Maroon,
-            "comment" => dark ? Colors.LightGreen : Colors.Green,
-            "number" => dark ? Colors.PaleGreen : Colors.DarkCyan,
-            "macro" => dark ? Colors.Orchid : Colors.Purple,
-            "type" or "class" or "interface" or "struct" => dark ? Colors.Turquoise : Colors.Teal,
-            "variable" when token.Modifiers.Contains("readonly") => dark ? Colors.LightCyan : Colors.DarkCyan,
+            CodeTokenKind.Keyword => dark ? Colors.LightSkyBlue : Colors.Blue,
+            CodeTokenKind.String => dark ? Colors.LightSalmon : Colors.Maroon,
+            CodeTokenKind.Comment => dark ? Colors.LightGreen : Colors.Green,
+            CodeTokenKind.Number => dark ? Colors.PaleGreen : Colors.DarkCyan,
+            CodeTokenKind.Preprocessor => dark ? Colors.Orchid : Colors.Purple,
             _ => null,
         };
     }
@@ -115,14 +117,13 @@ public sealed partial class CodeEditorPage : ContentPage
 
     private const string Sample = """
         using CodeEdit.Maui;
-        using CodeEdit.Lsp;
         using RichEdit.Maui;
 
-        // Native editing; derived syntax formatting does not create undo units.
+        // Try Complete, Insert snippet, or hover over a word.
+        // Application-owned colors and widgets leave source/history intact.
         var editor = new CodeEditor
         {
             Document = CodeDocument.FromPlainText("Hello, code!"),
-            Theme = token => token.Type == "keyword" ? Colors.Blue : null,
             IndentSize = 4,
             ShowLineNumbers = true,
         };

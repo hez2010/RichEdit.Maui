@@ -20,6 +20,9 @@
         <ScrollView Grid.Row="1"
                     Orientation="Horizontal">
             <HorizontalStackLayout Spacing="6">
+                <Button Text="Complete" Clicked="OnCompleteClicked" />
+                <Button Text="Insert snippet" Clicked="OnSnippetClicked" />
+                <Button Text="Next placeholder" Clicked="OnNextPlaceholderClicked" />
                 <Button Text="Undo"
                         Command="{Binding Source={x:Reference Editor}, Path=Commands.Undo}" />
                 <Button Text="Redo"
@@ -53,7 +56,7 @@
                            VerticalOptions="Center" />
                 </HorizontalStackLayout>
                 <HorizontalStackLayout Spacing="0">
-                    <CheckBox CheckedChanged="OnDarkThemeChanged" />
+                    <CheckBox x:Name="DarkThemeCheckBox" CheckedChanged="OnDarkThemeChanged" />
                     <Label Text="Dark"
                            VerticalOptions="Center" />
                 </HorizontalStackLayout>
@@ -103,10 +106,11 @@
                    VerticalOptions="Center" />
         </Grid>
 
+        <Grid x:Name="EditorHost" Grid.Row="4">
         <code:CodeEditor x:Name="Editor"
-                         Grid.Row="4"
                          FontSize="14"
                          Placeholder="Write some code…" />
+        </Grid>
 
         <Label x:Name="StatusLabel"
                Grid.Row="5"

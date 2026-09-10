@@ -1,5 +1,16 @@
 namespace RichEdit.Maui;
 
+/// <summary>Describes replacement of the live document attached to a rich editor.</summary>
+/// <param name="oldDocument">The previous document, or null during initialization.</param>
+/// <param name="newDocument">The newly attached document.</param>
+public sealed class RichTextDocumentReplacedEventArgs(RichTextDocument? oldDocument, RichTextDocument newDocument) : EventArgs
+{
+    /// <summary>Gets the previous document.</summary>
+    public RichTextDocument? OldDocument { get; } = oldDocument;
+    /// <summary>Gets the newly attached document.</summary>
+    public RichTextDocument NewDocument { get; } = newDocument;
+}
+
 /// <summary>
 /// Provides data for <see cref="RichEditor.ContentChanged"/>.
 /// </summary>

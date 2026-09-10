@@ -156,7 +156,12 @@ namespace RichEdit.Maui.Platforms.Apple
             if ((key.ModifierFlags & UIKeyModifierFlags.Control) != 0) modifiers |= EditorKeyModifiers.Control;
             if ((key.ModifierFlags & UIKeyModifierFlags.Alternate) != 0) modifiers |= EditorKeyModifiers.Alt;
             if ((key.ModifierFlags & UIKeyModifierFlags.Command) != 0) modifiers |= EditorKeyModifiers.Meta;
-            if (!requested(GetEditorKey(key), modifiers)) return false;
+            if (!requested(GetEditorKey(key), modifiers))
+            {
+                ProjectionHandler?.PrepareNativeSourceKey(GetEditorKey(key), modifiers);
+                if (MoveSourceVertically(GetEditorKey(key), modifiers)) { _handledKeys.Add(code); return true; }
+                return false;
+            }
             _handledKeys.Add(code);
             return true;
         }

@@ -615,6 +615,8 @@ public readonly record struct RichTextImageCrop(
 /// <summary>Represents an owned inline image and its presentation metadata.</summary>
 public sealed record RichTextImage
 {
+    internal RichTextAdornment? Adornment { get; init; }
+    internal double? AdornmentBaseline { get; init; }
     /// <summary>Gets the U+FFFC position occupied by the image.</summary>
     public int Position { get; init; }
     /// <summary>Gets the image media type.</summary>
@@ -641,6 +643,7 @@ public sealed record RichTextImage
         ReferenceEquals(this, other) ||
         other is not null &&
         Position == other.Position &&
+        AdornmentBaseline == other.AdornmentBaseline &&
         string.Equals(MediaType, other.MediaType, StringComparison.Ordinal) &&
         string.Equals(Source, other.Source, StringComparison.Ordinal) &&
         Width.Equals(other.Width) &&

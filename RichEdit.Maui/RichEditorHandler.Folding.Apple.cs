@@ -26,7 +26,7 @@ public partial class RichEditorHandler
             else if (_foldLayoutDelegate is null)
             {
                 _previousFoldLayoutDelegate = layout.Delegate;
-                _foldLayoutDelegate = new FoldLayoutDelegate(VirtualView.Folding);
+                _foldLayoutDelegate = new FoldLayoutDelegate(this);
                 layout.Delegate = _foldLayoutDelegate;
             }
             var range = new NSRange(0, PlatformView.TextStorage.Length);
@@ -47,7 +47,7 @@ public partial class RichEditorHandler
         _foldLayoutDelegate = null;
     }
 
-    private sealed class FoldLayoutDelegate(RichTextFolding folding) : NSLayoutManagerDelegate
+    private sealed class FoldLayoutDelegate(RichEditorHandler owner) : NSLayoutManagerDelegate
     {
         public override unsafe nuint ShouldGenerateGlyphs(NSLayoutManager layoutManager, nint glyphBuffer, nint properties,
             nint characterIndexes, UIFont font, NSRange glyphRange)
@@ -57,7 +57,7 @@ public partial class RichEditorHandler
             nuint[]? foldedProperties = null;
             for (var index = 0; index < count; index++)
             {
-                if (folding.FindRange(checked((int)indexes[index])) is null) continue;
+                if (owner.FindDisplayFoldRange(checked((int)indexes[index])) is null) continue;
                 foldedProperties ??= new ReadOnlySpan<nuint>((void*)properties, count).ToArray();
                 foldedProperties[index] = (nuint)NSGlyphProperty.Null;
             }
@@ -68,7 +68,7 @@ public partial class RichEditorHandler
         }
 
         public override NSControlCharacterAction ShouldUseAction(NSLayoutManager layoutManager, NSControlCharacterAction action,
-            nuint characterIndex) => folding.FindRange(checked((int)characterIndex)) is null ? action : NSControlCharacterAction.ZeroAdvancement;
+            nuint characterIndex) => owner.FindDisplayFoldRange(checked((int)characterIndex)) is null ? action : NSControlCharacterAction.ZeroAdvancement;
     }
 }
 #endif

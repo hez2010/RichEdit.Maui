@@ -11,6 +11,97 @@ public class AdornmentTests
     private static Microsoft.UI.Xaml.Window? _window;
 
     [Fact]
+    public Task DensePresentationWorkloadRecordsDeviceBaseline() => WithNativeEditor(async (editor, _) =>
+        await EditorContractTests.Cases.Single(static test => test.Name.StartsWith("performance dense", StringComparison.Ordinal)).Run(editor));
+
+    [Fact]
+    public Task AccessibilityRangesAddressSourceAcrossReservations() => WithNativeEditor(async (editor, handler) =>
+    {
+        editor.Document = RichTextDocument.FromPlainText("A😀 bc\ntail");
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(handler.PlatformView);
+        var text = (Microsoft.UI.Xaml.Automation.Provider.ITextProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Text);
+        var original = text.DocumentRange;
+        using var item = editor.Adornments.Add(4, new Button { Text = "annotation", WidthRequest = 60, HeightRequest = 28 }, new() { Placement = RichTextAdornmentPlacement.Inline });
+        await Task.Delay(150);
+        Assert.Equal(editor.Document.Text, text.DocumentRange.GetText(-1));
+        Assert.Equal(editor.Document.Text, original.GetText(-1));
+        var found = text.DocumentRange.FindText("bc", false, false);
+        found.Select();
+        Assert.Equal(new RichTextRange(4, 2), editor.SelectedRange);
+        Assert.Equal("bc", text.GetSelection().Single().GetText(-1));
+        editor.Selection.CharacterFormat.Bold = true;
+        await Task.Delay(50);
+        Assert.Equal(700, found.GetAttributeValue(40007)); // UIA_FontWeightAttributeId
+        Assert.Equal(400, text.DocumentRange.FindText("tail", false, false).GetAttributeValue(40007));
+        Assert.NotEqual(700, text.DocumentRange.GetAttributeValue(40007));
+        found.GetBoundingRectangles(out var bounds);
+        Assert.NotEmpty(bounds);
+        var caret = text.DocumentRange.Clone();
+        caret.MoveEndpointByRange(Microsoft.UI.Xaml.Automation.Text.TextPatternRangeEndpoint.End, caret, Microsoft.UI.Xaml.Automation.Text.TextPatternRangeEndpoint.Start);
+        Assert.Equal(2, caret.MoveEndpointByUnit(Microsoft.UI.Xaml.Automation.Text.TextPatternRangeEndpoint.End, Microsoft.UI.Xaml.Automation.Text.TextUnit.Character, 2));
+        Assert.Equal("A😀", caret.GetText(-1));
+        editor.Document.Edit(edit => edit.InsertText(0, "!"));
+        Assert.Equal("bc", found.GetText(-1));
+        Assert.Equal("A😀 bc\ntail", original.GetText(-1));
+        var value = (Microsoft.UI.Xaml.Automation.Provider.IValueProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Value);
+        Assert.Equal(editor.Document.Text, value.Value);
+        editor.IsReadOnly = true;
+        Assert.True(value.IsReadOnly);
+        Assert.Throws<InvalidOperationException>(() => value.SetValue("blocked"));
+        editor.IsReadOnly = false;
+        editor.MaxLength = 2;
+        Assert.Throws<InvalidOperationException>(() => value.SetValue(new string('x', editor.Document.Length + 1)));
+    });
+
+    [Fact]
+    public Task SharedNativeProjectionContracts() => WithNativeEditor(async (editor, _) =>
+    {
+        foreach (var test in EditorContractTests.Cases.Where(test => test.Name.StartsWith("projection ", StringComparison.Ordinal)))
+        {
+            EditorContractTests.Reset(editor);
+            await test.Run(editor);
+        }
+    });
+
+    [Fact]
+    public Task InlineReservationsPreserveSourceAndNativeEditing() => WithNativeEditor(async (editor, handler) =>
+    {
+        editor.Document = RichTextDocument.FromPlainText("abc def\ntail");
+        var revision = editor.Document.Revision;
+        var rtf = editor.Document.RtfText;
+        using var item = editor.Adornments.Add(3, new Button { Text = "parameter:", WidthRequest = 80, HeightRequest = 24 },
+            new() { Placement = RichTextAdornmentPlacement.Inline });
+        await Task.Delay(150);
+        Assert.Equal("abc def\ntail", editor.Document.Text);
+        Assert.Equal(revision, editor.Document.Revision);
+        Assert.Equal(rtf, editor.Document.RtfText);
+        Assert.False(editor.CanUndo);
+        handler.PlatformView.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out var display);
+        Assert.Contains("abc\uFFFC def", display);
+        editor.SelectedRange = new(3, 0);
+        Assert.Equal(4, handler.PlatformView.Document.Selection.StartPosition);
+        handler.PlatformView.Document.GetRange(4, 4).SetText(Microsoft.UI.Text.TextSetOptions.None, "!");
+        await Task.Delay(150);
+        Assert.Equal("abc! def\ntail", editor.Document.Text);
+        Assert.Equal(4, item.Position);
+        Assert.True(editor.CanUndo);
+        editor.Undo();
+        await Task.Delay(150);
+        Assert.Equal("abc def\ntail", editor.Document.Text);
+        Assert.Equal(3, item.Position);
+    });
+
+    [Fact]
+    public Task SharedNativeLayoutContracts() => WithNativeEditor(async (editor, _) =>
+    {
+        foreach (var test in EditorContractTests.Cases.Where(test => test.Name.StartsWith("layout ", StringComparison.Ordinal)))
+        {
+            EditorContractTests.Reset(editor);
+            await test.Run(editor);
+        }
+    });
+
+    [Fact]
     public Task SharedNativeAdornmentContracts() => WithNativeEditor(async (editor, _) =>
     {
         foreach (var test in EditorContractTests.Cases.Where(test => test.Name.StartsWith("adornments ", StringComparison.Ordinal)))
@@ -84,9 +175,9 @@ public class AdornmentTests
         var range = Assert.Single(editor.Folding.CollapsedRanges);
         editor.Document.Edit(edit => edit.InsertText(range.End, "\n"));
         Assert.Equal(range, Assert.Single(editor.Folding.CollapsedRanges));
-        Assert.Equal(range.End, Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.Text).Position);
+        Assert.Equal(range.End, Assert.Single(editor.Adornments, item => item.Options.Placement == RichTextAdornmentPlacement.Overlay).Position);
         editor.Undo();
-        Assert.Equal(range.End, Assert.Single(editor.Adornments, item => item.Placement == RichTextAdornmentPlacement.Text).Position);
+        Assert.Equal(range.End, Assert.Single(editor.Adornments, item => item.Options.Placement == RichTextAdornmentPlacement.Overlay).Position);
     });
 
     [Fact]
@@ -95,7 +186,7 @@ public class AdornmentTests
         editor.Document = RichTextDocument.FromPlainText("head\nbody\ntail");
         var view = new Button { Text = "+", WidthRequest = 24, HeightRequest = 20 };
         editor.Adornments.MarginWidth = 32;
-        using var item = editor.Adornments.Add(5, view, RichTextAdornmentPlacement.LeftMargin);
+        using var item = editor.Adornments.Add(5, view, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
         await Task.Delay(100);
         _window!.Content = null;
         editor.Handler = null;

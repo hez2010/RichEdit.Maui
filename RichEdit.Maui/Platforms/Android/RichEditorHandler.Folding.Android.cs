@@ -31,7 +31,7 @@ public partial class RichEditorHandler
             }
             else
             {
-                _foldTransformation ??= new FoldTransformation(folding);
+                _foldTransformation ??= new FoldTransformation(this);
                 if (PlatformView.TransformationMethod?.Handle != _foldTransformation.Handle)
                     PlatformView.TransformationMethod = _foldTransformation;
                 else if (PlatformView.EditableText is { } text && text.Length() > 0)
@@ -68,7 +68,7 @@ public partial class RichEditorHandler
         public override void UpdateMeasureState(TextPaint? paint) { }
     }
 
-    private sealed class FoldTransformation(RichTextFolding folding) : Java.Lang.Object, ITransformationMethod
+    private sealed class FoldTransformation(RichEditorHandler owner) : Java.Lang.Object, ITransformationMethod
     {
         private Java.Lang.ICharSequence? _source;
         private ISpannable? _spannable;
@@ -107,7 +107,7 @@ public partial class RichEditorHandler
                 TextUtils.GetChars(_source, 0, characters.Length, characters, 0);
                 for (var index = 0; index < characters.Length; index++)
                     if (characters[index] == RichTextDocument.SoftLineBreakCharacter) characters[index] = '\n';
-                foreach (var range in folding.EffectiveRanges)
+                foreach (var range in owner.DisplayFoldRanges)
                 {
                     var end = Math.Min(range.End, characters.Length);
                     if (range.Start < end) Array.Fill(characters, '\uFEFF', range.Start, end - range.Start);
@@ -122,7 +122,7 @@ public partial class RichEditorHandler
                     TextUtils.CopySpansFrom(_spannable, 0, characters.Length, Java.Lang.Class.FromType(typeof(CharacterStyle)), _display, 0);
                     foreach (var span in _spannable.GetSpans(0, characters.Length, Java.Lang.Class.FromType(typeof(IParagraphStyle))) ?? [])
                         SynchronizeParagraph(span, _spannable.GetSpanStart(span), _spannable.GetSpanEnd(span));
-                    foreach (var range in folding.EffectiveRanges)
+                    foreach (var range in owner.DisplayFoldRanges)
                     {
                         var end = Math.Min(range.End, characters.Length);
                         if (range.Start >= end) continue;
@@ -157,7 +157,7 @@ public partial class RichEditorHandler
                 return;
             }
             if (start < 0 || end > _display.Length() || span is ReplacementSpan &&
-                folding.FindRange(start) is { } range && end <= range.End) _display.RemoveSpan(span);
+                owner.FindDisplayFoldRange(start) is { } range && end <= range.End) _display.RemoveSpan(span);
             else _display.SetSpan(span, start, end, _spannable.GetSpanFlags(span));
         }
 
@@ -170,7 +170,7 @@ public partial class RichEditorHandler
             // paragraph's style and anchor it to the display's paragraph boundaries.
             var displayStart = TextUtils.LastIndexOf(_display, '\n', start - 1) + 1;
             var firstVisible = displayStart;
-            while (folding.FindRange(firstVisible) is { } hidden) firstVisible = hidden.End;
+            while (owner.FindDisplayFoldRange(firstVisible) is { } hidden) firstVisible = hidden.End;
             if (firstVisible < start || firstVisible >= end) return;
             var terminator = TextUtils.IndexOf(_display, '\n', Math.Max(start, end - 1));
             _display.SetSpan(span, displayStart, terminator < 0 ? _display.Length() : terminator + 1, _spannable.GetSpanFlags(span));

@@ -33,7 +33,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\CodeEdit.Lsp\CodeEdit.Lsp.csproj" />
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.101" />
         <InternalsVisibleTo Include="RichEdit.Maui.Tests" />
@@ -41,7 +40,7 @@
 
     <ItemGroup>
         <None Include="..\LICENSE.txt" Pack="true" PackagePath="LICENSE.txt" />
-        <None Include="README.md" Pack="true" PackagePath="README.md" />
+        <None Include="..\README.md" Pack="true" PackagePath="README.md" />
     </ItemGroup>
 
 </Project>

@@ -631,20 +631,12 @@ internal static class WindowsTestHost
         }
         finally
         {
-            for (var attempt = 0; ; attempt++)
+            await RichEdit.Maui.TestApp.EditorContractTests.WithClipboardAccess(() =>
             {
-                try
-                {
-                    Clipboard.SetContent(backup);
-                    Clipboard.Flush();
-                    break;
-                }
-                catch (System.Runtime.InteropServices.COMException) when (attempt < 10)
-                {
-                    // Other desktop applications can briefly hold the clipboard.
-                    await Task.Delay(25);
-                }
-            }
+                Clipboard.SetContent(backup);
+                Clipboard.Flush();
+                return Task.CompletedTask;
+            });
         }
     });
 
@@ -672,6 +664,7 @@ internal static class WindowsTestHost
                                 {
                                     handlers.AddHandler<Microsoft.Maui.Controls.Layout, Microsoft.Maui.Handlers.LayoutHandler>();
                                     handlers.AddHandler<Microsoft.Maui.Controls.Button, Microsoft.Maui.Handlers.ButtonHandler>();
+                                    handlers.AddHandler<Microsoft.Maui.Controls.Label, Microsoft.Maui.Handlers.LabelHandler>();
                                 }).Build();
                                 completion.SetResult(dispatcher);
                             }

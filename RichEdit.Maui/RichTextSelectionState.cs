@@ -44,6 +44,6 @@ public readonly record struct RichTextSelectionState
         return new RichTextSelectionState(anchor, active).Clamp(length);
     }
 
-    internal static int MapOffset(int offset, RichTextTextChange change) => offset < change.OldRange.Start ? offset :
-        offset >= change.OldRange.End ? checked(offset + change.NewRange.Length - change.OldRange.Length) : change.NewRange.End;
+    internal static int MapOffset(int offset, RichTextTextChange change) =>
+        RichTextPositionMap.Map(offset, change, RichTextTrackingAffinity.AfterInsertion)!.Value;
 }

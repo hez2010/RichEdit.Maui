@@ -28,6 +28,7 @@ public partial class RichEditorHandler
     private NativeFormatWatcher? _formatWatcher;
     private IEditable? _watchedText;
     private bool _nativeFormatReadbackQueued;
+    private int _nativeTextChangeDepth;
     private int _projectionGeneration;
     private int _queuedProjectionGeneration;
     private RichTextDocument? _queuedDocument;
@@ -96,6 +97,7 @@ public partial class RichEditorHandler
         _formatWatcher?.Dispose();
         _formatWatcher = null;
         platformView.TextChanged -= OnNativeDocumentChanged;
+        _nativeTextChangeDepth = 0;
         platformView.NativeSelectionChanged -= OnNativeSelectionChanged;
         DisconnectFolding();
         platformView.EditingCompleted -= OnNativeEditingCompleted;
@@ -153,7 +155,7 @@ public partial class RichEditorHandler
             return true;
         }
 
-        var position = Math.Clamp(PlatformView.SelectionStart, 0, VirtualView.Document.Length);
+        var position = Math.Clamp(NativeProjection.ToSource(PlatformView.SelectionStart), 0, VirtualView.Document.Length);
         var link = VirtualView.Document.CurrentSnapshot.Links.FirstOrDefault(candidate =>
             candidate.Start <= position && position < candidate.End &&
             string.Equals(candidate.Target, target, StringComparison.Ordinal));
@@ -173,17 +175,19 @@ public partial class RichEditorHandler
             return true;
         }
 
+        if (NativeProjection.ContainsDisplayCharacter(position)) return false;
+        position = NativeProjection.ToSource(position);
         var image = VirtualView.Document.CurrentSnapshot.Images.FirstOrDefault(candidate =>
             candidate.Position == position);
         return image is null || VirtualView.RaiseInlineObjectInvoked(image);
     }
 
-    private partial void ApplyDocumentCore(
+    private partial void ApplyDisplayDocumentCore(
         RichTextDocumentSnapshot document,
         int selectionStart,
         int selectionLength)
     {
-        document = VirtualView.Decorations.Project(document);
+        // The shared projection has already composed source appearance and reservations.
         if (PlatformView is null)
         {
             return;
@@ -299,18 +303,18 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void ApplyDecorationsCore(RichTextChangeSet changes) => ApplyIncrementalChangesCore(
+    private partial void ApplyDecorationsCore(RichTextChangeSet changes) => ApplyDisplayChangesCore(
         changes, VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat,
         GetPreviousDecorationSnapshot(changes));
 
-    private partial void ApplyIncrementalChangesCore(
+    private partial void ApplyDisplayChangesCore(
         RichTextChangeSet changes,
         RichTextRange selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
-        => ApplyIncrementalChangesCore(changes, selection, typingCharacterFormat, typingParagraphFormat, GetPreviousFormattingSnapshot(changes));
+        => ApplyDisplayChangesCore(changes, selection, typingCharacterFormat, typingParagraphFormat, GetPreviousFormattingSnapshot(changes));
 
-    private void ApplyIncrementalChangesCore(
+    private void ApplyDisplayChangesCore(
         RichTextChangeSet changes,
         RichTextRange selection,
         RichTextCharacterFormat typingCharacterFormat,
@@ -324,21 +328,17 @@ public partial class RichEditorHandler
 
         if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
         {
-            ApplyDocumentCore(
-                VirtualView.PresentationSnapshot,
+            ApplyCurrentDocument(
                 selection.Start,
                 selection.Length);
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
             return;
         }
 
-        var snapshot = VirtualView.PresentationSnapshot;
+        var snapshot = DisplayPresentationSnapshot;
         _applyingDocument = true;
         _projectionGeneration++;
         var filters = editable.GetFilters();
-        // These callbacks are ignored during projection; avoid crossing JNI for every span.
-        var formatWatcher = _formatWatcher;
-        if (formatWatcher is not null) editable.RemoveSpan(formatWatcher);
         PlatformView.BeginBatchEdit();
         try
         {
@@ -396,6 +396,7 @@ public partial class RichEditorHandler
                     characterRange.Start,
                     characterRange.End);
                 RemoveSpans<ImageSpan>(editable, characterRange.Start, characterRange.End);
+                RemoveSpans<RichAdornmentSpan>(editable, characterRange.Start, characterRange.End);
                 foreach (var image in snapshot.Images.Where(image =>
                              image.Position >= characterRange.Start &&
                              image.Position < characterRange.End))
@@ -413,8 +414,6 @@ public partial class RichEditorHandler
         {
             editable.SetFilters(filters);
             PlatformView.EndBatchEdit();
-            if (formatWatcher is not null)
-                editable.SetSpan(formatWatcher, 0, editable.Length(), SpanTypes.InclusiveInclusive);
             _applyingDocument = false;
         }
     }
@@ -597,17 +596,21 @@ public partial class RichEditorHandler
             paragraph.Format.Direction == RichTextDirection.LeftToRight);
         var allRightToLeft = snapshot.Paragraphs.All(static paragraph =>
             paragraph.Format.Direction == RichTextDirection.RightToLeft);
-        PlatformView.JustificationMode = allJustified
+        var justification = allJustified
             ? JustificationMode.InterWord
             : JustificationMode.None;
-        PlatformView.HyphenationFrequency = allHyphenated
+        var hyphenation = allHyphenated
             ? global::Android.Text.HyphenationFrequency.Normal
             : global::Android.Text.HyphenationFrequency.None;
-        PlatformView.TextDirection = allRightToLeft
+        var direction = allRightToLeft
             ? TextDirection.Rtl
             : allLeftToRight
                 ? TextDirection.Ltr
                 : TextDirection.FirstStrong;
+        // These TextView setters discard DynamicLayout even when the value is unchanged.
+        if (PlatformView.JustificationMode != justification) PlatformView.JustificationMode = justification;
+        if (PlatformView.HyphenationFrequency != hyphenation) PlatformView.HyphenationFrequency = hyphenation;
+        if (PlatformView.TextDirection != direction) PlatformView.TextDirection = direction;
     }
 
     private static RichTextRange GetAffectedRange(
@@ -757,13 +760,18 @@ public partial class RichEditorHandler
     private partial void SetNativeSelectionCore(RichTextSelectionState selection)
     {
         if (PlatformView is null) return;
+        if (PlatformView.SelectionStart == selection.Anchor && PlatformView.SelectionEnd == selection.Active) return;
         var wasApplying = _applyingDocument;
         _applyingDocument = true;
         try { PlatformView.SetSelection(selection.Anchor, selection.Active); }
         finally { _applyingDocument = wasApplying; }
     }
 
-    private partial void ScrollIntoViewCore(RichTextRange range) => PlatformView.BringPointIntoView(range.Start);
+    private partial void ScrollIntoViewCore(RichTextRange range)
+    {
+        _adornmentScrollAnchor = null;
+        PlatformView.BringPointIntoView(range.Start);
+    }
 
     // Android's public TextView API does not expose its internal undo manager or
     // CanUndo/CanRedo state, so the portable document history remains the fallback.
@@ -845,8 +853,8 @@ public partial class RichEditorHandler
                 {
                     ApplyCharacterFormatsIncrementally(
                         editable,
-                        editor.PresentationSnapshot,
-                        new RichTextRange(0, editor.Document.Length));
+                        DisplayPresentationSnapshot,
+                        new RichTextRange(0, DisplayPresentationSnapshot.Length));
                 }
 
                 SetSelectionCore(editor.SelectedRange.Start, editor.SelectedRange.Length);
@@ -911,9 +919,7 @@ public partial class RichEditorHandler
 
             PlatformView.SetCursorVisible(!editor.IsReadOnly);
             PlatformView.AcceptsTab = editor.AcceptsTab;
-            PlatformView.SetFilters(editor.MaxLength < 0
-                ? []
-                : [new InputFilterLengthFilter(editor.MaxLength)]);
+            UpdateDisplayInputLimit();
             WatchNativeFormats();
             SetSelectionCore(selection.Start, selection.Length);
             ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
@@ -1216,6 +1222,12 @@ public partial class RichEditorHandler
 
     private void ApplyImage(ISpannable text, RichTextImage image)
     {
+        if (image.Adornment is { } adornment)
+        {
+            text.SetSpan(new RichAdornmentSpan(ToPixels(image.Width), ToPixels(image.Height), ToPixels(adornment.Options.Baseline ?? image.Height)),
+                image.Position, image.Position + 1, SpanTypes.ExclusiveExclusive);
+            return;
+        }
         if (image.Position < 0 || image.Position >= text.Length())
         {
             return;
@@ -1290,7 +1302,7 @@ public partial class RichEditorHandler
             return RichTextDocumentSnapshot.FromPlainText(text);
         }
 
-        var previous = VirtualView.Document.CurrentSnapshot;
+        var previous = DisplaySourceSnapshot;
         var remappedPrevious = previous.RemapText(text, replacedRange);
         var defaultCharacterFormat = previous.DefaultCharacterFormat;
         var inheritedCharacterFormat =
@@ -1396,7 +1408,7 @@ public partial class RichEditorHandler
     {
         var metadata = GetSpans<RichCharacterMetadataSpan>(text, position, position + 1).LastOrDefault();
         var format = metadata?.Format ?? defaultFormat;
-        var expected = VirtualView.Document.CurrentSnapshot.ResolveCharacterFormat(format);
+        var expected = DisplaySourceSnapshot.ResolveCharacterFormat(format);
         var styles = GetSpans<StyleSpan>(text, position, position + 1).ToArray();
         if (metadata is not null)
         {
@@ -1715,6 +1727,12 @@ public partial class RichEditorHandler
         return [.. images.Values.OrderBy(image => image.Position)];
     }
 
+    internal void BeginNativeTextChange() => _nativeTextChangeDepth++;
+    internal void EndNativeTextChange()
+    {
+        if (_nativeTextChangeDepth > 0 && --_nativeTextChangeDepth == 0) UpdateCompositionState();
+    }
+
     private void OnNativeDocumentChanged(object? sender, Android.Text.TextChangedEventArgs eventArgs)
     {
         if (_applyingDocument || VirtualView is null || PlatformView?.EditableText is not { } editable)
@@ -1722,7 +1740,8 @@ public partial class RichEditorHandler
             return;
         }
 
-        var previousDocument = VirtualView.Document.CurrentSnapshot;
+        var previousDocument = DisplaySourceSnapshot;
+        UpdateCompositionState();
         var previousText = previousDocument.Text;
         var removedStart = Math.Clamp(eventArgs.Start, 0, previousText.Length);
         var removedLength = Math.Clamp(
@@ -1763,12 +1782,15 @@ public partial class RichEditorHandler
 
         insertedStart = Math.Clamp(insertedStart, 0, document.Text.Length);
         insertedLength = Math.Clamp(insertedLength, 0, document.Text.Length - insertedStart);
+        // Keep native metadata bounded by the painted runs. Normalizing against an
+        // authored run spanning the whole document would rebuild every decorated run.
+        var presentation = PreserveNativePresentation(document);
 
         if (!requiresNativeSnapshot && insertedLength > 0)
         {
             ApplyInsertedTypingFormat(
                 editable,
-                document,
+                presentation,
                 new RichTextRange(insertedStart, insertedLength));
         }
 
@@ -1791,8 +1813,8 @@ public partial class RichEditorHandler
 
         var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Text.Length);
         var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Text.Length);
-        VirtualView.UpdateDocumentFromPlatform(document, start, end - start, _sourceToken, selectionState: new RichTextSelectionState(
-            Math.Clamp(PlatformView.SelectionStart, 0, document.Length), Math.Clamp(PlatformView.SelectionEnd, 0, document.Length)));
+        UpdateDocumentFromDisplay(document, start, end - start, _sourceToken, selectionState: new RichTextSelectionState(
+            Math.Clamp(PlatformView.SelectionStart, 0, document.Length), Math.Clamp(PlatformView.SelectionEnd, 0, document.Length)), presentation: presentation);
         WatchNativeFormats();
         UpdateTypingFormatsFromPlatform();
     }
@@ -1830,20 +1852,27 @@ public partial class RichEditorHandler
             var snapshot = ReadDocumentFromPlatform(PlatformView.Text ?? string.Empty);
             var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, snapshot.Length);
             var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, snapshot.Length);
-            VirtualView.UpdateDocumentFromPlatform(snapshot, start, end - start, _sourceToken, mergeWithPrevious: _queuedDocument!.Version != _queuedVersion);
+            UpdateDocumentFromDisplay(snapshot, start, end - start, _sourceToken, mergeWithPrevious: _queuedDocument!.Version != _queuedVersion);
             UpdateTypingFormatsFromPlatform();
         });
     }
 
-    private sealed class NativeFormatWatcher(RichEditorHandler handler) : Java.Lang.Object, ISpanWatcher
+    private sealed class NativeFormatWatcher(RichEditorHandler handler) : Java.Lang.Object, ISpanWatcher, INoCopySpan
     {
         private readonly WeakReference<RichEditorHandler> _handler = new(handler);
         public void OnSpanAdded(ISpannable? text, Java.Lang.Object? what, int start, int end) => Changed(text, what);
         public void OnSpanRemoved(ISpannable? text, Java.Lang.Object? what, int start, int end) => Changed(text, what);
-        public void OnSpanChanged(ISpannable? text, Java.Lang.Object? what, int oldStart, int oldEnd, int newStart, int newEnd) => Changed(text, what);
-        private void Changed(ISpannable? text, Java.Lang.Object? what)
+        public void OnSpanChanged(ISpannable? text, Java.Lang.Object? what, int oldStart, int oldEnd, int newStart, int newEnd) => Changed(text, what, moved: true);
+        private void Changed(ISpannable? text, Java.Lang.Object? what, bool moved = false)
         {
-            if (text is not null && what is not null && _handler.TryGetTarget(out var handler)) handler.QueueNativeFormatReadback(text, what);
+            if (text is not null && what is not null && _handler.TryGetTarget(out var handler))
+            {
+                // Text edits already reconcile source and composition once. Moving
+                // every later span is not a separate native formatting operation.
+                if (handler._applyingDocument || moved && handler._nativeTextChangeDepth != 0) return;
+                handler.UpdateCompositionState();
+                handler.QueueNativeFormatReadback(text, what);
+            }
         }
     }
 
@@ -1857,13 +1886,13 @@ public partial class RichEditorHandler
         var start = Math.Clamp(
             Math.Min(eventArgs.Start, eventArgs.End),
             0,
-            VirtualView.Document.Text.Length);
+            DisplaySourceSnapshot.Text.Length);
         var end = Math.Clamp(
             Math.Max(eventArgs.Start, eventArgs.End),
             start,
-            VirtualView.Document.Text.Length);
-        VirtualView.UpdateSelectionFromPlatform(new RichTextSelectionState(
-            Math.Clamp(eventArgs.Start, 0, VirtualView.Document.Length), Math.Clamp(eventArgs.End, 0, VirtualView.Document.Length)));
+            DisplaySourceSnapshot.Text.Length);
+        UpdateSelectionFromDisplay(new RichTextSelectionState(
+            Math.Clamp(eventArgs.Start, 0, DisplaySourceSnapshot.Length), Math.Clamp(eventArgs.End, 0, DisplaySourceSnapshot.Length)));
         UpdateTypingFormatsFromPlatform();
     }
 

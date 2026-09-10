@@ -108,7 +108,7 @@ internal static partial class EditorContractTests
             editor.SelectedRange = new(5, 3);
             editor.Selection.CharacterFormat.Bold = true;
             using var colors = editor.Decorations.CreateLayer();
-            colors.Set((RichTextDecoration[])[new(new(0, editor.Document.Length), new() { ForegroundColor = Colors.Blue })]);
+            colors.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, editor.Document.Length), new() { ForegroundColor = Colors.Blue })]);
             await Verify(editor);
             Equal(false, editor.Document.GetCharacterFormat(new(5, 3)).RepresentativeFormat.Hidden);
             editor.Folding.ExpandAll();

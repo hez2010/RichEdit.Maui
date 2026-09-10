@@ -58,6 +58,9 @@ public sealed class RichTextDocumentSnapshot
     /// <summary>Gets the document version captured by this snapshot.</summary>
     public long Version { get; }
 
+    /// <summary>Gets the owning document's opaque revision, or an invalid value for a standalone fragment.</summary>
+    public RichTextRevision Revision { get; private init; }
+
     /// <summary>Gets the logical UTF-16 text length.</summary>
     public int Length => Text.Length;
 
@@ -473,8 +476,15 @@ public sealed class RichTextDocumentSnapshot
         RichTextParagraphFormat? defaultParagraphFormat = null,
         IEnumerable<KeyValuePair<string, string>>? metadata = null,
         IEnumerable<RichTextListPicture>? listPictures = null,
-        IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>>? lists = null) =>
-        new(
+        IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>>? lists = null)
+    {
+        // Character presentation changes reuse the immutable source structure. Revalidating
+        // every paragraph and semantic object here made dense decoration updates allocate
+        // complete document indexes repeatedly, even though only character runs changed.
+        if (text is null && paragraphs is null && links is null && fields is null && images is null &&
+            defaultCharacterFormat is null && defaultParagraphFormat is null && metadata is null && listPictures is null && lists is null)
+            return new(this, runs);
+        return new(
             text ?? Text,
             runs ?? _runs,
             paragraphs ?? _paragraphs,
@@ -486,21 +496,35 @@ public sealed class RichTextDocumentSnapshot
             metadata ?? _metadata,
             listPictures ?? _listPictures.Values,
             lists ?? _lists);
+    }
 
-    internal RichTextDocumentSnapshot WithVersion(long version) =>
-        new(
-            Text,
-            _runs,
-            _paragraphs,
-            _links,
-            _fields,
-            _images,
-            DefaultCharacterFormat,
-            DefaultParagraphFormat,
-            _metadata,
-            _listPictures.Values,
-            _lists,
-            version);
+    private RichTextDocumentSnapshot(RichTextDocumentSnapshot source, IEnumerable<RichTextRun>? runs) : this(source, 0, null)
+    {
+        Revision = default;
+        _cachedRtf = null;
+        _runs = runs is null ? source._runs : NormalizeRuns(Text.Length, runs, DefaultCharacterFormat);
+    }
+
+    private RichTextDocumentSnapshot(RichTextDocumentSnapshot source, long version, object? identity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(version);
+        Version = version;
+        Revision = new(identity ?? source.Revision.Identity, version);
+        Text = source.Text;
+        DefaultCharacterFormat = source.DefaultCharacterFormat;
+        DefaultParagraphFormat = source.DefaultParagraphFormat;
+        _runs = source._runs;
+        _paragraphs = source._paragraphs;
+        _links = source._links;
+        _fields = source._fields;
+        _images = source._images;
+        _lists = source._lists;
+        _listPictures = source._listPictures;
+        _metadata = source._metadata;
+        _cachedRtf = source._cachedRtf;
+    }
+
+    internal RichTextDocumentSnapshot WithVersion(long version, object? identity = null) => new(this, version, identity);
 
     internal RichTextDocumentSnapshot PruneUnreferencedListResources()
     {
@@ -698,7 +722,7 @@ public sealed class RichTextDocumentSnapshot
         first.All(pair => second.TryGetValue(pair.Key, out var value) &&
             EqualityComparer<TValue>.Default.Equals(pair.Value, value));
 
-    private static string NormalizeText(string? text) =>
+    internal static string NormalizeText(string? text) =>
         (text ?? string.Empty)
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n');
@@ -735,7 +759,8 @@ public sealed class RichTextDocumentSnapshot
                 AddRun(result, new RichTextRun(position, run.Start - position, inheritedDefault));
             }
 
-            AddRun(result, run with { Format = Validate(run.Format) });
+            var format = Validate(run.Format);
+            AddRun(result, ReferenceEquals(format, run.Format) ? run : run with { Format = format });
             position = run.End;
         }
 
@@ -1009,13 +1034,15 @@ public sealed class RichTextDocumentSnapshot
 
     private static ImmutableArray<RichTextParagraph> BindParagraphLists(
         ImmutableArray<RichTextParagraph> paragraphs,
-        ImmutableDictionary<RichTextListId, RichTextListDefinition> lists) =>
-        [
-            .. paragraphs.Select(paragraph => paragraph with
-            {
-                Format = BindParagraphList(paragraph.Format, lists),
-            }),
-        ];
+        ImmutableDictionary<RichTextListId, RichTextListDefinition> lists)
+    {
+        if (paragraphs.All(static paragraph => paragraph.Format.List is null && paragraph.Format.NativeList is null)) return paragraphs;
+        return [.. paragraphs.Select(paragraph =>
+        {
+            var format = BindParagraphList(paragraph.Format, lists);
+            return ReferenceEquals(format, paragraph.Format) ? paragraph : paragraph with { Format = format };
+        })];
+    }
 
     private static RichTextParagraphFormat BindParagraphList(
         RichTextParagraphFormat format,
@@ -1029,7 +1056,7 @@ public sealed class RichTextDocumentSnapshot
 
         if (item is null)
         {
-            return format with { List = null, NativeList = null };
+            return format;
         }
 
         if (!lists.TryGetValue(item.ListId, out var definition) ||
@@ -1114,14 +1141,23 @@ public sealed class RichTextDocumentSnapshot
             throw new ArgumentException("Character formatting contains an invalid value.", nameof(format));
         }
 
+        var foreground = NormalizeVisibleColor(format.ForegroundColor);
+        var background = NormalizeVisibleColor(format.BackgroundColor);
+        var underline = NormalizeVisibleColor(format.UnderlineColor);
+        var strikethrough = NormalizeVisibleColor(format.StrikethroughColor);
+        var shadingForeground = NormalizeVisibleColor(format.ShadingForegroundColor);
+        var shadingBackground = NormalizeVisibleColor(format.ShadingBackgroundColor);
+        if (ReferenceEquals(foreground, format.ForegroundColor) && ReferenceEquals(background, format.BackgroundColor) &&
+            ReferenceEquals(underline, format.UnderlineColor) && ReferenceEquals(strikethrough, format.StrikethroughColor) &&
+            ReferenceEquals(shadingForeground, format.ShadingForegroundColor) && ReferenceEquals(shadingBackground, format.ShadingBackgroundColor)) return format;
         return format with
         {
-            ForegroundColor = NormalizeVisibleColor(format.ForegroundColor),
-            BackgroundColor = NormalizeVisibleColor(format.BackgroundColor),
-            UnderlineColor = NormalizeVisibleColor(format.UnderlineColor),
-            StrikethroughColor = NormalizeVisibleColor(format.StrikethroughColor),
-            ShadingForegroundColor = NormalizeVisibleColor(format.ShadingForegroundColor),
-            ShadingBackgroundColor = NormalizeVisibleColor(format.ShadingBackgroundColor),
+            ForegroundColor = foreground,
+            BackgroundColor = background,
+            UnderlineColor = underline,
+            StrikethroughColor = strikethrough,
+            ShadingForegroundColor = shadingForeground,
+            ShadingBackgroundColor = shadingBackground,
         };
     }
 
@@ -1177,14 +1213,22 @@ public sealed class RichTextDocumentSnapshot
 
         ValidateColor(format.Border?.Color);
 
+        var orderedTabs = !format.TabStops.IsDefault;
+        for (var index = 1; index < tabs.Length; index++) orderedTabs &= tabs[index - 1].Position < tabs[index].Position;
+        var background = NormalizeVisibleColor(format.BackgroundColor);
+        var shadingForeground = NormalizeVisibleColor(format.ShadingForegroundColor);
+        var shadingBackground = NormalizeVisibleColor(format.ShadingBackgroundColor);
+        var borderColor = NormalizeVisibleColor(format.Border?.Color);
+        if (orderedTabs && ReferenceEquals(background, format.BackgroundColor) && ReferenceEquals(shadingForeground, format.ShadingForegroundColor) &&
+            ReferenceEquals(shadingBackground, format.ShadingBackgroundColor) && ReferenceEquals(borderColor, format.Border?.Color)) return format;
         return format with
         {
-            TabStops = [.. tabs.OrderBy(tab => tab.Position).DistinctBy(tab => tab.Position)],
-            BackgroundColor = NormalizeVisibleColor(format.BackgroundColor),
-            ShadingForegroundColor = NormalizeVisibleColor(format.ShadingForegroundColor),
-            ShadingBackgroundColor = NormalizeVisibleColor(format.ShadingBackgroundColor),
+            TabStops = orderedTabs ? tabs : [.. tabs.OrderBy(tab => tab.Position).DistinctBy(tab => tab.Position)],
+            BackgroundColor = background,
+            ShadingForegroundColor = shadingForeground,
+            ShadingBackgroundColor = shadingBackground,
             Border = format.Border is { } visibleBorder
-                ? visibleBorder with { Color = NormalizeVisibleColor(visibleBorder.Color) }
+                ? ReferenceEquals(borderColor, visibleBorder.Color) ? visibleBorder : visibleBorder with { Color = borderColor }
                 : null,
         };
     }

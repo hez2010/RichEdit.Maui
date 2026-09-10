@@ -29,11 +29,11 @@ public sealed partial class CodeEditor
             foreach (var character in Document.Text.AsSpan(line.Start, SelectedRange.Start - line.Start))
                 column += character == '\t' ? IndentSize - column % IndentSize : 1;
             var indentation = UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize);
-            ApplyEdits((CodeTextEdit[])[new(SelectedRange, indentation)], "Indent");
+            ApplyEdits((RichTextEdit[])[new(SelectedRange, indentation)], "Indent");
             return;
         }
         var (first, last) = Lines.GetSelectedLines(SelectedRange);
-        var edits = new List<CodeTextEdit>();
+        var edits = new List<RichTextEdit>();
         for (var line = first; line <= last; line++)
             edits.Add(new(new RichTextRange(Lines.GetRange(line).Start, 0), Indentation));
         ApplyEdits(edits, "Indent lines");
@@ -44,7 +44,7 @@ public sealed partial class CodeEditor
     {
         if (IsReadOnly) return;
         var (first, last) = Lines.GetSelectedLines(SelectedRange);
-        var edits = new List<CodeTextEdit>();
+        var edits = new List<RichTextEdit>();
         for (var line = first; line <= last; line++)
         {
             var range = Lines.GetRange(line);
@@ -61,7 +61,7 @@ public sealed partial class CodeEditor
     internal void InsertNewLine()
     {
         if (IsReadOnly) return;
-        ApplyEdits((CodeTextEdit[])[new(SelectedRange, "\n" + (AutoIndent ? GetIndentation(SelectedRange.Start) : string.Empty))], "New line");
+        ApplyEdits((RichTextEdit[])[new(SelectedRange, "\n" + (AutoIndent ? GetIndentation(SelectedRange.Start) : string.Empty))], "New line");
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>
@@ -79,7 +79,7 @@ public sealed partial class CodeEditor
         }
         var uncomment = targets.Count > 0 && targets.All(range =>
             Document.Text.AsSpan(range.Start, range.Length).StartsWith(LineCommentPrefix, StringComparison.Ordinal));
-        var edits = new List<CodeTextEdit>();
+        var edits = new List<RichTextEdit>();
         foreach (var range in targets)
         {
             if (uncomment)
@@ -126,7 +126,7 @@ public sealed partial class CodeEditor
 
     private void QueueNativeAutoIndent(RichTextChangeSet changes)
     {
-        if (!AutoIndent || IsReadOnly || NativeAdapter is not { } handler || handler.IsComposing) return;
+        if (!AutoIndent || IsReadOnly || NativeAdapter is not { } handler || Composition.IsActive) return;
         var replacements = changes.Changes.OfType<RichTextTextChange>().ToArray();
         if (replacements is not [{ InsertedText: "\n" } change]) return;
         var indentation = GetIndentation(change.NewRange.Start);
@@ -136,38 +136,23 @@ public sealed partial class CodeEditor
         var caret = new RichTextRange(change.NewRange.End, 0);
         handler.Post(() =>
         {
-            if (ReferenceEquals(NativeAdapter, handler) && !handler.IsComposing && AutoIndent && !IsReadOnly && CanUndo &&
+            if (ReferenceEquals(NativeAdapter, handler) && !Composition.IsActive && AutoIndent && !IsReadOnly && CanUndo &&
                 ReferenceEquals(Document, document) && document.Version == version && SelectedRange == caret)
-                ApplyEdits((CodeTextEdit[])[new(caret, indentation)], "New line", RichTextUndoBehavior.MergeWithPrevious);
+                ApplyEdits((RichTextEdit[])[new(caret, indentation)], "New line", RichTextUndoBehavior.MergeWithPrevious);
         });
     }
 
-    private bool ApplyEdits(IReadOnlyList<CodeTextEdit> edits, string description,
-        RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit)
-    {
-        if (IsReadOnly || edits.Count == 0) return false;
-        var resultingLength = (long)Document.Length + edits.Sum(static edit => (long)edit.Text.Length - edit.Range.Length);
-        if (resultingLength > int.MaxValue || MaxLength >= 0 && resultingLength > MaxLength && resultingLength > Document.Length) return false;
-        var anchor = SelectionState.Anchor;
-        var active = SelectionState.Active;
-        for (var i = edits.Count - 1; i >= 0; i--)
-        {
-            anchor = MapPosition(anchor, edits[i]);
-            active = MapPosition(active, edits[i]);
-        }
-        TextView.Selection.Edit(edit =>
-        {
-            for (var i = edits.Count - 1; i >= 0; i--)
-            {
-                var replacement = edits[i];
-                edit.ReplaceText(replacement.Range, replacement.Text);
-            }
-        }, new RichTextSelectionState(anchor, active), new RichTextEditOptions(undoBehavior, description));
-        return true;
-    }
+    private bool ApplyEdits(IReadOnlyList<RichTextEdit> edits, string description,
+        RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit) =>
+        TryApplyEdits(Document.Revision, edits, options: new RichTextEditOptions(undoBehavior, description));
 
-    private static int MapPosition(int position, CodeTextEdit edit) => position < edit.Range.Start ? position :
-        position >= edit.Range.End ? position + edit.Text.Length - edit.Range.Length : edit.Range.Start + edit.Text.Length;
-
-    private readonly record struct CodeTextEdit(RichTextRange Range, string Text);
+    /// <summary>Applies a checked source edit through the shared rich-editor transaction mechanism.</summary>
+    /// <param name="revision">The captured source revision.</param>
+    /// <param name="edits">Original-coordinate source replacements.</param>
+    /// <param name="selectionAfter">The resulting directional selection, or null to map the current selection.</param>
+    /// <param name="options">Undo and application metadata.</param>
+    /// <returns>Whether the current view accepted the revision and edits.</returns>
+    public bool TryApplyEdits(RichTextRevision revision, IReadOnlyList<RichTextEdit> edits,
+        RichTextSelectionState? selectionAfter = null, RichTextEditOptions options = default) =>
+        TextView.TryApplyEdits(revision, edits, selectionAfter, options);
 }

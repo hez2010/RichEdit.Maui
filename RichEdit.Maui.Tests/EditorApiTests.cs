@@ -103,9 +103,19 @@ public partial class EditorApiTests
             Assert.Equal(new RichTextRange(1, 4), fixture.Editor.SelectedRange);
             Assert.True((fixture.Handler.PlatformView.Document.Selection.Options & SelectionOptions.StartActive) != 0);
             var native = fixture.Handler.PlatformView.Document.Selection;
-            native.SetRange(2, 4);
-            native.Options |= SelectionOptions.StartActive;
-            await Task.Delay(40);
+            var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnSelectionChanged(object? sender, RichTextSelectionChangedEventArgs args)
+            {
+                if (fixture.Editor.SelectionState == new RichTextSelectionState(4, 2)) observed.TrySetResult();
+            }
+            fixture.Editor.SelectionChanged += OnSelectionChanged;
+            try
+            {
+                native.SetRange(2, 4);
+                native.Options |= SelectionOptions.StartActive;
+                await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            finally { fixture.Editor.SelectionChanged -= OnSelectionChanged; }
             Assert.Equal(new RichTextSelectionState(4, 2), fixture.Editor.SelectionState);
             fixture.Editor.SelectionState = new(1, 5);
             Assert.False((native.Options & SelectionOptions.StartActive) != 0);
@@ -217,8 +227,8 @@ public partial class EditorApiTests
         document.Changed += (_, _) => changes++;
         using var foreground = editor.Decorations.CreateLayer();
         using var background = editor.Decorations.CreateLayer();
-        foreground.Set((RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
-        background.Set((RichTextDecoration[])[new(new(1, 1), new() { BackgroundColor = Colors.Yellow })]);
+        foreground.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
+        background.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(1, 1), new() { BackgroundColor = Colors.Yellow })]);
         Assert.Equal(Colors.Green, fixture.Foreground(1));
         Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 255, 0), fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat.BackgroundColor);
         editor.SelectionState = new(2, 0);
@@ -251,12 +261,12 @@ public partial class EditorApiTests
         var snapshot = document.CurrentSnapshot;
         var version = document.Version;
         using var layer = editor.Decorations.CreateLayer();
-        layer.Set((RichTextDecoration[])[new(new(0, 4), new() { ForegroundColor = Colors.Green })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 4), new() { ForegroundColor = Colors.Green })]);
         Assert.Equal(Colors.Green, fixture.Foreground(0));
         Assert.Equal(Colors.Green, fixture.Foreground(3));
         Assert.Equal(Colors.Red, fixture.Foreground(4));
 
-        layer.Set((RichTextDecoration[])[
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[
             new(new(0, 1), new() { ForegroundColor = Colors.Purple }),
             new(new(5, 1), new() { ForegroundColor = Colors.Purple }),
         ]);
@@ -286,7 +296,7 @@ public partial class EditorApiTests
         using var fixture = new RichFixture(RichTextDocument.FromPlainText("abc"));
         var editor = fixture.Editor;
         using var layer = editor.Decorations.CreateLayer();
-        layer.Set((RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
         var snapshot = editor.PresentationSnapshot;
         var format = fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat;
         format.ForegroundColor = Windows.UI.Color.FromArgb(255, 255, 0, 0);
@@ -306,7 +316,7 @@ public partial class EditorApiTests
         using var fixture = new RichFixture(RichTextDocument.FromPlainText("abc"));
         var editor = fixture.Editor;
         using var layer = editor.Decorations.CreateLayer();
-        layer.Set((RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green })]);
         editor.SelectionState = new(1, 1);
         fixture.Handler.PlatformView.Document.Selection.TypeText("x");
         await Task.Delay(100);

@@ -104,9 +104,9 @@ public partial class IncrementalCharacterFormattingTests
         var editor = fixture.Editor;
         editor.Document.Edit(edit => edit.SetCharacterFormat(new(0, 6), new() { FontWeight = 700, Italic = true }));
         using var layer = editor.Decorations.CreateLayer();
-        layer.Set((RichTextDecoration[])[new(new(0, 6), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 6), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
         var before = editor.PresentationSnapshot;
-        layer.Set((RichTextDecoration[])[new(new(0, 6), new() { ForegroundColor = Colors.Red, Underline = RichTextUnderlineStyle.Double })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 6), new() { ForegroundColor = Colors.Red, Underline = RichTextUnderlineStyle.Double })]);
         var after = editor.PresentationSnapshot;
         var nativeFormat = fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat;
         nativeFormat.Weight = 400;
@@ -127,13 +127,13 @@ public partial class IncrementalCharacterFormattingTests
         var editor = fixture.Editor;
         using var first = editor.Decorations.CreateLayer();
         using var second = editor.Decorations.CreateLayer();
-        first.Set((RichTextDecoration[])[new(new(1, 10), new() { BackgroundColor = Colors.Yellow, Underline = RichTextUnderlineStyle.Double })]);
-        second.Set((RichTextDecoration[])[new(new(4, 10), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Pink })]);
+        first.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(1, 10), new() { BackgroundColor = Colors.Yellow, Underline = RichTextUnderlineStyle.Double })]);
+        second.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(4, 10), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Pink })]);
         editor.Document.Edit(edit => edit.SetCharacterFormat(new(7, 6), new() { FontWeight = 700, Italic = true }));
         AssertMatchesFullProjection(fixture);
         editor.Document.Edit(edit => edit.SetDefaultCharacterFormat(new() { FontFamily = "Consolas", FontSize = 20, ForegroundColor = Colors.Navy }));
         AssertMatchesFullProjection(fixture);
-        first.Set((RichTextDecoration[])[new(new(2, 8), new() { BackgroundColor = Colors.Blue, Underline = RichTextUnderlineStyle.Wave })]);
+        first.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(2, 8), new() { BackgroundColor = Colors.Blue, Underline = RichTextUnderlineStyle.Wave })]);
         AssertMatchesFullProjection(fixture);
         second.Clear();
         AssertMatchesFullProjection(fixture);
