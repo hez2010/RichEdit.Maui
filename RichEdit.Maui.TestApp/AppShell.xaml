@@ -4,15 +4,19 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:local="clr-namespace:RichEdit.Maui.TestApp"
-    Title="RichEdit.Maui.TestApp">
+    Title="RichEdit Studio"
+    FlyoutBehavior="Disabled"
+    Shell.NavBarIsVisible="False">
 
     <TabBar>
         <ShellContent
             Title="Rich editor"
+            Icon="rich_text.png"
             ContentTemplate="{DataTemplate local:RichEditorPage}"
             Route="RichEditorPage" />
         <ShellContent
             Title="Code editor"
+            Icon="code_text.png"
             ContentTemplate="{DataTemplate local:CodeEditorPage}"
             Route="CodeEditorPage" />
     </TabBar>

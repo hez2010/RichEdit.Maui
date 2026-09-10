@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                    xmlns:local="clr-namespace:RichEdit.Maui.TestApp"
+                    xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui">
+    <DataTemplate x:Key="InlineHintTemplate" x:DataType="x:String">
+        <Label Text="{Binding .}" FontSize="12" Padding="4,0" VerticalTextAlignment="Center"
+               TextColor="{AppThemeBinding Light={StaticResource LightMuted}, Dark={StaticResource DarkMuted}}"
+               BackgroundColor="{AppThemeBinding Light={StaticResource LightControl}, Dark={StaticResource DarkControl}}" />
+    </DataTemplate>
+    <DataTemplate x:Key="CodeActionTemplate" x:DataType="local:CodeLineAction">
+        <HorizontalStackLayout Padding="0,5" Spacing="8">
+            <Button Text="{Binding Title}" Command="{Binding Apply}" Style="{StaticResource InlineAction}" />
+            <Label Text="SUGGESTED EDIT" Style="{StaticResource Eyebrow}" VerticalOptions="Center" FontSize="9" />
+        </HorizontalStackLayout>
+    </DataTemplate>
+    <DataTemplate x:Key="FoldIndicatorTemplate">
+        <Button FontSize="12" Padding="0" WidthRequest="24" HeightRequest="20" MinimumWidthRequest="0" MinimumHeightRequest="0"
+                BackgroundColor="{AppThemeBinding Light={StaticResource LightAccentSoft}, Dark={StaticResource DarkAccentSoft}}"
+                TextColor="{AppThemeBinding Light={StaticResource LightAccent}, Dark={StaticResource DarkAccent}}" CornerRadius="4" />
+    </DataTemplate>
+    <DataTemplate x:Key="DemoWidgetTemplate" x:DataType="local:DemoWidget">
+        <Button Text="{Binding Title}" Command="{Binding Invoke}" Style="{StaticResource InlineAction}"
+                WidthRequest="112" HeightRequest="34" MinimumHeightRequest="34" MinimumWidthRequest="0">
+            <Button.Triggers>
+                <DataTrigger TargetType="Button" Binding="{Binding Placement}" Value="{x:Static rich:RichTextAdornmentPlacement.LeftMargin}">
+                    <Setter Property="WidthRequest" Value="88" />
+                </DataTrigger>
+                <DataTrigger TargetType="Button" Binding="{Binding Placement}" Value="{x:Static rich:RichTextAdornmentPlacement.AboveLine}">
+                    <Setter Property="WidthRequest" Value="-1" />
+                </DataTrigger>
+                <DataTrigger TargetType="Button" Binding="{Binding Placement}" Value="{x:Static rich:RichTextAdornmentPlacement.BelowLine}">
+                    <Setter Property="WidthRequest" Value="-1" />
+                </DataTrigger>
+            </Button.Triggers>
+        </Button>
+    </DataTemplate>
+</ResourceDictionary>

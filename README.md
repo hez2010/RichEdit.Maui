@@ -450,8 +450,25 @@ The library and test sources are organized as follows:
 | [`RichEdit.Maui`](RichEdit.Maui) | Document model, rich-text control, RTF codec, and native handlers |
 | [`CodeEdit.Maui`](CodeEdit.Maui) | Code editor composed over the public RichEdit APIs |
 | [`RichEdit.Maui.Tests`](RichEdit.Maui.Tests) | Document, control, and native editing tests |
+| [`RichEdit.Maui.TestApp`](RichEdit.Maui.TestApp) | Interactive RichEditor and CodeEditor demonstrations |
 
 Shared editor behavior lives alongside the document model. Android and Windows implementations are under `Platforms`; shared Apple implementations use `.Apple.cs` files. Public APIs include XML documentation, and missing documentation is treated as a build error.
+
+### Trying the sample
+
+Run `RichEdit.Maui.TestApp` to open **RichEdit Studio**. Both existing tabs share light and dark appearances; use **Theme** to switch. The rich-text page opens with editable studio notes, and **RTF reference** in its formatting toolbar loads the original reference document.
+
+Choose a tool in the **Rich editor** tab:
+
+- **Formatting** keeps the rich-text, clipboard, and paragraph controls.
+- **Checked edits** captures a selection, replacement, and revision. Apply it immediately, or edit/undo first to observe stale rejection. Highlight publishes an independent decoration layer.
+- **Tracking** follows a selected range or bookmarked caret through edits and undo/redo.
+- **Widgets** adds clickable views at the caret with overlay, margin, inline, above-line, or below-line placement. The readout shows that the source revision is unchanged.
+- **Layout & input** captures and queries native geometry, draws line/selection/caret bounds, and reports pointer hits and IME composition. Editing or scrolling invalidates a captured layout.
+
+The **Code editor** tab demonstrates completion, tracked snippet placeholders, folding, syntax colors, inline hints, and line actions. **Find** opens search and replace; **Tools** reveals folding, indentation, wrapping, line numbers, and read-only controls. Use **Word info** at the caret on touch devices, or hover over a word with a mouse. Navigate completions with the arrow keys and Enter, and use **Next field** or Tab to move between snippet placeholders.
+
+The palette and control styles live in `Resources/Styles/Colors.xaml` and `Styles.xaml`. `EditorTemplates.xaml` defines hints, line actions, fold indicators, and demonstration widgets; `CodeEditorPage.xaml` defines completion and information popups. C# handles editing, tracking, placement, and lifecycle through the public editor APIs.
 
 ### Building
 

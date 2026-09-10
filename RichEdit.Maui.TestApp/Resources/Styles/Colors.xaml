@@ -1,44 +1,71 @@
-﻿<?xml version="1.0" encoding="UTF-8" ?>
-<ResourceDictionary
-    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
-
-    <!-- Note: For Android please see also Platforms\Android\Resources\values\colors.xml -->
-
-    <Color x:Key="Primary">#512BD4</Color>
-    <Color x:Key="PrimaryDark">#ac99ea</Color>
-    <Color x:Key="PrimaryDarkText">#242424</Color>
-    <Color x:Key="Secondary">#DFD8F7</Color>
-    <Color x:Key="SecondaryDarkText">#9880e5</Color>
-    <Color x:Key="Tertiary">#2B0B98</Color>
-
-    <Color x:Key="White">White</Color>
-    <Color x:Key="Black">Black</Color>
-    <Color x:Key="Magenta">#D600AA</Color>
-    <Color x:Key="MidnightBlue">#190649</Color>
-    <Color x:Key="OffBlack">#1f1f1f</Color>
-
-    <Color x:Key="Gray100">#E1E1E1</Color>
-    <Color x:Key="Gray200">#C8C8C8</Color>
-    <Color x:Key="Gray300">#ACACAC</Color>
-    <Color x:Key="Gray400">#919191</Color>
-    <Color x:Key="Gray500">#6E6E6E</Color>
-    <Color x:Key="Gray600">#404040</Color>
-    <Color x:Key="Gray900">#212121</Color>
-    <Color x:Key="Gray950">#141414</Color>
-
-    <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource Primary}"/>
-    <SolidColorBrush x:Key="SecondaryBrush" Color="{StaticResource Secondary}"/>
-    <SolidColorBrush x:Key="TertiaryBrush" Color="{StaticResource Tertiary}"/>
-    <SolidColorBrush x:Key="WhiteBrush" Color="{StaticResource White}"/>
-    <SolidColorBrush x:Key="BlackBrush" Color="{StaticResource Black}"/>
-
-    <SolidColorBrush x:Key="Gray100Brush" Color="{StaticResource Gray100}"/>
-    <SolidColorBrush x:Key="Gray200Brush" Color="{StaticResource Gray200}"/>
-    <SolidColorBrush x:Key="Gray300Brush" Color="{StaticResource Gray300}"/>
-    <SolidColorBrush x:Key="Gray400Brush" Color="{StaticResource Gray400}"/>
-    <SolidColorBrush x:Key="Gray500Brush" Color="{StaticResource Gray500}"/>
-    <SolidColorBrush x:Key="Gray600Brush" Color="{StaticResource Gray600}"/>
-    <SolidColorBrush x:Key="Gray900Brush" Color="{StaticResource Gray900}"/>
-    <SolidColorBrush x:Key="Gray950Brush" Color="{StaticResource Gray950}"/>
+<?xml version="1.0" encoding="utf-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+    <Color x:Key="LightCanvas">#F3F5F4</Color>
+    <SolidColorBrush x:Key="LightCanvasBrush" Color="{StaticResource LightCanvas}" />
+    <Color x:Key="DarkCanvas">#101C24</Color>
+    <SolidColorBrush x:Key="DarkCanvasBrush" Color="{StaticResource DarkCanvas}" />
+    <Color x:Key="LightSurface">#FFFFFF</Color>
+    <SolidColorBrush x:Key="LightSurfaceBrush" Color="{StaticResource LightSurface}" />
+    <Color x:Key="DarkSurface">#192933</Color>
+    <SolidColorBrush x:Key="DarkSurfaceBrush" Color="{StaticResource DarkSurface}" />
+    <Color x:Key="LightPaper">#FFFEFB</Color>
+    <SolidColorBrush x:Key="LightPaperBrush" Color="{StaticResource LightPaper}" />
+    <Color x:Key="DarkPaper">#192933</Color>
+    <SolidColorBrush x:Key="DarkPaperBrush" Color="{StaticResource DarkPaper}" />
+    <Color x:Key="LightControl">#EDF2F1</Color>
+    <SolidColorBrush x:Key="LightControlBrush" Color="{StaticResource LightControl}" />
+    <Color x:Key="DarkControl">#233843</Color>
+    <SolidColorBrush x:Key="DarkControlBrush" Color="{StaticResource DarkControl}" />
+    <Color x:Key="LightOutline">#DCE5E2</Color>
+    <SolidColorBrush x:Key="LightOutlineBrush" Color="{StaticResource LightOutline}" />
+    <Color x:Key="DarkOutline">#344A55</Color>
+    <SolidColorBrush x:Key="DarkOutlineBrush" Color="{StaticResource DarkOutline}" />
+    <Color x:Key="LightInk">#203732</Color>
+    <SolidColorBrush x:Key="LightInkBrush" Color="{StaticResource LightInk}" />
+    <Color x:Key="DarkInk">#E4EFEC</Color>
+    <SolidColorBrush x:Key="DarkInkBrush" Color="{StaticResource DarkInk}" />
+    <Color x:Key="LightMuted">#647973</Color>
+    <SolidColorBrush x:Key="LightMutedBrush" Color="{StaticResource LightMuted}" />
+    <Color x:Key="DarkMuted">#A0B6B1</Color>
+    <SolidColorBrush x:Key="DarkMutedBrush" Color="{StaticResource DarkMuted}" />
+    <Color x:Key="LightAccent">#176D65</Color>
+    <SolidColorBrush x:Key="LightAccentBrush" Color="{StaticResource LightAccent}" />
+    <Color x:Key="DarkAccent">#86D9C6</Color>
+    <SolidColorBrush x:Key="DarkAccentBrush" Color="{StaticResource DarkAccent}" />
+    <Color x:Key="LightAccentText">#FFFFFF</Color>
+    <SolidColorBrush x:Key="LightAccentTextBrush" Color="{StaticResource LightAccentText}" />
+    <Color x:Key="DarkAccentText">#102D28</Color>
+    <SolidColorBrush x:Key="DarkAccentTextBrush" Color="{StaticResource DarkAccentText}" />
+    <Color x:Key="LightAccentSoft">#E0F1EB</Color>
+    <SolidColorBrush x:Key="LightAccentSoftBrush" Color="{StaticResource LightAccentSoft}" />
+    <Color x:Key="DarkAccentSoft">#254940</Color>
+    <SolidColorBrush x:Key="DarkAccentSoftBrush" Color="{StaticResource DarkAccentSoft}" />
+    <Color x:Key="LightCodeInk">#2A3C44</Color>
+    <SolidColorBrush x:Key="LightCodeInkBrush" Color="{StaticResource LightCodeInk}" />
+    <Color x:Key="DarkCodeInk">#DEEBEF</Color>
+    <SolidColorBrush x:Key="DarkCodeInkBrush" Color="{StaticResource DarkCodeInk}" />
+    <Color x:Key="LightKeyword">#7351A0</Color>
+    <SolidColorBrush x:Key="LightKeywordBrush" Color="{StaticResource LightKeyword}" />
+    <Color x:Key="DarkKeyword">#C5ADF2</Color>
+    <SolidColorBrush x:Key="DarkKeywordBrush" Color="{StaticResource DarkKeyword}" />
+    <Color x:Key="LightString">#9A583F</Color>
+    <SolidColorBrush x:Key="LightStringBrush" Color="{StaticResource LightString}" />
+    <Color x:Key="DarkString">#E8B095</Color>
+    <SolidColorBrush x:Key="DarkStringBrush" Color="{StaticResource DarkString}" />
+    <Color x:Key="LightComment">#687D70</Color>
+    <SolidColorBrush x:Key="LightCommentBrush" Color="{StaticResource LightComment}" />
+    <Color x:Key="DarkComment">#96B6A1</Color>
+    <SolidColorBrush x:Key="DarkCommentBrush" Color="{StaticResource DarkComment}" />
+    <Color x:Key="LightNumber">#267D89</Color>
+    <SolidColorBrush x:Key="LightNumberBrush" Color="{StaticResource LightNumber}" />
+    <Color x:Key="DarkNumber">#87D5DE</Color>
+    <SolidColorBrush x:Key="DarkNumberBrush" Color="{StaticResource DarkNumber}" />
+    <Color x:Key="LightPreprocessor">#9C5678</Color>
+    <SolidColorBrush x:Key="LightPreprocessorBrush" Color="{StaticResource LightPreprocessor}" />
+    <Color x:Key="DarkPreprocessor">#E4ACC8</Color>
+    <SolidColorBrush x:Key="DarkPreprocessorBrush" Color="{StaticResource DarkPreprocessor}" />
+    <Color x:Key="LightSelection">#DDEFE9</Color>
+    <SolidColorBrush x:Key="LightSelectionBrush" Color="{StaticResource LightSelection}" />
+    <Color x:Key="DarkSelection">#31584D</Color>
+    <SolidColorBrush x:Key="DarkSelectionBrush" Color="{StaticResource DarkSelection}" />
 </ResourceDictionary>

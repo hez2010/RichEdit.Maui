@@ -1,16 +1,19 @@
 using System.Text.RegularExpressions;
+using System.Windows.Input;
 using CodeEdit.Maui;
 
 namespace RichEdit.Maui.TestApp;
 
 // These are application features. The component deliberately depends only on public editor APIs.
-internal sealed partial class CodeEditorFeatures : IDisposable
+internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
 {
     private readonly CodeEditor _editor;
     private readonly Grid _host;
-    private readonly AbsoluteLayout _popups = new() { InputTransparent = true, CascadeInputTransparent = false };
-    private readonly Border _completion = new() { BackgroundColor = Colors.White, Stroke = Colors.SlateGray, Padding = 6, IsVisible = false };
-    private readonly Border _hover = new() { BackgroundColor = Colors.LightYellow, Stroke = Colors.SlateGray, Padding = 8, InputTransparent = true, IsVisible = false };
+    private Border? _completion;
+    private Border? _hover;
+    private ScrollView? _completionChoices;
+    private DataTemplate? _hintTemplate;
+    private DataTemplate? _actionTemplate;
     private readonly RichTextLayout _layout;
     private readonly RichTextDecorationLayer _placeholders;
     private readonly List<RichTextTrackedRange> _snippet = [];
@@ -27,15 +30,26 @@ internal sealed partial class CodeEditorFeatures : IDisposable
     private bool _accepting;
     private bool _disposed;
 
+    public IReadOnlyList<CompletionSuggestion> Suggestions { get; private set; } = [];
+    public bool IsCompletionVisible { get; private set; }
+    public bool IsInfoVisible { get; private set; }
+    public string InfoWord { get; private set; } = "";
+    public string InfoKind { get; private set; } = "";
+    public string InfoDescription { get; private set; } = "";
+    public string InfoLocation { get; private set; } = "";
+    private Color _placeholderColor = Colors.LightCyan;
+    internal Color PlaceholderColor
+    {
+        get => _placeholderColor;
+        set { _placeholderColor = value; PaintPlaceholders(); }
+    }
+
     internal CodeEditorFeatures(CodeEditor editor, Grid host)
     {
         _editor = editor;
         _host = host;
         _layout = editor.TextLayout.CreateRelativeTo(host);
         _placeholders = editor.Decorations.CreateLayer();
-        _popups.Add(_completion);
-        _popups.Add(_hover);
-        host.Add(_popups);
         editor.KeyDown += OnKeyDown;
         editor.TextChanged += OnTextChanged;
         editor.SelectionChanged += OnSelectionChanged;
@@ -47,6 +61,16 @@ internal sealed partial class CodeEditorFeatures : IDisposable
         editor.Unloaded += OnUnloaded;
         editor.Loaded += OnLoaded;
         _layout.Changed += OnLayoutChanged;
+        ScheduleWidgets();
+    }
+
+    internal void SetPresentation(Border completion, Border hover, ScrollView choices, DataTemplate hintTemplate, DataTemplate actionTemplate)
+    {
+        _completion = completion;
+        _hover = hover;
+        _completionChoices = choices;
+        _hintTemplate = hintTemplate;
+        _actionTemplate = actionTemplate;
         ScheduleWidgets();
     }
 
@@ -79,19 +103,24 @@ internal sealed partial class CodeEditorFeatures : IDisposable
 
     private void RenderSuggestions()
     {
-        var choices = new VerticalStackLayout { Spacing = 2 };
-        for (var index = 0; index < _suggestions.Length; index++)
-        {
-            var candidate = index;
-            var button = new Button { Text = _suggestions[index], FontSize = 13, Padding = new Thickness(10, 4),
-                BackgroundColor = index == _suggestion ? Colors.LightSkyBlue : Colors.White, TextColor = Colors.Black, HorizontalOptions = LayoutOptions.Fill };
-            button.Clicked += (_, _) => AcceptCompletion(candidate);
-            choices.Add(button);
-        }
-        _completion.Content = choices;
-        _completion.IsVisible = true;
-        _hover.IsVisible = false;
+        Suggestions = _suggestions.Select((text, index) => new CompletionSuggestion(text,
+            text == "var name = value;" ? "Snippet" : IsKeyword(text) ? "Keyword" : "Symbol",
+            new Command(() => AcceptCompletion(index))) { IsSelected = index == _suggestion }).ToArray();
+        OnPropertyChanged(nameof(Suggestions));
+        IsCompletionVisible = true;
+        IsInfoVisible = false;
+        NotifyPopupVisibility();
         PositionPopups();
+    }
+
+    private void SelectSuggestion(int index)
+    {
+        _suggestion = index;
+        for (var item = 0; item < Suggestions.Count; item++) Suggestions[item].IsSelected = item == index;
+        if (_completionChoices?.Content is Layout rows && index < rows.Children.Count && rows.Children[index] is Element row)
+        {
+            _ = _completionChoices.ScrollToAsync(row, ScrollToPosition.MakeVisible, false);
+        }
     }
 
     internal bool AcceptCompletion(int index)
@@ -132,6 +161,46 @@ internal sealed partial class CodeEditorFeatures : IDisposable
         AcceptCompletion(0);
     }
 
+    internal void ShowWordInfo()
+    {
+        if (_disposed || _editor.Composition.IsActive) return;
+        DismissCompletion();
+        DismissHover();
+        var snapshot = _editor.Document.CurrentSnapshot;
+        var range = WordAt(snapshot.Text, _editor.SelectionState.Active, prefixOnly: false);
+        if (!range.IsEmpty) ShowWordInfo(snapshot, range);
+    }
+
+    private void ShowWordInfo(CodeDocumentSnapshot snapshot, RichTextRange range)
+    {
+        _hoverRange = range;
+        InfoWord = snapshot.Text.Substring(range.Start, range.Length);
+        InfoKind = IsKeyword(InfoWord) ? "C# KEYWORD" : "DOCUMENT SYMBOL";
+        InfoDescription = InfoWord switch
+        {
+            "using" => "Imports a namespace or declares a disposable resource.",
+            "var" => "Infers a local variable's type from its initial value.",
+            "new" => "Creates an instance of a type.",
+            "return" => "Returns control and an optional value to the caller.",
+            "public" => "Makes a type or member accessible to other code.",
+            "private" => "Limits access to the containing type.",
+            "class" => "Declares a reference type.",
+            "sealed" => "Prevents a class from being inherited.",
+            "string" => "Represents a sequence of UTF-16 code units.",
+            "int" => "Represents a signed 32-bit integer.",
+            _ => "An identifier in the current document.",
+        };
+        var position = snapshot.GetPosition(range.Start);
+        InfoLocation = $"Line {position.Line}  ·  Column {position.Column}";
+        OnPropertyChanged(nameof(InfoWord));
+        OnPropertyChanged(nameof(InfoKind));
+        OnPropertyChanged(nameof(InfoDescription));
+        OnPropertyChanged(nameof(InfoLocation));
+        IsInfoVisible = true;
+        NotifyPopupVisibility();
+        PositionPopups();
+    }
+
     internal bool NextPlaceholder(bool previous = false)
     {
         if (_snippet.Count == 0) return false;
@@ -158,7 +227,7 @@ internal sealed partial class CodeEditorFeatures : IDisposable
         for (var index = 1; index < ranges.Length; index++)
             if (ranges[index].Start < ranges[index - 1].End) { EndSnippet(); return; }
         _placeholders.TrySet(_editor.Document.Revision, ranges
-            .Select(static range => new RichTextDecoration(range, new() { BackgroundColor = Colors.LightCyan, Underline = RichTextUnderlineStyle.Single })));
+            .Select(range => new RichTextDecoration(range, new() { BackgroundColor = PlaceholderColor, Underline = RichTextUnderlineStyle.Single })));
     }
     private void EndSnippet()
     {
@@ -177,17 +246,16 @@ internal sealed partial class CodeEditorFeatures : IDisposable
         }
         else if (args.Key == EditorKey.Escape)
         {
-            args.Handled = _completion.IsVisible || _hover.IsVisible || _snippet.Count > 0;
+            args.Handled = IsCompletionVisible || IsInfoVisible || _snippet.Count > 0;
             DismissCompletion();
             DismissHover();
             EndSnippet();
         }
-        else if (_completion.IsVisible && args.Modifiers == EditorKeyModifiers.None)
+        else if (IsCompletionVisible && args.Modifiers == EditorKeyModifiers.None)
         {
             if (args.Key is EditorKey.Up or EditorKey.Down)
             {
-                _suggestion = (_suggestion + (args.Key == EditorKey.Up ? -1 : 1) + _suggestions.Length) % _suggestions.Length;
-                RenderSuggestions();
+                SelectSuggestion((_suggestion + (args.Key == EditorKey.Up ? -1 : 1) + _suggestions.Length) % _suggestions.Length);
                 args.Handled = true;
             }
             else if (args.Key is EditorKey.Enter or EditorKey.Tab) { args.Handled = true; AcceptCompletion(_suggestion); }
@@ -205,18 +273,15 @@ internal sealed partial class CodeEditorFeatures : IDisposable
         var snapshot = _editor.Document.CurrentSnapshot;
         var range = WordAt(snapshot.Text, hit.Position, prefixOnly: false);
         if (range.IsEmpty) { DismissHover(); return; }
-        if (range == _hoverRange && _hover.IsVisible) return;
+        if (range == _hoverRange && IsInfoVisible) return;
         DismissHover();
         using var request = new CancellationTokenSource();
         _hoverRequest = request;
         try
         {
             await Task.Delay(300, request.Token);
-            if (_disposed || snapshot.Revision != _editor.Document.Revision || _editor.Composition.IsActive || _completion.IsVisible) return;
-            _hoverRange = range;
-            _hover.Content = new Label { Text = $"{snapshot.Text.Substring(range.Start, range.Length)}\nSource line {snapshot.GetPosition(range.Start).Line}", TextColor = Colors.Black, FontSize = 13 };
-            _hover.IsVisible = true;
-            PositionPopups();
+            if (_disposed || snapshot.Revision != _editor.Document.Revision || _editor.Composition.IsActive || IsCompletionVisible) return;
+            ShowWordInfo(snapshot, range);
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         finally { if (ReferenceEquals(_hoverRequest, request)) _hoverRequest = null; }
@@ -224,19 +289,24 @@ internal sealed partial class CodeEditorFeatures : IDisposable
 
     private void PositionPopups()
     {
+        if (_completion is null || _hover is null) return;
         var layout = _layout.Capture();
-        if (layout is null) { _completion.IsVisible = _hover.IsVisible = false; return; }
-        if (_completion.IsVisible) Place(_completion, _layout.GetCaretBounds(layout, _editor.SelectionState.Active));
-        if (_hover.IsVisible) Place(_hover, _layout.GetRangeBounds(layout, _hoverRange).FirstOrDefault());
-        void Place(Border popup, Rect? anchor)
+        if (layout is null) { IsCompletionVisible = IsInfoVisible = false; NotifyPopupVisibility(); return; }
+        if (IsCompletionVisible && !Place(_completion, _layout.GetCaretBounds(layout, _editor.SelectionState.Active))) DismissCompletion();
+        if (IsInfoVisible && !Place(_hover, _layout.GetRangeBounds(layout, _hoverRange).FirstOrDefault())) DismissHover();
+        bool Place(Border popup, Rect? anchor)
         {
-            if (!popup.IsVisible) return;
-            if (anchor is not { Height: > 0 } rect) { popup.IsVisible = false; return; }
-            var width = Math.Min(290, _host.Width);
-            var size = ((IView)popup).Measure(width, _host.Height);
-            var top = rect.Bottom + 3;
-            if (top + size.Height > _host.Height) top = Math.Max(0, rect.Top - size.Height - 3);
-            AbsoluteLayout.SetLayoutBounds(popup, new(Math.Clamp(rect.Left, 0, Math.Max(0, _host.Width - width)), top, width, size.Height));
+            if (anchor is not { Height: > 0 } rect || _host.Width <= 16) return false;
+            var width = Math.Min(popup.WidthRequest, _host.Width - 16);
+            var desired = ((IView)popup).Measure(width, double.PositiveInfinity);
+            var below = Math.Max(0, _host.Height - rect.Bottom - 8);
+            var above = Math.Max(0, rect.Top - 8);
+            var useBelow = below >= desired.Height || below >= above;
+            var height = Math.Min(desired.Height, useBelow ? below : above);
+            if (height <= 0) return false;
+            var top = useBelow ? rect.Bottom + 6 : rect.Top - height - 6;
+            AbsoluteLayout.SetLayoutBounds(popup, new(Math.Clamp(rect.Left, 8, Math.Max(8, _host.Width - width - 8)), top, width, height));
+            return true;
         }
     }
 
@@ -251,30 +321,34 @@ internal sealed partial class CodeEditorFeatures : IDisposable
             await Task.Delay(180, request.Token);
             if (_disposed || snapshot.Revision != _editor.Document.Revision || _editor.Composition.IsActive) return;
             ClearWidgets();
-            foreach (Match match in Regex.Matches(snapshot.Text, @"CodeDocument\.FromPlainText\(").Take(6))
-                _widgets.Add(_editor.Adornments.Add(match.Index + match.Length,
-                    new Label { Text = "text: ", FontSize = 12, TextColor = Colors.SlateGray, Padding = new Thickness(3, 0) }, new() { Placement = RichTextAdornmentPlacement.Inline }));
+            if (_hintTemplate is not null)
+                foreach (Match match in Regex.Matches(snapshot.Text, @"CodeDocument\.FromPlainText\(").Take(6))
+                {
+                    var hint = (View)_hintTemplate.CreateContent();
+                    hint.BindingContext = "text:";
+                    _widgets.Add(_editor.Adornments.Add(match.Index + match.Length, hint, new() { Placement = RichTextAdornmentPlacement.Inline }));
+                }
             var declaration = snapshot.Text.IndexOf("public sealed class Counter", StringComparison.Ordinal);
-            if (declaration >= 0)
+            if (declaration >= 0 && _actionTemplate is not null)
             {
-                var button = new Button { Text = "Add Value property", FontSize = 12, Padding = new Thickness(8, 3), HorizontalOptions = LayoutOptions.Start };
-                var actions = new HorizontalStackLayout { Children = { button }, Padding = new Thickness(0, 3) };
+                var actions = (View)_actionTemplate.CreateContent();
                 var item = _editor.Adornments.Add(declaration, actions, new() { Placement = RichTextAdornmentPlacement.AboveLine });
                 _widgets.Add(item);
-                button.Clicked += (_, _) =>
+                actions.BindingContext = new CodeLineAction("Add Value property", new Command(() =>
                 {
                     var current = _editor.Document.CurrentSnapshot;
                     var brace = current.Text.IndexOf('{', item.Position);
                     if (brace >= 0) _editor.TryApplyEdits(current.Revision, (RichTextEdit[])[new(new(brace + 1, 0), "\n    public int Value => _value;\n")]);
-                };
+                }));
             }
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         finally { if (ReferenceEquals(_widgetRequest, request)) _widgetRequest = null; }
     }
     private void ClearWidgets() { foreach (var item in _widgets) item.Dispose(); _widgets.Clear(); }
-    private void DismissCompletion() { _completionRequest?.Cancel(); _completion.IsVisible = false; }
-    private void DismissHover() { _hoverRequest?.Cancel(); _hover.IsVisible = false; }
+    private void DismissCompletion() { _completionRequest?.Cancel(); IsCompletionVisible = false; OnPropertyChanged(nameof(IsCompletionVisible)); }
+    private void DismissHover() { _hoverRequest?.Cancel(); IsInfoVisible = false; OnPropertyChanged(nameof(IsInfoVisible)); }
+    private void NotifyPopupVisibility() { OnPropertyChanged(nameof(IsCompletionVisible)); OnPropertyChanged(nameof(IsInfoVisible)); }
     private void OnTextChanged(object? sender, RichTextTextChangedEventArgs args)
     {
         DismissCompletion();
@@ -303,6 +377,8 @@ internal sealed partial class CodeEditorFeatures : IDisposable
         return new(start, end - start);
     }
 
+    private static bool IsKeyword(string text) => text is "using" or "var" or "new" or "return" or "public" or "private" or "sealed" or "class" or "string" or "int" or "void" or "static" or "true" or "false";
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -321,6 +397,23 @@ internal sealed partial class CodeEditorFeatures : IDisposable
         _editor.Unloaded -= OnUnloaded;
         _editor.Loaded -= OnLoaded;
         _layout.Changed -= OnLayoutChanged;
-        _host.Remove(_popups);
+        _completion = _hover = null;
+        _completionChoices = null;
     }
 }
+
+internal sealed partial class CompletionSuggestion(string text, string kind, ICommand insert) : BindableObject
+{
+    private bool _isSelected;
+    public string Text { get; } = text;
+    public string Kind { get; } = kind;
+    public string Glyph => Kind == "Snippet" ? "{}" : Kind == "Keyword" ? "K" : "S";
+    public ICommand Insert { get; } = insert;
+    public bool IsSelected
+    {
+        get => _isSelected;
+        internal set { if (_isSelected == value) return; _isSelected = value; OnPropertyChanged(); }
+    }
+}
+
+internal sealed record CodeLineAction(string Title, ICommand Apply);

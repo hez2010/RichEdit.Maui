@@ -6,9 +6,6 @@ namespace RichEdit.Maui.TestApp;
 public partial class RichEditorPage : ContentPage
 {
     private readonly RichEditorFormattingCommands _formattingCommands;
-    private static readonly Color ActiveToolbarColor = Color.FromArgb("#6750A4");
-    private static readonly Color InactiveToolbarColor = Color.FromArgb("#EDE9F7");
-    private static readonly Color InactiveToolbarTextColor = Color.FromArgb("#2C2440");
     private static readonly RichTextListDefinition BulletedList = new(
     (RichTextListLevelDefinition[])[
         new RichTextListLevelDefinition
@@ -70,6 +67,7 @@ public partial class RichEditorPage : ContentPage
         },
     ]);
     private RichTextImage? _sampleImage;
+    private readonly string _referenceRtf;
     private bool _updatingToolbar;
 
     public RichEditorPage()
@@ -86,11 +84,11 @@ public partial class RichEditorPage : ContentPage
         };
 
         FontPicker.ItemsSource = new[] { "Default", "Arial", "Courier New", "Georgia" };
-        SizePicker.ItemsSource = new[] { "14", "17", "20", "24", "30" };
+        SizePicker.ItemsSource = new[] { "10", "12", "14", "17", "20", "24", "30", "36" };
 
         _updatingToolbar = true;
         FontPicker.SelectedIndex = 0;
-        SizePicker.SelectedIndex = 1;
+        SizePicker.SelectedIndex = 3;
         _updatingToolbar = false;
 
         Editor.Document = RichTextDocument.FromRtf("""
@@ -238,7 +236,20 @@ public partial class RichEditorPage : ContentPage
             \par }}
             """);
         _sampleImage = Editor.Document.CurrentSnapshot.Images.FirstOrDefault();
+        _referenceRtf = Editor.Document.RtfText;
+        LoadStudioDocument();
         UpdateToolbar();
+        InitializePrimitiveDemos();
+    }
+
+    private void OnToggleTheme(object? sender, EventArgs args) => StudioTheme.Toggle();
+    private void OnLoadStudioDocument(object? sender, EventArgs args) => LoadStudioDocument();
+    private void OnLoadReferenceDocument(object? sender, EventArgs args) => Editor.Document = RichTextDocument.FromRtf(_referenceRtf);
+    private void LoadStudioDocument()
+    {
+        using var stream = typeof(RichEditorPage).Assembly.GetManifestResourceStream("StudioNotesDocument")!;
+        using var reader = new StreamReader(stream);
+        Editor.Document = RichTextDocument.FromRtf(reader.ReadToEnd());
     }
 
     private void OnNewDocumentClicked(object? sender, EventArgs e) =>
@@ -507,6 +518,7 @@ public partial class RichEditorPage : ContentPage
         StatusLabel.Text = Editor.SelectedRange.IsEmpty
             ? $"Caret at {Editor.SelectedRange.Start}"
             : $"{Editor.SelectedRange.Length} characters selected";
+        DocumentLengthLabel.Text = $"{Editor.Document.Length:N0} characters";
     }
 
     private RichTextListMarker? GetSelectedListMarker(
@@ -524,8 +536,7 @@ public partial class RichEditorPage : ContentPage
 
     private static void SetToolbarState(Button button, bool active)
     {
-        button.BackgroundColor = active ? ActiveToolbarColor : InactiveToolbarColor;
-        button.TextColor = active ? Colors.White : InactiveToolbarTextColor;
+        button.Style = (Style)Application.Current!.Resources[active ? "ActiveFormatButton" : "FormatButton"];
     }
 
     private static Color? GetCommandColor(Button button) =>
@@ -536,8 +547,7 @@ public partial class RichEditorPage : ContentPage
     private static void SetColorState(Button button, Color? selected, string? expected)
     {
         var target = expected is null ? null : Color.FromArgb(expected);
-        button.BorderColor = ActiveToolbarColor;
-        button.BorderWidth = ColorsEqual(selected, target) ? 3 : 0;
+        button.Style = (Style)Application.Current!.Resources[ColorsEqual(selected, target) ? "SelectedColorButton" : "ColorButton"];
     }
 
     private static bool ColorsEqual(Color? left, Color? right)

@@ -7,10 +7,12 @@ internal sealed partial class CodeEditorFoldIndicators : IDisposable
 {
     private readonly CodeEditor _editor;
     private readonly List<RichTextAdornment> _indicators = [];
+    private readonly DataTemplate? _template;
 
-    internal CodeEditorFoldIndicators(CodeEditor editor)
+    internal CodeEditorFoldIndicators(CodeEditor editor, DataTemplate? template = null)
     {
         _editor = editor;
+        _template = template;
         editor.Folding.Changed += OnChanged;
         editor.TextChanged += OnChanged;
         Refresh();
@@ -64,13 +66,13 @@ internal sealed partial class CodeEditorFoldIndicators : IDisposable
 
     private Button CreateExpandButton(RichTextRange range, string text)
     {
-        var button = new Button
+        var button = _template is not null ? (Button)_template.CreateContent() : new Button
         {
-            Text = text, FontSize = 13, Padding = 0,
+            Padding = 0,
             WidthRequest = 24, HeightRequest = 20, MinimumWidthRequest = 0, MinimumHeightRequest = 0,
-            BackgroundColor = Color.FromArgb("#E8EEF8"), TextColor = Color.FromArgb("#244A80"), CornerRadius = 3,
-            Command = new Command(() => _editor.Folding.Expand(range)),
         };
+        button.Text = text;
+        button.Command = new Command(() => _editor.Folding.Expand(range));
         var description = $"Expand folded range at line {_editor.GetPosition(range.Start).Line} ({range.Length} characters)";
         SemanticProperties.SetDescription(button, description);
         ToolTipProperties.SetText(button, description);

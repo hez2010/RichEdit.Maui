@@ -4,117 +4,142 @@
              xmlns:code="clr-namespace:CodeEdit.Maui;assembly=CodeEdit.Maui"
              xmlns:local="clr-namespace:RichEdit.Maui.TestApp"
              x:Class="RichEdit.Maui.TestApp.CodeEditorPage"
-             Title="Code editor">
-
+             Title="Code editor" Shell.NavBarIsVisible="False">
+    <ContentPage.Behaviors>
+        <local:SystemBarAppearanceBehavior LightIcons="{AppThemeBinding Light=False, Dark=True}" />
+    </ContentPage.Behaviors>
     <ContentPage.Resources>
         <local:InverseBooleanConverter x:Key="InverseBooleanConverter" />
+        <DataTemplate x:Key="CompletionRowTemplate" x:DataType="local:CompletionSuggestion">
+            <Grid HeightRequest="42" ColumnDefinitions="32,*,Auto" ColumnSpacing="8">
+                <Border Grid.ColumnSpan="3" StrokeThickness="0" StrokeShape="RoundRectangle 7" BackgroundColor="Transparent">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsSelected}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource LightAccentSoft}, Dark={StaticResource DarkAccentSoft}}" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                </Border>
+                <Border WidthRequest="23" HeightRequest="23" StrokeThickness="0" StrokeShape="RoundRectangle 5" VerticalOptions="Center" HorizontalOptions="End" InputTransparent="True"
+                        BackgroundColor="{AppThemeBinding Light={StaticResource LightControl}, Dark={StaticResource DarkControl}}">
+                    <Label Text="{Binding Glyph}" FontSize="10" FontFamily="OpenSansSemibold" HorizontalOptions="Center" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light={StaticResource LightAccent}, Dark={StaticResource DarkAccent}}" />
+                </Border>
+                <Label Grid.Column="1" Text="{Binding Text}" FontSize="13" FontFamily="{OnPlatform WinUI=Consolas, Android=monospace, iOS=Menlo, MacCatalyst=Menlo}"
+                       VerticalOptions="Center" LineBreakMode="TailTruncation" InputTransparent="True" />
+                <Label Grid.Column="2" Text="{Binding Kind}" Style="{StaticResource Caption}" FontSize="10" VerticalOptions="Center" Margin="0,0,10,0" InputTransparent="True" />
+                <Button Grid.ColumnSpan="3" Command="{Binding Insert}" Text="" BackgroundColor="Transparent" Padding="0" BorderWidth="0" CornerRadius="7"
+                        SemanticProperties.Description="{Binding Text}" SemanticProperties.Hint="Insert this completion" />
+            </Grid>
+        </DataTemplate>
     </ContentPage.Resources>
 
-    <Grid Padding="16"
-          RowDefinitions="Auto,Auto,Auto,Auto,*,Auto"
-          RowSpacing="10">
-        <Label Text="Code editor"
-               FontSize="24"
-               FontAttributes="Bold" />
-
-        <ScrollView Grid.Row="1"
-                    Orientation="Horizontal">
-            <HorizontalStackLayout Spacing="6">
-                <Button Text="Complete" Clicked="OnCompleteClicked" />
-                <Button Text="Insert snippet" Clicked="OnSnippetClicked" />
-                <Button Text="Next placeholder" Clicked="OnNextPlaceholderClicked" />
-                <Button Text="Undo"
-                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Undo}" />
-                <Button Text="Redo"
-                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Redo}" />
-                <Button Text="Indent"
-                        IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
-                        Clicked="OnIndentClicked" />
-                <Button Text="Outdent"
-                        IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
-                        Clicked="OnOutdentClicked" />
-                <Button Text="//"
-                        IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
-                        Clicked="OnToggleLineCommentClicked" />
-                <Button Text="Copy"
-                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Copy}" />
-                <Button Text="Paste"
-                        Command="{Binding Source={x:Reference Editor}, Path=Commands.Paste}" />
-                <HorizontalStackLayout Spacing="0">
-                    <CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=WordWrap, Mode=TwoWay}" />
-                    <Label Text="Wrap"
-                           VerticalOptions="Center" />
-                </HorizontalStackLayout>
-                <HorizontalStackLayout Spacing="0">
-                    <CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=ShowLineNumbers, Mode=TwoWay}" />
-                    <Label Text="Line numbers"
-                           VerticalOptions="Center" />
-                </HorizontalStackLayout>
-                <HorizontalStackLayout Spacing="0">
-                    <CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Mode=TwoWay}" />
-                    <Label Text="Read only"
-                           VerticalOptions="Center" />
-                </HorizontalStackLayout>
-                <HorizontalStackLayout Spacing="0">
-                    <CheckBox x:Name="DarkThemeCheckBox" CheckedChanged="OnDarkThemeChanged" />
-                    <Label Text="Dark"
-                           VerticalOptions="Center" />
-                </HorizontalStackLayout>
-            </HorizontalStackLayout>
-        </ScrollView>
-
-        <VerticalStackLayout Grid.Row="2" Spacing="4">
-            <ScrollView Orientation="Horizontal">
-                <HorizontalStackLayout Spacing="6">
-                    <Button x:Name="CollapseSelectionButton" Text="Collapse selection" Clicked="OnCollapseSelectionClicked" />
-                    <Button x:Name="ExpandAtCaretButton" Text="Expand at caret" Clicked="OnExpandAtCaretClicked" />
-                    <Button x:Name="ExpandAllButton" Text="Expand all" Clicked="OnExpandAllClicked" />
-                </HorizontalStackLayout>
-            </ScrollView>
-            <Label Text="Select multiple lines to collapse, keeping the first line visible. Click ▸ or … to expand."
-                   FontSize="12" />
-        </VerticalStackLayout>
-
-        <Grid Grid.Row="3"
-              ColumnDefinitions="*,Auto,Auto"
-              RowDefinitions="Auto,Auto"
-              ColumnSpacing="8"
-              RowSpacing="4">
-            <Entry x:Name="QueryEntry"
-                   Placeholder="Find text"
-                   MinimumWidthRequest="160"
-                   Completed="OnFindNext" />
-            <Button Grid.Column="1"
-                    Text="Previous"
-                    Clicked="OnFindPrevious" />
-            <Button Grid.Column="2"
-                    Text="Next"
-                    Clicked="OnFindNext" />
-            <Entry x:Name="ReplacementEntry"
-                   Grid.Row="1"
-                   Placeholder="Replace with"
-                   MinimumWidthRequest="160" />
-            <Button Grid.Row="1"
-                    Grid.Column="1"
-                    Text="Replace all"
-                    IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}"
-                    Clicked="OnReplaceAllClicked" />
-            <Label x:Name="SearchStatusLabel"
-                   Grid.Row="1"
-                   Grid.Column="2"
-                   FontSize="12"
-                   VerticalOptions="Center" />
+    <Grid Padding="{OnIdiom Desktop=28, Phone=14, Default=20}" RowDefinitions="Auto,*,Auto" RowSpacing="14"
+          MaximumWidthRequest="1440" HorizontalOptions="Fill">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+            <Border BackgroundColor="{AppThemeBinding Light={StaticResource LightAccent}, Dark={StaticResource DarkAccent}}" StrokeThickness="0" StrokeShape="RoundRectangle 12" WidthRequest="44" HeightRequest="44">
+                <Label Text="{}{ }" FontSize="18" FontFamily="OpenSansSemibold" TextColor="{AppThemeBinding Light={StaticResource LightAccentText}, Dark={StaticResource DarkAccentText}}" HorizontalOptions="Center" VerticalOptions="Center" />
+            </Border>
+            <VerticalStackLayout Grid.Column="1" Spacing="1" VerticalOptions="Center">
+                <Label Text="RichEdit Studio" Style="{StaticResource Heading}" />
+                <Label Text="Code with room to explore." Style="{StaticResource Caption}" />
+            </VerticalStackLayout>
+            <Button Grid.Column="2" Text="Theme" Clicked="OnToggleTheme" Style="{StaticResource QuietButton}" AutomationId="CodeThemeToggle" SemanticProperties.Description="Switch light and dark appearance" />
         </Grid>
 
-        <Grid x:Name="EditorHost" Grid.Row="4">
-        <code:CodeEditor x:Name="Editor"
-                         FontSize="14"
-                         Placeholder="Write some code…" />
-        </Grid>
+        <Border Grid.Row="1" BackgroundColor="{AppThemeBinding Light={StaticResource LightSurface}, Dark={StaticResource DarkSurface}}" StrokeShape="RoundRectangle 18">
+            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+                <Grid Padding="16,12" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                    <VerticalStackLayout Spacing="2" VerticalOptions="Center">
+                        <Label Text="Playground.cs" FontFamily="OpenSansSemibold" FontSize="14" />
+                        <Label Text="C# DOCUMENT" Style="{StaticResource Eyebrow}" />
+                    </VerticalStackLayout>
+                    <Button Grid.Column="1" Text="Find" Clicked="OnToggleSearch" Style="{StaticResource QuietButton}" AutomationId="ToggleFind" />
+                    <Button Grid.Column="2" Text="Tools" Clicked="OnToggleTools" AutomationId="ToggleCodeTools" />
+                </Grid>
+                <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Never" Margin="12,0,12,10">
+                    <HorizontalStackLayout Spacing="5">
+                        <Button Text="Complete" Clicked="OnCompleteClicked" Style="{StaticResource PrimaryButton}" AutomationId="ShowCompletions" />
+                        <Button Text="Word info" Clicked="OnWordInfoClicked" AutomationId="ShowWordInfo" />
+                        <Button Text="Insert snippet" Clicked="OnSnippetClicked" AutomationId="InsertSnippet" />
+                        <Button Text="Next field" Clicked="OnNextPlaceholderClicked" Style="{StaticResource QuietButton}" AutomationId="NextPlaceholder" />
+                        <BoxView Style="{StaticResource Divider}" />
+                        <Button Text="Undo" Command="{Binding Source={x:Reference Editor}, Path=Commands.Undo}" Style="{StaticResource QuietButton}" />
+                        <Button Text="Redo" Command="{Binding Source={x:Reference Editor}, Path=Commands.Redo}" Style="{StaticResource QuietButton}" />
+                    </HorizontalStackLayout>
+                </ScrollView>
+                <VerticalStackLayout Grid.Row="2" Spacing="8">
+                    <VerticalStackLayout x:Name="ToolsPanel" IsVisible="False" Spacing="4" Margin="12,0,12,8">
+                        <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+                            <HorizontalStackLayout Spacing="4">
+                                <Button x:Name="CollapseSelectionButton" Text="Collapse selection" Clicked="OnCollapseSelectionClicked" />
+                                <Button x:Name="ExpandAtCaretButton" Text="Expand at caret" Clicked="OnExpandAtCaretClicked" />
+                                <Button x:Name="ExpandAllButton" Text="Expand all" Clicked="OnExpandAllClicked" />
+                                <BoxView Style="{StaticResource Divider}" />
+                                <Button Text="Indent" Clicked="OnIndentClicked" IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}" />
+                                <Button Text="Outdent" Clicked="OnOutdentClicked" IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}" />
+                                <Button Text="Comment" Clicked="OnToggleLineCommentClicked" IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}" />
+                                <Button Text="Copy" Command="{Binding Source={x:Reference Editor}, Path=Commands.Copy}" Style="{StaticResource QuietButton}" />
+                                <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, Path=Commands.Paste}" Style="{StaticResource QuietButton}" />
+                            </HorizontalStackLayout>
+                        </ScrollView>
+                        <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+                            <HorizontalStackLayout Spacing="8">
+                                <HorizontalStackLayout Spacing="0"><CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=WordWrap, Mode=TwoWay}" /><Label Text="Wrap lines" Style="{StaticResource Caption}" VerticalOptions="Center" /></HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="0"><CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=ShowLineNumbers, Mode=TwoWay}" /><Label Text="Line numbers" Style="{StaticResource Caption}" VerticalOptions="Center" /></HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="0"><CheckBox IsChecked="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Mode=TwoWay}" /><Label Text="Read only" Style="{StaticResource Caption}" VerticalOptions="Center" /></HorizontalStackLayout>
+                            </HorizontalStackLayout>
+                        </ScrollView>
+                        <Label Text="Select multiple lines to fold them. The first line stays visible; use ▸ or … to expand." Style="{StaticResource Caption}" />
+                    </VerticalStackLayout>
+                    <Grid x:Name="SearchPanel" IsVisible="False" ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="6" RowSpacing="5" Margin="12,0,12,10">
+                        <Border Style="{StaticResource InputFrame}"><Entry x:Name="QueryEntry" Placeholder="Find in document" Completed="OnFindNext" /></Border>
+                        <Button Grid.Column="1" Text="Previous" Clicked="OnFindPrevious" />
+                        <Button Grid.Column="2" Text="Next" Clicked="OnFindNext" />
+                        <Border Grid.Row="1" Style="{StaticResource InputFrame}"><Entry x:Name="ReplacementEntry" Placeholder="Replace with" /></Border>
+                        <Button Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="Replace all" Clicked="OnReplaceAllClicked" IsEnabled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}" />
+                        <Label x:Name="SearchStatusLabel" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource Caption}" />
+                    </Grid>
+                </VerticalStackLayout>
 
-        <Label x:Name="StatusLabel"
-               Grid.Row="5"
-               FontSize="12" />
+                <Border Grid.Row="3" StrokeThickness="0" StrokeShape="Rectangle" Padding="{OnIdiom Phone=4, Default=12}">
+                    <Grid x:Name="EditorHost">
+                        <code:CodeEditor x:Name="Editor" FontSize="14" WordWrap="{OnIdiom Phone=True, Default=False}" FontFamily="{OnPlatform WinUI=Consolas, Android=monospace, iOS=Menlo, MacCatalyst=Menlo}"
+                                         TextColor="{AppThemeBinding Light={StaticResource LightCodeInk}, Dark={StaticResource DarkCodeInk}}"
+                                         BackgroundColor="{AppThemeBinding Light={StaticResource LightSurface}, Dark={StaticResource DarkSurface}}"
+                                         Placeholder="Start with a line of code…" />
+                        <AbsoluteLayout x:Name="PopupLayer" InputTransparent="True" CascadeInputTransparent="False" x:DataType="local:CodeEditorFeatures">
+                            <Border x:Name="CompletionPopup" Style="{StaticResource PopupCard}" IsVisible="{Binding IsCompletionVisible, FallbackValue=False}" AutomationId="CompletionPopup">
+                                <Grid RowDefinitions="Auto,*,Auto" RowSpacing="4">
+                                    <Grid Padding="9,6,9,5" ColumnDefinitions="*,Auto">
+                                        <Label Text="SUGGESTIONS" Style="{StaticResource Eyebrow}" VerticalOptions="Center" />
+                                        <Label Grid.Column="1" Text="{Binding Suggestions.Count}" Style="{StaticResource Caption}" />
+                                    </Grid>
+                                    <ScrollView x:Name="CompletionChoices" Grid.Row="1" Orientation="Vertical" VerticalScrollBarVisibility="Default">
+                                        <VerticalStackLayout Spacing="1" BindableLayout.ItemsSource="{Binding Suggestions}" BindableLayout.ItemTemplate="{StaticResource CompletionRowTemplate}" />
+                                    </ScrollView>
+                                    <Label Grid.Row="2" Text="{OnIdiom Phone='Tap a suggestion to insert', Default='↑ ↓ select   ·   Enter insert   ·   Esc close'}" Style="{StaticResource Caption}" FontSize="10" Margin="9,5,9,7" />
+                                </Grid>
+                            </Border>
+                            <Border x:Name="InfoPopup" Style="{StaticResource PopupCard}" WidthRequest="330" MaximumHeightRequest="240" Padding="16"
+                                    IsVisible="{Binding IsInfoVisible, FallbackValue=False}" InputTransparent="True" AutomationId="WordInfoPopup">
+                                <VerticalStackLayout Spacing="9">
+                                    <Label Text="{Binding InfoKind}" Style="{StaticResource Eyebrow}" TextColor="{AppThemeBinding Light={StaticResource LightAccent}, Dark={StaticResource DarkAccent}}" />
+                                    <Label Text="{Binding InfoWord}" FontFamily="{OnPlatform WinUI=Consolas, Android=monospace, iOS=Menlo, MacCatalyst=Menlo}" FontSize="18" MaxLines="2" LineBreakMode="TailTruncation" />
+                                    <Label Text="{Binding InfoDescription}" FontSize="12" MaxLines="3" />
+                                    <BoxView HeightRequest="1" BackgroundColor="{AppThemeBinding Light={StaticResource LightOutline}, Dark={StaticResource DarkOutline}}" />
+                                    <Label Text="{Binding InfoLocation}" Style="{StaticResource Caption}" FontSize="11" />
+                                </VerticalStackLayout>
+                            </Border>
+                        </AbsoluteLayout>
+                    </Grid>
+                </Border>
+                <Grid Grid.Row="4" Padding="16,10" ColumnDefinitions="*,Auto">
+                    <Label x:Name="StatusLabel" Style="{StaticResource Caption}" />
+                    <Label Grid.Column="1" Text="C#  ·  UTF-16" Style="{StaticResource Caption}" />
+                </Grid>
+            </Grid>
+        </Border>
+        <Label Grid.Row="2" Style="{StaticResource Caption}" MaxLines="2" Margin="2,0"
+               Text="{OnIdiom Phone='Try a completion, insert a snippet, or open Tools to fold and format.', Default='Ctrl / ⌘ + Space for completions. Tab moves between snippet fields. Tools reveals folding and view options.'}" />
     </Grid>
-
 </ContentPage>

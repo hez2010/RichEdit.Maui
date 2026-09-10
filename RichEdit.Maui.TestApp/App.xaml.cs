@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace RichEdit.Maui.TestApp;
 
@@ -29,6 +29,6 @@ public partial class App : Application
             return new Window(new ContentPage { Content = editor, SafeAreaEdges = new(SafeAreaRegions.Container) });
         }
 #endif
-		return new Window(new AppShell());
+		return new Window(new AppShell()) { Title = "RichEdit Studio", TitleBar = (TitleBar)((DataTemplate)Resources["StudioTitleBar"]).CreateContent() };
 	}
 }

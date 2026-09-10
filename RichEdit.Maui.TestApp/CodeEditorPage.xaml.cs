@@ -14,11 +14,10 @@ public sealed partial class CodeEditorPage : ContentPage
         InitializeComponent();
         _actions = new CodeEditorActions(Editor);
         Editor.Document = CodeDocument.FromPlainText(Sample);
-        ApplyTheme(false);
         Editor.SelectionChanged += (_, _) => UpdateStatus();
         Editor.TextChanged += (_, _) => UpdateStatus();
         Editor.Folding.Changed += (_, _) => UpdateStatus();
-        var find = new Command(() => QueryEntry.Focus());
+        var find = new Command(OpenSearch);
         var comment = new Command(_actions.ToggleLineComment, () => !Editor.IsReadOnly);
         var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Meta : EditorKeyModifiers.Control;
         Editor.KeyBindings.Add(new(EditorKey.F, primary, find));
@@ -35,32 +34,58 @@ public sealed partial class CodeEditorPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        _foldIndicators ??= new CodeEditorFoldIndicators(Editor);
+        var resources = Application.Current!.Resources;
+        _foldIndicators ??= new CodeEditorFoldIndicators(Editor, (DataTemplate)resources["FoldIndicatorTemplate"]);
         _colorizer ??= new CodeColorizer(Editor);
         _features ??= new CodeEditorFeatures(Editor, EditorHost);
+        PopupLayer.BindingContext = _features;
+        _features.SetPresentation(CompletionPopup, InfoPopup, CompletionChoices,
+            (DataTemplate)resources["InlineHintTemplate"], (DataTemplate)resources["CodeActionTemplate"]);
         _colorizer.Failed += OnColoringFailed;
-        ApplyTheme(DarkThemeCheckBox.IsChecked);
+        Application.Current.RequestedThemeChanged += OnThemeChanged;
+        ApplyPalette();
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        Application.Current!.RequestedThemeChanged -= OnThemeChanged;
         _foldIndicators?.Dispose();
         _foldIndicators = null;
         _colorizer?.Dispose();
         _colorizer = null;
         _features?.Dispose();
         _features = null;
+        PopupLayer.BindingContext = null;
     }
 
     private async void OnCompleteClicked(object? sender, EventArgs args)
     {
-        if (_features is not null) await _features.ShowCompletionsAsync();
+        if (_features is not null)
+        {
+            await _features.ShowCompletionsAsync();
+            Editor.Focus();
+        }
     }
     private void OnSnippetClicked(object? sender, EventArgs args) => _features?.InsertSnippet();
+    private void OnWordInfoClicked(object? sender, EventArgs args) => _features?.ShowWordInfo();
     private void OnNextPlaceholderClicked(object? sender, EventArgs args) => _features?.NextPlaceholder();
 
-    private void OnColoringFailed(object? sender, Exception exception) => SearchStatusLabel.Text = exception.Message;
+    private void OnColoringFailed(object? sender, Exception exception)
+    {
+        SearchPanel.IsVisible = true;
+        SearchStatusLabel.Text = exception.Message;
+    }
+
+    private void OnToggleTheme(object? sender, EventArgs args) => StudioTheme.Toggle();
+    private void OnThemeChanged(object? sender, AppThemeChangedEventArgs args) => ApplyPalette();
+    private void OnToggleTools(object? sender, EventArgs args) => ToolsPanel.IsVisible = !ToolsPanel.IsVisible;
+    private void OnToggleSearch(object? sender, EventArgs args)
+    {
+        if (SearchPanel.IsVisible) { SearchPanel.IsVisible = false; Editor.Focus(); }
+        else OpenSearch();
+    }
+    private void OpenSearch() { SearchPanel.IsVisible = true; QueryEntry.Focus(); }
 
     private void OnIndentClicked(object? sender, EventArgs e) => _actions.Indent();
 
@@ -84,26 +109,23 @@ public sealed partial class CodeEditorPage : ContentPage
         SearchStatusLabel.Text = $"{count} replaced";
     }
 
-    private void OnDarkThemeChanged(object? sender, CheckedChangedEventArgs e) => ApplyTheme(e.Value);
-
-    private void ApplyTheme(bool dark)
+    private void ApplyPalette()
     {
-        Editor.BackgroundColor = dark ? Color.FromArgb("#1E1E1E") : Colors.White;
-        Editor.TextColor = dark ? Colors.LightGray : Colors.Black;
+        if (_features is not null) _features.PlaceholderColor = StudioTheme.Get("Selection");
         if (_colorizer is not null) _colorizer.Palette = token => token.Kind switch
         {
-            CodeTokenKind.Keyword => dark ? Colors.LightSkyBlue : Colors.Blue,
-            CodeTokenKind.String => dark ? Colors.LightSalmon : Colors.Maroon,
-            CodeTokenKind.Comment => dark ? Colors.LightGreen : Colors.Green,
-            CodeTokenKind.Number => dark ? Colors.PaleGreen : Colors.DarkCyan,
-            CodeTokenKind.Preprocessor => dark ? Colors.Orchid : Colors.Purple,
+            CodeTokenKind.Keyword => StudioTheme.Get("Keyword"),
+            CodeTokenKind.String => StudioTheme.Get("String"),
+            CodeTokenKind.Comment => StudioTheme.Get("Comment"),
+            CodeTokenKind.Number => StudioTheme.Get("Number"),
+            CodeTokenKind.Preprocessor => StudioTheme.Get("Preprocessor"),
             _ => null,
         };
     }
 
     private void UpdateStatus()
     {
-        StatusLabel.Text = $"Ln {Editor.CaretPosition.Line}, Col {Editor.CaretPosition.Column}    ·    {Editor.LineCount} lines    ·    {Editor.Folding.CollapsedRanges.Count} folded    ·    C#";
+        StatusLabel.Text = $"Ln {Editor.CaretPosition.Line}, Col {Editor.CaretPosition.Column}  ·  {Editor.LineCount} lines";
         CollapseSelectionButton.IsEnabled = _actions.GetCollapseRange() is not null;
         ExpandAtCaretButton.IsEnabled = _actions.GetFoldAtCaret() is not null;
         ExpandAllButton.IsEnabled = Editor.Folding.CollapsedRanges.Count > 0;
@@ -119,8 +141,8 @@ public sealed partial class CodeEditorPage : ContentPage
         using CodeEdit.Maui;
         using RichEdit.Maui;
 
-        // Try Complete, Insert snippet, or hover over a word.
-        // Application-owned colors and widgets leave source/history intact.
+        // Welcome to the playground.
+        // Complete a word, or insert a snippet.
         var editor = new CodeEditor
         {
             Document = CodeDocument.FromPlainText("Hello, code!"),
@@ -139,7 +161,7 @@ public sealed partial class CodeEditorPage : ContentPage
 
             public string Describe()
             {
-                // Select these lines, then choose Collapse selection above.
+                // Select these lines and try folding.
                 var message = $"Count: {_value}";
                 return message;
             }
