@@ -1,0 +1,6 @@
+<Project>
+    <PropertyGroup>
+        <!-- CsWinRT 2.3.1 provides DynamicWindowsRuntimeCastAttribute on .NET 10. -->
+        <WindowsSdkPackageVersion>10.0.19041.87</WindowsSdkPackageVersion>
+    </PropertyGroup>
+</Project>

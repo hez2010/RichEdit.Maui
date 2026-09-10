@@ -12,6 +12,12 @@ A native rich-text editor for .NET MAUI, with a bindable document model, RTF sup
 
 [CodeEdit.Maui](#code-editor) provides a code editor built on the same APIs, with line numbers, configurable indentation, and word wrapping.
 
+Sample:
+
+![Rich Editor](Assets/rich-editor.png)
+
+![Code Editor](Assets/code-editor.png)
+
 ## Requirements
 
 The libraries target .NET 10 and use each platform's native text controls.
