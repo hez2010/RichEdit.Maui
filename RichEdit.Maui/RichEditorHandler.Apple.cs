@@ -45,6 +45,9 @@ namespace RichEdit.Maui.Platforms.Apple
 
             AddSubview(_placeholderLabel);
             TextContainerInset = new UIEdgeInsets(10, 8, 10, 8);
+            // Geometry and folding use TextKit 1. Its list markers are drawn by
+            // this view, since NSTextList alone only renders them in TextKit 2.
+            _ = LayoutManager;
         }
 
         /// <summary>Sets placeholder text.</summary>
@@ -79,6 +82,7 @@ namespace RichEdit.Maui.Platforms.Apple
             var size = _placeholderLabel.SizeThatFits(new CGSize(width, nfloat.MaxValue));
             _placeholderLabel.Frame = new CGRect(x, inset.Top, width, size.Height);
             ProjectionHandler?.OnNativeLayoutCompleted();
+            SetNeedsDisplay();
         }
 
         /// <inheritdoc />
@@ -779,7 +783,7 @@ namespace RichEdit.Maui
                     _ => NSWritingDirection.Natural,
                 },
                 HeadIndent = (nfloat)format.LeadingIndent,
-                FirstLineHeadIndent = (nfloat)(format.LeadingIndent + format.FirstLineIndent),
+                FirstLineHeadIndent = (nfloat)GetNativeFirstLineIndent(format),
                 TailIndent = format.TrailingIndent == 0 ? 0 : (nfloat)(-format.TrailingIndent),
                 ParagraphSpacingBefore = (nfloat)format.SpaceBefore,
                 ParagraphSpacing = (nfloat)format.SpaceAfter,
@@ -827,14 +831,14 @@ namespace RichEdit.Maui
                     .ToArray();
             }
 
-            if (format.NativeList is { } list)
+            if (format.NativeList is not null)
             {
                 if (OperatingSystem.IsIOSVersionAtLeast(16) ||
                     OperatingSystem.IsMacCatalystVersionAtLeast(16))
                 {
                     if (textLists is null)
                     {
-                        ApplyNativeTextList(style, list);
+                        ApplyNativeTextList(style, format);
                     }
                     else
                     {
@@ -990,15 +994,18 @@ namespace RichEdit.Maui
             for (var start = 0; ;)
             {
                 RichTextParagraphFormat format;
-                if (text.Length == 0)
+                if (start == text.Length)
                 {
-                    format = previous.DefaultParagraphFormat;
+                    // The preceding newline belongs to the previous paragraph.
+                    // Deleting an item's last character must keep its own list format.
+                    format = text.Length == 0
+                        ? previous.DefaultParagraphFormat
+                        : remappedPrevious.GetParagraphFormat(start);
                 }
                 else
                 {
-                    var index = Math.Min(start, text.Length - 1);
                     format = ReadParagraphFormat(
-                        attributed.GetAttributes(index, out _) ?? new NSDictionary(),
+                        attributed.GetAttributes(start, out _) ?? new NSDictionary(),
                         remappedPrevious.GetParagraphFormat(start));
                 }
 
@@ -1192,6 +1199,17 @@ namespace RichEdit.Maui
                     : format;
             }
 
+            var projectedList = GetNativeListMetadata(style);
+            if (metadata is null && format.NativeList is null && projectedList is not null)
+            {
+                format = format with
+                {
+                    List = RichTextListConversions.ToItem(projectedList.Format),
+                    NativeList = projectedList.Format,
+                    FirstLineIndent = projectedList.FirstLineIndent,
+                };
+            }
+
             RichTextListFormat? list = format.NativeList;
             if (OperatingSystem.IsIOSVersionAtLeast(16) ||
                 OperatingSystem.IsMacCatalystVersionAtLeast(16))
@@ -1285,7 +1303,9 @@ namespace RichEdit.Maui
                     _ => RichTextDirection.Automatic,
                 },
                 LeadingIndent = style.HeadIndent,
-                FirstLineIndent = style.FirstLineHeadIndent - style.HeadIndent,
+                FirstLineIndent = list is not null && (format.NativeList is not null && style.FirstLineHeadIndent == GetNativeFirstLineIndent(format) ||
+                    projectedList is not null && style.FirstLineHeadIndent == projectedList.TextIndent)
+                    ? format.FirstLineIndent : style.FirstLineHeadIndent - style.HeadIndent,
                 TrailingIndent = style.TailIndent < 0 ? -style.TailIndent : 0,
                 SpaceBefore = Math.Max(style.ParagraphSpacingBefore, 0),
                 SpaceAfter = Math.Max(style.ParagraphSpacing, 0),
@@ -1373,7 +1393,7 @@ namespace RichEdit.Maui
                         definition = list;
                     }
 
-                    var textList = CreateNativeTextList(definition);
+                    var textList = CreateNativeTextList(definition, document.Lists[new RichTextListId(list.Id)].Levels[outerLevel]);
                     levels[outerLevel] = textList;
                     ownedTextLists.Add(textList);
                 }
@@ -1394,16 +1414,23 @@ namespace RichEdit.Maui
         [SupportedOSPlatform("maccatalyst16.0")]
         private static void ApplyNativeTextList(
             NSMutableParagraphStyle style,
-            RichTextListFormat list)
+            RichTextParagraphFormat format)
         {
-            var textList = CreateNativeTextList(list);
+            var list = format.NativeList!;
+            var level = RichTextListConversions.ToLevel(list) with
+            {
+                LeadingIndent = format.LeadingIndent,
+                FirstLineIndent = format.FirstLineIndent,
+                MarkerTab = GetNativeFirstLineIndent(format),
+            };
+            var textList = CreateNativeTextList(list, level);
             style.TextLists = Enumerable.Repeat(textList, list.Level + 1).ToArray();
             textList.Dispose();
         }
 
         [SupportedOSPlatform("ios16.0")]
         [SupportedOSPlatform("maccatalyst16.0")]
-        private static NSTextList CreateNativeTextList(RichTextListFormat list)
+        private static NSTextList CreateNativeTextList(RichTextListFormat list, RichTextListLevelDefinition level)
         {
             var markerFormat = list.Kind == RichListKind.Bulleted
                 ? (string.IsNullOrEmpty(list.BulletText) ? "{disc}" : list.BulletText)
@@ -1418,10 +1445,21 @@ namespace RichEdit.Maui
                         _ => "{decimal}",
                     },
                     list.Suffix);
-            return new NSTextList(
+            var textList = new NSTextList(
                 markerFormat,
                 NSTextListOptions.None,
                 list.StartAt);
+            if (list.Id > 0)
+            {
+                var metadata = new NativeListMetadata(list with
+                {
+                    Restart = false,
+                    StartAt = level.Marker is RichTextListMarker.Number number ? number.StartAt : 1,
+                }, level.FirstLineIndent, level.MarkerTab > 0 ? level.MarkerTab : level.LeadingIndent);
+                SetAssociatedListMetadata(textList.Handle, ParagraphMetadataKey.Handle, metadata.Handle, 1); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+                GC.KeepAlive(metadata);
+            }
+            return textList;
         }
 
         [SupportedOSPlatform("ios16.0")]

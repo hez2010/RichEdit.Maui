@@ -456,6 +456,174 @@ internal static class AppleEditorTests
             Equal(true, editor.Document.CurrentSnapshot.Images.Single().Data.AsSpan().SequenceEqual(bytes));
         });
 
+        await Test("list markers render without becoming editable text", async () =>
+        {
+            editor.Selection.ReplaceText("one\ntwo");
+            editor.SelectAll();
+            editor.Selection.SetList(new RichTextListDefinition([
+                new RichTextListLevelDefinition
+                {
+                    Marker = new RichTextListMarker.Bullet("•"),
+                    Prefix = "", Suffix = "", LeadingIndent = 36, FirstLineIndent = -30, MarkerTab = 36,
+                }]));
+            await Drain();
+            editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+            var before = editor.Document.CurrentSnapshot;
+            var selection = editor.SelectedRange;
+            VerifyListMarkerPixels(native, 0);
+            VerifyListMarkerPixels(native, 4);
+            Equal("one\ntwo", native.Text);
+            Equal(selection, editor.SelectedRange);
+            EditorContractTests.SameContent(before, editor.Document.CurrentSnapshot);
+
+            editor.Selection.ClearList();
+            await Drain();
+            editor.Undo();
+            await Drain();
+            VerifyListMarkerPixels(native, 0);
+            EditorContractTests.SameContent(before, editor.Document.CurrentSnapshot);
+        });
+
+        await Test("list switching and Return before existing text preserve marker indentation", async () =>
+        {
+            editor.Document.Edit(edit =>
+            {
+                edit.SetDefaultCharacterFormat(RichTextCharacterFormat.Default with { FontFamily = "Georgia", FontSize = 19 });
+                edit.SetDefaultParagraphFormat(RichTextParagraphFormat.Default with { SpaceAfter = 16 });
+            });
+            editor.Selection.ReplaceText("Test\n\nTail");
+            editor.SelectedRange = new RichTextRange(0, 0);
+            editor.Selection.SetList(new RichTextListDefinition([
+                new RichTextListLevelDefinition
+                {
+                    Marker = new RichTextListMarker.Bullet("•"),
+                    Prefix = "", Suffix = "", LeadingIndent = 18, FirstLineIndent = -18, MarkerTab = 18,
+                }]));
+            editor.SelectedRange = new RichTextRange(5, 0);
+            await Drain();
+            // UIKit can inherit the native list style while discarding custom
+            // attributes on a new item, as in the captured keyboard reproduction.
+            using var inherited = new NSMutableDictionary(native.TextStorage.GetAttributes(0, out _)!);
+            using var metadataKey = new NSString("RichEdit.Maui.ParagraphFormat");
+            inherited.Remove(metadataKey);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            native.TextStorage.SetAttributes(inherited, new NSRange(5, 1));
+            await Drain();
+            CheckItems(18);
+            native.InsertText("Disadvantage");
+            await Drain();
+            CheckItems(18);
+            editor.Selection.SetList(new RichTextListDefinition([
+                new RichTextListLevelDefinition
+                {
+                    Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),
+                    Prefix = "", Suffix = ".", LeadingIndent = 36, FirstLineIndent = -36, MarkerTab = 36,
+                }]));
+            await Drain();
+            CheckItems(36);
+            foreach (var input in new[] { "\n", "\n", "D", "s", "v", "\n", "\n" })
+            {
+                native.InsertText(input);
+                await Drain();
+                CheckItems(36);
+            }
+            var itemStart = editor.Document.Text.IndexOf("Dsv", StringComparison.Ordinal);
+            editor.SelectedRange = new RichTextRange(itemStart, 1);
+            native.InsertText("T");
+            await Drain();
+            CheckItems(36);
+            native.DeleteBackward();
+            await Drain();
+            CheckItems(36);
+            editor.Undo();
+            await Drain();
+            CheckItems(36);
+            var emptyItem = editor.Document.Text.IndexOf("\n\n", StringComparison.Ordinal) + 1;
+            editor.SelectedRange = new RichTextRange(emptyItem, 0);
+            await Drain();
+            var emptyMarker = VerifyListMarkerPixels(native, emptyItem);
+            native.InsertText("x");
+            await Drain();
+            var filledMarker = VerifyListMarkerPixels(native, emptyItem);
+            Equal(true, emptyMarker.AsSpan().SequenceEqual(filledMarker));
+            native.DeleteBackward();
+            await Drain();
+            native.SetContentOffset(CoreGraphics.CGPoint.Empty, false);
+            native.LayoutIfNeeded();
+            using var end = native.GetPosition(native.BeginningOfDocument, editor.Document.Length)!;
+            var height = Math.Min(native.Bounds.Height, native.GetCaretRectForPosition(end).Bottom + native.TextContainerInset.Bottom);
+            using var renderer = new UIGraphicsImageRenderer(new CoreGraphics.CGSize(native.Bounds.Width, height));
+            using var image = renderer.CreateImage(context => native.Layer.RenderInContext(context.CGContext));
+            using var png = image.AsPNG()!;
+            png.Save(Path.Combine(FileSystem.CacheDirectory, "apple-list-switching.png"), false, out _);
+
+            void CheckItems(double indent)
+            {
+                var snapshot = editor.Document.CurrentSnapshot;
+                foreach (var paragraph in snapshot.Paragraphs.Where(paragraph => paragraph.Range.Start > 0 && paragraph.Format.List is not null))
+                {
+                    var item = paragraph.Format.List!;
+                    Equal(indent == 18, snapshot.Lists[item.ListId].Levels[item.Level].Marker is RichTextListMarker.Bullet);
+                    if (paragraph.Format.LeadingIndent != indent || paragraph.Format.FirstLineIndent != -indent)
+                        throw new InvalidOperationException($"At {paragraph.Range.Start}: expected {indent}/{-indent}; got {paragraph.Format}. Text={snapshot.Text.Replace("\n", "\\n")}");
+                }
+            }
+        });
+
+        foreach (var firstText in new[] { "bullet", "" })
+        {
+            await Test($"Backspace through mixed lists preserves the empty numbered item ({firstText.Length} preceding characters)", async () =>
+            {
+                var bullets = new RichTextListDefinition([
+                    new RichTextListLevelDefinition
+                    {
+                        Marker = new RichTextListMarker.Bullet("•"),
+                        Prefix = "", Suffix = "", LeadingIndent = 18, FirstLineIndent = -18, MarkerTab = 18,
+                    }]);
+                editor.Selection.SetList(bullets);
+                if (firstText.Length > 0) native.InsertText(firstText);
+                await Drain();
+                native.InsertText("\n");
+                await Drain();
+                editor.Selection.SetList(new RichTextListDefinition([
+                    new RichTextListLevelDefinition
+                    {
+                        Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),
+                        Prefix = "", Suffix = ".", LeadingIndent = 36, FirstLineIndent = -36, MarkerTab = 36,
+                    }]));
+                var numberedId = editor.Document.CurrentSnapshot.Paragraphs[^1].Format.List!.ListId;
+                foreach (var text in new[] { "number", "\n", "\n" })
+                {
+                    native.InsertText(text);
+                    await Drain();
+                }
+                editor.Selection.SetList(bullets);
+                await Drain();
+                Equal(firstText + "\nnumber\n\n", editor.Document.Text);
+                editor.ClearUndoHistory();
+                for (var i = 0; i < "number\n\n".Length; i++)
+                {
+                    native.DeleteBackward();
+                    await Drain();
+                    var last = editor.Document.CurrentSnapshot.Paragraphs[^1].Format;
+                    Equal(numberedId, last.List!.ListId);
+                    Equal(36d, last.LeadingIndent);
+                    Equal(-36d, last.FirstLineIndent);
+                }
+                Equal(firstText + "\n", editor.Document.Text);
+                VerifyListMarkerPixels(native, firstText.Length + 1);
+                native.InsertText("again");
+                await Drain();
+                Equal(numberedId, editor.Document.CurrentSnapshot.Paragraphs[^1].Format.List!.ListId);
+                editor.Undo();
+                await Drain();
+                Equal(firstText + "\n", editor.Document.Text);
+                Equal(numberedId, editor.Document.CurrentSnapshot.Paragraphs[^1].Format.List!.ListId);
+            });
+        }
+
         await Test("native list continuation and undo preserve list identity", async () =>
         {
             editor.Selection.ReplaceText("one");
@@ -475,6 +643,78 @@ internal static class AppleEditorTests
             editor.Undo();
             await Drain();
             Equal(before, editor.Document.RtfText);
+        });
+
+        await Test("list markers render on empty items and after nesting and scrolling", async () =>
+        {
+            editor.Selection.SetList(new RichTextListDefinition([
+                new RichTextListLevelDefinition
+                {
+                    Marker = new RichTextListMarker.Bullet("•"),
+                    Prefix = "", Suffix = "", LeadingIndent = 36, FirstLineIndent = -30, MarkerTab = 36,
+                },
+                new RichTextListLevelDefinition
+                {
+                    Marker = new RichTextListMarker.Bullet("▪"),
+                    Prefix = "", Suffix = "", LeadingIndent = 54, FirstLineIndent = -30, MarkerTab = 54,
+                }]));
+            await Drain();
+            var emptyMarker = VerifyListMarkerPixels(native, 0);
+            Equal("", native.Text);
+            native.InsertText("one");
+            await Drain();
+            Equal(true, emptyMarker.AsSpan().SequenceEqual(VerifyListMarkerPixels(native, 0)));
+            native.InsertText("\n");
+            await Drain();
+            VerifyListMarkerPixels(native, 4);
+            editor.Selection.ChangeListLevel(1);
+            await Drain();
+            VerifyListMarkerPixels(native, 4, 54);
+            native.InsertText(string.Join("\n", Enumerable.Repeat("item", 60)));
+            await Drain();
+            native.ScrollRangeToVisible(new NSRange(editor.Document.Length, 0));
+            await Drain();
+            VerifyListMarkerPixels(native, editor.Document.Text.LastIndexOf('\n') + 1, 54);
+        });
+
+        await Test("list number markers repaint after restart", async () =>
+        {
+            editor.Selection.ReplaceText("one\ntwo");
+            editor.SelectAll();
+            editor.Selection.SetList(new RichTextListDefinition([
+                new RichTextListLevelDefinition
+                {
+                    Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),
+                    Prefix = "", Suffix = ".", LeadingIndent = 36, FirstLineIndent = -30, MarkerTab = 36,
+                }]));
+            editor.SelectedRange = new RichTextRange(4, 0);
+            await Drain();
+            var before = VerifyListMarkerPixels(native, 4);
+            editor.Selection.RestartList(7);
+            await Drain();
+            var after = VerifyListMarkerPixels(native, 4);
+            Equal(false, before.AsSpan().SequenceEqual(after));
+            Equal("one\ntwo", native.Text);
+        });
+
+        await Test("native list formatting without metadata retains indentation", async () =>
+        {
+            if (!OperatingSystem.IsIOSVersionAtLeast(16) && !OperatingSystem.IsMacCatalystVersionAtLeast(16)) return;
+            editor.Selection.ReplaceText("one");
+            await Drain();
+            using var list = new NSTextList("{disc}", NSTextListOptions.None, 1);
+            using var style = new NSMutableParagraphStyle { HeadIndent = 36, FirstLineHeadIndent = 0, TextLists = [list] };
+            using var metadataKey = new NSString("RichEdit.Maui.ParagraphFormat");
+            var range = new NSRange(0, 3);
+            native.TextStorage.BeginEditing();
+            native.TextStorage.RemoveAttribute(metadataKey, range);
+            native.TextStorage.AddAttribute(UIStringAttributeKey.ParagraphStyle, style, range);
+            native.TextStorage.EndEditing();
+            await Drain();
+            var paragraph = editor.Document.CurrentSnapshot.Paragraphs[0].Format;
+            Equal(true, paragraph.List is not null);
+            Equal(36d, paragraph.LeadingIndent);
+            Equal(-36d, paragraph.FirstLineIndent);
         });
 
         await Test("read-only undo and input configuration", async () =>
@@ -645,6 +885,38 @@ internal static class AppleEditorTests
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL"))} failures");
         Save();
         Console.WriteLine(results[^1]);
+    }
+
+    private static byte[] VerifyListMarkerPixels(RichTextView native, int position, double textIndent = 36)
+    {
+        native.LayoutManager.EnsureLayoutForTextContainer(native.TextContainer);
+        native.LayoutIfNeeded();
+        using var start = native.GetPosition(native.BeginningOfDocument, position)!;
+        var caret = native.GetCaretRectForPosition(start);
+        var inset = native.TextContainerInset;
+        var padding = native.TextContainer.LineFragmentPadding;
+        if (caret.X < inset.Left + padding + textIndent - 1)
+            throw new InvalidOperationException($"List text overlaps the marker gutter: caret={caret}.");
+
+        using var renderer = new UIGraphicsImageRenderer(new CoreGraphics.CGSize(28, caret.Height));
+        using var image = renderer.CreateImage(context =>
+        {
+            context.CGContext.TranslateCTM(-inset.Left - padding - (nfloat)(textIndent - 36), -caret.Y + native.ContentOffset.Y);
+            native.Layer.RenderInContext(context.CGContext);
+        });
+        using var pixels = image.CGImage!.DataProvider.CopyData()!;
+        var data = pixels.ToArray();
+        var minimum = 255;
+        var maximum = 0;
+        for (var i = 0; i < data.Length; i += 4)
+        {
+            var brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            minimum = Math.Min(minimum, brightness);
+            maximum = Math.Max(maximum, brightness);
+        }
+        if (maximum - minimum < 40)
+            throw new InvalidOperationException($"No list marker pixels at {position}: brightness={minimum}..{maximum}.");
+        return data;
     }
 
     private static Task Drain() => Task.Delay(100);

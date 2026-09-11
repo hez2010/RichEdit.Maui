@@ -95,15 +95,15 @@ List markers are presentation metadata and are never inserted into
 
 | Feature | RTF codec | iOS | Mac Catalyst | Android 26 | WinUI 3 | Portable behavior |
 |---|---|---|---|---|---|---|
-| Basic bullets | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Android draws the marker without inserting it into logical text. |
-| Arabic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Android uses the same numbering formatter as the RTF writer. |
-| Roman and alphabetic numbering | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Upper/lower Roman and letter styles are represented. |
-| Start-at value | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Values are positive integers. |
-| Restart flag | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | RTF uses a new standard list override with per-level start values; native Apple list objects and Android counters are likewise restarted only at the requested level. |
-| Nested level | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | RTF emits a nine-level hybrid definition. Apple shares the correct native list object at each nesting level; Android adds a level margin. |
-| Independent counters per level | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | Advancing an outer level does not implicitly reset a nested counter; explicit restart remains available per level. |
-| Custom marker prefix/suffix | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | RTF `leveltext`, Apple marker formats, and Android marker spans retain the complete marker. WinUI receives the native RTF definition. |
-| Alternate bullet text | Round-trip | Native 16+; Model 15 | Native 16+; Model 15 | Adapter | Native | The canonical bullet string is used on every rendering path; a missing glyph can still fall back according to the selected font. |
+| Basic bullets | Round-trip | Adapter | Adapter | Adapter | Native | Apple and Android draw markers without inserting them into logical text. |
+| Arabic numbering | Round-trip | Adapter | Adapter | Adapter | Native | Apple and Android use the shared numbering formatter. |
+| Roman and alphabetic numbering | Round-trip | Adapter | Adapter | Adapter | Native | Upper/lower Roman and letter styles are represented. |
+| Start-at value | Round-trip | Adapter | Adapter | Adapter | Native | Values are positive integers. |
+| Restart flag | Round-trip | Adapter | Adapter | Adapter | Native | RTF uses a new standard list override with per-level start values; Apple and Android counters restart only at the requested level. |
+| Nested level | Round-trip | Adapter | Adapter | Adapter | Native | RTF emits a nine-level hybrid definition. Apple and Android position markers using each level's indentation. |
+| Independent counters per level | Round-trip | Adapter | Adapter | Adapter | Native | Advancing an outer level does not implicitly reset a nested counter; explicit restart remains available per level. |
+| Custom marker prefix/suffix | Round-trip | Adapter | Adapter | Adapter | Native | RTF `leveltext` and the Apple and Android marker renderers retain the complete marker. WinUI receives the native RTF definition. |
+| Alternate bullet text | Round-trip | Adapter | Adapter | Adapter | Native | The canonical bullet string is used on every rendering path; a missing glyph can still fall back according to the selected font. |
 | Picture bullets | Round-trip | Degraded | Degraded | Adapter | Native | RTF uses the standard `\listpicture` table and `\levelpicture` index. Android draws decoded raster markers; Apple shows the configured text bullet; WinUI receives the native RTF definition. The owned payload and identifier survive native readback. |
 
 ## Links, fields, and inline pictures
