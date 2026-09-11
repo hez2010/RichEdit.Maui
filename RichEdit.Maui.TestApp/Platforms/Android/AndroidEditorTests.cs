@@ -251,6 +251,61 @@ internal static class AndroidEditorTests
             Equal((int)Math.Round(expectedIndent), actualIndent);
         }));
 
+        foreach (var numbered in new[] { false, true })
+        foreach (var originalText in new[] { "\nnext", "one\nnext", "one\u2028tail\nnext", "one" })
+        {
+            await Test($"list marker survives native typing and composition: numbered={numbered}, text={originalText.Replace("\n", "\\n").Replace("\u2028", "\\u2028")}", async () =>
+            {
+                editor.Selection.ReplaceText(originalText);
+                editor.SelectedRange = new RichTextRange(0, 0);
+                editor.Selection.SetList(new RichTextListDefinition([
+                    new RichTextListLevelDefinition
+                    {
+                        Marker = numbered ? new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1) : new RichTextListMarker.Bullet("*"),
+                        Prefix = "", Suffix = "", LeadingIndent = 24, FirstLineIndent = -12, MarkerTab = 24,
+                    }]));
+                var list = editor.Document.CurrentSnapshot.Paragraphs[0].Format.List;
+                native.RequestFocus();
+                using var info = new Android.Views.InputMethods.EditorInfo();
+                using var connection = native.OnCreateInputConnection(info)!;
+                using var first = new Java.Lang.String("t");
+                connection.CommitText(first, 1);
+                await VerifyMarker();
+
+                editor.SelectedRange = new RichTextRange(0, 1);
+                using var composing = new Java.Lang.String("te");
+                connection.SetComposingText(composing, 1);
+                await VerifyMarker();
+                using var committed = new Java.Lang.String("test");
+                connection.CommitText(committed, 1);
+                connection.FinishComposingText();
+                await VerifyMarker();
+
+                var text = editor.Document.Text;
+                var firstLineEnd = text.IndexOfAny(['\n', '\u2028']);
+                editor.SelectedRange = new RichTextRange(0, firstLineEnd < 0 ? text.Length : firstLineEnd);
+                connection.CommitText(first, 1);
+                await VerifyMarker();
+
+                async Task VerifyMarker()
+                {
+                    await EditorContractTests.Verify(editor);
+                    Equal(list, editor.Document.CurrentSnapshot.Paragraphs[0].Format.List);
+                    var editable = native.EditableText!;
+                    var marker = editable.GetSpans(0, editable.Length(), Java.Lang.Class.FromType(typeof(Java.Lang.Object)))!
+                        .Single(span => span.GetType().Name == "RichListMarkerSpan");
+                    Equal(0, editable.GetSpanStart(marker));
+                    Equal(true, editable.GetSpanEnd(marker) > 0);
+                    Equal(true, native.Layout!.GetParagraphLeft(0) > 0);
+                    if (editor.Document.Text.IndexOf('\n') is var newline && newline >= 0)
+                    {
+                        Equal(null, editor.Document.CurrentSnapshot.Paragraphs[1].Format.List);
+                        Equal(0, native.Layout.GetParagraphLeft(native.Layout.GetLineForOffset(newline + 1)));
+                    }
+                }
+            });
+        }
+
         await Test("paragraph spacing follows native span positions after typing", () => Sync(() =>
         {
             editor.Selection.ReplaceText("one\nsecond");

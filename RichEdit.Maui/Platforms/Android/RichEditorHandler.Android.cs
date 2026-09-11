@@ -1198,7 +1198,8 @@ public partial class RichEditorHandler
                 ToPixels(format.LeadingIndent + format.FirstLineIndent)),
             start,
             end,
-            SpanTypes.ExclusiveExclusive);
+            // Keep the marker anchored when typing at the start of the item.
+            SpanTypes.InclusiveExclusive);
     }
 
     private static int FindSoftLineEnd(Java.Lang.ICharSequence text, int start, int end)
