@@ -8,8 +8,11 @@
     <ContentPage.Behaviors>
         <local:SystemBarAppearanceBehavior LightIcons="{AppThemeBinding Light=False, Dark=True}" />
     </ContentPage.Behaviors>
-    <Grid Padding="{OnIdiom Desktop=28, Phone=14, Default=20}" RowDefinitions="Auto,*,Auto" RowSpacing="14"
+    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14"
           MaximumWidthRequest="1440" HorizontalOptions="Fill">
+        <Grid.Padding>
+            <OnIdiom x:TypeArguments="Thickness" Desktop="28" Phone="14" Default="20" />
+        </Grid.Padding>
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
             <Border BackgroundColor="{AppThemeBinding Light={StaticResource LightAccent}, Dark={StaticResource DarkAccent}}" StrokeThickness="0" StrokeShape="RoundRectangle 12" WidthRequest="44" HeightRequest="44">
                 <Label Text="Aa" FontSize="20" FontFamily="OpenSansSemibold" TextColor="{AppThemeBinding Light={StaticResource LightAccentText}, Dark={StaticResource DarkAccentText}}" HorizontalOptions="Center" VerticalOptions="Center" />
@@ -36,8 +39,8 @@
                         <Picker x:Name="DemoPicker" AutomationId="PrimitiveDemo" SelectedIndexChanged="OnDemoChanged" SemanticProperties.Description="Choose editor tools" />
                     </Border>
                     <Button Grid.Column="1" Text="New" Clicked="OnNewDocumentClicked" AutomationId="NewDocument" />
-                    <Button Grid.Column="2" Text="Undo" Command="{Binding Source={x:Reference Editor}, Path=Commands.Undo}" AutomationId="PrimitiveUndo" />
-                    <Button Grid.Column="3" Text="Redo" Command="{Binding Source={x:Reference Editor}, Path=Commands.Redo}" />
+                    <Button Grid.Column="2" Text="Undo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Undo}" AutomationId="PrimitiveUndo" />
+                    <Button Grid.Column="3" Text="Redo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Redo}" />
                 </Grid>
 
                 <Grid Grid.Row="2" RowDefinitions="Auto,Auto" Padding="12,0,12,10" RowSpacing="4">
@@ -83,10 +86,10 @@
                             <Button Text="Image" Clicked="OnInsertImageClicked" Style="{StaticResource QuietButton}" />
                             <Button Text="Field" Clicked="OnInsertFieldClicked" Style="{StaticResource QuietButton}" />
                             <BoxView Style="{StaticResource Divider}" />
-                            <Button Text="All" Command="{Binding Source={x:Reference Editor}, Path=Commands.SelectAll}" Style="{StaticResource QuietButton}" />
-                            <Button Text="Cut" Command="{Binding Source={x:Reference Editor}, Path=Commands.Cut}" Style="{StaticResource QuietButton}" />
-                            <Button Text="Copy" Command="{Binding Source={x:Reference Editor}, Path=Commands.Copy}" Style="{StaticResource QuietButton}" />
-                            <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, Path=Commands.Paste}" Style="{StaticResource QuietButton}" />
+                            <Button Text="All" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.SelectAll}" Style="{StaticResource QuietButton}" />
+                            <Button Text="Cut" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Cut}" Style="{StaticResource QuietButton}" />
+                            <Button Text="Copy" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Copy}" Style="{StaticResource QuietButton}" />
+                            <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Paste}" Style="{StaticResource QuietButton}" />
                             <Button Text="Studio notes" Clicked="OnLoadStudioDocument" Style="{StaticResource QuietButton}" />
                             <Button Text="RTF reference" Clicked="OnLoadReferenceDocument" Style="{StaticResource QuietButton}" />
                         </HorizontalStackLayout>
@@ -99,7 +102,7 @@
                                     <Entry x:Name="ReplacementEntry" Text="updated" Placeholder="Replacement text" AutomationId="PrimitiveReplacement" />
                                 </Border>
                                 <HorizontalStackLayout Grid.Column="1" Spacing="4">
-                                    <Switch IsToggled="{Binding Source={x:Reference Editor}, Path=IsReadOnly, Mode=TwoWay}" AutomationId="PrimitiveReadOnly" />
+                                    <Switch IsToggled="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=IsReadOnly, Mode=TwoWay}" AutomationId="PrimitiveReadOnly" />
                                     <Label Text="Read only" Style="{StaticResource Caption}" VerticalOptions="Center" />
                                 </HorizontalStackLayout>
                             </Grid>
@@ -142,15 +145,24 @@
                     </Grid>
                 </Grid>
 
-                <Border Grid.Row="3" StrokeThickness="0" StrokeShape="Rectangle" BackgroundColor="{AppThemeBinding Light={StaticResource LightPaper}, Dark={StaticResource DarkPaper}}" Padding="{OnIdiom Desktop=28, Phone=12, Default=20}">
+                <Border Grid.Row="3" StrokeThickness="0" StrokeShape="Rectangle" BackgroundColor="{AppThemeBinding Light={StaticResource LightPaper}, Dark={StaticResource DarkPaper}}">
+                    <Border.Padding>
+                        <OnIdiom x:TypeArguments="Thickness" Desktop="28" Phone="12" Default="20" />
+                    </Border.Padding>
                     <Grid HorizontalOptions="Fill">
                         <rich:RichEditor x:Name="Editor" AutomationId="RichEditor" FontSize="17"
-                                         FontFamily="{OnPlatform WinUI=Georgia, Android=serif, iOS=Georgia, MacCatalyst=Georgia}"
                                          BackgroundColor="{AppThemeBinding Light={StaticResource LightPaper}, Dark={StaticResource DarkPaper}}" TextColor="{AppThemeBinding Light={StaticResource LightInk}, Dark={StaticResource DarkInk}}"
                                          Placeholder="Every document begins with a thought…" PlaceholderColor="{AppThemeBinding Light={StaticResource LightMuted}, Dark={StaticResource DarkMuted}}"
                                          ContentChanged="OnEditorContentChanged" InlineObjectInvoked="OnEditorInlineObjectInvoked"
                                          LinkInvoked="OnEditorLinkInvoked" Pasting="OnEditorPasting" SelectionChanged="OnEditorSelectionChanged"
-                                         SelectionFormatChanged="OnEditorSelectionFormatChanged" />
+                                         SelectionFormatChanged="OnEditorSelectionFormatChanged">
+                            <rich:RichEditor.FontFamily>
+                                <OnPlatform x:TypeArguments="x:String">
+                                    <On Platform="WinUI, iOS, MacCatalyst" Value="Georgia" />
+                                    <On Platform="Android" Value="serif" />
+                                </OnPlatform>
+                            </rich:RichEditor.FontFamily>
+                        </rich:RichEditor>
                         <GraphicsView x:Name="GeometryOverlay" InputTransparent="True" IsVisible="False" />
                     </Grid>
                 </Border>

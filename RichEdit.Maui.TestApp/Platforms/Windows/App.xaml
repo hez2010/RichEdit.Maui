@@ -6,6 +6,10 @@
     xmlns:local="using:RichEdit.Maui.TestApp.WinUI">
     <maui:MauiWinUIApplication.Resources>
         <ResourceDictionary>
+            <!-- This template belongs to the native WinUI Shell tab bar. -->
+            <DataTemplate x:Key="TabBarNavigationViewMenuItem">
+                <local:ShellTabItem x:Name="navViewItem" />
+            </DataTemplate>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#176D65" />

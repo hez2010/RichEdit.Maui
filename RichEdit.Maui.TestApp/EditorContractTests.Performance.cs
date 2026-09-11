@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace RichEdit.Maui.TestApp;
 
@@ -32,7 +33,7 @@ internal static partial class EditorContractTests
             await Task.Delay(200);
             var handler = (RichEditorHandler)editor.Handler!;
             var baseline = await MeasureEditing();
-            Progress("baseline complete " + JsonSerializer.Serialize(baseline));
+            Progress("baseline complete " + JsonSerializer.Serialize(baseline, PerformanceJsonContext.Default.EditingMeasurementArray));
             var insertedPrefix = editor.Document.Length - source.Length;
             source = editor.Document.Text;
             // Keep the same native input context across variants. Replacing a UITextView's
@@ -72,17 +73,18 @@ internal static partial class EditorContractTests
                 if (NativeText(editor).Length == source.Length + widgets.Count) break;
             }
             Equal(source.Length + widgets.Count, NativeText(editor).Length, "all 2000 native reservations are published");
-            var initial = new { SubmitMs = submitted, CompletionMs = timer.Elapsed.TotalMilliseconds, LongestQueueDelayMs = longestDelay,
-                AllocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocation, NativeGeometryQueries = GeometryQueries(handler) - queryCount,
-                RealizedViews = widgets.Count(static item => item.View.Handler?.PlatformView is not null) };
+            var initial = new PresentationMeasurement(submitted, timer.Elapsed.TotalMilliseconds, longestDelay,
+                GC.GetTotalAllocatedBytes(precise: true) - allocation, GeometryQueries(handler) - queryCount,
+                widgets.Count(static item => item.View.Handler?.PlatformView is not null));
             Equal(true, initial.RealizedViews < 128, $"viewport realization: {initial.RealizedViews} of 2000");
             Equal(source, editor.Document.Text);
             Equal(true, ReferenceEquals(publicationSource, editor.Document.CurrentSnapshot), "presentation preserves source and history");
             var dense = await MeasureEditing();
             Progress("dense edits complete");
-            var report = JsonSerializer.Serialize(new { Runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
-                OS = System.Runtime.InteropServices.RuntimeInformation.OSDescription, Library = typeof(RichEditor).Assembly.ManifestModule.ModuleVersionId,
-                Lines = 2000, Decorations = 4000, Adornments = 2000, Baseline = baseline, Initial = initial, Dense = dense }, new JsonSerializerOptions { WriteIndented = true });
+            var report = JsonSerializer.Serialize(new PerformanceReport(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, typeof(RichEditor).Assembly.ManifestModule.ModuleVersionId,
+                2000, 4000, 2000, baseline, initial, dense),
+                new PerformanceJsonContext(new JsonSerializerOptions { WriteIndented = true }).PerformanceReport);
 #if WINDOWS
             File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "editor-primitives-performance.json"), report);
 #else
@@ -93,9 +95,9 @@ internal static partial class EditorContractTests
             await Task.Delay(150);
             Equal(editor.Document.Text, NativeText(editor));
 
-            async Task<object[]> MeasureEditing()
+            async Task<EditingMeasurement[]> MeasureEditing()
             {
-                var rounds = new List<object>();
+                var rounds = new List<EditingMeasurement>();
                 for (var index = 0; index < 5; index++)
                 {
                     editor.SelectedRange = new(0, 0);
@@ -111,13 +113,22 @@ internal static partial class EditorContractTests
                     var delay = edit.Elapsed.TotalMilliseconds;
                     await Task.Delay(30);
                     Equal("x" + before, editor.Document.Text, "dense native editing preserves source");
-                    rounds.Add(new { EditMs = synchronous, QueueDelayMs = delay - synchronous, CompletionMs = edit.Elapsed.TotalMilliseconds,
-                        NativeGeometryQueries = GeometryQueries(handler) - queries, AllocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocated });
+                    rounds.Add(new(synchronous, delay - synchronous, edit.Elapsed.TotalMilliseconds,
+                        GeometryQueries(handler) - queries, GC.GetTotalAllocatedBytes(precise: true) - allocated));
                 }
                 return rounds.ToArray();
             }
         });
     }
+
+    private sealed record EditingMeasurement(double EditMs, double QueueDelayMs, double CompletionMs, long NativeGeometryQueries, long AllocatedBytes);
+    private sealed record PresentationMeasurement(double SubmitMs, double CompletionMs, double LongestQueueDelayMs, long AllocatedBytes,
+        long NativeGeometryQueries, int RealizedViews);
+    private sealed record PerformanceReport(string Runtime, string OS, Guid Library, int Lines, int Decorations, int Adornments,
+        EditingMeasurement[] Baseline, PresentationMeasurement Initial, EditingMeasurement[] Dense);
+
+    [JsonSerializable(typeof(PerformanceReport))]
+    private partial class PerformanceJsonContext : JsonSerializerContext;
 
     [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(RichEditorHandler))]
     private static long GeometryQueries(RichEditorHandler handler) => (long)typeof(RichEditorHandler)
