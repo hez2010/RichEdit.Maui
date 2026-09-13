@@ -8,6 +8,7 @@ namespace RichEdit.Maui.Tests;
 public partial class EditorApiTests
 {
     private static Microsoft.UI.Xaml.Window? _selectionWindow;
+
     [Fact]
     public void SavePointsFollowUndoRedoAndSurviveHistoryClearing()
     {
@@ -106,7 +107,8 @@ public partial class EditorApiTests
             var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             void OnSelectionChanged(object? sender, RichTextSelectionChangedEventArgs args)
             {
-                if (fixture.Editor.SelectionState == new RichTextSelectionState(4, 2)) observed.TrySetResult();
+                if (fixture.Editor.SelectionState == new RichTextSelectionState(4, 2))
+                    observed.TrySetResult();
             }
             fixture.Editor.SelectionChanged += OnSelectionChanged;
             try
@@ -115,13 +117,20 @@ public partial class EditorApiTests
                 native.Options |= SelectionOptions.StartActive;
                 await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
             }
-            finally { fixture.Editor.SelectionChanged -= OnSelectionChanged; }
+            finally
+            {
+                fixture.Editor.SelectionChanged -= OnSelectionChanged;
+            }
+
             Assert.Equal(new RichTextSelectionState(4, 2), fixture.Editor.SelectionState);
             fixture.Editor.SelectionState = new(1, 5);
             Assert.False((native.Options & SelectionOptions.StartActive) != 0);
             Assert.Equal(5, fixture.Editor.Selection.Active);
         }
-        finally { window.Content = null; }
+        finally
+        {
+            window.Content = null;
+        }
     });
 
     [Fact]
@@ -189,7 +198,11 @@ public partial class EditorApiTests
             fixture.Editor.SelectionState = new(4, 6);
             fixture.Editor.ContentChanged += (_, _) => events.Add("content");
             fixture.Editor.TextChanged += (_, _) => events.Add("text");
-            document.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(document.Text)) events.Add("property"); };
+            document.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(document.Text))
+                    events.Add("property");
+            };
             fixture.Editor.SelectionChanged += (_, _) => events.Add("selection");
             fixture.Editor.SelectionFormatChanged += (_, _) => events.Add("format");
             document.Edit(edit => edit.DeleteText(new RichTextRange(0, 5)));
@@ -280,6 +293,7 @@ public partial class EditorApiTests
             Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 255, 0), format.BackgroundColor);
             Assert.Equal(UnderlineType.Double, format.Underline);
         }
+
         layer.Clear();
         Assert.Equal(Colors.Navy, fixture.Foreground(0));
         Assert.Equal(Colors.Navy, fixture.Foreground(5));
@@ -296,7 +310,11 @@ public partial class EditorApiTests
         using var fixture = new RichFixture(RichTextDocument.FromPlainText("abc"));
         var editor = fixture.Editor;
         using var layer = editor.Decorations.CreateLayer();
-        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 3), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 3), new()
+            {
+            ForegroundColor = Colors.Green,
+            BackgroundColor = Colors.Yellow
+            })]);
         var snapshot = editor.PresentationSnapshot;
         var format = fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat;
         format.ForegroundColor = Windows.UI.Color.FromArgb(255, 255, 0, 0);
@@ -334,8 +352,15 @@ public partial class EditorApiTests
         var expected = new InvalidOperationException("Clipboard failure");
         return Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            try { await RichEditorCommands.ExecuteAsync(() => Task.FromException(expected)); }
-            catch (Exception actual) { Assert.Same(expected, actual); throw; }
+            try
+            {
+                await RichEditorCommands.ExecuteAsync(() => Task.FromException(expected));
+            }
+            catch (Exception actual)
+            {
+                Assert.Same(expected, actual);
+                throw;
+            }
         });
     }
 
@@ -343,12 +368,14 @@ public partial class EditorApiTests
     {
         internal RichEditor Editor { get; }
         internal RichEditorHandler Handler { get; } = new();
+
         internal RichFixture(RichTextDocument document)
         {
             Editor = new RichEditor { Document = document };
             Handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
             Editor.Handler = Handler;
         }
+
         internal string NativeText
         {
             get
@@ -357,11 +384,13 @@ public partial class EditorApiTests
                 return text.TrimEnd('\r').Replace('\r', '\n');
             }
         }
+
         internal Color Foreground(int position)
         {
             var color = Handler.PlatformView.Document.GetRange(position, position + 1).CharacterFormat.ForegroundColor;
             return Color.FromRgba(color.R, color.G, color.B, color.A);
         }
+
         public void Dispose()
         {
             Editor.Handler = null;

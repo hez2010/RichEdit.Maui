@@ -26,13 +26,16 @@ namespace RichEdit.Maui.Platforms.Android
 
         private bool HandleEditorKey(Keycode keyCode, KeyEvent? e, bool shortcut = false)
         {
-            if (e is null) return false;
+            if (e is null)
+                return false;
+
             var identity = (e.EventTime, e.DownTime, e.DeviceId, keyCode, e.RepeatCount);
             if (!shortcut && _shortcutEvent == identity)
             {
                 _shortcutEvent = null;
                 return _shortcutHandled;
             }
+
             var composing = EditableText is { } text && global::Android.Views.InputMethods.BaseInputConnection.GetComposingSpanStart(text) >= 0;
             var handled = !composing && KeyDownRequested?.Invoke(GetEditorKey(keyCode, e), GetEditorModifiers(e)) == true;
             _shortcutEvent = shortcut ? identity : null;
@@ -43,12 +46,17 @@ namespace RichEdit.Maui.Platforms.Android
         private static EditorKeyModifiers GetEditorModifiers(KeyEvent key)
         {
             var modifiers = EditorKeyModifiers.None;
-            if (key.IsShiftPressed) modifiers |= EditorKeyModifiers.Shift;
-            if (key.IsCtrlPressed) modifiers |= EditorKeyModifiers.Control;
-            if (key.IsAltPressed) modifiers |= EditorKeyModifiers.Alt;
-            if (key.IsMetaPressed) modifiers |= EditorKeyModifiers.Meta;
+            if (key.IsShiftPressed)
+                modifiers |= EditorKeyModifiers.Shift;
+            if (key.IsCtrlPressed)
+                modifiers |= EditorKeyModifiers.Control;
+            if (key.IsAltPressed)
+                modifiers |= EditorKeyModifiers.Alt;
+            if (key.IsMetaPressed)
+                modifiers |= EditorKeyModifiers.Meta;
             if (key.IsCtrlPressed && (key.MetaState & MetaKeyStates.AltRightOn) != 0)
                 modifiers |= EditorKeyModifiers.AltGraph;
+
             return modifiers;
         }
 
@@ -57,12 +65,18 @@ namespace RichEdit.Maui.Platforms.Android
             if (code is >= Keycode.A and <= Keycode.Z)
             {
                 var letter = char.ToUpperInvariant((char)key.GetUnicodeChar(MetaKeyStates.None));
-                if (letter is >= 'A' and <= 'Z') return EditorKey.A + (letter - 'A');
+                if (letter is >= 'A' and <= 'Z')
+                    return EditorKey.A + (letter - 'A');
+
                 return EditorKey.A + (code - Keycode.A);
             }
-            if (code is >= Keycode.Num0 and <= Keycode.Num9) return EditorKey.D0 + (code - Keycode.Num0);
-            if (code is >= Keycode.F1 and <= Keycode.F12) return EditorKey.F1 + (code - Keycode.F1);
-            if (code is >= Keycode.Numpad0 and <= Keycode.Numpad9) return EditorKey.NumPad0 + (code - Keycode.Numpad0);
+            if (code is >= Keycode.Num0 and <= Keycode.Num9)
+                return EditorKey.D0 + (code - Keycode.Num0);
+            if (code is >= Keycode.F1 and <= Keycode.F12)
+                return EditorKey.F1 + (code - Keycode.F1);
+            if (code is >= Keycode.Numpad0 and <= Keycode.Numpad9)
+                return EditorKey.NumPad0 + (code - Keycode.Numpad0);
+
             return code switch
             {
                 Keycode.Del => EditorKey.Backspace,
@@ -119,34 +133,45 @@ namespace RichEdit.Maui
 
             public bool OnCreateActionMode(NativeActionMode? mode, NativeMenu? menu)
             {
-                if (menu is null || !_handler.TryGetTarget(out var target) || target.VirtualView is null) return false;
+                if (menu is null || !_handler.TryGetTarget(out var target) || target.VirtualView is null)
+                    return false;
+
                 _mode = mode;
                 _items.Clear();
                 var request = target.VirtualView.CreateContextMenu();
                 _includeDefaultItems = request.IncludeDefaultItems;
-                if (!_includeDefaultItems) menu.Clear();
+                if (!_includeDefaultItems)
+                    menu.Clear();
+
                 AddItems(menu, request.Items);
                 return menu.HasVisibleItems;
             }
 
             public bool OnPrepareActionMode(NativeActionMode? mode, NativeMenu? menu)
             {
-                if (menu is null) return false;
+                if (menu is null)
+                    return false;
                 if (!_includeDefaultItems)
                 {
                     for (var index = menu.Size() - 1; index >= 0; index--)
                     {
                         var item = menu.GetItem(index);
-                        if (item is not null && !_items.ContainsKey(item.ItemId)) menu.RemoveItem(item.ItemId);
+                        if (item is not null && !_items.ContainsKey(item.ItemId))
+                            menu.RemoveItem(item.ItemId);
                     }
                 }
-                foreach (var (id, item) in _items) menu.FindItem(id)?.SetEnabled(EditorMenu.CanExecute(item));
+
+                foreach (var (id, item) in _items)
+                    menu.FindItem(id)?.SetEnabled(EditorMenu.CanExecute(item));
+
                 return true;
             }
 
             public bool OnActionItemClicked(NativeActionMode? mode, NativeMenuItem? item)
             {
-                if (item is null || !_items.TryGetValue(item.ItemId, out var command) || command is IMenuFlyoutSubItem) return false;
+                if (item is null || !_items.TryGetValue(item.ItemId, out var command) || command is IMenuFlyoutSubItem)
+                    return false;
+
                 EditorMenu.Execute(command);
                 mode?.Finish();
                 return true;
@@ -160,7 +185,9 @@ namespace RichEdit.Maui
 
             private void AddItems(NativeMenu menu, IEnumerable<IMenuElement> items)
             {
-                if (OperatingSystem.IsAndroidVersionAtLeast(28)) menu.SetGroupDividerEnabled(true);
+                if (OperatingSystem.IsAndroidVersionAtLeast(28))
+                    menu.SetGroupDividerEnabled(true);
+
                 var group = global::Android.Views.View.GenerateViewId();
                 foreach (var item in items)
                 {
@@ -169,6 +196,7 @@ namespace RichEdit.Maui
                         group = global::Android.Views.View.GenerateViewId();
                         continue;
                     }
+
                     var id = global::Android.Views.View.GenerateViewId();
                     _items.Add(id, item);
                     if (item is IMenuFlyoutSubItem submenu)
@@ -177,7 +205,8 @@ namespace RichEdit.Maui
                         nativeSubmenu.Item?.SetEnabled(EditorMenu.CanExecute(item));
                         AddItems(nativeSubmenu, submenu);
                     }
-                    else menu.Add(group, id, 0, item.Text)?.SetEnabled(EditorMenu.CanExecute(item));
+                    else
+                        menu.Add(group, id, 0, item.Text)?.SetEnabled(EditorMenu.CanExecute(item));
                 }
             }
         }

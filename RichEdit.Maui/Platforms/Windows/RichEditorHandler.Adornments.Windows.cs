@@ -11,6 +11,7 @@ public partial class RichEditorHandler
 {
     private partial void OffsetAdornmentScroll(double verticalDelta) =>
         _adornmentScroller?.ChangeView(null, Math.Max(0, _adornmentScroller.VerticalOffset + verticalDelta), null, true);
+
     private RichEditBox _adornmentView = null!;
     private ScrollViewer? _adornmentScroller;
     private double _appliedAdornmentMargin;
@@ -18,9 +19,12 @@ public partial class RichEditorHandler
     [DynamicWindowsRuntimeCast(typeof(Panel))]
     private partial void AttachAdornmentOverlay()
     {
-        if (ContainerView is not Panel container) return;
+        if (ContainerView is not Panel container)
+            return;
+
         var overlay = VirtualView.Adornments.Overlay.ToPlatform(MauiContext!);
-        if (!container.Children.Contains(overlay)) container.Children.Add(overlay);
+        if (!container.Children.Contains(overlay))
+            container.Children.Add(overlay);
     }
 
     [DynamicWindowsRuntimeCast(typeof(Panel))]
@@ -36,14 +40,17 @@ public partial class RichEditorHandler
         _adornmentView = PlatformView;
         _adornmentView.Loaded += OnAdornmentLoaded;
         _adornmentView.SizeChanged += OnAdornmentSizeChanged;
-        if (_adornmentView.IsLoaded) ConnectAdornmentScroller();
+        if (_adornmentView.IsLoaded)
+            ConnectAdornmentScroller();
     }
 
     private partial void DisconnectAdornmentViewport()
     {
         _adornmentView.Loaded -= OnAdornmentLoaded;
         _adornmentView.SizeChanged -= OnAdornmentSizeChanged;
-        if (_adornmentScroller is not null) _adornmentScroller.ViewChanged -= OnAdornmentScrolled;
+        if (_adornmentScroller is not null)
+            _adornmentScroller.ViewChanged -= OnAdornmentScrolled;
+
         _adornmentScroller = null;
         SetAdornmentMargin(0);
         _adornmentView = null!;
@@ -51,7 +58,9 @@ public partial class RichEditorHandler
 
     private partial void SetAdornmentMargin(double width)
     {
-        if (_appliedAdornmentMargin == width) return;
+        if (_appliedAdornmentMargin == width)
+            return;
+
         var padding = _adornmentView.Padding;
         _adornmentView.Padding = new(padding.Left + width - _appliedAdornmentMargin, padding.Top, padding.Right, padding.Bottom);
         _appliedAdornmentMargin = width;
@@ -67,7 +76,9 @@ public partial class RichEditorHandler
     [DynamicWindowsRuntimeCast(typeof(UIElement))]
     private partial Rect? GetAdornmentAnchor(int position)
     {
-        if (!_adornmentView.IsLoaded) return null;
+        if (!_adornmentView.IsLoaded)
+            return null;
+
         var origin = (_adornmentScroller?.Content as UIElement)?.TransformToVisual(_adornmentView).TransformPoint(new(0, 0))
             ?? new Windows.Foundation.Point(_adornmentView.Padding.Left, _adornmentView.Padding.Top);
         var nativePosition = NativePositionFromDisplay(position);
@@ -84,20 +95,28 @@ public partial class RichEditorHandler
     }
 
     private void OnAdornmentSizeChanged(object sender, SizeChangedEventArgs args) => QueueAdornmentLayout();
+
     private void OnAdornmentScrolled(object? sender, ScrollViewerViewChangedEventArgs args) => QueueAdornmentLayout();
 
     [DynamicWindowsRuntimeCast(typeof(ScrollViewer))]
     private void ConnectAdornmentScroller()
     {
-        if (_adornmentScroller is not null) _adornmentScroller.ViewChanged -= OnAdornmentScrolled;
+        if (_adornmentScroller is not null)
+            _adornmentScroller.ViewChanged -= OnAdornmentScrolled;
+
         _adornmentScroller = FindScroller(_adornmentView);
-        if (_adornmentScroller is not null) _adornmentScroller.ViewChanged += OnAdornmentScrolled;
+        if (_adornmentScroller is not null)
+            _adornmentScroller.ViewChanged += OnAdornmentScrolled;
 
         static ScrollViewer? FindScroller(DependencyObject view)
         {
-            if (view is ScrollViewer scroller) return scroller;
+            if (view is ScrollViewer scroller)
+                return scroller;
+
             for (var index = 0; index < VisualTreeHelper.GetChildrenCount(view); index++)
-                if (FindScroller(VisualTreeHelper.GetChild(view, index)) is { } child) return child;
+                if (FindScroller(VisualTreeHelper.GetChild(view, index)) is { } child)
+                    return child;
+
             return null;
         }
     }

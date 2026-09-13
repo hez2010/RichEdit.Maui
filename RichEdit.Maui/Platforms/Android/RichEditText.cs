@@ -31,6 +31,7 @@ public partial class RichEditText : AppCompatEditText
         if (MeasureSpec.GetMode(widthMeasureSpec) == MeasureSpecMode.AtMost &&
             ProjectionHandler?.VirtualView.HorizontalOptions.Alignment == LayoutAlignment.Fill)
             widthMeasureSpec = MeasureSpec.MakeMeasureSpec(MeasureSpec.GetSize(widthMeasureSpec), MeasureSpecMode.Exactly);
+
         base.OnMeasure(widthMeasureSpec, heightMeasureSpec);
     }
 
@@ -89,7 +90,8 @@ public partial class RichEditText : AppCompatEditText
     {
         if (EditableText is { } text && BaseInputConnection.GetComposingSpanStart(text) >= 0)
             return base.OnKeyDown(keyCode, e);
-        if (HandleEditorKey(keyCode, e)) return true;
+        if (HandleEditorKey(keyCode, e))
+            return true;
 
         if (e?.IsCtrlPressed == true &&
             !e.IsAltPressed &&
@@ -129,7 +131,9 @@ public partial class RichEditText : AppCompatEditText
             return true;
         }
 
-        if (e is not null) ProjectionHandler?.PrepareNativeSourceKey(GetEditorKey(keyCode, e), GetEditorModifiers(e));
+        if (e is not null)
+            ProjectionHandler?.PrepareNativeSourceKey(GetEditorKey(keyCode, e), GetEditorModifiers(e));
+
         var handled = base.OnKeyDown(keyCode, e);
         if (ProjectionHandler is { } projection && keyCode is Keycode.DpadUp or Keycode.DpadDown)
         {
@@ -137,9 +141,11 @@ public partial class RichEditText : AppCompatEditText
             {
                 var before = SelectionEnd;
                 handled |= base.OnKeyDown(keyCode, e);
-                if (before == SelectionEnd) break;
+                if (before == SelectionEnd)
+                    break;
             }
         }
+
         return handled;
     }
 
@@ -198,7 +204,9 @@ public partial class RichEditText : AppCompatEditText
         }
 
         PointerObserved?.Invoke(e);
-        if (ObserveSourceDrag(e)) return true;
+        if (ObserveSourceDrag(e))
+            return true;
+
         var handled = base.OnTouchEvent(e);
         if (e.ActionMasked != MotionEventActions.Up)
         {

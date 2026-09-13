@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -45,6 +45,7 @@ public sealed partial class ShellTabItem : NavigationViewItem
     {
         if (_model is not null)
             _model.PropertyChanged -= OnModelPropertyChanged;
+
         _model = null;
     }
 

@@ -8,6 +8,7 @@ public partial class RichEditText
     private sealed class SourceEditableFactory(RichEditText view) : EditableFactory
     {
         private readonly WeakReference<RichEditText> _view = new(view);
+
         public override IEditable NewEditable(ICharSequence? source) => new SourceEditable(source, _view);
     }
 
@@ -17,8 +18,14 @@ public partial class RichEditText
         {
             var handler = view.TryGetTarget(out var target) ? target.ProjectionHandler : null;
             handler?.BeginNativeTextChange();
-            try { return base.Replace(start, end, text, textStart, textEnd); }
-            finally { handler?.EndNativeTextChange(); }
+            try
+            {
+                return base.Replace(start, end, text, textStart, textEnd);
+            }
+            finally
+            {
+                handler?.EndNativeTextChange();
+            }
         }
     }
 }

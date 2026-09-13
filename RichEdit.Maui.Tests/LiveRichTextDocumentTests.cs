@@ -5,36 +5,36 @@ namespace RichEdit.Maui.Tests;
 public sealed class LiveRichTextDocumentTests
 {
     private static RichTextListDefinition CreateBulletList() => new(
-    (RichTextListLevelDefinition[])[
-        new RichTextListLevelDefinition
-        {
-            Marker = new RichTextListMarker.Bullet("•"),
-            Prefix = string.Empty,
-            Suffix = string.Empty,
-        },
-    ]);
+        (RichTextListLevelDefinition[])[
+            new RichTextListLevelDefinition
+                                        {
+                                            Marker = new RichTextListMarker.Bullet("•"),
+                                            Prefix = string.Empty,
+                                            Suffix = string.Empty,
+                                        },
+        ]);
 
     private static readonly RichTextListDefinition NumberedOutline = new(
-    (RichTextListLevelDefinition[])[
-        new RichTextListLevelDefinition
-        {
-            Marker = new RichTextListMarker.Number(RichTextListNumberStyle.UpperRoman, 4),
-            Prefix = "(",
-            Suffix = ")",
-            LeadingIndent = 36,
-            FirstLineIndent = -24,
-            MarkerTab = 36,
-        },
-        new RichTextListLevelDefinition
-        {
-            Marker = new RichTextListMarker.Bullet("→"),
-            Prefix = string.Empty,
-            Suffix = string.Empty,
-            LeadingIndent = 54,
-            FirstLineIndent = -18,
-            MarkerTab = 54,
-        },
-    ]);
+        (RichTextListLevelDefinition[])[
+            new RichTextListLevelDefinition
+                                        {
+                                            Marker = new RichTextListMarker.Number(RichTextListNumberStyle.UpperRoman, 4),
+                                            Prefix = "(",
+                                            Suffix = ")",
+                                            LeadingIndent = 36,
+                                            FirstLineIndent = -24,
+                                            MarkerTab = 36,
+                                        },
+            new RichTextListLevelDefinition
+                                        {
+                                            Marker = new RichTextListMarker.Bullet("→"),
+                                            Prefix = string.Empty,
+                                            Suffix = string.Empty,
+                                            LeadingIndent = 54,
+                                            FirstLineIndent = -18,
+                                            MarkerTab = 54,
+                                        },
+        ]);
 
     [Fact]
     public void EditCommitsOneObservableAtomicChange()
@@ -463,17 +463,17 @@ public sealed class LiveRichTextDocumentTests
     public void SingleLevelListExtendsItsCallerDefinedStyleAndOutdentsToPlainText()
     {
         var list = new RichTextListDefinition(
-        (RichTextListLevelDefinition[])[
-            new RichTextListLevelDefinition
-            {
-                Marker = new RichTextListMarker.Bullet("-"),
-                Prefix = "[",
-                Suffix = "]",
-                LeadingIndent = 18,
-                FirstLineIndent = -18,
-                MarkerTab = 18,
-            },
-        ]);
+            (RichTextListLevelDefinition[])[
+                new RichTextListLevelDefinition
+                                            {
+                                                Marker = new RichTextListMarker.Bullet("-"),
+                                                Prefix = "[",
+                                                Suffix = "]",
+                                                LeadingIndent = 18,
+                                                FirstLineIndent = -18,
+                                                MarkerTab = 18,
+                                            },
+            ]);
         var document = new RichTextDocument();
         RichTextListId listId = default;
         document.Edit(edit =>

@@ -38,8 +38,10 @@ public class DocumentHistoryTests
         Assert.Throws<InvalidOperationException>(() => document.Edit(edit =>
         {
             edit.UpdateCharacterFormat(new RichTextRange(0, 4), format => format with { Italic = true });
-            if (semantic) edit.SetLink(new RichTextRange(0, 4), "https://example.com");
-            else edit.InsertText(0, "unsafe");
+            if (semantic)
+                edit.SetLink(new RichTextRange(0, 4), "https://example.com");
+            else
+                edit.InsertText(0, "unsafe");
         }, new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory)));
         Assert.Same(before, document.CurrentSnapshot);
         document.Undo();
@@ -56,7 +58,8 @@ public class DocumentHistoryTests
         using (document.BeginUndoGroup("Compound operation"))
         {
             document.Edit(edit => edit.InsertText(5, " one"));
-            using (document.BeginUndoGroup()) document.Edit(edit => edit.InsertText(9, " two"));
+            using (document.BeginUndoGroup())
+                document.Edit(edit => edit.InsertText(9, " two"));
             document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(0, 5), format => format with { Italic = true }));
             Assert.True(document.IsUndoGroupOpen);
             Assert.False(document.CanUndo);
@@ -79,7 +82,8 @@ public class DocumentHistoryTests
         var document = RichTextDocument.FromPlainText("a");
         document.Edit(edit => edit.InsertText(1, "b"));
         document.Undo();
-        using (document.BeginUndoGroup()) { }
+        using (document.BeginUndoGroup())
+        { }
         Assert.True(document.CanRedo);
         using (document.BeginUndoGroup())
             document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(0, 1), format => format with { ForegroundColor = Colors.Red }),
@@ -148,7 +152,8 @@ public class DocumentHistoryTests
         var document = new RichTextDocument();
         System.ComponentModel.PropertyChangedEventHandler failure = (_, args) =>
         {
-            if (args.PropertyName == nameof(RichTextDocument.IsUndoGroupOpen)) throw new InvalidOperationException();
+            if (args.PropertyName == nameof(RichTextDocument.IsUndoGroupOpen))
+                throw new InvalidOperationException();
         };
         document.PropertyChanged += failure;
         Assert.Throws<InvalidOperationException>(() => document.BeginUndoGroup());

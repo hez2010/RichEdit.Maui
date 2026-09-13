@@ -7,9 +7,12 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private (RichTextRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
+
     partial void PreserveAdornmentScrollAnchor(int position, double top) => _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);
+
     private partial void OffsetAdornmentScroll(double verticalDelta) => PlatformView.ScrollTo(PlatformView.ScrollX,
         Math.Max(0, PlatformView.ScrollY + (int)Math.Round(verticalDelta * LayoutDensity)));
+
     private RichEdit.Maui.Platforms.Android.RichEditText _adornmentView = null!;
     private ViewTreeObserver? _adornmentObserver;
     private int _appliedAdornmentMargin;
@@ -17,13 +20,16 @@ public partial class RichEditorHandler
 
     private partial void AttachAdornmentOverlay()
     {
-        if (ContainerView is not ViewGroup container) return;
+        if (ContainerView is not ViewGroup container)
+            return;
+
         var overlay = VirtualView.Adornments.Overlay.ToPlatform(MauiContext!);
         if (_adornmentHost is null)
         {
             _adornmentHost = new AdornmentHost(Context, () =>
             {
-                if (!_arrangingAdornments) QueueAdornmentLayout();
+                if (!_arrangingAdornments)
+                    QueueAdornmentLayout();
             });
             _adornmentHost.AddView(overlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.MatchParent));
             container.AddView(_adornmentHost);
@@ -32,7 +38,9 @@ public partial class RichEditorHandler
 
     private partial void DetachAdornmentOverlay()
     {
-        if (_adornmentHost is not { } host) return;
+        if (_adornmentHost is not { } host)
+            return;
+
         host.RemoveAllViews();
         (host.Parent as ViewGroup)?.RemoveView(host);
         host.Dispose();
@@ -44,14 +52,17 @@ public partial class RichEditorHandler
         _adornmentView = PlatformView;
         _adornmentView.ViewAttachedToWindow += OnAdornmentNativeAttached;
         _adornmentView.ViewDetachedFromWindow += OnAdornmentNativeDetached;
-        if (_adornmentView.IsAttachedToWindow) ObserveAdornmentViewport();
+        if (_adornmentView.IsAttachedToWindow)
+            ObserveAdornmentViewport();
     }
 
     private void ObserveAdornmentViewport()
     {
         StopObservingAdornmentViewport();
         _adornmentObserver = _adornmentView.ViewTreeObserver;
-        if (_adornmentObserver is null) return;
+        if (_adornmentObserver is null)
+            return;
+
         _adornmentObserver.ScrollChanged += OnAdornmentViewportChanged;
         _adornmentObserver.GlobalLayout += OnAdornmentViewportChanged;
     }
@@ -72,13 +83,16 @@ public partial class RichEditorHandler
             _adornmentObserver.ScrollChanged -= OnAdornmentViewportChanged;
             _adornmentObserver.GlobalLayout -= OnAdornmentViewportChanged;
         }
+
         _adornmentObserver = null;
     }
 
     private partial void SetAdornmentMargin(double width)
     {
         var pixels = checked((int)Math.Round(width * (_adornmentView.Resources?.DisplayMetrics?.Density ?? 1f)));
-        if (_appliedAdornmentMargin == pixels) return;
+        if (_appliedAdornmentMargin == pixels)
+            return;
+
         _adornmentView.SetPadding(_adornmentView.PaddingLeft + pixels - _appliedAdornmentMargin,
             _adornmentView.PaddingTop, _adornmentView.PaddingRight, _adornmentView.PaddingBottom);
         _appliedAdornmentMargin = pixels;
@@ -92,7 +106,9 @@ public partial class RichEditorHandler
 
     private partial Rect? GetAdornmentAnchor(int position)
     {
-        if (_adornmentView.Layout is not { } layout) return null;
+        if (_adornmentView.Layout is not { } layout)
+            return null;
+
         NativeGeometryQueryCount += 5;
         var density = _adornmentView.Resources?.DisplayMetrics?.Density ?? 1f;
         var line = layout.GetLineForOffset(position);
@@ -105,10 +121,13 @@ public partial class RichEditorHandler
 
     internal void OnNativeLayoutCompleted()
     {
-        if (_applyingDocument || _adornmentScrollAnchor is not { } anchor) return;
+        if (_applyingDocument || _adornmentScrollAnchor is not { } anchor)
+            return;
+
         _adornmentScrollAnchor = null;
         if (anchor.Revision == VirtualView.Document.Revision && GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(anchor.Position), RichTextCaretAffinity.Downstream) is { } bounds)
             OffsetAdornmentScroll(bounds.Y - anchor.Top);
+
         QueueAdornmentLayout();
     }
 
@@ -122,7 +141,9 @@ public partial class RichEditorHandler
 
     partial void CommitAdornmentLayout()
     {
-        if (_adornmentHost is not { } host) return;
+        if (_adornmentHost is not { } host)
+            return;
+
         host.Measure(global::Android.Views.View.MeasureSpec.MakeMeasureSpec(_adornmentView.Width, MeasureSpecMode.Exactly),
             global::Android.Views.View.MeasureSpec.MakeMeasureSpec(_adornmentView.Height, MeasureSpecMode.Exactly));
         host.Layout(0, 0, _adornmentView.Width, _adornmentView.Height);

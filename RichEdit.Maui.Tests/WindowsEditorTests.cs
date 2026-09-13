@@ -53,10 +53,14 @@ public partial class WindowsEditorTests
                 await Task.Delay(30);
                 AssertColors();
             }
+
             Assert.Same(snapshot, editor.Document.CurrentSnapshot);
             Assert.False(editor.CanUndo);
         }
-        finally { window.Content = null; }
+        finally
+        {
+            window.Content = null;
+        }
 
         void AssertColors()
         {
@@ -97,7 +101,10 @@ public partial class WindowsEditorTests
             Assert.False(editor.CanUndo, string.Join("; ", notifications));
             Assert.True(before.ContentEquals(editor.Document.CurrentSnapshot), $"Before: {before.RtfText}\nAfter: {editor.Document.RtfText}");
         }
-        finally { window.Content = null; }
+        finally
+        {
+            window.Content = null;
+        }
     });
 
     [Fact]
@@ -116,6 +123,7 @@ public partial class WindowsEditorTests
         await editor.PasteAsync();
         Assert.False(Assert.Single(editor.Document.CurrentSnapshot.Runs).Format.Bold);
     });
+
     [Fact]
     public Task ClipboardWithinTheProcessPreservesFormattingNotRepresentableInRtf() => WindowsTestHost.RunClipboardAsync(async () =>
     {
@@ -125,8 +133,10 @@ public partial class WindowsEditorTests
         editor.SelectAll();
         editor.Selection.UpdateCharacterFormat(format => format with
         {
-            StyleName = "Custom style", Ligatures = RichTextFeatureMode.Disabled,
-            Strikethrough = RichTextStrikethroughStyle.Double, StrikethroughColor = Colors.Red,
+            StyleName = "Custom style",
+            Ligatures = RichTextFeatureMode.Disabled,
+            Strikethrough = RichTextStrikethroughStyle.Double,
+            StrikethroughColor = Colors.Red,
         });
         var expected = editor.Document.CurrentSnapshot.Runs[0].Format;
         await editor.CopyAsync();
@@ -134,6 +144,7 @@ public partial class WindowsEditorTests
         await editor.PasteAsync();
         Assert.Equal(expected, Assert.Single(editor.Document.CurrentSnapshot.Runs).Format);
     });
+
     [Fact]
     public Task ImageCroppingIsProjectedThroughNativeRtf() => WindowsTestHost.RunAsync(() =>
     {
@@ -159,6 +170,7 @@ public partial class WindowsEditorTests
         fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "c");
         Assert.Equal("a\uFFFCbc", fixture.Editor.Document.Text);
     });
+
     [Fact]
     public Task NativePngImageKeepsItsObjectPosition() => WindowsTestHost.RunAsync(() =>
     {
@@ -168,6 +180,7 @@ public partial class WindowsEditorTests
         Assert.Equal('\uFFFC', fixture.Handler.PlatformView.Document.GetRange(0, 1).Character);
         Assert.Equal(fixture.Editor.Document.Text, fixture.NativeText);
     });
+
     [Fact]
     public Task NativeFlyoutCopyAndCutUsePortableFields() => WindowsTestHost.RunClipboardAsync(async () =>
     {
@@ -285,7 +298,10 @@ public partial class WindowsEditorTests
                 Assert.Equal(18 * (level + 1), native.LeftIndent);
             }
         }
-        finally { window.Content = null; }
+        finally
+        {
+            window.Content = null;
+        }
     });
 
     [Fact]
@@ -329,11 +345,13 @@ public partial class WindowsEditorTests
             });
             Assert.Equal(editor.Document.Text, fixture.NativeText);
         }
+
         while (editor.CanUndo)
         {
             editor.Undo();
             Assert.Equal(editor.Document.Text, fixture.NativeText);
         }
+
         while (editor.CanRedo)
         {
             editor.Redo();
@@ -585,10 +603,15 @@ public partial class WindowsEditorTests
 internal static class WindowsTestHost
 {
     private static readonly Lazy<Task<DispatcherQueue>> Dispatcher = new(Start);
+
     internal static MauiApp MauiApp { get; private set; } = null!;
 
     public static async Task RunAsync(Action action)
-        => await RunAsync(() => { action(); return Task.CompletedTask; });
+        => await RunAsync(() =>
+        {
+            action();
+            return Task.CompletedTask;
+        });
 
     public static async Task RunAsync(Func<Task> action)
     {
@@ -631,7 +654,7 @@ internal static class WindowsTestHost
         }
         finally
         {
-            await RichEdit.Maui.TestApp.EditorContractTests.WithClipboardAccess(() =>
+            await EditorContractTests.WithClipboardAccess(() =>
             {
                 Clipboard.SetContent(backup);
                 Clipboard.Flush();
@@ -684,7 +707,8 @@ internal static class WindowsTestHost
             {
                 completion.SetException(exception);
             }
-        }) { IsBackground = true };
+        })
+        { IsBackground = true };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         return completion.Task;

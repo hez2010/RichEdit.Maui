@@ -48,7 +48,11 @@ public sealed class EditorInputTests
         var parameter = new object();
         editor.KeyBindings.Add(new(EditorKey.S, EditorKeyModifiers.Control, new Command(() => invoked += 100)));
         editor.KeyBindings.Add(new(EditorKey.S, EditorKeyModifiers.Control,
-            new Command<object>(value => { Assert.Same(parameter, value); invoked++; }, value => enabled && ReferenceEquals(value, parameter)), parameter));
+            new Command<object>(value =>
+            {
+                Assert.Same(parameter, value);
+                invoked++;
+            }, value => enabled && ReferenceEquals(value, parameter)), parameter));
         Assert.False(editor.SendKeyDown(EditorKey.S, EditorKeyModifiers.Control));
         Assert.Equal(0, invoked);
         enabled = true;
@@ -126,7 +130,11 @@ public sealed class EditorInputTests
         var item = new MenuFlyoutItem
         {
             Text = "Action",
-            Command = new Command<object>(value => { Assert.Same(parameter, value); invoked++; }, _ => enabled),
+            Command = new Command<object>(value =>
+            {
+                Assert.Same(parameter, value);
+                invoked++;
+            }, _ => enabled),
             CommandParameter = parameter,
         };
         item.Clicked += (_, _) => clicked++;

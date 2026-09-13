@@ -12,17 +12,17 @@ public sealed class AuditRegressionTests
         {
             edit.InsertText(0, "first\nsecond");
             var listId = edit.CreateList(new RichTextListDefinition(
-            (RichTextListLevelDefinition[])[
-                new RichTextListLevelDefinition
-                {
-                    Marker = new RichTextListMarker.Bullet("*"),
-                    Prefix = string.Empty,
-                    Suffix = string.Empty,
-                    LeadingIndent = 24,
-                    FirstLineIndent = -12,
-                    MarkerTab = 24,
-                },
-            ]));
+                (RichTextListLevelDefinition[])[
+                    new RichTextListLevelDefinition
+                                                {
+                                                    Marker = new RichTextListMarker.Bullet("*"),
+                                                    Prefix = string.Empty,
+                                                    Suffix = string.Empty,
+                                                    LeadingIndent = 24,
+                                                    FirstLineIndent = -12,
+                                                    MarkerTab = 24,
+                                                },
+                ]));
             edit.ApplyList(new RichTextRange(6, 6), listId);
             edit.UpdateParagraphFormat(new RichTextRange(6, 6), format => format with
             {
@@ -173,6 +173,7 @@ public sealed class AuditRegressionTests
         {
             after = after.ApplyCharacterFormat((after.Length - 1)..after.Length, format => format with { Italic = true });
         }
+
         var document = new RichTextDocument(before);
 
         var changes = document.ReplaceSnapshotFromNative(after, new object(), nativeUndoOwned: true);
@@ -188,6 +189,7 @@ public sealed class AuditRegressionTests
                     .Insert(textChange.OldRange.Start, textChange.InsertedText);
             }
         }
+
         Assert.Equal(after.Text, replayedText);
         Assert.Equal(after.Length, changes.GetAffectedRange(after.Length).End);
     }

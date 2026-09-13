@@ -21,7 +21,12 @@ public class AdornmentTests
         var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(handler.PlatformView);
         var text = (Microsoft.UI.Xaml.Automation.Provider.ITextProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Text);
         var original = text.DocumentRange;
-        using var item = editor.Adornments.Add(4, new Button { Text = "annotation", WidthRequest = 60, HeightRequest = 28 }, new() { Placement = RichTextAdornmentPlacement.Inline });
+        using var item = editor.Adornments.Add(4, new Button
+            {
+                Text = "annotation",
+                WidthRequest = 60,
+                HeightRequest = 28
+            }, new() { Placement = RichTextAdornmentPlacement.Inline });
         await Task.Delay(150);
         Assert.Equal(editor.Document.Text, text.DocumentRange.GetText(-1));
         Assert.Equal(editor.Document.Text, original.GetText(-1));
@@ -229,7 +234,10 @@ public class AdornmentTests
         panel.Children.Add(handler.ContainerView ?? handler.PlatformView);
         _window.Content = panel;
         _window.Activate();
-        try { await test(editor, handler); }
+        try
+        {
+            await test(editor, handler);
+        }
         finally
         {
             _window.Content = null;

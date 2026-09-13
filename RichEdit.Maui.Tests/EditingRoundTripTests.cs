@@ -63,6 +63,7 @@ public class EditingRoundTripTests
         Assert.Equal(7, document.CurrentSnapshot.Paragraphs[0].Format.List!.RestartAt);
         Assert.Null(document.CurrentSnapshot.Paragraphs[1].Format.List!.RestartAt);
     }
+
     [Theory]
     [InlineData("one\ntwo")]
     [InlineData("\n")]
@@ -135,12 +136,14 @@ public class EditingRoundTripTests
                     var position = random.Next(edit.Snapshot.Length);
                     edit.UpdateCharacterFormat(new RichTextRange(position, 1), format => format with { Italic = !format.Italic });
                 }
+
                 edit.SetMetadata("iteration", iteration.ToString());
             });
             foreach (var textChange in change.Changes.OfType<RichTextTextChange>())
             {
                 before = before[..textChange.OldRange.Start] + textChange.InsertedText + before[textChange.OldRange.End..];
             }
+
             Assert.Equal(document.Text, before);
             Assert.Equal(document.Text, RichTextDocument.FromRtf(document.RtfText).Text);
             snapshots.Add(document.CurrentSnapshot);
@@ -151,12 +154,14 @@ public class EditingRoundTripTests
             document.Undo();
             Assert.True(snapshots[index].ContentEquals(document.CurrentSnapshot));
         }
+
         Assert.False(document.CanUndo);
         for (var index = 1; index < snapshots.Count; index++)
         {
             document.Redo();
             Assert.True(snapshots[index].ContentEquals(document.CurrentSnapshot));
         }
+
         Assert.False(document.CanRedo);
     }
 }

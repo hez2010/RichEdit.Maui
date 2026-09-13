@@ -4,13 +4,13 @@ namespace RichEdit.Maui.TestApp;
 
 public partial class App : Application
 {
-	public App()
-	{
-		InitializeComponent();
-	}
+    public App()
+    {
+        InitializeComponent();
+    }
 
-	protected override Window CreateWindow(IActivationState? activationState)
-	{
+    protected override Window CreateWindow(IActivationState? activationState)
+    {
 #if DEBUG && (IOS || MACCATALYST)
         if (Environment.GetEnvironmentVariable("RICHEDIT_RUN_CODE_TESTS") == "1")
             return new Window(new Tests.CodeEditorTestPage(Environment.GetEnvironmentVariable("RICHEDIT_TEST_FILTER")));
@@ -23,12 +23,12 @@ public partial class App : Application
                 if (!started)
                 {
                     started = true;
-                    await AppleEditorTests.RunAsync(editor);
+                    await Tests.AppleEditorTests.RunAsync(editor);
                 }
             };
             return new Window(new ContentPage { Content = editor, SafeAreaEdges = new(SafeAreaRegions.Container) });
         }
 #endif
-		return new Window(new AppShell()) { Title = "RichEdit Studio", TitleBar = (TitleBar)((DataTemplate)Resources["StudioTitleBar"]).CreateContent() };
-	}
+        return new Window(new AppShell()) { Title = "RichEdit Studio", TitleBar = (TitleBar)((DataTemplate)Resources["StudioTitleBar"]).CreateContent() };
+    }
 }

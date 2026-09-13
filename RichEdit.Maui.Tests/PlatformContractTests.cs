@@ -8,6 +8,7 @@ namespace RichEdit.Maui.Tests;
 public class PlatformContractTests
 {
     private static Microsoft.UI.Xaml.Window? _window;
+
     public static IEnumerable<object[]> Scenarios => EditorContractTests.Cases.Select(test => new object[] { test.Name });
 
     [Theory]
@@ -30,8 +31,11 @@ public class PlatformContractTests
             grid.Children.Add(focusTarget);
             _window.Content = grid;
             _window.Activate();
-            if (name.StartsWith("focus", StringComparison.Ordinal)) focusTarget.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-            else handler.PlatformView.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+            if (name.StartsWith("focus", StringComparison.Ordinal))
+                focusTarget.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+            else
+                handler.PlatformView.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+
             await Task.Delay(50);
             EditorContractTests.Reset(editor);
             await EditorContractTests.Cases.Single(test => test.Name == name).Run(editor);

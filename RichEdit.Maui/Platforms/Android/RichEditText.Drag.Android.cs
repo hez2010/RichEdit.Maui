@@ -18,7 +18,11 @@ public partial class RichEditText
 
     private bool ObserveSourceDrag(MotionEvent e)
     {
-        if (ProjectionHandler is not { NativeProjection.IsEmpty: false } handler) { _sourceDragCandidate = null; return false; }
+        if (ProjectionHandler is not { NativeProjection.IsEmpty: false } handler)
+        {
+            _sourceDragCandidate = null;
+            return false;
+        }
         if (e.ActionMasked == MotionEventActions.Down)
         {
             var range = handler.VirtualView.SelectedRange;
@@ -30,14 +34,18 @@ public partial class RichEditText
             var slop = ViewConfiguration.Get(Context!)?.ScaledTouchSlop ?? 0;
             if (Math.Abs(e.GetX() - _pointerDownX) > slop || Math.Abs(e.GetY() - _pointerDownY) > slop)
             {
-                if (!StartSourceDrag()) return false;
+                if (!StartSourceDrag())
+                    return false;
+
                 using var cancel = MotionEvent.Obtain(e)!;
                 cancel.Action = MotionEventActions.Cancel;
                 base.OnTouchEvent(cancel);
                 return true;
             }
         }
-        else if (e.ActionMasked is MotionEventActions.Up or MotionEventActions.Cancel) _sourceDragCandidate = null;
+        else if (e.ActionMasked is MotionEventActions.Up or MotionEventActions.Cancel)
+            _sourceDragCandidate = null;
+
         return false;
     }
 
@@ -46,19 +54,28 @@ public partial class RichEditText
 
     private bool StartSourceDrag()
     {
-        if (_sourceDragCandidate is not { } range || ProjectionHandler is not { } handler || handler.VirtualView.Composition.IsActive) return false;
+        if (_sourceDragCandidate is not { } range || ProjectionHandler is not { } handler || handler.VirtualView.Composition.IsActive)
+            return false;
+
         _sourceDragCandidate = null;
-        if (range != handler.VirtualView.SelectedRange) return false;
+        if (range != handler.VirtualView.SelectedRange)
+            return false;
+
         var state = new SourceDragState(handler.VirtualView.Document, range);
         using var data = ClipData.NewPlainText(null, state.Fragment.Text);
         using var shadow = new DragShadowBuilder(this);
         bool started;
-        if (OperatingSystem.IsAndroidVersionAtLeast(24)) started = StartDragAndDrop(data, shadow, state, (int)DragFlags.Global);
+        if (OperatingSystem.IsAndroidVersionAtLeast(24))
+            started = StartDragAndDrop(data, shadow, state, (int)DragFlags.Global);
 #pragma warning disable CS0618, CA1422
-        else started = StartDrag(data, shadow, state, 0);
+        else
+            started = StartDrag(data, shadow, state, 0);
 #pragma warning restore CS0618, CA1422
-        if (started) _sourceDrag = state;
-        else state.Dispose();
+        if (started)
+            _sourceDrag = state;
+        else
+            state.Dispose();
+
         return started;
     }
 
@@ -67,14 +84,25 @@ public partial class RichEditText
     {
         if (e?.LocalState is SourceDragState state && ReferenceEquals(state, _sourceDrag))
         {
-            if (e.Action == DragAction.Ended) { _sourceDrag = null; state.Dispose(); return true; }
-            if (ProjectionHandler is not { } handler) return false;
+            if (e.Action == DragAction.Ended)
+            {
+                _sourceDrag = null;
+                state.Dispose();
+                return true;
+            }
+            if (ProjectionHandler is not { } handler)
+                return false;
+
             var editor = handler.VirtualView;
             if (e.Action == DragAction.Drop)
             {
-                if (editor.IsReadOnly || editor.Composition.IsActive || editor.Document.Revision != state.Revision) return false;
+                if (editor.IsReadOnly || editor.Composition.IsActive || editor.Document.Revision != state.Revision)
+                    return false;
+
                 var position = handler.NativeProjection.ToSource(GetOffsetForPosition(e.GetX(), e.GetY()));
-                if (position >= state.Range.Start && position <= state.Range.End) return true;
+                if (position >= state.Range.Start && position <= state.Range.End)
+                    return true;
+
                 var insertion = position > state.Range.End ? position - state.Range.Length : position;
                 editor.EditDocument(edit =>
                 {
@@ -83,8 +111,10 @@ public partial class RichEditText
                 }, new RichTextRange(insertion + state.Fragment.Text.Length, 0));
                 return true;
             }
+
             return !editor.IsReadOnly;
         }
+
         return base.OnDragEvent(e);
     }
 }

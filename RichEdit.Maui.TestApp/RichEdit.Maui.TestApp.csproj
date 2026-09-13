@@ -87,9 +87,9 @@
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
     </ItemGroup>
 
-    <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-        <Compile Include="..\RichEdit.Maui.Tests\TestCodeColoring.cs" Link="Tests\TestCodeColoring.cs" />
-        <Compile Include="..\RichEdit.Maui.Tests\CodeEditorTestPage*.cs" Link="Tests\%(Filename)%(Extension)" />
+    <ItemGroup Condition="'$(Configuration)' == 'Debug' and ('$(TargetPlatformIdentifier)' == 'android' or '$(TargetPlatformIdentifier)' == 'ios' or '$(TargetPlatformIdentifier)' == 'maccatalyst')">
+        <Compile Include="..\RichEdit.Maui.Tests\Contracts\*.cs" Link="Tests\Contracts\%(Filename)%(Extension)" />
+        <Compile Include="..\RichEdit.Maui.Tests\Harness\**\*.cs" Link="Tests\Harness\%(RecursiveDir)%(Filename)%(Extension)" />
     </ItemGroup>
 
 </Project>

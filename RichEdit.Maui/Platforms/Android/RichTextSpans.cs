@@ -8,6 +8,7 @@ namespace RichEdit.Maui.Platforms.Android;
 internal sealed class RichSoftLineBreakTransformation : global::Android.Text.Method.ReplacementTransformationMethod
 {
     protected override char[] GetOriginal() => ['\u2028'];
+
     protected override char[] GetReplacement() => ['\n'];
 }
 
@@ -47,6 +48,7 @@ internal sealed class RichCharacterEffectsSpan(RichTextCharacterFormat format) :
 internal sealed class RichSmallCapsSpan : MetricAffectingSpan
 {
     public override void UpdateDrawState(TextPaint? textPaint) => Apply(textPaint);
+
     public override void UpdateMeasureState(TextPaint? textPaint) => Apply(textPaint);
 
     private static void Apply(TextPaint? textPaint)
@@ -84,11 +86,13 @@ internal sealed class RichAdornmentSpan(int width, int height, int baseline) : R
             metrics.Ascent = metrics.Top = -baseline;
             metrics.Descent = metrics.Bottom = height - baseline;
         }
+
         return width;
     }
 
     public override void Draw(global::Android.Graphics.Canvas canvas, Java.Lang.ICharSequence? text, int start, int end,
-        float x, int top, int y, int bottom, global::Android.Graphics.Paint paint) { }
+        float x, int top, int y, int bottom, global::Android.Graphics.Paint paint)
+    { }
 }
 
 internal sealed class RichFontSizeSpan(double size, float pixels) : MetricAffectingSpan

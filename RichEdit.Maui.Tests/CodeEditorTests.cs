@@ -16,6 +16,7 @@ public partial class CodeEditorTests
 {
     private static Microsoft.UI.Xaml.Window? _gutterWindow;
     private static MauiApp? _controlTestApp;
+
     [Fact]
     public Task ApplicationCompletionAndTrackedPlaceholdersUsePublicApis() => WindowsTestHost.RunAsync(async () =>
     {
@@ -48,7 +49,12 @@ public partial class CodeEditorTests
             Assert.False(features.NextPlaceholder());
             await Task.Delay(200);
         }
-        finally { window.Content = null; editor.Handler?.DisconnectHandler(); editor.TextView.Handler?.DisconnectHandler(); }
+        finally
+        {
+            window.Content = null;
+            editor.Handler?.DisconnectHandler();
+            editor.TextView.Handler?.DisconnectHandler();
+        }
     });
 
     [Fact]
@@ -162,7 +168,7 @@ public partial class CodeEditorTests
     [Fact]
     public Task SearchWrapsAndReplaceAllUsesOneUndoUnit() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("foo food FOO foo\u0301 foo" ) };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("foo food FOO foo\u0301 foo") };
         var actions = new CodeEditorActions(editor);
         var options = new CodeSearchOptions(WholeWord: true);
         Assert.Equal(3, actions.FindAll("foo", options).Count);
@@ -375,10 +381,14 @@ public partial class CodeEditorTests
                 await Task.Delay(30);
                 Assert.Equal(TokenColor(fixture.Editor, "keyword"), NativeColor(fixture, 0));
             }
+
             Assert.Equal(version, fixture.Editor.Document.Version);
             Assert.False(fixture.Editor.CanUndo);
         }
-        finally { window.Content = null; }
+        finally
+        {
+            window.Content = null;
+        }
     });
 
     [Fact]
@@ -507,7 +517,9 @@ public partial class CodeEditorTests
             lines = fixture.Editor.GetVisibleLines();
             Assert.NotEmpty(lines);
             var scrollViewer = Descendants(fixture.Handler.PlatformView).OfType<Microsoft.UI.Xaml.Controls.ScrollViewer>().First();
-            Assert.True(lines[0].Number > 1, $"First={lines[0]}, selected={fixture.Editor.SelectedRange}, native={fixture.Handler.PlatformView.Document.Selection.StartPosition}, scroll={scrollViewer.VerticalOffset}, height={fixture.Handler.PlatformView.ActualHeight}, content={scrollViewer.Content?.GetType()}, origin={(scrollViewer.Content as Microsoft.UI.Xaml.UIElement)?.TransformToVisual(fixture.Handler.PlatformView).TransformPoint(new Windows.Foundation.Point(0, 0))}");
+            Assert.True(
+                lines[0].Number > 1,
+                $"First={lines[0]}, selected={fixture.Editor.SelectedRange}, native={fixture.Handler.PlatformView.Document.Selection.StartPosition}, scroll={scrollViewer.VerticalOffset}, height={fixture.Handler.PlatformView.ActualHeight}, content={scrollViewer.Content?.GetType()}, origin={(scrollViewer.Content as Microsoft.UI.Xaml.UIElement)?.TransformToVisual(fixture.Handler.PlatformView).TransformPoint(new Windows.Foundation.Point(0, 0))}");
             Assert.Contains(lines, line => line.Number == 90);
         }
         finally
@@ -536,14 +548,18 @@ public partial class CodeEditorTests
             await Task.Delay(80);
             Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.GetVisibleLines().Select(line => line.Number));
         }
-        finally { window.Content = null; }
+        finally
+        {
+            window.Content = null;
+        }
     });
 
     private static IEnumerable<Microsoft.UI.Xaml.DependencyObject> Descendants(Microsoft.UI.Xaml.DependencyObject parent)
     {
         yield return parent;
         for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
-            foreach (var child in Descendants(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i))) yield return child;
+            foreach (var child in Descendants(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i)))
+                yield return child;
     }
 
     [Theory]
@@ -615,7 +631,10 @@ public partial class CodeEditorTests
             editor.Redo();
             Assert.Equal(source + "!", editor.Document.Text);
         }
-        finally { window.Content = null; }
+        finally
+        {
+            window.Content = null;
+        }
     });
 
     [Fact]
@@ -687,6 +706,7 @@ public partial class CodeEditorTests
     {
         internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal async Task<IReadOnlyList<CodeToken>> GetTokensAsync(string text, CancellationToken cancellationToken)
         {
             Started.TrySetResult();
@@ -699,17 +719,20 @@ public partial class CodeEditorTests
     {
         internal CodeEditor Editor { get; }
         internal RichEditorHandler Handler { get; } = new();
+
         internal CodeEditorFixture(string source)
         {
             Editor = new CodeEditor
             {
                 Document = CodeDocument.FromPlainText(source),
-                TextColor = Microsoft.Maui.Graphics.Colors.Black, BackgroundColor = Microsoft.Maui.Graphics.Colors.White,
+                TextColor = Microsoft.Maui.Graphics.Colors.Black,
+                BackgroundColor = Microsoft.Maui.Graphics.Colors.White,
             };
             Handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
             Editor.TextView.Handler = Handler;
             _ = Editor.Coloring();
         }
+
         public void Dispose()
         {
             Editor.TextView.Handler = null;

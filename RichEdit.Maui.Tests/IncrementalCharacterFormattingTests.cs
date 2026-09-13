@@ -33,11 +33,21 @@ public partial class IncrementalCharacterFormattingTests
         ["kerning disabled"] = new() { Kerning = RichTextFeatureMode.Disabled },
         ["combined"] = new()
         {
-            FontFamily = "Arial", FontSize = 24, FontWeight = 700, Italic = true,
-            ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow,
-            Underline = RichTextUnderlineStyle.Double, Strikethrough = RichTextStrikethroughStyle.Single,
-            Script = RichTextScript.Superscript, BaselineOffset = 2, CharacterSpacing = 2,
-            HorizontalScale = 1.25, SmallCaps = true, AllCaps = true, Outline = true,
+            FontFamily = "Arial",
+            FontSize = 24,
+            FontWeight = 700,
+            Italic = true,
+            ForegroundColor = Colors.Green,
+            BackgroundColor = Colors.Yellow,
+            Underline = RichTextUnderlineStyle.Double,
+            Strikethrough = RichTextStrikethroughStyle.Single,
+            Script = RichTextScript.Superscript,
+            BaselineOffset = 2,
+            CharacterSpacing = 2,
+            HorizontalScale = 1.25,
+            SmallCaps = true,
+            AllCaps = true,
+            Outline = true,
             Kerning = RichTextFeatureMode.Enabled,
         },
     };
@@ -50,7 +60,9 @@ public partial class IncrementalCharacterFormattingTests
     {
         using var fixture = new EditorFixture(new RichTextDocumentSnapshot("before styled after", defaultCharacterFormat: new()
         {
-            FontFamily = "Consolas", FontSize = 14, ForegroundColor = Colors.Navy,
+            FontFamily = "Consolas",
+            FontSize = 14,
+            ForegroundColor = Colors.Navy,
         }));
         var document = fixture.Editor.Document;
         var range = new RichTextRange(7, 6);
@@ -104,9 +116,17 @@ public partial class IncrementalCharacterFormattingTests
         var editor = fixture.Editor;
         editor.Document.Edit(edit => edit.SetCharacterFormat(new(0, 6), new() { FontWeight = 700, Italic = true }));
         using var layer = editor.Decorations.CreateLayer();
-        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 6), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Yellow })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 6), new()
+            {
+            ForegroundColor = Colors.Green,
+            BackgroundColor = Colors.Yellow
+            })]);
         var before = editor.PresentationSnapshot;
-        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 6), new() { ForegroundColor = Colors.Red, Underline = RichTextUnderlineStyle.Double })]);
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 6), new()
+            {
+            ForegroundColor = Colors.Red,
+            Underline = RichTextUnderlineStyle.Double
+            })]);
         var after = editor.PresentationSnapshot;
         var nativeFormat = fixture.Handler.PlatformView.Document.GetRange(1, 2).CharacterFormat;
         nativeFormat.Weight = 400;
@@ -127,13 +147,25 @@ public partial class IncrementalCharacterFormattingTests
         var editor = fixture.Editor;
         using var first = editor.Decorations.CreateLayer();
         using var second = editor.Decorations.CreateLayer();
-        first.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(1, 10), new() { BackgroundColor = Colors.Yellow, Underline = RichTextUnderlineStyle.Double })]);
-        second.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(4, 10), new() { ForegroundColor = Colors.Green, BackgroundColor = Colors.Pink })]);
+        first.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(1, 10), new()
+            {
+            BackgroundColor = Colors.Yellow,
+            Underline = RichTextUnderlineStyle.Double
+            })]);
+        second.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(4, 10), new()
+            {
+            ForegroundColor = Colors.Green,
+            BackgroundColor = Colors.Pink
+            })]);
         editor.Document.Edit(edit => edit.SetCharacterFormat(new(7, 6), new() { FontWeight = 700, Italic = true }));
         AssertMatchesFullProjection(fixture);
         editor.Document.Edit(edit => edit.SetDefaultCharacterFormat(new() { FontFamily = "Consolas", FontSize = 20, ForegroundColor = Colors.Navy }));
         AssertMatchesFullProjection(fixture);
-        first.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(2, 8), new() { BackgroundColor = Colors.Blue, Underline = RichTextUnderlineStyle.Wave })]);
+        first.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(2, 8), new()
+            {
+            BackgroundColor = Colors.Blue,
+            Underline = RichTextUnderlineStyle.Wave
+            })]);
         AssertMatchesFullProjection(fixture);
         second.Clear();
         AssertMatchesFullProjection(fixture);
@@ -179,12 +211,14 @@ public partial class IncrementalCharacterFormattingTests
     {
         internal RichEditor Editor { get; }
         internal RichEditorHandler Handler { get; } = new();
+
         internal EditorFixture(RichTextDocumentSnapshot snapshot)
         {
             Editor = new RichEditor { Document = new RichTextDocument(snapshot) };
             Handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
             Editor.Handler = Handler;
         }
+
         public void Dispose()
         {
             Editor.Handler = null;

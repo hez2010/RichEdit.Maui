@@ -26,6 +26,7 @@ public class BatchCharacterFormattingTests
         var expected = before;
         foreach (var replacement in replacements)
             expected = expected.ApplyCharacterFormat(replacement.Range.ToRange(), _ => replacement.Format);
+
         var events = 0;
         document.Changed += (_, _) => events++;
 

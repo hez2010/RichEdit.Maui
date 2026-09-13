@@ -1,0 +1,93 @@
+using CodeEdit.Maui;
+
+namespace RichEdit.Maui.TestApp;
+
+// Fold discovery, button appearance, grouping, and expansion are sample policy.
+internal sealed partial class CodeEditorFoldIndicators : IDisposable
+{
+    private readonly CodeEditor _editor;
+    private readonly List<RichTextAdornment> _indicators = [];
+    private readonly DataTemplate? _template;
+
+    internal CodeEditorFoldIndicators(CodeEditor editor, DataTemplate? template = null)
+    {
+        _editor = editor;
+        _template = template;
+        editor.Folding.Changed += OnChanged;
+        editor.TextChanged += OnChanged;
+        Refresh();
+    }
+
+    public void Dispose()
+    {
+        _editor.Folding.Changed -= OnChanged;
+        _editor.TextChanged -= OnChanged;
+        foreach (var indicator in _indicators)
+            indicator.Dispose();
+
+        _indicators.Clear();
+        _editor.Adornments.MarginWidth = 0;
+    }
+
+    private void OnChanged(object? sender, EventArgs args) => Refresh();
+
+    private void Refresh()
+    {
+        foreach (var indicator in _indicators)
+            indicator.Dispose();
+
+        _indicators.Clear();
+        var rows = new List<(int Position, List<RichTextRange> Ranges)>();
+        var coveredEnd = -1;
+        foreach (var range in _editor.Folding.CollapsedRanges)
+        {
+            if (range.Start < coveredEnd)
+                continue;
+
+            var hidden = _editor.Folding.GetCollapsedRange(range.Start)!.Value;
+            // Line folds leave an empty tail after the visible header, where an overlay cannot cover code.
+            if (IsLineEnd(range.Start) && IsLineEnd(hidden.End))
+                _indicators.Add(_editor.Adornments.Add(hidden.End, CreateExpandButton(range, "…"), options: new() { Offset = new Point(6, 0) }));
+            // With the sample's unwrapped code, intervals separated by no visible newline share a row.
+            if (rows.Count > 0 && !_editor.Document.Text.AsSpan(coveredEnd, range.Start - coveredEnd).Contains('\n'))
+            {
+                rows[^1].Ranges.Add(range);
+                rows[^1] = (hidden.End, rows[^1].Ranges);
+            }
+            else
+                rows.Add((hidden.End, [range]));
+
+            coveredEnd = hidden.End;
+        }
+
+        _editor.Adornments.MarginWidth = rows.Count == 0 ? 0 : rows.Max(row => row.Ranges.Count) * 26 + 4;
+        foreach (var row in rows)
+        {
+            var buttons = new HorizontalStackLayout { Spacing = 2 };
+            foreach (var range in row.Ranges)
+                buttons.Add(CreateExpandButton(range, "▸"));
+
+            _indicators.Add(_editor.Adornments.Add(row.Position, buttons, new() { Placement = RichTextAdornmentPlacement.LeftMargin }));
+        }
+    }
+
+    private bool IsLineEnd(int position) => _editor.GetLineRange(_editor.GetPosition(position).Line).End == position;
+
+    private Button CreateExpandButton(RichTextRange range, string text)
+    {
+        var button = _template is not null ? (Button)_template.CreateContent() : new Button
+        {
+            Padding = 0,
+            WidthRequest = 24,
+            HeightRequest = 20,
+            MinimumWidthRequest = 0,
+            MinimumHeightRequest = 0,
+        };
+        button.Text = text;
+        button.Command = new Command(() => _editor.Folding.Expand(range));
+        var description = $"Expand folded range at line {_editor.GetPosition(range.Start).Line} ({range.Length} characters)";
+        SemanticProperties.SetDescription(button, description);
+        ToolTipProperties.SetText(button, description);
+        return button;
+    }
+}

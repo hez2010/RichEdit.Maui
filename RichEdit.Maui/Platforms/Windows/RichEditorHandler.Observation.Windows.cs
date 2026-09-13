@@ -13,6 +13,7 @@ public partial class RichEditorHandler
         PlatformView.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnObservedPointerPressed), true);
         PlatformView.AddHandler(UIElement.PointerExitedEvent, new PointerEventHandler(OnObservedPointerExited), true);
     }
+
     private partial void DisconnectInputObservation()
     {
         (Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.FromElement(_adornmentView) as SourceTextPeer)?.Disconnect();
@@ -20,19 +21,29 @@ public partial class RichEditorHandler
         _adornmentView.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnObservedPointerPressed));
         _adornmentView.RemoveHandler(UIElement.PointerExitedEvent, new PointerEventHandler(OnObservedPointerExited));
     }
+
     private partial RichTextCompositionState GetCompositionStateCore() => new(_isComposing, null);
+
     private partial void ReconcileCompositionSource() => ReadNativeDocumentChange();
+
     private void OnObservedPointerMoved(object sender, PointerRoutedEventArgs args) => ObservePointer(args, false);
+
     private void OnObservedPointerPressed(object sender, PointerRoutedEventArgs args) => ObservePointer(args, true);
+
     private void OnObservedPointerExited(object sender, PointerRoutedEventArgs args) => VirtualView.ObservePointerExit();
+
     private void ObservePointer(PointerRoutedEventArgs args, bool pressed)
     {
         var point = args.GetCurrentPoint(PlatformView);
         var properties = point.Properties;
         var buttons = RichTextPointerButtons.None;
-        if (properties.IsLeftButtonPressed) buttons |= RichTextPointerButtons.Primary;
-        if (properties.IsRightButtonPressed) buttons |= RichTextPointerButtons.Secondary;
-        if (properties.IsMiddleButtonPressed) buttons |= RichTextPointerButtons.Middle;
+        if (properties.IsLeftButtonPressed)
+            buttons |= RichTextPointerButtons.Primary;
+        if (properties.IsRightButtonPressed)
+            buttons |= RichTextPointerButtons.Secondary;
+        if (properties.IsMiddleButtonPressed)
+            buttons |= RichTextPointerButtons.Middle;
+
         var kind = point.PointerDeviceType switch
         {
             PointerDeviceType.Touch => RichTextPointerDeviceKind.Touch,

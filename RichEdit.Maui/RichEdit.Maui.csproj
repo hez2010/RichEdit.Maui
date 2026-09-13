@@ -7,6 +7,9 @@
 
         <UseMaui>true</UseMaui>
         <SingleProject>true</SingleProject>
+        <!-- iOS and Mac Catalyst share the UIKit implementation. -->
+        <iOSProjectFolder>Platforms\Apple\</iOSProjectFolder>
+        <MacCatalystProjectFolder>Platforms\Apple\</MacCatalystProjectFolder>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>

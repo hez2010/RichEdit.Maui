@@ -5,11 +5,17 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     partial void UpdateDisplayInputLimit() => PlatformView.MaxLength = DisplayInputLimit < 0 ? 0 : DisplayInputLimit;
+
     private readonly List<(RichTextDisplayMarker Marker, ITextRange Range)> _displayReservationRanges = [];
 
     private partial void WriteDisplayReservationMetadata()
     {
-        if (NativeProjection.IsEmpty) { _displayReservationRanges.Clear(); return; }
+        if (NativeProjection.IsEmpty)
+        {
+            _displayReservationRanges.Clear();
+            return;
+        }
+
         var map = _hasNativeLinks ? GetNativeTextSnapshot() : null;
         var previous = _displayReservationRanges.GroupBy(static item => item.Marker.Adornment)
             .ToDictionary(static group => group.Key, static group => new Queue<ITextRange>(group.Select(static item => item.Range)));
@@ -19,14 +25,18 @@ public partial class RichEditorHandler
             var start = map?.ToNativePosition(position) ?? position;
             var end = map?.ToNativePosition(position + 1) ?? position + 1;
             var range = previous.TryGetValue(marker.Adornment, out var ranges) && ranges.TryDequeue(out var retained) ? retained : PlatformView.Document.GetRange(start, end);
-            if (range.StartPosition != start || range.EndPosition != end) range.SetRange(start, end);
+            if (range.StartPosition != start || range.EndPosition != end)
+                range.SetRange(start, end);
+
             _displayReservationRanges.Add((marker, range));
         }
     }
 
     private partial RichTextDisplayProjection ReadDisplayReservationMetadata(string text)
     {
-        if (_displayReservationRanges.Count == 0) return RichTextDisplayProjection.Empty;
+        if (_displayReservationRanges.Count == 0)
+            return RichTextDisplayProjection.Empty;
+
         var map = _hasNativeLinks ? GetNativeTextSnapshot() : null;
         return RichTextDisplayProjection.FromNative(_displayReservationRanges.Select(item =>
             (item.Marker, map?.ToLogicalPosition(item.Range.StartPosition) ?? item.Range.StartPosition,

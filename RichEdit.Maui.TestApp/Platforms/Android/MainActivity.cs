@@ -1,4 +1,4 @@
-﻿using Android.App;
+using Android.App;
 using Android.Content.PM;
 using Android.OS;
 
@@ -22,11 +22,11 @@ public class MainActivity : MauiAppCompatActivity
         {
             _testsStarted = true;
             var editor = new RichEditor();
-            editor.Loaded += async (_, _) => await AndroidEditorTests.RunAsync(editor, Intent?.GetStringExtra("test-filter"));
+            editor.Loaded += async (_, _) => await Tests.AndroidEditorTests.RunAsync(editor, Intent?.GetStringExtra("test-filter"));
             Microsoft.Maui.Controls.Application.Current!.Windows[0].Page = new ContentPage
             {
                 Content = editor,
-                SafeAreaEdges = new (SafeAreaRegions.Container),
+                SafeAreaEdges = new(SafeAreaRegions.Container),
             };
         }
     }

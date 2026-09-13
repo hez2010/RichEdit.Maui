@@ -5,11 +5,14 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private float LayoutDensity => PlatformView.Resources?.DisplayMetrics?.Density ?? 1f;
+
     private Point TextLayoutOrigin() => new(PlatformView.CompoundPaddingLeft - PlatformView.ScrollX, PlatformView.CompoundPaddingTop - PlatformView.ScrollY);
 
     private partial RichTextNativeLayout? CaptureTextLayoutCore()
     {
-        if (PlatformView.Layout is not { } layout) return null;
+        if (PlatformView.Layout is not { } layout)
+            return null;
+
         var density = LayoutDensity;
         var viewport = GetAdornmentViewport();
         var textViewport = new Rect(PlatformView.CompoundPaddingLeft / density, PlatformView.CompoundPaddingTop / density,
@@ -23,24 +26,33 @@ public partial class RichEditorHandler
         {
             NativeGeometryQueryCount++;
             var top = (layout.GetLineTop(index) + origin.Y) / density;
-            if (top >= textViewport.Bottom) break;
+            if (top >= textViewport.Bottom)
+                break;
+
             NativeGeometryQueryCount++;
             var bottom = (layout.GetLineBottom(index) + origin.Y) / density;
-            if (bottom <= textViewport.Top) continue;
+            if (bottom <= textViewport.Top)
+                continue;
+
             NativeGeometryQueryCount += 2;
             var ranges = VisibleSourceRanges(layout.GetLineStart(index), layout.GetLineEnd(index));
-            if (ranges.IsEmpty) continue;
+            if (ranges.IsEmpty)
+                continue;
+
             NativeGeometryQueryCount += 4;
             lines.Add(new(ranges, new((layout.GetLineLeft(index) + origin.X) / density, top,
                 Math.Max(1, (layout.GetLineRight(index) - layout.GetLineLeft(index)) / density), bottom - top),
                 (layout.GetLineBaseline(index) + origin.Y) / density));
         }
+
         return new(viewport, textViewport, lines.ToImmutableArray());
     }
 
     private partial Rect? GetTextCaretBoundsCore(int position, RichTextCaretAffinity affinity)
     {
-        if (PlatformView.Layout is not { } layout) return null;
+        if (PlatformView.Layout is not { } layout)
+            return null;
+
         NativeGeometryQueryCount += 5;
         var index = layout.GetLineForOffset(position);
         var x = layout.GetPrimaryHorizontal(position);
@@ -64,6 +76,7 @@ public partial class RichEditorHandler
                 }
             }
         }
+
         var origin = TextLayoutOrigin();
         return new((x + origin.X) / LayoutDensity, (layout.GetLineTop(index) + origin.Y) / LayoutDensity,
             1, (layout.GetLineBottom(index) - layout.GetLineTop(index)) / LayoutDensity);
@@ -71,7 +84,9 @@ public partial class RichEditorHandler
 
     private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(RichTextRange range)
     {
-        if (PlatformView.Layout is not { } layout) return Array.Empty<Rect>();
+        if (PlatformView.Layout is not { } layout)
+            return Array.Empty<Rect>();
+
         var origin = TextLayoutOrigin();
         using var path = new global::Android.Graphics.Path();
         NativeGeometryQueryCount++;
@@ -83,14 +98,18 @@ public partial class RichEditorHandler
         using var iterator = new global::Android.Graphics.RegionIterator(region);
         using var rect = new global::Android.Graphics.Rect();
         var result = new List<Rect>();
-        while (iterator.Next(rect)) AddFragment(result, new((rect.Left + origin.X) / LayoutDensity, (rect.Top + origin.Y) / LayoutDensity,
-            rect.Width() / LayoutDensity, rect.Height() / LayoutDensity));
+        while (iterator.Next(rect))
+            AddFragment(result, new((rect.Left + origin.X) / LayoutDensity, (rect.Top + origin.Y) / LayoutDensity,
+                rect.Width() / LayoutDensity, rect.Height() / LayoutDensity));
+
         return result;
     }
 
     private partial RichTextHit? HitTestTextCore(Point point)
     {
-        if (PlatformView.Layout is not { } layout) return null;
+        if (PlatformView.Layout is not { } layout)
+            return null;
+
         var origin = TextLayoutOrigin();
         var x = point.X * LayoutDensity - origin.X;
         var y = point.Y * LayoutDensity - origin.Y;

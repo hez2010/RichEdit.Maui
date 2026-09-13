@@ -34,7 +34,9 @@ public partial class CodeEditorTests
         using var features = new CodeEditorFeatures(editor, host);
         features.InsertSnippet();
         editor.Undo();
-        if (redo) editor.Redo();
+        if (redo)
+            editor.Redo();
+
         var snapshot = editor.Document.CurrentSnapshot;
 
         var dispatched = new TaskCompletionSource();
