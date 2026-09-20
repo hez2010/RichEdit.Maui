@@ -1,0 +1,4 @@
+attributeRules:
+  - exclude:
+      uidRegex: '^WinRT\.(WinRTExposedTypeAttribute|WinRTRuntimeClassNameAttribute)$'
+      type: Type

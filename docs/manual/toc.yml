@@ -1,0 +1,48 @@
+- name: Overview
+  href: index.md
+- name: Getting started
+  href: getting-started.md
+- name: XAML and data binding
+  href: binding.md
+- name: Documents and editing
+  items:
+    - name: Documents and snapshots
+      href: documents.md
+    - name: Atomic edits and selection
+      href: editing.md
+    - name: Undo, redo, and saving
+      href: history-and-saving.md
+    - name: Events and threading
+      href: events-and-threading.md
+- name: Rich text
+  items:
+    - name: Character and paragraph formatting
+      href: formatting.md
+    - name: Lists and numbering
+      href: lists.md
+    - name: Links, fields, images, and fragments
+      href: rich-content.md
+- name: Input and commands
+  href: input.md
+- name: Code editor
+  href: code-editor.md
+- name: Extending the editors
+  items:
+    - name: Background work and checked edits
+      href: background-work.md
+    - name: Decorations and syntax colors
+      href: decorations.md
+    - name: Tracked positions and ranges
+      href: tracking.md
+    - name: Range folding
+      href: folding.md
+    - name: Anchored views
+      href: adornments.md
+    - name: Layout, hit testing, and composition
+      href: layout.md
+- name: Platform behavior
+  href: platforms.md
+- name: RTF support matrix
+  href: ../../RTF_SUPPORT.md
+- name: Troubleshooting
+  href: troubleshooting.md
