@@ -526,4 +526,28 @@ public sealed class RichTextDocumentTests
                 new RichTextLink(2, 2, "https://two.test"),
             ]));
     }
+
+    [Fact]
+    public void ImagesWithEqualPayloadsAreEqual()
+    {
+        var first = RichTextImage.FromBytes(0, "image/png", [1, 2, 3], 8, 8);
+        var second = RichTextImage.FromBytes(0, "image/png", [1, 2, 3], 8, 8);
+        var different = RichTextImage.FromBytes(0, "image/png", [9, 9, 9], 8, 8);
+
+        Assert.Equal(first, second);
+        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+        Assert.NotEqual(first, different);
+    }
+
+    [Fact]
+    public void ListPicturesWithEqualPayloadsAreEqual()
+    {
+        var first = RichTextListPicture.FromBytes("p1", "image/png", [1, 2, 3], 8, 8);
+        var second = RichTextListPicture.FromBytes("p1", "image/png", [1, 2, 3], 8, 8);
+        var different = RichTextListPicture.FromBytes("p1", "image/png", [4], 8, 8);
+
+        Assert.Equal(first, second);
+        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+        Assert.NotEqual(first, different);
+    }
 }

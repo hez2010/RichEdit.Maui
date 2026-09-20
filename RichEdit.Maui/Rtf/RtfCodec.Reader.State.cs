@@ -31,7 +31,10 @@ internal static partial class RtfCodec
             string Prefix,
             string Suffix,
             string BulletText,
-            int? PictureIndex);
+            int? PictureIndex,
+            double? LeadingIndent,
+            double? FirstLineIndent,
+            double? MarkerTab);
 
         private enum Destination
         {
@@ -222,6 +225,8 @@ internal static partial class RtfCodec
 
             public int ListLevel { get; set; }
 
+            public int TableLevel { get; set; } = 1;
+
             public bool AtGroupStart { get; set; } = true;
 
             public bool IgnorableDestination { get; set; }
@@ -284,6 +289,7 @@ internal static partial class RtfCodec
                 CurrentBorderSides = CurrentBorderSides,
                 ListOverride = ListOverride,
                 ListLevel = ListLevel,
+                TableLevel = TableLevel,
                 AtGroupStart = true,
                 SkipDestination = SkipDestination,
                 InUnicodePreferred = InUnicodePreferred,

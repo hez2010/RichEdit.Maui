@@ -228,9 +228,13 @@ public partial class RichEditorHandler
         var affectedRange = changes.GetAffectedRange(snapshot.Length);
         var hasListChanges = changes.Changes.Any(
             static change => change.Kind == RichTextChangeKind.List);
-        var requiresRtfImages = changes.Changes.Any(change => change.Kind == RichTextChangeKind.Image) &&
-            snapshot.Images.Any(image => image.Position >= affectedRange.Start && image.Position < affectedRange.End &&
-                (image.Rotation != 0 || image.Crop != default));
+        var requiresRtfImages = false;
+        if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Image))
+        {
+            var surviving = GetSurvivingImages(changes);
+            requiresRtfImages = snapshot.Images.Any(image => image.Position >= affectedRange.Start && image.Position < affectedRange.End &&
+                (image.Rotation != 0 || image.Crop != default) && surviving.GetValueOrDefault(image.Position) != image);
+        }
         var bulkImages = snapshot.Images.Count(static image => image.Adornment is null) >
             (changes.BeforeSnapshot?.Images.Count(static image => image.Adornment is null) ?? 0) + 24;
         if (changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset) ||
@@ -256,14 +260,17 @@ public partial class RichEditorHandler
             displayUpdatesBatched = true;
             var loadedImages = new HashSet<int>();
             var loadedRanges = new List<RichTextRange>();
-            foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
+            var textChanges = changes.Changes.OfType<RichTextTextChange>().ToArray();
+            foreach (var textChange in textChanges)
             {
                 var positions = _hasNativeLinks ? GetNativeTextSnapshot() : null;
                 var range = nativeDocument.GetRange(
                     positions?.ToNativePosition(textChange.OldRange.Start) ?? textChange.OldRange.Start,
                     positions?.ToNativePosition(textChange.OldRange.End) ?? textChange.OldRange.End);
                 var images = snapshot.Images.Where(image => image.Position >= textChange.NewRange.Start && image.Position < textChange.NewRange.End).ToArray();
-                if (images.Length > 0 && images.All(static image => image.Adornment is { Options.Baseline: null }) &&
+                // Only a single replacement already addresses the final snapshot's
+                // image coordinates. Later replacements can move every earlier range.
+                if (textChanges.Length == 1 && images.Length > 0 && images.All(static image => image.Adornment is { Options.Baseline: null }) &&
                     images.Length == textChange.InsertedText.Count(static character => character == '\uFFFC'))
                 {
                     var fragment = RichTextDocumentFragment.FromRange(snapshot, textChange.NewRange).Snapshot;

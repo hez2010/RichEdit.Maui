@@ -149,7 +149,13 @@ public partial class RichEditText : AppCompatEditText
         return handled;
     }
 
-    private static async void ExecuteClipboardCommand(Func<Task> command) => await RichEditorCommands.ExecuteAsync(command);
+    private async void ExecuteClipboardCommand(Func<Task> command)
+    {
+        if (ProjectionHandler is { } handler)
+            await handler.VirtualView.Commands.ExecuteClipboardAsync(command);
+        else
+            await RichEditorCommands.ExecuteAsync(command);
+    }
 
     /// <inheritdoc />
     public override bool OnTextContextMenuItem(int id)

@@ -218,15 +218,21 @@ public partial class RichEditorHandler
             if (changes.Changes.Any(static change => change.Kind is
                     RichTextChangeKind.Text or RichTextChangeKind.Image))
             {
-                RemoveSpans<RichImageMetadataSpan>(
-                    editable,
-                    characterRange.Start,
-                    characterRange.End);
-                RemoveSpans<ImageSpan>(editable, characterRange.Start, characterRange.End);
-                RemoveSpans<RichAdornmentSpan>(editable, characterRange.Start, characterRange.End);
+                var surviving = GetSurvivingImages(changes);
+                var current = snapshot.Images.ToDictionary(static image => image.Position);
+                foreach (var span in GetSpans<Java.Lang.Object>(editable, characterRange.Start, characterRange.End)
+                    .Where(static span => span is RichImageMetadataSpan or ImageSpan or RichAdornmentSpan).ToArray())
+                {
+                    var position = editable.GetSpanStart(span);
+                    if (current.TryGetValue(position, out var image) && surviving.GetValueOrDefault(position) == image &&
+                        editable.GetSpanEnd(span) == position + 1)
+                        continue;
+
+                    editable.RemoveSpan(span);
+                }
                 foreach (var image in snapshot.Images.Where(image =>
                     image.Position >= characterRange.Start &&
-                    image.Position < characterRange.End))
+                    image.Position < characterRange.End && surviving.GetValueOrDefault(image.Position) != image))
                 {
                     ApplyImage(editable, image);
                 }

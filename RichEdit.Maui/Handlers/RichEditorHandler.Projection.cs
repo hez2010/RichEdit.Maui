@@ -117,7 +117,7 @@ public partial class RichEditorHandler
         var hadReservations = !NativeProjection.IsEmpty;
         PrepareDisplayProjection();
         if (!hadReservations && NativeProjection.IsEmpty)
-            return changes;
+            return RemoveImagePositionChanges(changes);
 
         return new(changes.VersionBefore, changes.VersionAfter, changes.Origin,
             [.. CreateDisplayDelta(before, DisplayPresentationSnapshot)], changes.Tag,
@@ -196,6 +196,46 @@ public partial class RichEditorHandler
             .Select(image => image.Position < text.OldRange.Start ? image : image with { Position = image.Position + shift });
         var current = after.Images.Where(image => image.Position < text.NewRange.Start || image.Position >= text.NewRange.End);
         return prior.SequenceEqual(current) ? changes.Where(static change => change.Kind != RichTextChangeKind.Image).ToArray() : changes;
+    }
+
+    internal static Dictionary<int, RichTextImage> GetSurvivingImages(RichTextChangeSet changes)
+    {
+        var result = new Dictionary<int, RichTextImage>();
+        if (changes.BeforeSnapshot is not { } before || changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
+            return result;
+
+        var edits = changes.Changes.OfType<RichTextTextChange>().ToArray();
+        foreach (var image in before.Images)
+        {
+            int? position = image.Position;
+            foreach (var edit in edits)
+            {
+                if (position is not { } current)
+                    break;
+
+                position = RichTextPositionMap.Map(current, edit, RichTextTrackingAffinity.AfterInsertion, RichTextTrackingDeletionBehavior.Invalidate);
+            }
+            if (position is { } retained)
+                result.Add(retained, retained == image.Position ? image : image with { Position = retained });
+        }
+
+        return result;
+    }
+
+    private static RichTextChangeSet RemoveImagePositionChanges(RichTextChangeSet changes)
+    {
+        if (!changes.IsTextChanged || changes.AfterSnapshot is not { } after ||
+            !changes.Changes.Any(static change => change.Kind == RichTextChangeKind.Image))
+            return changes;
+
+        var surviving = GetSurvivingImages(changes);
+        if (surviving.Count != after.Images.Length || !after.Images.All(image => surviving.GetValueOrDefault(image.Position) == image))
+            return changes;
+
+        return new(changes.VersionBefore, changes.VersionAfter, changes.Origin,
+            [.. changes.Changes.Where(static change => change.Kind != RichTextChangeKind.Image)], changes.Tag,
+            changes.SourceToken, changes.BeforeSnapshot, after, changes.UndoBehavior, changes.UndoDescription)
+        { SelectionAfter = changes.SelectionAfter };
     }
 
     private void UpdateDocumentFromDisplay(RichTextDocumentSnapshot snapshot, int selectionStart, int selectionLength,

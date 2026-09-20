@@ -515,7 +515,7 @@ Document, native view, selection, and history synchronization completes before p
 
 `ContentChanged` includes the `RichTextChangeSet`, with its origin, versions, and bounded changes. `DocumentChanged` reports document replacement. Other events include `SelectionChanged`, `SelectionFormatChanged`, `EffectiveAppearanceChanged`, `LinkInvoked`, `InlineObjectInvoked`, `Pasting`, and `Completed`.
 
-Await clipboard methods to observe exceptions. Clipboard commands and native menu actions propagate asynchronous failures through UI exception handling.
+Await clipboard methods to observe exceptions. Clipboard commands and native menu actions handle cancellation and report clipboard access and data-transfer failures through `Commands.Failed`. Other exceptions still propagate through UI exception handling.
 
 ### RTF behavior
 

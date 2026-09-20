@@ -5,6 +5,7 @@ using Microsoft.UI.Text;
 
 namespace RichEdit.Maui.Tests;
 
+[Collection("Native editor")]
 public partial class EditorApiTests
 {
     private static Microsoft.UI.Xaml.Window? _selectionWindow;
@@ -113,8 +114,11 @@ public partial class EditorApiTests
             fixture.Editor.SelectionChanged += OnSelectionChanged;
             try
             {
-                native.SetRange(2, 4);
-                native.Options |= SelectionOptions.StartActive;
+                // Extend a native caret as Shift+Left would. Setting StartActive after
+                // SetRange is a separate options change, not another range notification.
+                native.SetRange(4, 4);
+                native.MoveLeft(TextRangeUnit.Character, 2, true);
+                Assert.True((native.Options & SelectionOptions.StartActive) != 0);
                 await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
             }
             finally
@@ -363,6 +367,19 @@ public partial class EditorApiTests
             }
         });
     }
+
+    [Fact]
+    public Task NativeClipboardFailuresAreReportedWithoutChangingTaskExceptionBehavior() => WindowsTestHost.RunAsync(async () =>
+    {
+        var editor = new RichEditor();
+        var failure = new System.Runtime.InteropServices.COMException("Clipboard unavailable");
+        Exception? observed = null;
+        editor.Commands.Failed += (_, args) => observed = args.Exception;
+        await editor.Commands.ExecuteClipboardAsync(() => Task.FromException(failure));
+        Assert.Same(failure, observed);
+        Assert.Same(failure, await Assert.ThrowsAsync<System.Runtime.InteropServices.COMException>(() => RichEditorCommands.ExecuteAsync(() => Task.FromException(failure))));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => editor.Commands.ExecuteClipboardAsync(() => throw new InvalidOperationException("Application callback failure")));
+    });
 
     private sealed partial class RichFixture : IDisposable
     {

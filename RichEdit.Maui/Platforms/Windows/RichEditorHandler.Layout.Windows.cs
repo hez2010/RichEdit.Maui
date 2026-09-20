@@ -96,21 +96,53 @@ public partial class RichEditorHandler
     {
         var result = new List<Rect>();
         var origin = TextLayoutOrigin();
-        // Reuse one TOM range. Grapheme rectangles preserve disjoint bidi runs; querying only
-        // a range's bounding box would also highlight unrelated text between those runs.
+        var viewport = GetAdornmentViewport();
+        var padding = PlatformView.Padding;
+        var visible = new Rect(padding.Left, padding.Top, Math.Max(0, viewport.Width - padding.Left - padding.Right),
+            Math.Max(0, viewport.Height - padding.Top - padding.Bottom));
         var native = PlatformView.Document.GetRange(0, 0);
         var text = DisplaySourceSnapshot.Text;
-        for (var position = range.Start; position < range.End;)
+        if (range.IsEmpty)
+            return result;
+
+        // Prune whole offscreen subranges and subdivide the rest down to one grapheme.
+        // Bounding boxes are only a rejection test: visible leaves still retain disjoint
+        // bidi rectangles, and every split is on a text-element boundary.
+        var elements = StringInfo.ParseCombiningCharacters(text.Substring(range.Start, range.Length));
+        var pending = new Stack<(int First, int Last)>();
+        pending.Push((0, elements.Length));
+        while (pending.TryPop(out var part))
         {
-            var end = Math.Min(range.End, position + StringInfo.GetNextTextElementLength(text, position));
-            native.SetRange(NativePositionFromDisplay(position), NativePositionFromDisplay(end));
-            NativeGeometryQueryCount++;
-            native.GetRect(PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var rect, out _);
-            AddFragment(result, new(rect.X + origin.X, rect.Y + origin.Y, rect.Width, rect.Height));
-            position = end;
+            var bounds = Bounds(Offset(part.First), Offset(part.Last));
+            if (part.Last - part.First == 1)
+            {
+                if (bounds.IntersectsWith(visible))
+                    AddFragment(result, bounds);
+                continue;
+            }
+
+            // An unavailable rectangle is not evidence that its characters are
+            // offscreen. Subdivide it so visible leaves can still be queried.
+            if (bounds.Width > 0 && bounds.Height > 0 && double.IsFinite(bounds.X) && double.IsFinite(bounds.Y) &&
+                double.IsFinite(bounds.Right) && double.IsFinite(bounds.Bottom) && !bounds.IntersectsWith(visible))
+                continue;
+
+            var middle = part.First + (part.Last - part.First) / 2;
+            pending.Push((middle, part.Last));
+            pending.Push((part.First, middle));
         }
 
         return result;
+
+        int Offset(int index) => index < elements.Length ? range.Start + elements[index] : range.End;
+
+        Rect Bounds(int start, int end)
+        {
+            native.SetRange(NativePositionFromDisplay(start), NativePositionFromDisplay(end));
+            NativeGeometryQueryCount++;
+            native.GetRect(PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var rect, out _);
+            return new(rect.X + origin.X, rect.Y + origin.Y, rect.Width, rect.Height);
+        }
     }
 
     private partial RichTextHit? HitTestTextCore(Point point)

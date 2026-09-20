@@ -817,6 +817,237 @@ public sealed class LiveRichTextDocumentTests
     }
 
     [Fact]
+    public void DeletingAFieldsResultTextRemovesTheField()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit => edit.InsertText(0, "before after"));
+        document.Edit(edit => edit.InsertField(7, "DATE", "2026-07-30"));
+        Assert.Single(document.CurrentSnapshot.Fields);
+
+        // Mirrors a native undo readback where the platform removed the
+        // field's result text: the model overlay must not survive as a
+        // ghost zero-length field.
+        document.Edit(edit => edit.ReplaceText(
+            new RichTextRange(7, "2026-07-30".Length),
+            string.Empty));
+
+        Assert.Empty(document.CurrentSnapshot.Fields);
+        Assert.Equal("before after", document.Text);
+    }
+
+    [Fact]
+    public void CopyingPartOfALaterParagraphPreservesItsFormattingAndList()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit =>
+        {
+            edit.InsertText(0, "first\nsecond");
+            var listId = edit.CreateList(new RichTextListDefinition(
+                (RichTextListLevelDefinition[])[
+                    new RichTextListLevelDefinition
+                                                {
+                                                    Marker = new RichTextListMarker.Bullet("*"),
+                                                    Prefix = string.Empty,
+                                                    Suffix = string.Empty,
+                                                    LeadingIndent = 24,
+                                                    FirstLineIndent = -12,
+                                                    MarkerTab = 24,
+                                                },
+                ]));
+            edit.ApplyList(new RichTextRange(6, 6), listId);
+            edit.UpdateParagraphFormat(new RichTextRange(6, 6), format => format with
+            {
+                Alignment = RichTextAlignment.Center,
+            });
+        });
+
+        var fragment = RichTextDocumentFragment.FromRange(document.CurrentSnapshot, new RichTextRange(7, 3));
+
+        Assert.Equal("eco", fragment.Text);
+        Assert.Equal(document.CurrentSnapshot.GetParagraphFormat(7), fragment.Snapshot.GetParagraphFormat(0));
+        Assert.Single(fragment.Snapshot.Lists);
+    }
+
+    [Fact]
+    public void RichFragmentPreservesSourceDocumentFontDefaults()
+    {
+        var source = new RichTextDocument();
+        source.Edit(edit =>
+        {
+            edit.SetDefaultCharacterFormat(RichTextCharacterFormat.Default with
+            {
+                FontFamily = "Georgia",
+                FontSize = 24,
+                ForegroundColor = Colors.Red,
+            });
+            edit.InsertText(0, "source");
+        });
+        var target = new RichTextDocument();
+        target.Edit(edit =>
+        {
+            edit.SetDefaultCharacterFormat(RichTextCharacterFormat.Default with { FontSize = 12 });
+            edit.InsertText(0, "target");
+        });
+
+        var fragment = RichTextDocumentFragment.FromRange(source.CurrentSnapshot, new RichTextRange(0, source.Length));
+        target.Edit(edit => edit.ReplaceFragment(new RichTextRange(3, 0), fragment));
+
+        var format = target.CurrentSnapshot.ResolveCharacterFormat(target.CurrentSnapshot.GetCharacterFormat(3));
+        Assert.Equal("Georgia", format.FontFamily);
+        Assert.Equal(24, format.FontSize);
+        Assert.Equal(Colors.Red, format.ForegroundColor);
+        Assert.Equal(12, target.DefaultCharacterFormat.FontSize);
+        Assert.Null(target.CurrentSnapshot.GetCharacterFormat(0).FontSize);
+    }
+
+    [Fact]
+    public void PlainTextFragmentUsesTheDestinationCaretAndParagraphFormats()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit =>
+        {
+            edit.InsertText(0, "before after", RichTextCharacterFormat.Default with { FontWeight = 700, FontSize = 20 });
+            edit.UpdateParagraphFormat(RichTextRange.Empty, format => format with { Alignment = RichTextAlignment.Center });
+        });
+
+        document.Edit(edit => edit.ReplaceFragment(new RichTextRange(7, 0), RichTextDocumentFragment.FromPlainText("plain")));
+
+        Assert.Equal("before plainafter", document.Text);
+        var format = document.CurrentSnapshot.GetCharacterFormat(7);
+        Assert.True(format.Bold);
+        Assert.Equal(20, format.FontSize);
+        Assert.Equal(RichTextAlignment.Center, document.CurrentSnapshot.GetParagraphFormat(7).Alignment);
+    }
+
+    [Fact]
+    public void EmptyFieldCanShareTheStartOfANonemptyField()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit => edit.InsertField(0, "DATE", "today"));
+
+        document.Edit(edit => edit.InsertField(0, "PAGE", string.Empty));
+
+        Assert.Equal(2, document.CurrentSnapshot.Fields.Length);
+        var restored = RichTextDocument.FromRtf(document.RtfText);
+        Assert.Equal(document.Text, restored.Text);
+        Assert.Equal(2, restored.CurrentSnapshot.Fields.Length);
+    }
+
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("one", "two")]
+    public void DistinctFieldsWithTheSameInstructionRemainIndividuallyEditable(string firstResult, string secondResult)
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit =>
+        {
+            edit.InsertField(0, "MERGEFIELD Name", firstResult);
+            edit.InsertField(firstResult.Length, "MERGEFIELD Name", secondResult);
+        });
+
+        var restored = RichTextDocument.FromRtf(document.RtfText);
+
+        Assert.Equal(2, restored.CurrentSnapshot.Fields.Length);
+        var second = restored.CurrentSnapshot.Fields[1];
+        restored.Edit(edit => edit.UpdateField(second.Id, second.Instruction, "changed"));
+        Assert.Equal(firstResult + "changed", restored.Text);
+    }
+
+    [Fact]
+    public void DescendingBatchesMatchSequentialRichSnapshotReplacement()
+    {
+        var source = new RichTextDocument(new RichTextDocumentSnapshot("a\nb\n\uFFFC",
+            images: (RichTextImage[])[new() { Position = 4, Data = [1, 2, 3], Width = 8, Height = 9 }]));
+        source.Edit(edit =>
+        {
+            edit.SetCharacterFormat(new(0, 2), new() { Italic = true });
+            edit.SetCharacterFormat(new(2, 3), new() { ForegroundColor = Colors.Red });
+            edit.SetParagraphFormat(new(0, 0), new() { Alignment = RichTextAlignment.Center });
+            edit.SetParagraphFormat(new(2, 0), new() { Alignment = RichTextAlignment.Right });
+            edit.SetLink(new(2, 3), "https://example.com");
+            edit.InsertField(0, "EMPTY", "");
+            var list = edit.CreateList(new([
+                new() { Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1), Prefix = "", Suffix = ".", LeadingIndent = 24 },
+            ]));
+            edit.ApplyList(new(0, 5), list);
+            edit.RestartList(new(0, 1), 3);
+        });
+        var original = source.CurrentSnapshot;
+        string[] replacements = ["", "x", "\n", "q\n"];
+        for (var left = 0; left < original.Length; left++)
+        for (var right = left + 1; right <= original.Length; right++)
+        for (var leftLength = 0; leftLength <= right - left; leftLength++)
+        for (var rightLength = 0; rightLength <= original.Length - right; rightLength++)
+        foreach (var first in replacements)
+        foreach (var second in replacements)
+        {
+            var expected = original.Replace(right..(right + rightLength), first)
+                .Replace(left..(left + leftLength), second);
+            var document = new RichTextDocument(original);
+            document.Edit(edit =>
+            {
+                edit.ReplaceText(new(right, rightLength), first);
+                edit.ReplaceText(new(left, leftLength), second);
+            });
+            Assert.True(expected.ContentEquals(document.CurrentSnapshot),
+                $"left={left}/{leftLength}, right={right}/{rightLength}, first={first}, second={second}");
+            if (document.CanUndo)
+            {
+                document.Undo();
+                Assert.True(original.ContentEquals(document.CurrentSnapshot));
+                document.Redo();
+                Assert.True(expected.ContentEquals(document.CurrentSnapshot));
+            }
+        }
+    }
+
+    [Fact]
+    public void DependentTextEditsAndFormattingObservePendingReplacements()
+    {
+        var document = RichTextDocument.FromPlainText("abcdef");
+        document.Edit(edit =>
+        {
+            edit.ReplaceText(new(4, 2), "tail");
+            edit.ReplaceText(new(1, 2), "XY");
+            edit.ReplaceText(new(2, 4), "!");
+            edit.SetCharacterFormat(new(0, 3), new() { Italic = true });
+            edit.InsertText(3, "?");
+        });
+        Assert.Equal("aX!?il", document.Text);
+        Assert.True(document.CurrentSnapshot.GetCharacterFormat(3).Italic);
+        document.Undo();
+        Assert.Equal("abcdef", document.Text);
+    }
+
+    [Fact]
+    public void RichPasteBatchesFormatsWithoutLosingParagraphOrSemanticBoundaries()
+    {
+        var source = new RichTextDocumentSnapshot("ONE\nTWO\n",
+            runs: (RichTextRun[])[new(0, 4, new() { Italic = true }), new(4, 4, new() { ForegroundColor = Colors.Red })],
+            paragraphs: (RichTextParagraph[])[new(0, new() { Alignment = RichTextAlignment.Center }),
+                new(4, new() { Alignment = RichTextAlignment.Right }), new(8, new() { Alignment = RichTextAlignment.Justified })],
+            links: (RichTextLink[])[new(0, 3, "https://source.example")],
+            fields: (RichTextField[])[new(new RichTextRange(4, 3), "PAGE")],
+            defaultCharacterFormat: new() { FontSize = 17 });
+        var document = RichTextDocument.FromPlainText("left old right\nnext");
+        document.Edit(edit => edit.SetLink(new(0, 14), "https://destination.example"));
+        var before = document.CurrentSnapshot;
+        document.Edit(edit => edit.ReplaceFragment(new(5, 3), new RichTextDocumentFragment(source)));
+        var after = document.CurrentSnapshot;
+        Assert.Equal("left ONE\nTWO\n right\nnext", after.Text);
+        Assert.Equal(new[] { RichTextAlignment.Center, RichTextAlignment.Right, RichTextAlignment.Justified, RichTextAlignment.Left },
+            after.Paragraphs.Select(static paragraph => paragraph.Format.Alignment));
+        Assert.Equal(new RichTextRange(5, 3), Assert.Single(after.Links).Range);
+        Assert.Equal(new RichTextRange(9, 3), Assert.Single(after.Fields).Range);
+        Assert.Equal(17d, after.GetCharacterFormat(9).FontSize);
+        Assert.True(after.GetCharacterFormat(5).Italic);
+        document.Undo();
+        Assert.True(before.ContentEquals(document.CurrentSnapshot));
+        document.Redo();
+        Assert.True(after.ContentEquals(document.CurrentSnapshot));
+    }
+
+    [Fact]
     public void PublicSurfaceContainsOnlyTheNewContentAndListApis()
     {
         var editorType = typeof(RichEditor);

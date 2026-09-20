@@ -142,7 +142,8 @@ internal sealed class RichBaselineOffsetSpan(int pixels) : MetricAffectingSpan
         if (textPaint is not null)
         {
             textPaint.BaselineShift = (int)Math.Clamp(
-                (long)textPaint.BaselineShift + Pixels,
+                // Authored positive offsets raise text; Android's positive Y points down.
+                (long)textPaint.BaselineShift - Pixels,
                 int.MinValue,
                 int.MaxValue);
         }

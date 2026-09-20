@@ -75,6 +75,7 @@ internal static partial class RtfCodec
                     return true;
                 case "fldrslt":
                     state.Destination = Destination.Body;
+                    AppendPendingCellSeparator(state.Format);
                     state.FieldResultStart = _document.Length;
                     state.CompletesFieldResult = true;
                     return true;
@@ -244,6 +245,7 @@ internal static partial class RtfCodec
                 _pendingListPictureIndex = parameter.Value;
             }
 
+            ApplyListLayoutControl(word, parameter);
             CommitListDefinition();
         }
 
@@ -275,7 +277,10 @@ internal static partial class RtfCodec
                     _pendingListPrefix,
                     _pendingListSuffix,
                     _pendingListBulletText,
-                    _pendingListPictureIndex);
+                    _pendingListPictureIndex,
+                    _pendingListLeadingIndent,
+                    _pendingListFirstLineIndent,
+                    _pendingListMarkerTab);
             }
         }
 
@@ -289,6 +294,19 @@ internal static partial class RtfCodec
             _pendingListSuffix = ".";
             _pendingListBulletText = "•";
             _pendingListPictureIndex = null;
+            _pendingListLeadingIndent = null;
+            _pendingListFirstLineIndent = null;
+            _pendingListMarkerTab = null;
+        }
+
+        private void ApplyListLayoutControl(string word, int? parameter)
+        {
+            if (word is "li" or "lin")
+                _pendingListLeadingIndent = FromTwips(parameter ?? 0);
+            else if (word == "fi")
+                _pendingListFirstLineIndent = FromTwips(parameter ?? 0);
+            else if (word == "tx")
+                _pendingListMarkerTab ??= Math.Max(0, FromTwips(parameter ?? 0));
         }
 
         private void CompleteListLevelText(StringBuilder capture, bool isOverride)
@@ -421,6 +439,7 @@ internal static partial class RtfCodec
                 _listOverrides[overrideId] = listId;
             }
 
+            ApplyListLayoutControl(word, parameter);
             CommitPendingOverrideLevel();
         }
 
@@ -437,7 +456,10 @@ internal static partial class RtfCodec
                     _pendingListPrefix,
                     _pendingListSuffix,
                     _pendingListBulletText,
-                    _pendingListPictureIndex);
+                    _pendingListPictureIndex,
+                    _pendingListLeadingIndent,
+                    _pendingListFirstLineIndent,
+                    _pendingListMarkerTab);
             }
         }
 

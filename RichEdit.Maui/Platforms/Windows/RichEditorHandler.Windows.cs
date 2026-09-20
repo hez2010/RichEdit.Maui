@@ -253,7 +253,7 @@ public partial class RichEditorHandler
             {
                 ApplyCharacterFormatsIncrementally(
                     DisplayPresentationSnapshot,
-                    new RichTextRange(0, editor.Document.Length));
+                    new RichTextRange(0, DisplayPresentationSnapshot.Length));
                 SetSelectionCore(editor.SelectedRange.Start, editor.SelectedRange.Length);
             }
             finally
@@ -388,19 +388,19 @@ public partial class RichEditorHandler
         // Route every user paste through the portable fragment and cancellable
         // Pasting event. The complete fragment becomes one document undo unit.
         eventArgs.Handled = true;
-        await RichEditorCommands.ExecuteAsync(VirtualView.PasteAsync);
+        await VirtualView.Commands.ExecuteClipboardAsync(VirtualView.PasteAsync);
     }
 
     private async void OnPlatformCopy(RichEditBox sender, TextControlCopyingToClipboardEventArgs args)
     {
         args.Handled = true;
-        await RichEditorCommands.ExecuteAsync(VirtualView.CopyAsync);
+        await VirtualView.Commands.ExecuteClipboardAsync(VirtualView.CopyAsync);
     }
 
     private async void OnPlatformCut(RichEditBox sender, TextControlCuttingToClipboardEventArgs args)
     {
         args.Handled = true;
-        await RichEditorCommands.ExecuteAsync(VirtualView.CutAsync);
+        await VirtualView.Commands.ExecuteClipboardAsync(VirtualView.CutAsync);
     }
 
     private void OnSourceDragStarting(Microsoft.UI.Xaml.UIElement sender, Microsoft.UI.Xaml.DragStartingEventArgs args)

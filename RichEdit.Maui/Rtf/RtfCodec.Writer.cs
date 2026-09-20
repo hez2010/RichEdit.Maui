@@ -42,7 +42,11 @@ internal static partial class RtfCodec
                 "Arial");
             BuildFormattingTables();
             _listPictures = document.Paragraphs
-                .Select(paragraph => paragraph.Format.NativeList?.PictureId)
+                .Select(static paragraph => paragraph.Format.List?.ListId)
+                .OfType<RichTextListId>()
+                .Distinct()
+                .SelectMany(id => document.Lists[id].Levels)
+                .Select(static level => (level.Marker as RichTextListMarker.Picture)?.PictureId)
                 .Where(static id => id is not null)
                 .Distinct(StringComparer.Ordinal)
                 .Select(id => document.ListPictures[id!])

@@ -264,12 +264,15 @@ public partial class RichEditorHandler
         {
             PlatformView.Editable = !editor.IsReadOnly;
             PlatformView.Selectable = true;
-            PlatformView.SpellCheckingType = editor.IsSpellCheckEnabled
-                ? UITextSpellCheckingType.Yes
-                : UITextSpellCheckingType.No;
-            PlatformView.AutocorrectionType = editor.IsTextPredictionEnabled
-                ? UITextAutocorrectionType.Yes
-                : UITextAutocorrectionType.No;
+            if (editor.Keyboard is CustomKeyboard)
+                ((IUITextInputTraits)PlatformView).ApplyKeyboard(editor.Keyboard);
+            else
+                PlatformView.AutocapitalizationType = editor.Keyboard == Keyboard.Default || editor.Keyboard == Keyboard.Text || editor.Keyboard == Keyboard.Chat
+                    ? UITextAutocapitalizationType.Sentences : UITextAutocapitalizationType.None;
+            if (editor.Keyboard is not CustomKeyboard || editor.IsSet(RichEditor.IsSpellCheckEnabledProperty))
+                PlatformView.SpellCheckingType = editor.IsSpellCheckEnabled ? UITextSpellCheckingType.Yes : UITextSpellCheckingType.No;
+            if (editor.Keyboard is not CustomKeyboard || editor.IsSet(RichEditor.IsTextPredictionEnabledProperty))
+                PlatformView.AutocorrectionType = editor.IsTextPredictionEnabled ? UITextAutocorrectionType.Yes : UITextAutocorrectionType.No;
             PlatformView.KeyboardType = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
                 ? UIKeyboardType.DecimalPad
                 : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)

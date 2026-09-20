@@ -69,6 +69,42 @@ public class AdornmentTests
     });
 
     [Fact]
+    public Task AccessibilityMovementStopsAtTheLastNonemptyUnit() => WithNativeEditor((editor, handler) =>
+    {
+        editor.Document = RichTextDocument.FromPlainText("abc");
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(handler.PlatformView);
+        var text = (Microsoft.UI.Xaml.Automation.Provider.ITextProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Text);
+        var range = text.DocumentRange.FindText("c", false, false);
+        Assert.Equal(0, range.Move(Microsoft.UI.Xaml.Automation.Text.TextUnit.Character, 1));
+        Assert.Equal("c", range.GetText(-1));
+        Assert.Equal(-1, range.Move(Microsoft.UI.Xaml.Automation.Text.TextUnit.Character, -1));
+        Assert.Equal("b", range.GetText(-1));
+        Assert.Equal(1, range.Move(Microsoft.UI.Xaml.Automation.Text.TextUnit.Character, 10));
+        Assert.Equal("c", range.GetText(-1));
+        return Task.CompletedTask;
+    });
+
+    [Fact]
+    public Task AccessibilityFindsParagraphAndPresentationSubranges() => WithNativeEditor((editor, handler) =>
+    {
+        editor.Document = RichTextDocument.FromPlainText("a\nb\nc");
+        editor.Document.Edit(edit => edit.SetParagraphFormat(new(2, 0), new() { Alignment = RichTextAlignment.Center }));
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(handler.PlatformView);
+        var text = (Microsoft.UI.Xaml.Automation.Provider.ITextProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Text);
+        var alignment = (int)Microsoft.UI.Xaml.AutomationTextAttributesEnum.HorizontalTextAlignmentAttribute;
+        Assert.Equal("b\n", text.DocumentRange.FindAttribute(alignment, (int)RichTextAlignment.Center, false).GetText(-1));
+        using var layer = editor.Decorations.CreateLayer();
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(1, 2), new() { ForegroundColor = Microsoft.Maui.Graphics.Colors.Red })]);
+        var foreground = (int)Microsoft.UI.Xaml.AutomationTextAttributesEnum.ForegroundColorAttribute;
+        Assert.Equal("\nb", text.DocumentRange.FindAttribute(foreground, 255, false).GetText(-1));
+        layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new(0, 1), new() { ForegroundColor = Microsoft.Maui.Graphics.Colors.Red }),
+            new(new(4, 1), new() { ForegroundColor = Microsoft.Maui.Graphics.Colors.Red })]);
+        Assert.Equal("a", text.DocumentRange.FindAttribute(foreground, 255, false).GetText(-1));
+        Assert.Equal("c", text.DocumentRange.FindAttribute(foreground, 255, true).GetText(-1));
+        return Task.CompletedTask;
+    });
+
+    [Fact]
     public Task InlineReservationsPreserveSourceAndNativeEditing() => WithNativeEditor(async (editor, handler) =>
     {
         editor.Document = RichTextDocument.FromPlainText("abc def\ntail");
@@ -215,6 +251,35 @@ public class AdornmentTests
             editor.Handler = null;
             ((IElementHandler)replacement).DisconnectHandler();
         }
+    });
+
+    [Theory]
+    [InlineData(RichTextAdornmentPlacement.Inline)]
+    [InlineData(RichTextAdornmentPlacement.AboveLine)]
+    [InlineData(RichTextAdornmentPlacement.BelowLine)]
+    public Task EmptyFieldsKeepZeroLengthAtReservationBoundaries(RichTextAdornmentPlacement placement) => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new RichEditor();
+        editor.Document.Edit(edit => edit.InsertField(0, "PAGE", ""));
+        using var item = editor.Adornments.Add(0, new Label(), new() { Placement = placement });
+        item.MeasuredSize = new(20, 20);
+        var projection = RichTextDisplayProjection.Create(editor, 200);
+        var projected = projection.Project(editor.Document.CurrentSnapshot, 200);
+        Assert.Equal(0, Assert.Single(projected.Fields).Length);
+        Assert.True(editor.Document.CurrentSnapshot.ContentEquals(projection.Unproject(projected)));
+    });
+
+    [Theory]
+    [InlineData(RichTextAdornmentPlacement.AboveLine)]
+    [InlineData(RichTextAdornmentPlacement.BelowLine)]
+    public Task FoldedRowAnchorsDoNotPublishReservations(RichTextAdornmentPlacement placement) => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcd") };
+        using var item = editor.Adornments.Add(2, new Label(), new() { Placement = placement });
+        editor.Folding.Collapse(new(1, 2));
+        Assert.True(RichTextDisplayProjection.Create(editor, 200).IsEmpty);
+        editor.Folding.ExpandAll();
+        Assert.False(RichTextDisplayProjection.Create(editor, 200).IsEmpty);
     });
 
     private static void ClickSampleIndicator(CodeEditor editor)

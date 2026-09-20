@@ -405,6 +405,19 @@ internal static partial class RtfCodec
                 return;
             }
 
+            if (word == "itap")
+            {
+                state.TableLevel = Math.Max(parameter ?? 1, 1);
+                _tableRowStarts.TryAdd(state.TableLevel, _document.Length);
+                return;
+            }
+
+            if (word is "trowd" or "intbl")
+            {
+                _tableRowStarts.TryAdd(state.TableLevel, _document.Length);
+                return;
+            }
+
             if (word is "cell" or "nestcell")
             {
                 EndTableCell(state);

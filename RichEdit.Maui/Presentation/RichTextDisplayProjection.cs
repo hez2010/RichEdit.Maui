@@ -147,6 +147,9 @@ internal sealed class RichTextDisplayProjection
                 continue;
 
             var position = item.Position;
+            if (editor.Folding.FindRange(position) is not null)
+                continue;
+
             var text = "\uFFFC";
             var order = 1;
             switch (item.Options.Placement)
@@ -260,8 +263,7 @@ internal sealed class RichTextDisplayProjection
         }),
             fields: snapshot.Fields.Select(field => field with
         {
-            Start = ToDisplay(field.Start),
-            Length = ToDisplay(field.End, false) - ToDisplay(field.Start)
+            Range = ToDisplay(field.Range)
         })).WithVersion(snapshot.Version);
     }
 

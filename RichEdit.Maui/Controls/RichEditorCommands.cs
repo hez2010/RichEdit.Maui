@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 
 namespace RichEdit.Maui;
@@ -20,7 +21,7 @@ public sealed class RichEditorCommands
         Copy = Create(async () => await editor.CopyAsync(), () => !editor.SelectedRange.IsEmpty);
         Paste = Create(
             async () => await editor.PasteAsync(),
-            () => CanMutateSelection && RichTextClipboard.HasContent);
+            CanPaste);
         SelectAll = Create(editor.SelectAll, () => editor.Document.Length != 0);
 
         _commands =
@@ -51,6 +52,10 @@ public sealed class RichEditorCommands
 
     /// <summary>Gets the select-all command.</summary>
     public ICommand SelectAll { get; }
+
+    /// <summary>Reports an operational clipboard failure from a native event or command.</summary>
+    /// <remarks>Direct calls to the editor's task-based clipboard methods still propagate exceptions.</remarks>
+    public event EventHandler<RichTextCommandFailedEventArgs>? Failed;
 
     internal void Refresh()
     {
@@ -94,11 +99,50 @@ public sealed class RichEditorCommands
 
     private bool CanMutateSelection => !_editor.IsReadOnly;
 
+    private bool CanPaste()
+    {
+        if (!CanMutateSelection)
+            return false;
+
+        try
+        {
+            return RichTextClipboard.HasContent;
+        }
+        catch (Exception exception) when (IsClipboardFailure(exception))
+        {
+            return false;
+        }
+    }
+
     private static Command Create(Action execute, Func<bool> canExecute) =>
         new(execute, canExecute);
 
-    private static Command Create(Func<Task> execute, Func<bool> canExecute) =>
-        new(async () => await ExecuteAsync(execute), canExecute);
+    private Command Create(Func<Task> execute, Func<bool> canExecute) =>
+        new(async () => await ExecuteClipboardAsync(execute), canExecute);
+
+    internal async Task ExecuteClipboardAsync(Func<Task> execute)
+    {
+        try
+        {
+            await ExecuteAsync(execute);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation of a native clipboard request has no pending caller to notify.
+        }
+        catch (Exception exception) when (IsClipboardFailure(exception))
+        {
+            System.Diagnostics.Trace.TraceError("Clipboard command failed: {0}", exception);
+            Failed?.Invoke(this, new(exception));
+        }
+    }
+
+    private static bool IsClipboardFailure(Exception exception) =>
+        exception is COMException or IOException or UnauthorizedAccessException
+#if ANDROID
+        or global::Java.Lang.SecurityException or global::Java.IO.IOException
+#endif
+        ;
 
     internal static Task ExecuteAsync(Func<Task> execute) => execute();
 }

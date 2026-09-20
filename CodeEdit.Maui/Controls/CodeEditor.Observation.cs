@@ -50,7 +50,7 @@ public sealed partial class CodeEditor
 
             var number = Lines.GetPosition(fragment.SourceRanges[0].Start).Line;
             if (seen.Add(number))
-                result.Add(new(number, (float)fragment.Bounds.Y, (float)fragment.Bounds.Height));
+                result.Add(new(number, (float)fragment.Bounds.Y, (float)fragment.Bounds.Height, (float)fragment.Baseline));
         }
 
         return result;

@@ -633,8 +633,7 @@ public partial class RichEditorHandler
 
     private static int FindSoftLineEnd(Java.Lang.ICharSequence text, int start, int end)
     {
-        var value = text.ToString() ?? string.Empty;
-        var next = value.IndexOf(RichTextDocument.SoftLineBreakCharacter, start, end - start);
+        var next = TextUtils.IndexOf(text, RichTextDocument.SoftLineBreakCharacter, start, end);
         return next < 0 ? end : next + 1;
     }
 

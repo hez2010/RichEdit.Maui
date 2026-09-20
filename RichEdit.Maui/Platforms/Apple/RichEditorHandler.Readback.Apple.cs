@@ -18,6 +18,18 @@ public partial class RichEditorHandler
             ? new RichTextRange(pending.Start, pending.RemovedLength)
             : NativeProjection.ToDisplay(VirtualView.SelectedRange);
         var remappedPrevious = previous.RemapText(text, replacement);
+        var emptiedParagraphStart = -1;
+        var deletedLength = previous.Length - text.Length;
+        if (deletedLength > 0)
+        {
+            var start = replacement.Length == deletedLength &&
+                RichTextDocumentSnapshot.TryGetReplacement(previous.Text, text, replacement, out var insertedText) && insertedText.Length == 0
+                    ? replacement.Start : previous.Text.AsSpan().CommonPrefixLength(text);
+            if (start < text.Length && text[start] == '\n' && (start == 0 || text[start - 1] == '\n') &&
+                !previous.Text.AsSpan(start, deletedLength).Contains('\n') &&
+                previous.Text.AsSpan(start + deletedLength).SequenceEqual(text.AsSpan(start)))
+                emptiedParagraphStart = start;
+        }
         var defaultCharacterFormat = previous.DefaultCharacterFormat;
 
         var runs = new List<RichTextRun>();
@@ -103,13 +115,11 @@ public partial class RichEditorHandler
         for (var start = 0; ;)
         {
             RichTextParagraphFormat format;
-            if (start == text.Length)
+            if (start == text.Length || start == emptiedParagraphStart)
             {
-                // The preceding newline belongs to the previous paragraph.
-                // Deleting an item's last character must keep its own list format.
-                format = text.Length == 0
-                    ? previous.DefaultParagraphFormat
-                    : remappedPrevious.GetParagraphFormat(start);
+                // Deleting an item's last character must keep its own paragraph
+                // format, including an empty item between two other paragraphs.
+                format = remappedPrevious.GetParagraphFormat(start);
             }
             else
             {
@@ -613,12 +623,12 @@ public partial class RichEditorHandler
             (int)PlatformView.SelectedRange.Length,
             0,
             snapshot.Length - selectionStart);
-        if (IsCaretInTrailingEmptyParagraph(
+        if (IsCaretInEmptyParagraph(
             snapshot,
             selectionStart,
             selectionLength))
         {
-            ApplyTrailingEmptyParagraphTypingFormat(
+            ApplyEmptyParagraphTypingFormat(
                 snapshot,
                 selectionStart,
                 selectionLength);
@@ -646,12 +656,12 @@ public partial class RichEditorHandler
             _nativeTypingParagraphFormat);
     }
 
-    private void ApplyTrailingEmptyParagraphTypingFormat(
+    private void ApplyEmptyParagraphTypingFormat(
         RichTextDocumentSnapshot snapshot,
         int selectionStart,
         int selectionLength)
     {
-        if (!IsCaretInTrailingEmptyParagraph(
+        if (!IsCaretInEmptyParagraph(
             snapshot,
             selectionStart,
             selectionLength))
@@ -661,21 +671,39 @@ public partial class RichEditorHandler
 
         var paragraphFormat = snapshot.GetParagraphFormat(selectionStart);
         using var paragraphAttributes = CreateParagraphAttributes(paragraphFormat);
-        var typingAttributes = PlatformView.TypingAttributes2 is { } current
+        using var typingAttributes = PlatformView.TypingAttributes2 is { } current
             ? new NSMutableDictionary(current)
             : new NSMutableDictionary();
         typingAttributes.AddEntries(paragraphAttributes);
-        PlatformView.TypingAttributes2 = typingAttributes;
-        _nativeTypingParagraphFormat = paragraphFormat;
+        var wasApplying = _applyingDocument;
+        _applyingDocument = true;
+        try
+        {
+            // An interior empty paragraph still owns a newline in native storage.
+            // Repair its inherited style as well as the attributes for future input.
+            if (selectionStart < snapshot.Length)
+            {
+                var existing = PlatformView.TextStorage.GetAttributes(selectionStart, out _);
+                if (existing is null || ReadParagraphFormat(existing, paragraphFormat) != paragraphFormat)
+                    PlatformView.TextStorage.AddAttributes(paragraphAttributes, new NSRange(selectionStart, 1));
+            }
+
+            PlatformView.TypingAttributes2 = typingAttributes;
+            _nativeTypingParagraphFormat = paragraphFormat;
+        }
+        finally
+        {
+            _applyingDocument = wasApplying;
+        }
     }
 
-    private static bool IsCaretInTrailingEmptyParagraph(
+    private static bool IsCaretInEmptyParagraph(
         RichTextDocumentSnapshot snapshot,
         int selectionStart,
         int selectionLength) =>
             selectionLength == 0 &&
-            selectionStart == snapshot.Length &&
-            (snapshot.Length == 0 || snapshot.Text[^1] == '\n');
+            (selectionStart == 0 || snapshot.Text[selectionStart - 1] == '\n') &&
+            (selectionStart == snapshot.Length || snapshot.Text[selectionStart] == '\n');
 
     private void OnNativeEditingEnded() => VirtualView?.RaiseCompleted();
 

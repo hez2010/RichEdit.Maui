@@ -39,6 +39,10 @@ internal static partial class RtfCodec
         private readonly Dictionary<int, RichTextParagraphFormat> _paragraphs = [];
         private readonly List<RichTextLink> _links = [];
         private readonly List<RichTextField> _fields = [];
+        private int _lastLinkEnd;
+        private int _lastNonemptyFieldEnd;
+        private int _lastEmptyFieldPosition = -1;
+        private int _previousEmptyFieldPosition = -1;
         private readonly List<RichTextImage> _images = [];
         private readonly List<RichTextListPicture> _listPictures = [];
         private readonly Dictionary<(bool IsTableList, int Id, int Level), int> _nextListNumbers = [];
@@ -60,6 +64,9 @@ internal static partial class RtfCodec
         private string _pendingListSuffix = ".";
         private string _pendingListBulletText = "•";
         private int? _pendingListPictureIndex;
+        private double? _pendingListLeadingIndent;
+        private double? _pendingListFirstLineIndent;
+        private double? _pendingListMarkerTab;
         private readonly ParsedListDefinition?[] _pendingListLevels = new ParsedListDefinition?[9];
         private int? _pendingOverrideListId;
         private int? _pendingOverrideId;
@@ -76,6 +83,8 @@ internal static partial class RtfCodec
         private int _lineStart;
         private bool _paragraphListHandled;
         private bool _pendingCellSeparator;
+        private readonly Dictionary<int, int> _tableRowStarts = [];
+        private readonly Dictionary<int, int> _tableRowEnds = [];
         private bool _sawRoot;
         private bool _sawRtfHeader;
         private bool _expectRtfHeader;
@@ -217,16 +226,18 @@ internal static partial class RtfCodec
                 FontSize = GetDefaultFontSize(),
             };
             var text = _document.Text;
+            var paragraphs = EnumerateParagraphs(text).ToArray();
             return new RichTextDocumentSnapshot(
                 text,
                 _document.Runs,
-                EnumerateParagraphs(text),
+                paragraphs,
                 links: CoalesceLinks(_links),
                 fields: _fields,
                 images: _images,
                 defaultCharacterFormat: defaultCharacterFormat,
                 defaultParagraphFormat: _defaultParagraphFormat,
-                listPictures: _listPictures);
+                listPictures: _listPictures,
+                lists: CreateListDefinitions(paragraphs));
         }
 
         private IEnumerable<RichTextParagraph> EnumerateParagraphs(string text)

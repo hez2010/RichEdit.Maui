@@ -642,6 +642,90 @@ internal static class AppleEditorTests
             });
         }
 
+        await Test("Backspace through a middle numbered item preserves adjacent bullet lists", async () =>
+        {
+            editor.Selection.ReplaceText("bullet\nnumber\nfollowing");
+            editor.SelectAll();
+            editor.Selection.SetList(new RichTextListDefinition([
+                new() { Marker = new RichTextListMarker.Bullet("•"), Prefix = "", Suffix = "", LeadingIndent = 18, FirstLineIndent = -18, MarkerTab = 18 },
+            ]));
+            var bulletId = editor.Document.CurrentSnapshot.Paragraphs[0].Format.List!.ListId;
+            editor.SelectedRange = new(7, 6);
+            editor.Selection.SetList(new RichTextListDefinition([
+                new() { Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1), Prefix = "", Suffix = ".", LeadingIndent = 36, FirstLineIndent = -36, MarkerTab = 36 },
+            ]));
+            var numberedId = editor.Document.CurrentSnapshot.Paragraphs[1].Format.List!.ListId;
+            editor.SelectedRange = new(13, 0);
+            await Drain();
+            for (var remaining = 5; remaining >= 0; remaining--)
+            {
+                native.DeleteBackward();
+                await Drain();
+                Equal("bullet\n" + "number"[..remaining] + "\nfollowing", editor.Document.Text);
+                CheckItems();
+            }
+
+            native.InsertText("again");
+            await Drain();
+            CheckItems();
+            editor.Undo();
+            await Drain();
+            Equal("bullet\n\nfollowing", editor.Document.Text);
+            CheckItems();
+            native.DeleteBackward();
+            await Drain();
+            Equal("bullet\nfollowing", editor.Document.Text);
+            Equal(true, editor.Document.CurrentSnapshot.Paragraphs.All(paragraph => paragraph.Format.List?.ListId == bulletId));
+
+            void CheckItems()
+            {
+                var paragraphs = editor.Document.CurrentSnapshot.Paragraphs;
+                Equal(3, paragraphs.Length);
+                Equal(bulletId, paragraphs[0].Format.List!.ListId);
+                Equal(numberedId, paragraphs[1].Format.List!.ListId);
+                Equal(bulletId, paragraphs[2].Format.List!.ListId);
+                Equal(36d, paragraphs[1].Format.LeadingIndent);
+                Equal(-36d, paragraphs[1].Format.FirstLineIndent);
+            }
+        });
+
+        foreach (var retainParagraphMetadata in new[] { false, true })
+        {
+            await Test($"native list ownership overrides inherited paragraph metadata ({retainParagraphMetadata})", async () =>
+            {
+                editor.Selection.ReplaceText("bullet\nnumber");
+                editor.SelectedRange = new(0, 6);
+                editor.Selection.SetList(new RichTextListDefinition([
+                    new() { Marker = new RichTextListMarker.Bullet("•"), Prefix = "", Suffix = "", LeadingIndent = 18, FirstLineIndent = -18, MarkerTab = 18 },
+                ]));
+                editor.SelectedRange = new(7, 6);
+                editor.Selection.SetList(new RichTextListDefinition([
+                    new() { Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1), Prefix = "", Suffix = ".", LeadingIndent = 36, FirstLineIndent = -36, MarkerTab = 36 },
+                ]));
+                await Drain();
+                var before = editor.Document.CurrentSnapshot;
+                var inherited = native.TextStorage.GetAttributes(0, out _) ?? throw new InvalidOperationException("Missing bullet attributes.");
+                using var attributes = new NSMutableDictionary(inherited);
+                var numbered = new UIStringAttributes(native.TextStorage.GetAttributes(7, out _));
+                attributes[UIStringAttributeKey.ParagraphStyle] = numbered.ParagraphStyle!;
+                if (!retainParagraphMetadata)
+                {
+                    using var key = new NSString("RichEdit.Maui.ParagraphFormat");
+                    attributes.Remove(key);
+                }
+
+                // Leave the model's first paragraph bulleted while its native list
+                // changes to the existing numbered list, with stale or absent metadata.
+                native.TextStorage.SetAttributes(attributes, new NSRange(0, 7));
+                await Drain();
+                var after = editor.Document.CurrentSnapshot;
+                Equal(before.Paragraphs[1].Format.List!.ListId, after.Paragraphs[0].Format.List!.ListId);
+                Equal(36d, after.Paragraphs[0].Format.LeadingIndent);
+                Equal(-36d, after.Paragraphs[0].Format.FirstLineIndent);
+                Equal(before.Lists[before.Paragraphs[1].Format.List!.ListId], after.Lists[after.Paragraphs[0].Format.List!.ListId]);
+            });
+        }
+
         await Test("native list continuation and undo preserve list identity", async () =>
         {
             editor.Selection.ReplaceText("one");

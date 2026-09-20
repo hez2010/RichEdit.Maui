@@ -94,7 +94,7 @@ public partial class RichEditorHandler
             PlatformView.AttributedText = attributed;
             ObserveTextStorage();
             SetSelectionCore(selectionStart, selectionLength);
-            ApplyTrailingEmptyParagraphTypingFormat(
+            ApplyEmptyParagraphTypingFormat(
                 document,
                 selectionStart,
                 selectionLength);

@@ -223,6 +223,45 @@ public partial class RichEditText
 
         private int Display(int position) => owner.ProjectionHandler?.NativeProjection.ToDisplayCaret(position) ?? position;
 
+        private int DisplayCursorPosition(int cursor, RichTextRange? replacement = null)
+        {
+            if (Projection is not { } handler || owner.EditableText is not { } text)
+                return cursor;
+
+            var start = replacement?.Start ?? BaseInputConnection.GetComposingSpanStart(text);
+            var end = replacement?.End ?? BaseInputConnection.GetComposingSpanEnd(text);
+            if (start < 0 || end < 0)
+            {
+                start = Math.Max(0, Math.Min(owner.SelectionStart, owner.SelectionEnd));
+                end = Math.Max(start, Math.Max(owner.SelectionStart, owner.SelectionEnd));
+            }
+            if (start > end)
+                (start, end) = (end, start);
+
+            // Android sets this caret before replacing the old range. Translate the
+            // relative movement against that same pre-edit buffer, including clamps.
+            var anchor = cursor > 0 ? end : start;
+            var sourceAnchor = handler.NativeProjection.ToSource(anchor);
+            var target = (int)Math.Clamp((long)sourceAnchor + cursor - (cursor > 0 ? 1 : 0), 0, handler.VirtualView.Document.Length);
+            var display = target == sourceAnchor ? anchor : handler.NativeProjection.ToDisplayCaret(target);
+            return (int)Math.Clamp((long)display - anchor + (cursor > 0 ? 1 : 0), int.MinValue, int.MaxValue);
+        }
+
+        [SupportedOSPlatform("android34.0")]
+        public override bool ReplaceText(int start, int end, Java.Lang.ICharSequence text, int newCursorPosition, TextAttribute? textAttribute) => Observe(false, () =>
+        {
+            if (Projection is not { } handler)
+                return base.ReplaceText(start, end, text, newCursorPosition, textAttribute);
+            if (start < 0 || end < 0)
+                return false;
+
+            start = Math.Min(start, handler.VirtualView.Document.Length);
+            end = Math.Min(end, handler.VirtualView.Document.Length);
+            var range = handler.NativeProjection.ToDisplay(new RichTextRange(Math.Min(start, end), Math.Abs(end - start)));
+            var cursor = DisplayCursorPosition(newCursorPosition, range);
+            return base.ReplaceText(start <= end ? range.Start : range.End, start <= end ? range.End : range.Start, text, cursor, textAttribute);
+        });
+
         public override bool SetSelection(int start, int end) => base.SetSelection(Display(start), Display(end));
 
         public override Java.Lang.ICharSequence? GetTextBeforeCursorFormatted(int n, GetTextFlags flags)
@@ -241,7 +280,8 @@ public partial class RichEditText
 
             var start = handler.VirtualView.SelectedRange.End;
             var text = handler.VirtualView.Document.Text;
-            return new Java.Lang.String(text[start..Math.Min(text.Length, start + Math.Max(0, n))]);
+            var length = Math.Min(Math.Max(0, n), text.Length - start);
+            return new Java.Lang.String(text.Substring(start, length));
         }
 
         public override Java.Lang.ICharSequence? GetSelectedTextFormatted(GetTextFlags flags) => Projection is { } handler ?

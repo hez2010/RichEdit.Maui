@@ -488,11 +488,19 @@ public sealed partial class CodeEditor : ContentView
             foreach (var line in owner.GetVisibleLines())
             {
                 canvas.Font = new Microsoft.Maui.Graphics.Font(owner.FontFamily, line.Number == owner.CaretPosition.Line ? 700 : 400);
+#if IOS || MACCATALYST
+                // CoreText's framed drawing can omit text when its font metrics exceed
+                // the native used-rect height. Its point overload draws at a baseline.
+                var baseline = line.Baseline - (float)(owner.Content.Y + owner._gutter.Y);
+                canvas.DrawString(line.Number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    (float)owner._gutter.Width - 8, baseline, HorizontalAlignment.Right);
+#else
                 canvas.DrawString(line.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), 0, line.Top,
                     (float)owner._gutter.Width - 8, line.Height, HorizontalAlignment.Right, VerticalAlignment.Center);
+#endif
             }
         }
     }
 }
 
-internal readonly record struct VisibleCodeLine(int Number, float Top, float Height);
+internal readonly record struct VisibleCodeLine(int Number, float Top, float Height, float Baseline);

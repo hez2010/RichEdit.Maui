@@ -32,7 +32,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     private readonly Stack<UndoGroup> _undoGroups = new();
     private RichTextDocumentSnapshot? _undoGroupBefore;
     private readonly List<RichTextChange> _undoGroupForward = [];
-    private readonly List<RichTextChange> _undoGroupInverse = [];
+    private readonly List<RichTextChange> _undoGroupReverseInverse = [];
     private string? _undoGroupDescription;
     private RichTextDocumentSnapshot _snapshot;
     private string? _cachedRtf;
@@ -219,7 +219,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         {
             _undoGroupBefore = null;
             _undoGroupForward.Clear();
-            _undoGroupInverse.Clear();
+            _undoGroupReverseInverse.Clear();
             _undoGroupDescription = description;
             _undoGroupStateId = _stateId;
             _undoGroupSelection = AttachedEditor?.SelectionState;
@@ -388,7 +388,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
 
         _redo.Push(entry);
         _stateId = entry.BeforeStateId;
-        TransitionTo(entry.Before, RichTextChangeOrigin.Undo, selection: entry.BeforeSelection, positionChanges: entry.Inverse);
+        TransitionTo(entry.Before, RichTextChangeOrigin.Undo, selection: entry.BeforeSelection, positionChanges: (RichTextChange[])[.. entry.ReverseInverse.AsEnumerable().Reverse()]);
     }
 
     /// <summary>Reapplies the next recorded content and selection. Attached documents require the owning UI thread.</summary>
@@ -531,28 +531,36 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
 
         if (IsUndoGroupOpen && options.UndoBehavior is RichTextUndoBehavior.CreateUnit or RichTextUndoBehavior.MergeWithPrevious)
         {
-            _undoGroupBefore ??= before;
+            if (_undoGroupBefore is null)
+            {
+                // PreserveHistory edits may precede the first recorded edit in this group.
+                // Its snapshot and saved-state identity must describe the same content.
+                _undoGroupBefore = before;
+                _undoGroupStateId = beforeStateId;
+            }
             _undoGroupAfterSelection = afterSelection;
             _undoGroupForward.AddRange(forward);
-            _undoGroupInverse.InsertRange(0, inverse);
+            _undoGroupReverseInverse.AddRange(inverse.Reverse());
         }
         else
             switch (options.UndoBehavior)
             {
                 case RichTextUndoBehavior.CreateUnit:
-                    _undo.Push(new UndoEntry(before, after, options.UndoDescription, beforeStateId, afterStateId, beforeSelection, afterSelection, forward, inverse));
+                    _undo.Push(new UndoEntry(before, after, options.UndoDescription, beforeStateId, afterStateId, beforeSelection, afterSelection, [.. forward], [.. inverse.Reverse()]));
                     _redo.Clear();
                     break;
                 case RichTextUndoBehavior.MergeWithPrevious:
                     if (_undo.TryPeek(out var preceding) && preceding.AfterStateId != _lastSavePointStateId)
                     {
                         _undo.Pop();
+                        preceding.Forward.AddRange(forward);
+                        preceding.ReverseInverse.AddRange(inverse.Reverse());
                         _undo.Push(new UndoEntry(preceding.Before, after, options.UndoDescription ?? preceding.Description, preceding.BeforeStateId, afterStateId, preceding.BeforeSelection, afterSelection,
-                            [.. preceding.Forward, .. forward], [.. inverse, .. preceding.Inverse]));
+                            preceding.Forward, preceding.ReverseInverse));
                     }
                     else
                     {
-                        _undo.Push(new UndoEntry(before, after, options.UndoDescription, beforeStateId, afterStateId, beforeSelection, afterSelection, forward, inverse));
+                        _undo.Push(new UndoEntry(before, after, options.UndoDescription, beforeStateId, afterStateId, beforeSelection, afterSelection, [.. forward], [.. inverse.Reverse()]));
                     }
 
                     _redo.Clear();
@@ -804,7 +812,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
             if (_undoGroupBefore is { } before && !before.ContentEquals(_snapshot))
             {
                 _undo.Push(new UndoEntry(before, _snapshot, _undoGroupDescription, _undoGroupStateId, _stateId, _undoGroupSelection, _undoGroupAfterSelection,
-                    [.. _undoGroupForward], [.. _undoGroupInverse]));
+                    [.. _undoGroupForward], [.. _undoGroupReverseInverse]));
                 _redo.Clear();
             }
             if (_undoGroupBefore is { } unchanged && unchanged.ContentEquals(_snapshot))
@@ -813,7 +821,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
             _undoGroupBefore = null;
             _undoGroupDescription = null;
             _undoGroupForward.Clear();
-            _undoGroupInverse.Clear();
+            _undoGroupReverseInverse.Clear();
             ResetNativeEditCoalescing();
         }
 
@@ -846,8 +854,8 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         long AfterStateId,
         RichTextSelectionState? BeforeSelection,
         RichTextSelectionState? AfterSelection,
-        RichTextChange[] Forward,
-        RichTextChange[] Inverse);
+        List<RichTextChange> Forward,
+        List<RichTextChange> ReverseInverse);
 
     private static RichTextChange[] InvertPositionChanges(string text, IReadOnlyList<RichTextChange> changes)
     {
@@ -855,6 +863,14 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
             return [];
         if (changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
             return [.. changes.Reverse().Select(static change => new RichTextRangeChange(RichTextChangeKind.Reset, change.NewRange, change.OldRange))];
+
+        var descending = true;
+        for (var index = 1; index < changes.Count; index++)
+            descending &= changes[index].OldRange.Start < changes[index - 1].OldRange.Start &&
+                changes[index].OldRange.End <= changes[index - 1].OldRange.Start;
+        if (descending)
+            return [.. changes.Cast<RichTextTextChange>().Reverse().Select(change => new RichTextTextChange(change.NewRange,
+                text.Substring(change.OldRange.Start, change.OldRange.Length)))];
 
         var source = new System.Text.StringBuilder(text);
         var inverse = new RichTextChange[changes.Count];

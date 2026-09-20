@@ -1,4 +1,6 @@
+using Microsoft.Maui;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Graphics;
 
 #if ANDROID
 using Android.Runtime;
@@ -9,10 +11,277 @@ namespace RichEdit.Maui.Tests;
 internal static partial class EditorContractTests
 {
 #if WINDOWS
+    [WinRT.DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.UIElement))]
     [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(RichEditorHandler))]
 #endif
     private static IEnumerable<Case> ProjectionCases()
     {
+#if ANDROID || IOS || MACCATALYST
+        yield return new("projection custom keyboards retain capitalization and explicit overrides", async editor =>
+        {
+            editor.ClearValue(RichEditor.IsSpellCheckEnabledProperty);
+            editor.ClearValue(RichEditor.IsTextPredictionEnabledProperty);
+            editor.Keyboard = Keyboard.Create(KeyboardFlags.None);
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+#if ANDROID
+            var capitals = global::Android.Text.InputTypes.TextFlagCapSentences | global::Android.Text.InputTypes.TextFlagCapWords | global::Android.Text.InputTypes.TextFlagCapCharacters;
+            Equal(0, (int)(native.InputType & capitals));
+            Equal(true, (native.InputType & global::Android.Text.InputTypes.TextFlagNoSuggestions) != 0);
+            editor.Keyboard = Keyboard.Create(KeyboardFlags.CapitalizeWord);
+            Equal(true, (native.InputType & global::Android.Text.InputTypes.TextFlagCapWords) != 0);
+#else
+            Equal(UIKit.UITextAutocapitalizationType.None, native.AutocapitalizationType);
+            Equal(UIKit.UITextSpellCheckingType.No, native.SpellCheckingType);
+            editor.Keyboard = Keyboard.Create(KeyboardFlags.CapitalizeWord);
+            Equal(UIKit.UITextAutocapitalizationType.Words, native.AutocapitalizationType);
+#endif
+            editor.IsSpellCheckEnabled = true;
+            editor.IsTextPredictionEnabled = true;
+#if ANDROID
+            Equal(0, (int)(native.InputType & global::Android.Text.InputTypes.TextFlagNoSuggestions));
+            Equal(true, (native.InputType & global::Android.Text.InputTypes.TextFlagAutoCorrect) != 0);
+#else
+            Equal(UIKit.UITextSpellCheckingType.Yes, native.SpellCheckingType);
+            Equal(UIKit.UITextAutocorrectionType.Yes, native.AutocorrectionType);
+#endif
+            await Task.Delay(30);
+        });
+#endif
+
+#if ANDROID
+        yield return new("projection Android text queries clamp large lengths without overflow", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("A😀 bc\ntail");
+            using var item = editor.Adornments.Add(4, new Label { Text = "hint", WidthRequest = 30, HeightRequest = 20 },
+                new() { Placement = RichTextAdornmentPlacement.Inline });
+            await Task.Delay(150);
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+            using var info = new global::Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            var snapshot = editor.Document.CurrentSnapshot;
+            connection.SetSelection(4, 4);
+            Equal("bc\ntail", ReadAfter(int.MaxValue));
+            Equal("b", ReadAfter(1));
+            Equal("", ReadAfter(0));
+            Equal(new RichTextRange(4, 0), editor.SelectedRange);
+            connection.SetSelection(6, 4);
+            Equal("\ntail", ReadAfter(int.MaxValue), "text follows the normalized selection end");
+            Equal(new RichTextRange(4, 2), editor.SelectedRange);
+            connection.SetSelection(editor.Document.Length, editor.Document.Length);
+            Equal("", ReadAfter(int.MaxValue));
+            Equal(true, ReferenceEquals(snapshot, editor.Document.CurrentSnapshot));
+
+            string ReadAfter(int length)
+            {
+                using var text = connection.GetTextAfterCursorFormatted(length, global::Android.Views.InputMethods.GetTextFlags.None);
+                return text?.ToString() ?? "";
+            }
+        });
+
+        yield return new("projection Android IME replacements and relative carets skip reservations", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("abcd");
+            using var first = editor.Adornments.Add(0, new Label { Text = "first", WidthRequest = 30, HeightRequest = 20 }, new() { Placement = RichTextAdornmentPlacement.Inline });
+            using var second = editor.Adornments.Add(2, new Label { Text = "second", WidthRequest = 30, HeightRequest = 20 }, new() { Placement = RichTextAdornmentPlacement.Inline });
+            await Task.Delay(150);
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+            using var info = new global::Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            if (OperatingSystem.IsAndroidVersionAtLeast(34))
+            {
+                using var replacement = new Java.Lang.String("X");
+                Equal(true, connection.ReplaceText(2, 1, replacement, 1, null));
+                Equal("aXcd", editor.Document.Text);
+                editor.Undo();
+                await Task.Delay(150);
+                Equal("abcd", editor.Document.Text);
+                Equal(true, connection.ReplaceText(int.MaxValue, int.MaxValue, replacement, 1, null));
+                Equal("abcdX", editor.Document.Text, "replacement endpoints clamp in source coordinates");
+                editor.Undo();
+                await Task.Delay(150);
+            }
+
+            connection.SetSelection(0, 0);
+            using var insertion = new Java.Lang.String("!");
+            Equal(true, connection.CommitText(insertion, 4));
+            Equal("!abcd", editor.Document.Text);
+            Equal(new RichTextRange(4, 0), editor.SelectedRange);
+            await Task.Delay(150);
+            using var composition = new Java.Lang.String("?");
+            Equal(true, connection.SetComposingText(composition, -2));
+            Equal("!abc?d", editor.Document.Text);
+            Equal(new RichTextRange(2, 0), editor.SelectedRange);
+            Equal(true, editor.Composition.IsActive);
+            connection.FinishComposingText();
+        });
+
+        yield return new("projection Android baseline offsets raise text and images survive shifts", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("a");
+            editor.Document.Edit(edit => edit.SetCharacterFormat(new(0, 1), new() { BaselineOffset = 4 }));
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+            using var paint = new global::Android.Text.TextPaint { TextSize = native.TextSize };
+            var spans = native.EditableText!.GetSpans(0, 1, Java.Lang.Class.FromType(typeof(global::Android.Text.Style.MetricAffectingSpan)))!;
+            foreach (var span in spans.OfType<global::Android.Text.Style.MetricAffectingSpan>())
+                span.UpdateMeasureState(paint);
+            Equal(true, paint.BaselineShift < 0, "positive authored baseline raises native text");
+
+            editor.Document.Edit(edit => edit.InsertImage(1, Image()));
+            await Task.Delay(50);
+            var imageType = Java.Lang.Class.FromType(typeof(global::Android.Text.Style.ImageSpan));
+            var image = native.EditableText!.GetSpans(1, 2, imageType)!.Single();
+            editor.Document.Edit(edit => edit.InsertText(0, "prefix"));
+            var moved = native.EditableText!.GetSpans(7, 8, imageType)!.Single();
+            Equal(image.Handle, moved.Handle, "shifting text retains the decoded native image span");
+        });
+#elif IOS || MACCATALYST
+        yield return new("projection Apple native baselines are represented only once", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("a");
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+            var attributes = new UIKit.UIStringAttributes { Font = UIKit.UIFont.SystemFontOfSize(14), BaselineOffset = 3 };
+            native.TextStorage.SetAttributes(attributes.Dictionary, new Foundation.NSRange(0, 1));
+            await Task.Delay(100);
+            Equal(3d, editor.Document.CurrentSnapshot.Runs[0].Format.BaselineOffset);
+            Equal(RichTextScript.Normal, editor.Document.CurrentSnapshot.Runs[0].Format.Script);
+            editor.Document.Edit(edit => edit.UpdateCharacterFormat(new(0, 1), format => format with { Italic = true }));
+            await Task.Delay(100);
+            var observed = new UIKit.UIStringAttributes(native.TextStorage.GetAttributes(0, out _));
+            Equal(3f, observed.BaselineOffset!.Value);
+        });
+
+        yield return new("projection Apple deleting a multiline document retains its paragraph format", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("a\nb");
+            editor.Document.Edit(edit => edit.SetParagraphFormat(new(0, 3), new() { Alignment = RichTextAlignment.Center, LeadingIndent = 24 }));
+            editor.SelectedRange = new(0, 3);
+            NativeReplace(editor, "");
+            await Task.Delay(100);
+            Equal("", editor.Document.Text);
+            Equal(RichTextAlignment.Center, editor.Document.CurrentSnapshot.Paragraphs[0].Format.Alignment);
+            Equal(24d, editor.Document.CurrentSnapshot.Paragraphs[0].Format.LeadingIndent);
+        });
+#else
+        yield return new("projection Windows appearance reaches the projected tail", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("abcd");
+            editor.Document.Edit(edit => edit.SetCharacterFormat(new(3, 1), new() { ForegroundColor = Colors.Red }));
+            using var item = editor.Adornments.Add(0, new Label { Text = "hint", WidthRequest = 30, HeightRequest = 20 }, new() { Placement = RichTextAdornmentPlacement.Inline });
+            await Task.Delay(150);
+            editor.FontSize = 22;
+            editor.TextColor = Colors.Blue;
+            await Task.Delay(100);
+            var format = ((RichEditorHandler)editor.Handler!).PlatformView.Document.GetRange(4, 5).CharacterFormat;
+            Equal(22f, format.Size);
+            Equal((byte)255, format.ForegroundColor.R);
+            Equal((byte)0, format.ForegroundColor.B);
+        });
+
+        yield return new("projection Windows geometry excludes a long offscreen tail", async editor =>
+        {
+            // WinUI can return corrupt TOM geometry for a 50,000-character unwrapped
+            // line even without our handler. This tail still exceeds the query budget.
+            const int tailLength = 5000;
+            const int queryBudget = 2000;
+            var handler = (RichEditorHandler)editor.Handler!;
+            var wrapping = handler.PlatformView.TextWrapping;
+            var horizontalScrollBar = Microsoft.UI.Xaml.Controls.ScrollViewer.GetHorizontalScrollBarVisibility(handler.PlatformView);
+            try
+            {
+                editor.IsSpellCheckEnabled = false;
+                editor.IsTextPredictionEnabled = false;
+                handler.PlatformView.TextWrapping = Microsoft.UI.Xaml.TextWrapping.NoWrap;
+                Microsoft.UI.Xaml.Controls.ScrollViewer.SetHorizontalScrollBarVisibility(handler.PlatformView, Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Auto);
+                editor.Document = RichTextDocument.FromPlainText("abc אבג " + new string('x', tailLength));
+                editor.SelectedRange = new(0, 0);
+
+                RichTextLayoutSnapshot? layout = null;
+                RichTextLayoutSnapshot? lastCapture = null;
+                Microsoft.UI.Xaml.Controls.ScrollViewer? scroller = null;
+                Point? origin = null;
+                Rect? nativePrefix = null;
+                var prefixHit = 0;
+                // Native scrolling can complete after UpdateLayout. Establish the viewport
+                // before testing geometry, independently of the APIs under test.
+                for (var attempt = 0; attempt < 40; attempt++)
+                {
+                    await Task.Delay(25);
+                    handler.PlatformView.UpdateLayout();
+                    scroller ??= FindWindowsScroller(handler.PlatformView);
+                    if (scroller is null || scroller.ViewportWidth <= 0 || scroller.ViewportHeight <= 0)
+                        continue;
+                    if (scroller.HorizontalOffset != 0 || scroller.VerticalOffset != 0)
+                    {
+                        scroller.ChangeView(0, 0, null, disableAnimation: true);
+                        continue;
+                    }
+                    if (scroller.Content is not Microsoft.UI.Xaml.UIElement content)
+                        continue;
+
+                    var point = content.TransformToVisual(handler.PlatformView).TransformPoint(new(0, 0));
+                    origin = new(point.X, point.Y);
+                    handler.PlatformView.Document.GetRange(0, 1).GetRect(
+                        Microsoft.UI.Text.PointOptions.ClientCoordinates | Microsoft.UI.Text.PointOptions.AllowOffClient, out var rect, out prefixHit);
+                    nativePrefix = new(rect.X + point.X, rect.Y + point.Y, rect.Width, rect.Height);
+                    lastCapture = editor.TextLayout.Capture();
+                    if (lastCapture is not null && nativePrefix.Value.Width > 0 && nativePrefix.Value.Height > 0 &&
+                        nativePrefix.Value.IntersectsWith(lastCapture.TextViewport))
+                    {
+                        layout = lastCapture;
+                        break;
+                    }
+                }
+                if (layout is null)
+                    throw new InvalidOperationException($"Native long-line layout did not expose its first character. {Diagnostics()}");
+
+                var snapshot = editor.Document.CurrentSnapshot;
+                var selection = editor.SelectionState;
+                Require(nativePrefix!.Value.Width < layout.TextViewport.Width && nativePrefix.Value.Height < layout.TextViewport.Height,
+                    "Native first-character geometry exceeds the test viewport.");
+                Require(layout.Lines.Count == 1 && layout.Lines[0].SourceRanges.Count == 1 &&
+                    layout.Lines[0].SourceRanges[0] == new RichTextRange(0, editor.Document.Length),
+                    "The capture does not contain the complete unwrapped source line.");
+                Require(editor.TextLayout.GetCaretBounds(layout, 0) is not null, "Missing first-caret geometry.");
+                Require(editor.TextLayout.GetRangeBounds(layout, new(0, 1)).Count > 0, "Missing first-character source geometry.");
+                var before = GeometryQueries(handler);
+                var bounds = editor.TextLayout.GetRangeBounds(layout, new(0, editor.Document.Length));
+                Require(bounds.Any(rect => rect.IntersectsWith(nativePrefix!.Value)), "Full-range geometry lost the visible prefix.");
+                var queries = GeometryQueries(handler) - before;
+                Equal(true, queries < queryBudget, $"native geometry work is bounded by the visible part of the line: {queries} queries, budget {queryBudget}");
+                Equal(true, ReferenceEquals(snapshot, editor.Document.CurrentSnapshot), "geometry preserves the document");
+                Equal(selection, editor.SelectionState, "geometry preserves selection");
+                Equal(0d, scroller!.HorizontalOffset, "geometry preserves horizontal scrolling");
+                Equal(0d, scroller.VerticalOffset, "geometry preserves vertical scrolling");
+
+                void Require(bool condition, string context)
+                {
+                    if (!condition)
+                        throw new InvalidOperationException($"{context} {Diagnostics()}");
+                }
+
+                string Diagnostics()
+                {
+                    handler.PlatformView.Document.GetRange(0, 0).GetRect(
+                        Microsoft.UI.Text.PointOptions.ClientCoordinates | Microsoft.UI.Text.PointOptions.AllowOffClient, out var caret, out var hit);
+                    var lines = lastCapture is null ? "none" : string.Join("; ", lastCapture.Lines.Select(line =>
+                        $"{line.Bounds}: [{string.Join(", ", line.SourceRanges)}]"));
+                    var current = editor.TextLayout.Capture();
+                    return $"Viewport: {lastCapture?.TextViewport}; scroll: ({scroller?.HorizontalOffset}, {scroller?.VerticalOffset}); " +
+                        $"origin: {origin}; native prefix: {nativePrefix} (hit {prefixHit}); native caret: {caret} (hit {hit}); " +
+                        $"font size (control/default/first): {handler.PlatformView.FontSize}/{handler.PlatformView.Document.GetDefaultCharacterFormat().Size}/{handler.PlatformView.Document.GetRange(0, 1).CharacterFormat.Size}; " +
+                        $"captured/current layout version: {lastCapture?.LayoutVersion}/{current?.LayoutVersion}; " +
+                        $"captured/current revision: {lastCapture?.DocumentRevision}/{editor.Document.Revision}; " +
+                        $"source/native length: {editor.Document.Length}/{handler.PlatformView.Document.GetRange(0, 0).StoryLength}; lines: {lines}.";
+                }
+            }
+            finally
+            {
+                handler.PlatformView.TextWrapping = wrapping;
+                Microsoft.UI.Xaml.Controls.ScrollViewer.SetHorizontalScrollBarVisibility(handler.PlatformView, horizontalScrollBar);
+            }
+        });
+#endif
+
         yield return new("projection inline baselines and resizing preserve source", async editor =>
         {
             editor.Document = RichTextDocument.FromPlainText("ab");
@@ -449,4 +718,19 @@ internal static partial class EditorContractTests
             Equal(0, editor.Adornments.Count, "undo does not resurrect application views");
         });
     }
+
+#if WINDOWS
+    [WinRT.DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.Controls.ScrollViewer))]
+    private static Microsoft.UI.Xaml.Controls.ScrollViewer? FindWindowsScroller(Microsoft.UI.Xaml.DependencyObject view)
+    {
+        if (view is Microsoft.UI.Xaml.Controls.ScrollViewer scroller)
+            return scroller;
+
+        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(view); index++)
+            if (FindWindowsScroller(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(view, index)) is { } child)
+                return child;
+
+        return null;
+    }
+#endif
 }

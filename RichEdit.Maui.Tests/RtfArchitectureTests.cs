@@ -1,6 +1,7 @@
 namespace RichEdit.Maui.Tests;
 
 using RichTextDocument = global::RichEdit.Maui.RichTextDocumentSnapshot;
+using EditableRichTextDocument = global::RichEdit.Maui.RichTextDocument;
 
 public sealed class RtfArchitectureTests
 {
@@ -827,6 +828,380 @@ public sealed class RtfArchitectureTests
         Assert.Equal("image/png", image.MediaType);
         Assert.True(image.Data.AsSpan().SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47 }));
     }
+
+    [Fact]
+    public void AnsiDocumentsDefaultToWindows1252()
+    {
+        var document = RichTextDocument.FromRtf(@"{\rtf1\ansi caf\'e9}");
+
+        Assert.Equal("café", document.Text);
+    }
+
+    [Fact]
+    public void AnsiCharsetFontsFollowTheDeclaredAnsiCodePage()
+    {
+        var document = RichTextDocument.FromRtf(
+            @"{\rtf1\ansi\ansicpg1251\deff0{\fonttbl{\f0\fcharset0 Arial;}}\f0 \'cf}");
+
+        Assert.Equal("П", document.Text);
+    }
+
+    [Fact]
+    public void DefaultFontCodePageAppliesWithoutAnExplicitFontControl()
+    {
+        var document = RichTextDocument.FromRtf(
+            "{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fcharset128 MS Gothic;}}\r\n\\'82\\'a0}");
+
+        Assert.Equal("あ", document.Text);
+    }
+
+    [Fact]
+    public void UnicodePreferredDestinationReplacesTheAnsiAlternative()
+    {
+        var document = RichTextDocument.FromRtf(
+            @"{\rtf1\ansi a{\upr{G}{\*\ud{\u915?}}}b}");
+
+        Assert.Equal("aΓb", document.Text);
+    }
+
+    [Fact]
+    public void UnknownControlWordsWithHugeParametersAreIgnored()
+    {
+        var document = RichTextDocument.FromRtf(
+            @"{\rtf1\ansi\qwertyuiop99999999999999999999 x}");
+
+        Assert.Equal("x", document.Text);
+    }
+
+    [Fact]
+    public void ExtremeFormattingParametersDoNotLeakModelValidationExceptions()
+    {
+        var document = RichTextDocument.FromRtf(@"{\rtf1\ansi\up-2147483648 x}");
+
+        Assert.Equal("x", document.Text);
+        Assert.True(double.IsFinite(document.GetCharacterFormat(0).BaselineOffset));
+
+        Assert.Throws<FormatException>(() =>
+            RichTextDocument.FromRtf(@"{\rtf1\ansi\u-99999999999 x}"));
+    }
+
+    [Fact]
+    public void ListOverrideFormatLevelsReplaceTheBaseListDefinition()
+    {
+        var document = RichTextDocument.FromRtf(
+            @"{\rtf1\ansi" +
+            @"{\*\listtable{\list\listtemplateid1{\listlevel\levelnfc0\levelstartat1" +
+            @"{\leveltext \'02\'00.;}}\listid1{\listname ;}}}" +
+            @"{\*\listoverridetable" +
+            @"{\listoverride\listid1\listoverridecount0\ls1}" +
+            @"{\listoverride\listid1\listoverridecount1\ls2" +
+            @"{\lfolevel\listoverrideformat1{\listlevel\levelnfc1\levelstartat1" +
+            @"{\leveltext \'02\'00.;}}}}}" +
+            @"{\pard\ls1\ilvl0 arabic\par}{\pard\ls2\ilvl0 roman}}");
+
+        var paragraphs = document.Paragraphs;
+        var arabicList = paragraphs[0].Format.List;
+        var romanList = paragraphs[1].Format.List;
+        Assert.NotNull(arabicList);
+        Assert.NotNull(romanList);
+        Assert.NotEqual(arabicList.ListId, romanList.ListId);
+        var arabicMarker = Assert.IsType<RichTextListMarker.Number>(
+            document.Lists[arabicList.ListId].Levels[0].Marker);
+        var romanMarker = Assert.IsType<RichTextListMarker.Number>(
+            document.Lists[romanList.ListId].Levels[0].Marker);
+        Assert.Equal(RichTextListNumberStyle.Arabic, arabicMarker.Style);
+        Assert.Equal(RichTextListNumberStyle.UpperRoman, romanMarker.Style);
+    }
+
+    [Fact]
+    public void ListOverrideStartAtRestartsWithoutACompatibilityListText()
+    {
+        var document = RichTextDocument.FromRtf(
+            @"{\rtf1\ansi" +
+            @"{\*\listtable{\list\listtemplateid1{\listlevel\levelnfc0\levelstartat1" +
+            @"{\leveltext \'02\'00.;}}\listid1{\listname ;}}}" +
+            @"{\*\listoverridetable" +
+            @"{\listoverride\listid1\listoverridecount0\ls1}" +
+            @"{\listoverride\listid1\listoverridecount1\ls2" +
+            @"{\lfolevel\listoverridestartat\levelstartat5}}}" +
+            @"{\pard\ls1\ilvl0 one\par}{\pard\ls1\ilvl0 two\par}{\pard\ls2\ilvl0 five}}");
+
+        var restarted = document.Paragraphs[2].Format.List;
+        Assert.NotNull(restarted);
+        Assert.Equal(5, restarted.RestartAt);
+        Assert.Equal(document.Paragraphs[0].Format.List!.ListId, restarted.ListId);
+
+        var roundTripped = RichTextDocument.FromRtf(document.ToRtf());
+        Assert.Equal(5, roundTripped.Paragraphs[2].Format.List?.RestartAt);
+    }
+
+    [Fact]
+    public void ParagraphsCanClearDefaultTabStops()
+    {
+        var stop = new RichTextTabStop(36);
+        var document = new RichTextDocument(
+            "with\nwithout",
+            paragraphs:
+            (RichTextParagraph[])[
+                new RichTextParagraph(
+                    0,
+                    RichTextParagraphFormat.Default with { TabStops = [stop] }),
+                new RichTextParagraph(5, RichTextParagraphFormat.Default),
+            ],
+            defaultParagraphFormat: RichTextParagraphFormat.Default with
+            {
+                TabStops = [stop],
+            });
+
+        var roundTripped = RichTextDocument.FromRtf(document.ToRtf());
+
+        Assert.Equal([stop], roundTripped.DefaultParagraphFormat.TabStops);
+        Assert.Equal([stop], roundTripped.Paragraphs[0].Format.TabStops);
+        Assert.Empty(roundTripped.Paragraphs[1].Format.TabStops);
+    }
+
+    [Fact]
+    public void ExplicitBorderNoneSurvivesADefaultBorder()
+    {
+        var borderNone = new RichTextBorder(
+            RichTextBorderSides.None,
+            RichTextBorderStyle.None,
+            0);
+        var document = new RichTextDocument(
+            "boxed\nplain",
+            paragraphs:
+            (RichTextParagraph[])[
+                new RichTextParagraph(0, RichTextParagraphFormat.Default),
+                new RichTextParagraph(
+                    6,
+                    RichTextParagraphFormat.Default with { Border = borderNone }),
+            ],
+            defaultParagraphFormat: RichTextParagraphFormat.Default with
+            {
+                Border = new RichTextBorder(
+                    RichTextBorderSides.All,
+                    RichTextBorderStyle.Single,
+                    1),
+            });
+
+        var roundTripped = RichTextDocument.FromRtf(document.ToRtf());
+
+        Assert.NotNull(roundTripped.DefaultParagraphFormat.Border);
+        Assert.Equal(borderNone, roundTripped.Paragraphs[1].Format.Border);
+    }
+
+    [Fact]
+    public void HyperlinkTargetsPreserveBackslashesAndQuotes()
+    {
+        var document = RichTextDocument.FromPlainText("share link")
+            .SetLink(0..5, @"\\server\share", toolTip: "say \"hi\"")
+            .SetLink(6..10, "https://example.test/?q=\"x\"");
+
+        var roundTripped = RichTextDocument.FromRtf(document.ToRtf());
+
+        Assert.Collection(
+            roundTripped.Links,
+            link =>
+            {
+                Assert.Equal(@"\\server\share", link.Target);
+                Assert.Equal("say \"hi\"", link.ToolTip);
+            },
+            link => Assert.Equal("https://example.test/?q=\"x\"", link.Target));
+    }
+
+    [Fact]
+    public void TransparentForegroundIsNormalizedToAColorReset()
+    {
+        var transparent = Microsoft.Maui.Graphics.Color.FromRgba(255, 0, 0, 0);
+        var document = new RichTextDocument(
+            "clear",
+            runs:
+            (RichTextRun[])[
+                new RichTextRun(
+                    0,
+                    5,
+                    RichTextCharacterFormat.Default with { ForegroundColor = transparent }),
+            ]);
+
+        Assert.Null(document.GetCharacterFormat(0).ForegroundColor);
+        Assert.Equal(
+            [new RichTextRun(0, 5, RichTextCharacterFormat.Default)],
+            RichTextDocument.FromRtf(document.ToRtf()).Runs);
+    }
+
+    [Fact]
+    public void InvalidPictureHexRejectsTheDocument()
+    {
+        Assert.Throws<FormatException>(() => RichTextDocument.FromRtf(
+            @"{\rtf1\ansi{\pict\pngblip\picw1\pich1 0g12}}"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void RtfPreservesUnusedListLevelsAndTheirLayout(int usedLevel)
+    {
+        var definition = new RichTextListDefinition([
+            new() { Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 3), Prefix = "(", Suffix = ")", LeadingIndent = 24, FirstLineIndent = -12, MarkerTab = 24 },
+            new() { Marker = new RichTextListMarker.Number(RichTextListNumberStyle.UpperRoman, 5), Prefix = "[", Suffix = "]", LeadingIndent = 57, FirstLineIndent = -17, MarkerTab = 60 },
+        ]);
+        var document = EditableRichTextDocument.FromPlainText("item");
+        document.Edit(edit => edit.ApplyList(new(0, 4), edit.CreateList(definition), usedLevel));
+        var restored = EditableRichTextDocument.FromRtf(document.RtfText);
+        Assert.Equal(definition, Assert.Single(restored.CurrentSnapshot.Lists).Value);
+        restored.Edit(edit => edit.ChangeListLevel(new(0, 4), usedLevel == 0 ? 1 : -1));
+        Assert.Equal(definition.Levels[1 - usedLevel].LeadingIndent, restored.CurrentSnapshot.Paragraphs[0].Format.LeadingIndent);
+    }
+
+    [Fact]
+    public void RtfPreservesPictureResourcesInUnusedListLevels()
+    {
+        var document = EditableRichTextDocument.FromPlainText("item");
+        document.Edit(edit =>
+        {
+            edit.SetListPicture(new() { Id = "unused", Data = [1, 2, 3], Width = 8, Height = 9 });
+            var id = edit.CreateList(new([
+                new() { Marker = new RichTextListMarker.Bullet("*"), Prefix = "", Suffix = "" },
+                new() { Marker = new RichTextListMarker.Picture("unused", "#"), Prefix = "", Suffix = "", LeadingIndent = 44 },
+            ]));
+            edit.ApplyList(new(0, 4), id);
+        });
+        var restored = EditableRichTextDocument.FromRtf(document.RtfText).CurrentSnapshot;
+        var marker = Assert.IsType<RichTextListMarker.Picture>(Assert.Single(restored.Lists).Value.Levels[1].Marker);
+        Assert.Equal(new byte[] { 1, 2, 3 }, restored.ListPictures[marker.PictureId].Data.ToArray());
+    }
+
+    [Fact]
+    public void RtfListDefinitionsRetainTheVisibleInitialNumber()
+    {
+        var document = EditableRichTextDocument.FromRtf(@"{\rtf1{\*\listtable{\list{\listlevel\levelnfc0\levelstartat1" +
+            @"{\leveltext\'02\'00.;}{\levelnumbers\'01;}}\listid1}}" +
+            @"{\*\listoverridetable{\listoverride\listid1\ls1}}\pard\ls1\ilvl0{\listtext 5.\tab }item}");
+        Assert.Equal(5, document.CurrentSnapshot.Paragraphs[0].Format.NativeList!.StartAt);
+        Assert.Contains(@"{\listtext 5.", document.RtfText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RtfAccumulationKeepsUnicodeAndFormattingBoundaries()
+    {
+        var prefix = new string('a', 2048);
+        var document = EditableRichTextDocument.FromRtf(@"{\rtf1 " + prefix + @"{\b bold}\u55357?\u56832?\par}").CurrentSnapshot;
+        Assert.Equal(prefix + "bold😀\n", document.Text);
+        Assert.Equal(3, document.Runs.Length);
+        Assert.Equal(new RichTextRange(prefix.Length, 4), document.Runs[1].Range);
+        Assert.True(document.Runs[1].Format.Bold);
+        Assert.False(document.Runs[2].Format.Bold);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RtfNestedResultsRetainInnerRangesAndFollowingSiblings(bool hyperlinks)
+    {
+        string Instruction(string name) => hyperlinks ? "HYPERLINK https://example.test/" + name : name;
+        var body = FieldRtf(Instruction("OUTER"), "a" + FieldRtf(Instruction("INNER"), "b") + "c") +
+            "d" + FieldRtf(Instruction("NEXT"), "e");
+        var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
+        Assert.Equal("abcde", snapshot.Text);
+        var ranges = hyperlinks ? snapshot.Links.Select(static link => link.Range) : snapshot.Fields.Select(static field => field.Range);
+        Assert.Equal(new RichTextRange[] { new(1, 1), new(4, 1) }, ranges);
+        if (hyperlinks)
+        {
+            Assert.Empty(snapshot.Fields);
+            Assert.Equal(new[] { "https://example.test/INNER", "https://example.test/NEXT" }, snapshot.Links.Select(static link => link.Target));
+        }
+        else
+        {
+            Assert.Empty(snapshot.Links);
+            Assert.Equal(new[] { "INNER", "NEXT" }, snapshot.Fields.Select(static field => field.Instruction));
+        }
+    }
+
+    [Fact]
+    public void RtfEmptyFieldsAtResultBoundariesDoNotExcludeTheParent()
+    {
+        var body = FieldRtf("OUTER", FieldRtf("START", "") + "x" + FieldRtf("END", ""));
+        var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
+        Assert.Equal("x", snapshot.Text);
+        Assert.Equal(new[] { "START", "OUTER", "END" }, snapshot.Fields.Select(static field => field.Instruction));
+        Assert.Equal(new RichTextRange[] { new(0, 0), new(0, 1), new(1, 0) }, snapshot.Fields.Select(static field => field.Range));
+    }
+
+    [Fact]
+    public void RtfInteriorEmptyFieldStillExcludesTheParentWithRepeatedEmptyEndFields()
+    {
+        var body = FieldRtf("OUTER", "a" + FieldRtf("MIDDLE", "") + "b" + FieldRtf("END1", "") + FieldRtf("END2", ""));
+        var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
+        Assert.Equal("ab", snapshot.Text);
+        Assert.Equal(new[] { "MIDDLE", "END1", "END2" }, snapshot.Fields.Select(static field => field.Instruction));
+        Assert.Equal(new RichTextRange[] { new(1, 0), new(2, 0), new(2, 0) }, snapshot.Fields.Select(static field => field.Range));
+    }
+
+    [Fact]
+    public void RtfNonemptyChildStillExcludesTheParentWithAnEmptyEndField()
+    {
+        var body = FieldRtf("OUTER", "a" + FieldRtf("INNER", "b") + FieldRtf("END", ""));
+        var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
+        Assert.Equal("ab", snapshot.Text);
+        Assert.Equal(new[] { "INNER", "END" }, snapshot.Fields.Select(static field => field.Instruction));
+        Assert.Equal(new RichTextRange[] { new(1, 1), new(2, 0) }, snapshot.Fields.Select(static field => field.Range));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RtfFieldsAndLinksCanOverlapIndependently(bool outerLink)
+    {
+        const string hyperlink = "HYPERLINK https://example.test/";
+        var body = FieldRtf(outerLink ? hyperlink : "OUTER", "a" + FieldRtf(outerLink ? "INNER" : hyperlink, "b") + "c");
+        var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
+        Assert.Equal("abc", snapshot.Text);
+        Assert.Equal(outerLink ? new(0, 3) : new RichTextRange(1, 1), Assert.Single(snapshot.Links).Range);
+        Assert.Equal(outerLink ? new(1, 1) : new RichTextRange(0, 3), Assert.Single(snapshot.Fields).Range);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RtfImportsManyDisjointFieldsOrLinks(bool hyperlinks)
+    {
+        const int count = 4096;
+        var rtf = new System.Text.StringBuilder(@"{\rtf1 ");
+        for (var index = 0; index < count; index++)
+        {
+            var instruction = hyperlinks ? "HYPERLINK https://example.test/" + index : "FIELD " + index;
+            rtf.Append(FieldRtf(instruction, "x"));
+        }
+
+        rtf.Append('}');
+        var snapshot = EditableRichTextDocument.FromRtf(rtf.ToString()).CurrentSnapshot;
+        Assert.Equal(new string('x', count), snapshot.Text);
+        var ranges = hyperlinks ? snapshot.Links.Select(static link => link.Range) : snapshot.Fields.Select(static field => field.Range);
+        Assert.Equal(Enumerable.Range(0, count).Select(static index => new RichTextRange(index, 1)), ranges);
+    }
+
+    private static string FieldRtf(string instruction, string result) =>
+        @"{\field{\*\fldinst " + instruction + @"}{\fldrslt " + result + "}}";
+
+    [Fact]
+    public void TableCellSeparatorsRemainOutsideImagesAndFields()
+    {
+        var image = EditableRichTextDocument.FromRtf(@"{\rtf1\trowd\cellx100\cellx200\intbl a\cell{\pict\pngblip 00}\cell\row}").CurrentSnapshot;
+        Assert.Equal("a\t\uFFFC\n", image.Text);
+        Assert.Equal(2, Assert.Single(image.Images).Position);
+        var field = EditableRichTextDocument.FromRtf(@"{\rtf1\trowd\cellx100\cellx200\intbl a\cell{\field{\*\fldinst DATE}{\fldrslt b}}\cell\row}").CurrentSnapshot;
+        Assert.Equal("a\tb\n", field.Text);
+        Assert.Equal(new RichTextRange(2, 1), Assert.Single(field.Fields).Range);
+    }
+
+    [Theory]
+    [InlineData(@"{\rtf1\trowd\cellx100\intbl a\cell\row\trowd\cellx100\intbl\cell\row}", "a\n\n")]
+    [InlineData(@"{\rtf1 before\par\trowd\cellx100\intbl\cell\row}", "before\n\n")]
+    [InlineData(@"{\rtf1\trowd\cellx100\intbl a\par\cell\row}", "a\n")]
+    [InlineData(@"{\rtf1\trowd\cellx100\intbl a\par\cell\row b\par\cell\row}", "a\nb\n")]
+    [InlineData(@"{\rtf1\trowd\cellx100\intbl a\cell\row\cell\row}", "a\n\n")]
+    public void TableRowsRetainEmptyRowsWithoutDuplicatingTheirParagraphTerminator(string rtf, string expected) =>
+        Assert.Equal(expected, EditableRichTextDocument.FromRtf(rtf).Text);
 
     private static void AssertColor(Color? expected, Color? actual)
     {

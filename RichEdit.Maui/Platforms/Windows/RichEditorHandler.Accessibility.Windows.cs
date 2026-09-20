@@ -180,8 +180,11 @@ public partial class RichEditorHandler
         {
             var source = Editor.PresentationSnapshot;
             var value = At(range.Start);
-            foreach (var position in source.Runs.Select(static run => run.Start).Concat(source.Paragraphs.Select(static paragraph => paragraph.Start)))
-                if (position > range.Start && position < range.End && !Equals(value, At(position)))
+            for (var index = source.FindRunIndex(range.Start); index < source.Runs.Length && source.Runs[index].Start < range.End; index++)
+                if (source.Runs[index].Start > range.Start && !Equals(value, At(source.Runs[index].Start)))
+                    return DependencyProperty.UnsetValue;
+            for (var index = source.FindParagraphIndex(range.Start); index < source.Paragraphs.Length && source.Paragraphs[index].Start < range.End; index++)
+                if (source.Paragraphs[index].Start > range.Start && !Equals(value, At(source.Paragraphs[index].Start)))
                     return DependencyProperty.UnsetValue;
 
             return value!;
@@ -375,15 +378,23 @@ public partial class RichEditorHandler
         public ITextRangeProvider FindAttribute(int attributeId, object value, bool backward)
         {
             var range = Range;
-            var runs = _document.CurrentSnapshot.Runs.Where(run => run.End > range.Start && run.Start < range.End);
-            foreach (var run in backward ? runs.Reverse() : runs)
+            if (range.IsEmpty)
+                return null!;
+
+            var source = _peer.Editor.PresentationSnapshot;
+            var boundaries = source.Runs.Select(static run => run.Start).Concat(source.Paragraphs.Select(static paragraph => paragraph.Start))
+                .Where(position => position > range.Start && position < range.End).Append(range.Start).Append(range.End).Distinct().Order().ToArray();
+            RichTextRange? match = null;
+            for (var index = backward ? boundaries.Length - 2 : 0; index >= 0 && index < boundaries.Length - 1; index += backward ? -1 : 1)
             {
-                var candidate = new RichTextRange(Math.Max(run.Start, range.Start), Math.Min(run.End, range.End) - Math.Max(run.Start, range.Start));
+                var candidate = new RichTextRange(boundaries[index], boundaries[index + 1] - boundaries[index]);
                 if (Equals(_peer.Attribute(candidate, attributeId), value))
-                    return _peer.Range(candidate);
+                    match = match is { } preceding ? new(Math.Min(preceding.Start, candidate.Start), preceding.Length + candidate.Length) : candidate;
+                else if (match is not null)
+                    break;
             }
 
-            return null!;
+            return match is { } found ? _peer.Range(found) : null!;
         }
 
         public object GetAttributeValue(int attributeId) => _peer.Attribute(Range, attributeId);
@@ -435,17 +446,23 @@ public partial class RichEditorHandler
             if (count == 0)
                 return 0;
 
-            var expanded = !Range.IsEmpty;
-            if (expanded)
-                ExpandToEnclosingUnit(unit);
+            var range = Range;
+            if (!range.IsEmpty)
+            {
+                var boundaries = _peer.Boundaries(unit);
+                var last = Math.Max(0, boundaries.Length - 2);
+                var index = Array.BinarySearch(boundaries, range.Start);
+                index = Math.Clamp(index >= 0 ? index : ~index - 1, 0, last);
+                var target = (int)Math.Clamp((long)index + count, 0, last);
+                if (target == index)
+                    return 0;
 
-            var start = Range.Start;
-            Set(new(start, 0));
+                Set(new(boundaries[target], boundaries[target + 1] - boundaries[target]));
+                return target - index;
+            }
+
             var moved = MoveEndpointByUnit(TextPatternRangeEndpoint.Start, unit, count);
             Set(new(Range.Start, 0));
-            if (expanded)
-                ExpandToEnclosingUnit(unit);
-
             return moved;
         }
 

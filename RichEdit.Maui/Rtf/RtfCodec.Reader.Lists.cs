@@ -7,6 +7,65 @@ internal static partial class RtfCodec
 {
     private sealed partial class Reader
     {
+        private IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>> CreateListDefinitions(RichTextParagraph[] paragraphs)
+        {
+            var tables = _lists.GroupBy(static pair => pair.Key.ListId)
+                .ToDictionary(static group => group.Key, static group => group.ToDictionary(static pair => pair.Key.Level, static pair => pair.Value));
+            var overrides = _listOverrideLevels.GroupBy(static pair => pair.Key.OverrideId)
+                .ToDictionary(static group => group.Key, static group => group.ToDictionary(static pair => pair.Key.Level, static pair => pair.Value));
+            var paragraphLevels = paragraphs.Where(static paragraph => paragraph.Format.NativeList is not null)
+                .GroupBy(static paragraph => paragraph.Format.NativeList!.Id)
+                .ToDictionary(static group => group.Key, static group => group.GroupBy(static paragraph => paragraph.Format.NativeList!.Level)
+                    .ToDictionary(static level => level.Key, static level => level.FirstOrDefault(static paragraph => !paragraph.Format.NativeList!.Restart) ?? level.First()));
+            foreach (var (identity, modelId) in _modelListIds)
+            {
+                var listId = identity.IsTableList ? identity.Id : _listOverrides.GetValueOrDefault(identity.Id);
+                Dictionary<int, ParsedListDefinition> parsed = (identity.IsTableList || _listOverrides.ContainsKey(identity.Id)) && tables.TryGetValue(listId, out var levelsById)
+                    ? new Dictionary<int, ParsedListDefinition>(levelsById) : [];
+                if (!identity.IsTableList && overrides.TryGetValue(identity.Id, out var replacements))
+                    foreach (var pair in replacements)
+                        parsed[pair.Key] = pair.Value;
+                if (parsed.Count == 0)
+                    continue;
+
+                var used = paragraphLevels.GetValueOrDefault(modelId) ?? [];
+                var maximumLevel = Math.Max(parsed.Keys.Max(), used.Keys.DefaultIfEmpty().Max());
+                var fallback = parsed.GetValueOrDefault(0, parsed.OrderBy(static pair => pair.Key).First().Value);
+                var levels = new RichTextListLevelDefinition[maximumLevel + 1];
+                for (var level = 0; level < levels.Length; level++)
+                {
+                    var definition = parsed.GetValueOrDefault(level, fallback);
+                    var paragraph = used.GetValueOrDefault(level)?.Format;
+                    RichTextListMarker marker;
+                    if (definition.Kind == RichListKind.Numbered)
+                        marker = new RichTextListMarker.Number(definition.NumberFormat switch
+                        {
+                            ListNumberFormat.UpperRoman => RichTextListNumberStyle.UpperRoman,
+                            ListNumberFormat.LowerRoman => RichTextListNumberStyle.LowerRoman,
+                            ListNumberFormat.UpperLetter => RichTextListNumberStyle.UpperLetter,
+                            ListNumberFormat.LowerLetter => RichTextListNumberStyle.LowerLetter,
+                            _ => RichTextListNumberStyle.Arabic,
+                        }, paragraph?.NativeList is { Kind: RichListKind.Numbered, Restart: false } item ? item.StartAt : definition.StartAt);
+                    else if (GetListPictureId(definition) is { } pictureId)
+                        marker = new RichTextListMarker.Picture(pictureId, definition.BulletText);
+                    else
+                        marker = new RichTextListMarker.Bullet(definition.BulletText);
+
+                    levels[level] = new()
+                    {
+                        Marker = marker,
+                        Prefix = definition.Prefix,
+                        Suffix = definition.Suffix,
+                        LeadingIndent = definition.LeadingIndent ?? paragraph?.LeadingIndent ?? 0,
+                        FirstLineIndent = definition.FirstLineIndent ?? paragraph?.FirstLineIndent ?? 0,
+                        MarkerTab = definition.MarkerTab ?? (paragraph is { TabStops.IsDefaultOrEmpty: false } ? paragraph.TabStops[0].Position : 0),
+                    };
+                }
+
+                yield return new(new RichTextListId(modelId), new RichTextListDefinition(levels));
+            }
+        }
+
         private void EnsureParagraphList(ReaderState state)
         {
             if (_paragraphListHandled || state.ListOverride <= 0)

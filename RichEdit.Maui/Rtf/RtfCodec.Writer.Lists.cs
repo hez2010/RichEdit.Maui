@@ -118,9 +118,11 @@ internal static partial class RtfCodec
                 _output.Append(@"\levelpicture").Append(pictureIndex);
             }
 
-            var indent = checked((level + 1) * 720);
-            _output.Append(@"\fi-360\li").Append(indent)
+            var indent = definition is null ? checked((level + 1) * 720) : ToTwips(definition.LeadingIndent);
+            _output.Append(@"\fi").Append(definition is null ? -360 : ToTwips(definition.FirstLineIndent))
+                .Append(@"\li").Append(indent)
                 .Append(@"\lin").Append(indent)
+                .Append(@"\tx").Append(definition is null ? 0 : ToTwips(definition.MarkerTab))
                 .Append('}');
         }
 
@@ -179,7 +181,7 @@ internal static partial class RtfCodec
                     // RichEdit imports listtext as content when the first level is empty.
                     for (var level = 0; level < source.Levels.Length; level++)
                     {
-                        definition.AddLevel(RichTextListConversions.ToNative(id, level, null, source));
+                        definition.AddLevel(RichTextListConversions.ToNative(id, level, null, source), source.Levels[level]);
                     }
 
                     definitionsById.Add(list.Id, definition);
@@ -270,7 +272,7 @@ internal static partial class RtfCodec
             public bool IsMultilevel => Levels[0] is null ||
                 Array.FindIndex(Levels, 1, static level => level is not null) >= 1;
 
-            public void AddLevel(RichTextListFormat format)
+            public void AddLevel(RichTextListFormat format, RichTextListLevelDefinition layout)
             {
                 Levels[format.Level] ??= new ListLevelDefinition(
                     format.Kind,
@@ -286,7 +288,7 @@ internal static partial class RtfCodec
                         RichListNumberStyle.UpperLetter => ListNumberFormat.UpperLetter,
                         RichListNumberStyle.LowerLetter => ListNumberFormat.LowerLetter,
                         _ => ListNumberFormat.Arabic,
-                    });
+                    }, layout.LeadingIndent, layout.FirstLineIndent, layout.MarkerTab);
             }
         }
 
@@ -297,7 +299,10 @@ internal static partial class RtfCodec
             string Suffix,
             string BulletText,
             string? PictureId,
-            ListNumberFormat NumberFormat);
+            ListNumberFormat NumberFormat,
+            double LeadingIndent,
+            double FirstLineIndent,
+            double MarkerTab);
 
         private sealed class ListOverrideDefinition(
             ListDefinition definition,

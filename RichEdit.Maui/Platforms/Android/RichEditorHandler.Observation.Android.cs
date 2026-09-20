@@ -152,18 +152,18 @@ namespace RichEdit.Maui.Platforms.Android
                 }
             }
 
-            public override bool SetComposingText(Java.Lang.ICharSequence? text, int newCursorPosition) => Observe(true, () => base.SetComposingText(text, newCursorPosition));
+            public override bool SetComposingText(Java.Lang.ICharSequence? text, int newCursorPosition) => Observe(true, () => base.SetComposingText(text, DisplayCursorPosition(newCursorPosition)));
 
             public override bool SetComposingRegion(int start, int end) => Observe(true, () => base.SetComposingRegion(Display(start), Display(end)));
 
             public override bool FinishComposingText() => Observe(false, () => base.FinishComposingText());
 
-            public override bool CommitText(Java.Lang.ICharSequence? text, int newCursorPosition) => Observe(false, () => base.CommitText(text, newCursorPosition));
+            public override bool CommitText(Java.Lang.ICharSequence? text, int newCursorPosition) => Observe(false, () => base.CommitText(text, DisplayCursorPosition(newCursorPosition)));
 
             [SupportedOSPlatform("android33.0")]
             public override bool SetComposingText(Java.Lang.ICharSequence text, int newCursorPosition, TextAttribute? textAttribute) => Observe(
                 true,
-                () => base.SetComposingText(text, newCursorPosition, textAttribute));
+                () => base.SetComposingText(text, DisplayCursorPosition(newCursorPosition), textAttribute));
 
             [SupportedOSPlatform("android33.0")]
             public override bool SetComposingRegion(int start, int end, TextAttribute? textAttribute) => Observe(true, () => base.SetComposingRegion(Display(start), Display(end), textAttribute));
@@ -171,7 +171,7 @@ namespace RichEdit.Maui.Platforms.Android
             [SupportedOSPlatform("android33.0")]
             public override bool CommitText(Java.Lang.ICharSequence text, int newCursorPosition, TextAttribute? textAttribute) => Observe(
                 false,
-                () => base.CommitText(text, newCursorPosition, textAttribute));
+                () => base.CommitText(text, DisplayCursorPosition(newCursorPosition), textAttribute));
         }
     }
 }

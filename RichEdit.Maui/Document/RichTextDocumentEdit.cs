@@ -13,15 +13,56 @@ namespace RichEdit.Maui;
 public sealed class RichTextDocumentEdit
 {
     private readonly List<RichTextChange> _changes = [];
+    private readonly List<RichTextReplacement> _pendingTextEdits = [];
+    private RichTextDocumentSnapshot _snapshot;
+    private int _pendingLength;
 
     internal RichTextDocumentEdit(RichTextDocumentSnapshot snapshot)
     {
-        Snapshot = snapshot;
+        _snapshot = snapshot;
+        _pendingLength = snapshot.Length;
     }
 
-    internal RichTextDocumentSnapshot Snapshot { get; private set; }
+    internal RichTextDocumentSnapshot Snapshot
+    {
+        get
+        {
+            FlushTextEdits();
+            return _snapshot;
+        }
+        private set
+        {
+            _snapshot = value;
+            _pendingLength = value.Length;
+        }
+    }
 
-    internal IReadOnlyList<RichTextChange> Changes => _changes;
+    internal IReadOnlyList<RichTextChange> Changes
+    {
+        get
+        {
+            FlushTextEdits();
+            return _changes;
+        }
+    }
+
+    private void FlushTextEdits()
+    {
+        if (_pendingTextEdits.Count == 0)
+            return;
+
+        var before = _snapshot;
+        var after = _pendingTextEdits.Count == 1
+            ? before.Replace(_pendingTextEdits[0].Range.ToRange(), _pendingTextEdits[0].Text, _pendingTextEdits[0].Format)
+            : before.ReplaceTextBatch(_pendingTextEdits);
+        foreach (var edit in _pendingTextEdits)
+            if (!before.Text.AsSpan(edit.Range.Start, edit.Range.Length).SequenceEqual(edit.Text))
+                _changes.Add(new RichTextTextChange(edit.Range, edit.Text));
+
+        _changes.AddRange(RichTextDocument.CreateDelta(before, after).Where(static change => change.Kind != RichTextChangeKind.Text));
+        _pendingTextEdits.Clear();
+        Snapshot = after;
+    }
 
     /// <summary>
     /// Inserts plain text at a UTF-16 document offset.
@@ -58,13 +99,18 @@ public sealed class RichTextDocumentEdit
         string? text,
         RichTextCharacterFormat? format = null)
     {
-        range.Validate(Snapshot.Text.Length, nameof(range));
-        var before = Snapshot;
-        Snapshot = Snapshot.Replace(range.ToRange(), text, format);
-        if (before.Text != Snapshot.Text)
-            _changes.Add(new RichTextTextChange(range, RichTextDocumentSnapshot.NormalizeText(text)));
+        range.Validate(_pendingLength, nameof(range));
+        // Descending, disjoint replacements leave the next replacement's source and
+        // caret format intact. Flush before any dependent or overlapping operation.
+        if (_pendingTextEdits.Count > 0 &&
+            (range.Start >= _pendingTextEdits[^1].Range.Start || range.End > _pendingTextEdits[^1].Range.Start))
+            FlushTextEdits();
 
-        _changes.AddRange(RichTextDocument.CreateDelta(before, Snapshot).Where(static change => change.Kind != RichTextChangeKind.Text));
+        var normalized = RichTextDocumentSnapshot.NormalizeText(text);
+        var insertionFormat = RichTextDocumentSnapshot.Validate(format ?? _snapshot.GetCaretFormat(range.Start));
+        var length = checked(_pendingLength - range.Length + normalized.Length);
+        _pendingTextEdits.Add(new(range, normalized, insertionFormat));
+        _pendingLength = length;
     }
 
     /// <summary>Replaces a range with an immutable rich document fragment.</summary>
@@ -117,15 +163,21 @@ public sealed class RichTextDocumentEdit
             .OfType<string>()
             .ToHashSet(StringComparer.Ordinal);
 
+        var pictures = Snapshot.ListPictures.ToBuilder();
         var pictureIds = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var picture in source.ListPictures.Values.Where(picture =>
             usedPictureIds.Contains(picture.Id)))
         {
-            var id = GetAvailablePictureId(picture.Id);
+            var id = picture.Id;
+            for (var suffix = 2; pictures.ContainsKey(id); suffix++)
+                id = string.Concat(picture.Id, "-", suffix.ToString());
+
             pictureIds.Add(picture.Id, id);
-            SetListPicture(picture with { Id = id });
+            pictures.Add(id, picture with { Id = id });
         }
 
+        var lists = Snapshot.Lists.ToBuilder();
+        var nextListId = lists.Keys.Select(static id => id.Value).DefaultIfEmpty().Max();
         var listIds = new Dictionary<RichTextListId, RichTextListId>();
         foreach (var pair in source.Lists
                      .Where(pair => usedListIds.Contains(pair.Key))
@@ -141,19 +193,25 @@ public sealed class RichTextDocumentEdit
                 },
                 _ => level,
             });
-            listIds.Add(pair.Key, CreateList(new RichTextListDefinition(levels)));
+            var id = new RichTextListId(checked(++nextListId));
+            listIds.Add(pair.Key, id);
+            lists.Add(id, new RichTextListDefinition(levels));
         }
 
-        foreach (var run in source.Runs)
+        if (listIds.Count != 0 || pictureIds.Count != 0)
         {
-            SetCharacterFormat(
-                new RichTextRange(insertionStart + run.Range.Start, run.Range.Length),
-                source.ResolveCharacterFormat(run.Format));
+            Snapshot = Snapshot.With(lists: lists, listPictures: pictures.Values);
+            _changes.Add(new RichTextRangeChange(RichTextChangeKind.List, RichTextRange.Empty, RichTextRange.Empty));
         }
 
-        foreach (var paragraph in source.Paragraphs)
+        SetCharacterFormats(source.Runs.Select(run => new RichTextRun(
+            insertionStart + run.Start, run.Length, source.ResolveCharacterFormat(run.Format))));
+
+        var paragraphs = Snapshot.Paragraphs.ToArray();
+        var firstParagraph = Snapshot.FindParagraphIndex(insertionStart);
+        for (var index = 0; index < source.Paragraphs.Length; index++)
         {
-            var format = paragraph.Format;
+            var format = source.Paragraphs[index].Format with { NativeList = null };
             if (format.List is { } item && listIds.TryGetValue(item.ListId, out var newListId))
             {
                 format = format with
@@ -162,19 +220,38 @@ public sealed class RichTextDocumentEdit
                 };
             }
 
-            SetParagraphFormat(
-                new RichTextRange(
-                    insertionStart + paragraph.Range.Start,
-                    paragraph.Range.Length),
-                format);
+            var destination = firstParagraph + index;
+            paragraphs[destination] = paragraphs[destination] with { Format = format };
         }
 
-        foreach (var link in source.Links)
+        var insertedRange = new RichTextRange(insertionStart, source.Length);
+        Snapshot = Snapshot.With(paragraphs: paragraphs);
+        _changes.Add(new RichTextRangeChange(RichTextChangeKind.ParagraphFormat, insertedRange, insertedRange));
+
+        if (!source.Links.IsEmpty)
         {
-            SetLink(
-                new RichTextRange(insertionStart + link.Range.Start, link.Range.Length),
-                link.Target,
-                link.ToolTip);
+            var imported = source.Links.Select(link => link with { Start = insertionStart + link.Start }).ToArray();
+            var retained = new List<RichTextLink>();
+            var index = 0;
+            var affectedStart = insertedRange.Start;
+            var affectedEnd = insertedRange.End;
+            foreach (var link in Snapshot.Links)
+            {
+                while (index < imported.Length && imported[index].End <= link.Start)
+                    index++;
+                if (index < imported.Length && imported[index].Start < link.End)
+                {
+                    // SetLink replaces whole intersecting links, including their outside tails.
+                    affectedStart = Math.Min(affectedStart, link.Start);
+                    affectedEnd = Math.Max(affectedEnd, link.End);
+                }
+                else
+                    retained.Add(link);
+            }
+
+            Snapshot = Snapshot.With(links: retained.Concat(imported));
+            var affected = new RichTextRange(affectedStart, affectedEnd - affectedStart);
+            _changes.Add(new RichTextRangeChange(RichTextChangeKind.Link, affected, affected));
         }
 
         if (!source.Images.IsDefaultOrEmpty)
@@ -961,22 +1038,5 @@ public sealed class RichTextDocumentEdit
                 affectedParagraphs[0].Range.Start,
                 affectedParagraphs[^1].Range.End - affectedParagraphs[0].Range.Start);
         return new RichTextRangeChange(RichTextChangeKind.List, range, range);
-    }
-
-    private string GetAvailablePictureId(string requestedId)
-    {
-        if (!Snapshot.ListPictures.ContainsKey(requestedId))
-        {
-            return requestedId;
-        }
-
-        for (var suffix = 2; ; suffix++)
-        {
-            var candidate = string.Concat(requestedId, "-", suffix.ToString());
-            if (!Snapshot.ListPictures.ContainsKey(candidate))
-            {
-                return candidate;
-            }
-        }
     }
 }

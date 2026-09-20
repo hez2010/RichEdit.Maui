@@ -90,16 +90,16 @@ public partial class RichEditorHandler
         if (metadata is null)
         {
             var baseline = attributes.BaselineOffset ?? 0;
+            var preservesBaseline = Math.Abs(baseline - GetNativeBaselineOffset(format,
+                (double)(attributes.Font?.PointSize ?? _defaultFont.PointSize))) < 0.01d;
             var kerning = attributes.KerningAdjustment ?? 0;
             var expansion = attributes.Expansion ?? 0;
             format = format with
             {
-                BaselineOffset = baseline,
-                Script = baseline > 0
-                    ? RichTextScript.Superscript
-                    : baseline < 0
-                        ? RichTextScript.Subscript
-                        : RichTextScript.Normal,
+                // A native baseline alone cannot distinguish script from an explicit offset.
+                // Retain a matching authored projection, otherwise record the shift once.
+                BaselineOffset = preservesBaseline ? format.BaselineOffset : baseline,
+                Script = preservesBaseline ? format.Script : RichTextScript.Normal,
                 CharacterSpacing = kerning,
                 HorizontalScale = Math.Max(1d + expansion, 0.01d),
                 Outline = attributes.StrokeWidth is not null and not 0,
@@ -136,13 +136,21 @@ public partial class RichEditorHandler
         }
 
         var projectedList = GetNativeListMetadata(style);
-        if (metadata is null && format.NativeList is null && projectedList is not null)
+        if (projectedList is not null)
         {
+            // UIKit can retain another paragraph's custom attributes after editing.
+            // The NSTextList owner identifies the actual list; restarts and authored
+            // paragraph indents are reusable only within that same list and level.
+            var priorList = format.NativeList;
+            var sameList = priorList is not null && priorList.Id == projectedList.Format.Id && priorList.Level == projectedList.Format.Level;
+            var projectedFormat = sameList && priorList is { Restart: true }
+                ? projectedList.Format with { Restart = true, StartAt = priorList.StartAt }
+                : projectedList.Format;
             format = format with
             {
-                List = RichTextListConversions.ToItem(projectedList.Format),
-                NativeList = projectedList.Format,
-                FirstLineIndent = projectedList.FirstLineIndent,
+                List = RichTextListConversions.ToItem(projectedFormat),
+                NativeList = projectedFormat,
+                FirstLineIndent = sameList ? format.FirstLineIndent : projectedList.FirstLineIndent,
             };
         }
 

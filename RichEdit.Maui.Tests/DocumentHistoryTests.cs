@@ -4,6 +4,39 @@ namespace RichEdit.Maui.Tests;
 
 public class DocumentHistoryTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PreservedFormattingBeforeRecordedGroupEditsRetainsItsSavedState(bool removeInsertion)
+    {
+        var document = RichTextDocument.FromPlainText("a");
+        var saved = document.CreateSavePoint();
+        using (document.BeginUndoGroup())
+        {
+            document.Edit(edit => edit.SetCharacterFormat(new(0, 1), new() { ForegroundColor = Colors.Red }),
+                new(RichTextUndoBehavior.PreserveHistory));
+            document.Edit(edit => edit.InsertText(1, "b"));
+            if (removeInsertion)
+                document.Edit(edit => edit.DeleteText(new(1, 1)));
+        }
+
+        if (!removeInsertion)
+            document.Undo();
+
+        document.MarkSaved(saved);
+        Assert.Equal("a", document.Text);
+        Assert.Equal(Colors.Red, document.CurrentSnapshot.Runs[0].Format.ForegroundColor);
+        Assert.True(document.IsModified);
+        Assert.False(document.CanUndo);
+        if (!removeInsertion)
+        {
+            document.Redo();
+            Assert.Equal("ab", document.Text);
+            document.Undo();
+            Assert.True(document.IsModified);
+        }
+    }
+
     [Fact]
     public void DerivedFormattingPreservesBothHistoryDirections()
     {
@@ -25,6 +58,43 @@ public class DocumentHistoryTests
         document.Undo();
         Assert.Equal("a", document.Text);
         Assert.False(document.CanUndo);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GroupedAndMergedChangesReplayInTransactionOrder(bool explicitGroup)
+    {
+        var document = RichTextDocument.FromPlainText("middle");
+        var replayed = document.Text;
+        document.Changed += (_, args) =>
+        {
+            foreach (var change in args.ChangeSet.Changes.OfType<RichTextTextChange>())
+                replayed = replayed.Remove(change.OldRange.Start, change.OldRange.Length).Insert(change.OldRange.Start, change.InsertedText);
+
+            Assert.Equal(document.Text, replayed);
+        };
+        using (explicitGroup ? document.BeginUndoGroup() : null)
+        {
+            for (var index = 0; index < 128; index++)
+            {
+                var length = document.Length;
+                document.Edit(edit =>
+                {
+                    edit.InsertText(length, "]");
+                    edit.InsertText(0, "[");
+                }, new(explicitGroup ? RichTextUndoBehavior.CreateUnit : RichTextUndoBehavior.MergeWithPrevious));
+            }
+        }
+
+        var after = document.Text;
+        document.Undo();
+        Assert.Equal("middle", document.Text);
+        Assert.False(document.CanUndo);
+        document.Redo();
+        Assert.Equal(after, document.Text);
+        document.Undo();
+        Assert.Equal("middle", document.Text);
     }
 
     [Theory]
@@ -168,5 +238,25 @@ public class DocumentHistoryTests
         group.Dispose();
         document.Undo();
         Assert.Empty(document.Text);
+    }
+
+    [Fact]
+    public void UndoOfALinkAdditionReportsTheRestoredLinkRange()
+    {
+        var document = new RichTextDocument();
+        document.Edit(edit => edit.InsertText(0, "0123456789"));
+        document.Edit(edit => edit.SetLink(
+            new RichTextRange(2, 6),
+            "https://example.test"));
+
+        RichTextChangeSet? changes = null;
+        document.Changed += (_, eventArgs) => changes = eventArgs.ChangeSet;
+        document.Undo();
+
+        Assert.NotNull(changes);
+        Assert.Empty(document.CurrentSnapshot.Links);
+        var affected = changes.GetAffectedRange(document.Length);
+        Assert.True(affected.Start <= 2);
+        Assert.True(affected.End >= 8);
     }
 }

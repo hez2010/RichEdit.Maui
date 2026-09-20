@@ -85,7 +85,7 @@ public partial class RichTextView : UITextView
     {
         if (PasteRequested is { } pasteRequested)
         {
-            await RichEditorCommands.ExecuteAsync(pasteRequested);
+            await ExecuteClipboardCommand(pasteRequested);
             return;
         }
 
@@ -97,7 +97,7 @@ public partial class RichTextView : UITextView
     {
         if (CopyRequested is { } copy)
         {
-            await RichEditorCommands.ExecuteAsync(copy);
+            await ExecuteClipboardCommand(copy);
             return;
         }
 
@@ -109,12 +109,16 @@ public partial class RichTextView : UITextView
     {
         if (CutRequested is { } cut)
         {
-            await RichEditorCommands.ExecuteAsync(cut);
+            await ExecuteClipboardCommand(cut);
             return;
         }
 
         base.Cut(sender);
     }
+
+    private Task ExecuteClipboardCommand(Func<Task> command) => ProjectionHandler is { } handler
+        ? handler.VirtualView.Commands.ExecuteClipboardAsync(command)
+        : RichEditorCommands.ExecuteAsync(command);
 
 #pragma warning disable CA1422 // Required on iOS 15-16; the callback remains valid on 17+.
     /// <inheritdoc />

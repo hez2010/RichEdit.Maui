@@ -149,17 +149,16 @@ internal static partial class RtfCodec
             }
 
             _pendingCellSeparator = false;
-            if (_document.LastCharacter == '\n')
+            var rowStart = _tableRowStarts.Remove(state.TableLevel, out var start) ? start : _tableRowEnds.GetValueOrDefault(state.TableLevel);
+            if (_document.Length == rowStart || _document.LastCharacter != '\n')
             {
-                _lineStart = _document.Length;
-                _paragraphListHandled = false;
-                return;
+                TrackParagraphFormat(state);
+                _document.Append('\n', state.Format);
             }
 
-            TrackParagraphFormat(state);
-            _document.Append('\n', state.Format);
             _lineStart = _document.Length;
             _paragraphListHandled = false;
+            _tableRowEnds[state.TableLevel] = _document.Length;
         }
 
         private void AppendPendingCellSeparator(RichTextCharacterFormat format)

@@ -285,10 +285,24 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         await Test("line numbers and navigation track document replacement", "😀\n日本語\n", async () =>
         {
             Equal(3, _editor.LineCount);
+#if IOS || MACCATALYST
+            var native = (UIKit.UITextView)_textView.Handler!.PlatformView!;
+            native.LayoutManager.InvalidateLayout(new Foundation.NSRange(0, native.TextStorage.Length));
+#endif
+            var captured = _editor.TextLayout.Capture() ?? throw new InvalidOperationException("Missing code layout.");
+            Equal(true, captured.Lines.SelectMany(line => line.SourceRanges).Select(range => range.Start).SequenceEqual(new[] { 0, 3, 7 }),
+                "visible line-number source positions after layout invalidation");
             _actions.GoToLine(2, 3);
             Equal(new RichTextRange(5, 0), _editor.SelectedRange);
             var gutter = ((Grid)_editor.Content).Children.OfType<GraphicsView>().Single();
             Equal(true, gutter.Width > 0 && gutter.Height > 0, "gutter layout");
+#if IOS || MACCATALYST
+            _editor.TextColor = Colors.Black;
+            _editor.BackgroundColor = Colors.White;
+            gutter.Invalidate();
+            await Task.Delay(30);
+            VerifyLineNumberPixels(gutter);
+#endif
             _editor.ShowLineNumbers = false;
             await Task.Delay(30);
             Equal(false, gutter.IsVisible);
@@ -299,6 +313,11 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             await _editor.Coloring().RefreshAsync();
             Equal(1, _editor.LineCount);
             ColorAt(0, TokenColor("keyword"));
+#if IOS || MACCATALYST
+            gutter.Invalidate();
+            await Task.Delay(30);
+            VerifyLineNumberPixels(gutter);
+#endif
         });
 
         await Test("word wrap updates native layout", new string('x', 300) + "\nlast", async () =>
@@ -515,6 +534,44 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         return count + (native.Text is not { Length: > 0 } text || text.EndsWith('\n') ? 1 : 0);
 #endif
     }
+
+#if IOS || MACCATALYST
+    private void VerifyLineNumberPixels(GraphicsView gutter)
+    {
+        var native = gutter.ToPlatform(_textView.Handler!.MauiContext!);
+        native.LayoutIfNeeded();
+        native.SetNeedsDisplay();
+        native.Layer.DisplayIfNeeded();
+        using var format = new UIKit.UIGraphicsImageRendererFormat { Opaque = true, PreferredRange = UIKit.UIGraphicsImageRendererFormatRange.Standard };
+        using var renderer = new UIKit.UIGraphicsImageRenderer(native.Bounds.Size, format);
+        using var image = renderer.CreateImage(context =>
+        {
+            context.CGContext.SetFillColor(UIKit.UIColor.White.CGColor);
+            context.CGContext.FillRect(native.Bounds);
+            native.Layer.RenderInContext(context.CGContext);
+        });
+        var bitmap = image.CGImage!;
+        using var pixels = bitmap.DataProvider.CopyData()!;
+        var bytes = pixels.ToArray();
+        Equal(32, (int)bitmap.BitsPerPixel, "line-number bitmap format");
+        // Fractional view dimensions leave a partially covered pixel at the edge.
+        // Compare only pixels wholly inside the view, excluding that raster padding.
+        var width = Math.Min((int)bitmap.Width, (int)Math.Floor(native.Bounds.Width * format.Scale));
+        var height = Math.Min((int)bitmap.Height, (int)Math.Floor(native.Bounds.Height * format.Scale));
+        var background = BitConverter.ToUInt32(bytes, 0);
+        for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+            {
+                var offset = y * (int)bitmap.BytesPerRow + x * 4;
+                if (BitConverter.ToUInt32(bytes, offset) != background)
+                    return;
+            }
+
+        using var png = image.AsPNG()!;
+        png.Save(Path.Combine(FileSystem.CacheDirectory, "code-gutter-failure.png"), false, out _);
+        throw new InvalidOperationException("The laid-out line-number gutter contains no text pixels.");
+    }
+#endif
 
     private static void Equal<T>(T expected, T actual, string? description = null) => EditorContractTests.Equal(expected, actual, description);
 }

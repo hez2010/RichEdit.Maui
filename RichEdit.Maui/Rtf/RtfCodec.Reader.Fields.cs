@@ -19,26 +19,32 @@ internal static partial class RtfCodec
             if (length > 0 && TryParseHyperlinkField(instruction, out var target, out var toolTip))
             {
                 var link = new RichTextLink(start, length, target, toolTip);
-                if (!_links.Any(existing => RangesOverlap(
-                    existing.Start,
-                    existing.End,
-                    link.Start,
-                    link.End)))
+                // Results close against append-only text, so their ends never decrease.
+                // Any earlier nonempty overlap has an end greater than this start.
+                if (start >= _lastLinkEnd)
                 {
                     _links.Add(link);
+                    _lastLinkEnd = link.End;
                 }
 
                 return;
             }
 
             var candidate = new RichTextField(start, length, instruction);
-            if (!_fields.Any(existing => RangesOverlap(
-                existing.Start,
-                existing.End,
-                candidate.Start,
-                candidate.End)))
+            // Empty fields only overlap the interior of a nonempty result. Keep two
+            // distinct positions so empties at its end do not hide an earlier interior one.
+            var earlierEmpty = _lastEmptyFieldPosition < candidate.End
+                ? _lastEmptyFieldPosition : _previousEmptyFieldPosition;
+            if (start >= _lastNonemptyFieldEnd && start >= earlierEmpty)
             {
                 _fields.Add(candidate);
+                if (length > 0)
+                    _lastNonemptyFieldEnd = candidate.End;
+                else if (start != _lastEmptyFieldPosition)
+                {
+                    _previousEmptyFieldPosition = _lastEmptyFieldPosition;
+                    _lastEmptyFieldPosition = start;
+                }
             }
         }
 
@@ -67,6 +73,7 @@ internal static partial class RtfCodec
                 return;
             }
 
+            AppendPendingCellSeparator(picture.Format);
             var position = _document.Length;
             var pictureState = new ReaderState
             {
@@ -164,13 +171,6 @@ internal static partial class RtfCodec
 
             return target.Length > 0;
         }
-
-        private static bool RangesOverlap(
-            int firstStart,
-            int firstEnd,
-            int secondStart,
-            int secondEnd) =>
-                firstStart < secondEnd && secondStart < firstEnd;
 
         private bool TryEvaluateSymbolField(
             string? instruction,

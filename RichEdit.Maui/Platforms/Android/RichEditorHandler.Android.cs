@@ -315,25 +315,31 @@ public partial class RichEditorHandler
         try
         {
             PlatformView.SetTextIsSelectable(editor.IsReadOnly);
-            var inputType = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
-                ? InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned
-                : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
-                    ? InputTypes.ClassPhone
-                    : ReferenceEquals(editor.Keyboard, Keyboard.Email)
-                        ? InputTypes.ClassText | InputTypes.TextVariationEmailAddress
-                        : ReferenceEquals(editor.Keyboard, Keyboard.Url)
-                            ? InputTypes.ClassText | InputTypes.TextVariationUri
-                            : InputTypes.ClassText |
-                              InputTypes.TextFlagMultiLine |
-                              InputTypes.TextFlagCapSentences;
-            if (editor.IsTextPredictionEnabled)
+            var inputType = editor.Keyboard is CustomKeyboard
+                ? editor.Keyboard.ToInputType() | InputTypes.TextFlagMultiLine
+                : ReferenceEquals(editor.Keyboard, Keyboard.Numeric)
+                    ? InputTypes.ClassNumber | InputTypes.NumberFlagDecimal | InputTypes.NumberFlagSigned
+                    : ReferenceEquals(editor.Keyboard, Keyboard.Telephone)
+                        ? InputTypes.ClassPhone
+                        : ReferenceEquals(editor.Keyboard, Keyboard.Email)
+                            ? InputTypes.ClassText | InputTypes.TextVariationEmailAddress
+                            : ReferenceEquals(editor.Keyboard, Keyboard.Url)
+                                ? InputTypes.ClassText | InputTypes.TextVariationUri
+                                : InputTypes.ClassText |
+                                  InputTypes.TextFlagMultiLine |
+                                  InputTypes.TextFlagCapSentences;
+            if (editor.Keyboard is not CustomKeyboard || editor.IsSet(RichEditor.IsTextPredictionEnabledProperty))
             {
-                inputType |= InputTypes.TextFlagAutoCorrect;
+                inputType = editor.IsTextPredictionEnabled
+                    ? inputType | InputTypes.TextFlagAutoCorrect
+                    : inputType & ~InputTypes.TextFlagAutoCorrect;
             }
 
-            if (!editor.IsSpellCheckEnabled)
+            if (editor.Keyboard is not CustomKeyboard || editor.IsSet(RichEditor.IsSpellCheckEnabledProperty))
             {
-                inputType |= InputTypes.TextFlagNoSuggestions;
+                inputType = editor.IsSpellCheckEnabled
+                    ? inputType & ~InputTypes.TextFlagNoSuggestions
+                    : inputType | InputTypes.TextFlagNoSuggestions;
             }
 
             PlatformView.InputType = inputType;
