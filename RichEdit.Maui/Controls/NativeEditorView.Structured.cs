@@ -47,6 +47,7 @@ public partial class NativeEditorView
         var previousOwned = _ownsStructuredSession;
         DiscardComposition();
         StructuredSession = next;
+        _requestedStructuredFocus = null;
         StructuredInputCoordinator = inputCoordinator;
         _ownsStructuredSession = inputCoordinator is null;
         _synchronizingStructured = true;
@@ -91,6 +92,9 @@ public partial class NativeEditorView
 
     private void OnStructuredSelectionChanged(object? sender, EventArgs args)
     {
+        if (_requestedStructuredFocus is { } pending && (StructuredSession?.Document.Revision != pending.Revision ||
+            StructuredPrimaryText is not { } primary || primary.Anchor != pending.Point || primary.Active != pending.Point))
+            _requestedStructuredFocus = null;
         if (_deferNotifications || _synchronizingStructured) return;
         _synchronizingStructured = true;
         try

@@ -6,6 +6,7 @@ namespace RichEdit.Core;
 /// <summary>An immutable structured rich-document graph with one body story and document-owned styles.</summary>
 public sealed partial class RichDocumentSnapshot
 {
+    private System.Collections.Concurrent.ConcurrentDictionary<RichNodeId, RichTableGrid> _tableGrids = new();
     /// <summary>Gets an immutable empty body containing one empty paragraph.</summary>
     public static RichDocumentSnapshot Empty { get; } = new(new(1), new RichNode[]
     {
@@ -91,7 +92,7 @@ public sealed partial class RichDocumentSnapshot
     /// <summary>Gets the document revision, or an invalid revision for a standalone builder snapshot.</summary>
     public DocumentRevision Revision { get; }
     internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false,
-        Assets, Bookmarks, Comments, DefaultCharacter, DefaultParagraph);
+        Assets, Bookmarks, Comments, DefaultCharacter, DefaultParagraph) { _tableGrids = _tableGrids };
 
     /// <summary>Resolves authored character appearance for one inline without rewriting its style references or direct overrides.</summary>
     public ResolvedCharacterStyle ResolveCharacter(RichNodeId inline)
@@ -341,5 +342,5 @@ public sealed partial class RichDocumentSnapshot
     }
 
     /// <summary>Gets a validated table grid, with every covered position referring to its owning cell identity.</summary>
-    public RichTableGrid GetTableGrid(RichNodeId table) => new(this, Get<RichTable>(table));
+    public RichTableGrid GetTableGrid(RichNodeId table) => _tableGrids.GetOrAdd(table, id => new(this, Get<RichTable>(id)));
 }

@@ -7,7 +7,27 @@ public partial class NativeEditorView
     private readonly List<WeakReference<NativeEditorView>> _structuredSurfaces = [];
     private bool _focusingStructuredSelection;
     private int _structuredSurfaceUpdateDepth;
-    internal bool IsUpdatingStructuredSurfaces => (StructuredInputCoordinator ?? this)._structuredSurfaceUpdateDepth != 0;
+    // A newly inserted cell may not have a native control yet. Late selection
+    // callbacks from old controls must not replace its requested caret. The
+    // target surface may report normally; edits, explicit selections and pointer
+    // gestures release the request without retaining a native view.
+    private (DocumentRevision Revision, RichTextPoint Point)? _requestedStructuredFocus;
+    internal bool IsUpdatingStructuredSurfaces
+    {
+        get
+        {
+            var owner = StructuredInputCoordinator ?? this;
+            return owner._structuredSurfaceUpdateDepth != 0 || owner._requestedStructuredFocus is { } pending &&
+                owner.StructuredSession?.Document.Revision == pending.Revision &&
+                Document.StructuredProjection?.ContainsParagraph(pending.Point.Paragraph) != true;
+        }
+    }
+    private void RequestStructuredFocus()
+    {
+        if (StructuredSession is { } session && _structuredSurfaces.Count != 0 && StructuredPrimaryText is { } text && text.Anchor == text.Active)
+            _requestedStructuredFocus = (session.Document.Revision, text.Active);
+        FocusStructuredSelection();
+    }
     internal IDisposable BeginStructuredSurfaceUpdate()
     {
         _structuredSurfaceUpdateDepth++;
@@ -124,6 +144,7 @@ public partial class NativeEditorView
     private void ObserveCoordinatedPointer(RichTextPointerEventArgs args, bool pressed)
     {
         var coordinator = StructuredInputCoordinator!;
+        if (pressed) coordinator._requestedStructuredFocus = null;
         if (pressed && args.Modifiers == EditorKeyModifiers.None && (args.Buttons & RichTextPointerButtons.Primary) != 0 &&
             (!coordinator.Composition.IsActive || coordinator.TryCompleteNativeComposition()) && Document.StructuredProjection is { } projection)
         {

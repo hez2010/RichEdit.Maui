@@ -6,6 +6,40 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured table Tab traverses merged cells and appends one undoable row", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId table = default;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                table = edit.InsertTable(edit.Body, 1, 2, (RichLength[])[new(1200), new(1200)]);
+                edit.MergeCells(new(table, 0, 0, 1, 2));
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                var grid = model.CurrentSnapshot.GetTableGrid(table);
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, model.CurrentSnapshot.Get<RichTableCell>(grid[0, 0]).Blocks[0], 0);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(point, point);
+                Equal(true, editor.SendKeyDown(EditorKey.Tab, EditorKeyModifiers.None));
+                Equal(model.CurrentSnapshot.Get<RichTableCell>(grid[1, 0]).Blocks[0], ((RichEdit.Core.RichTextSelection)editor.StructuredSession.Selection).Active.Paragraph);
+                Equal(false, model.CanUndo);
+                Equal(true, editor.SendKeyDown(EditorKey.Tab, EditorKeyModifiers.Shift));
+                Equal(point, ((RichEdit.Core.RichTextSelection)editor.StructuredSession.Selection).Active);
+                editor.MoveToAdjacentCell(true, false); editor.MoveToAdjacentCell(true, false);
+                Equal(false, editor.MoveToAdjacentCell(true, false));
+                Equal(true, editor.SendKeyDown(EditorKey.Tab, EditorKeyModifiers.None));
+                Equal(3, model.CurrentSnapshot.GetTableGrid(table).Rows);
+                editor.Undo();
+                Equal(2, model.CurrentSnapshot.GetTableGrid(table).Rows);
+                Equal(false, model.CanUndo);
+                editor.IsReadOnly = true;
+                Equal(false, editor.MoveToAdjacentCell(true, true));
+                Equal(2, model.CurrentSnapshot.GetTableGrid(table).Rows);
+                await Task.Delay(20);
+            }
+            finally { editor.IsReadOnly = false; editor.Document = previous; }
+        });
         yield return new("structured list native Enter splits items and empty Enter leaves the list", async editor =>
         {
             var previous = editor.Document;
@@ -19,6 +53,10 @@ internal static partial class EditorContractTests
             {
                 editor.BindStructuredDocument(model);
                 editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(new(model.CurrentSnapshot.Body, new(2), 1), new(model.CurrentSnapshot.Body, new(2), 1));
+                Equal(true, editor.SendKeyDown(EditorKey.Enter, EditorKeyModifiers.Shift));
+                Equal("a\u2028b", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(1, model.CurrentSnapshot.Get<RichList>(listId).Items.Count);
+                editor.Undo();
                 NativeMultiInsert(editor, "\n");
                 await Task.Delay(40);
                 Equal(2, model.CurrentSnapshot.Get<RichList>(listId).Items.Count);

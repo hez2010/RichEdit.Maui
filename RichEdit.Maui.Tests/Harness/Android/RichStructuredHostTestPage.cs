@@ -174,6 +174,31 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             _editor.Undo(); await Task.Delay(100);
             Equal(2, _editor.Document.CurrentSnapshot.Get<RichList>(list).Items.Count);
         });
+        await Test("Tab moves native cell focus and appends one shared row", async () =>
+        {
+            var snapshot = _editor.Document.CurrentSnapshot;
+            var first = snapshot.Get<RichTableCell>(Cell(0, 0)).Blocks[0];
+            var point = new RichTextPoint(snapshot.Body, first, 1);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(point, point);
+            _editor.Focus(); await Task.Delay(40);
+            Equal(true, _editor.MoveToAdjacentCell(), "first Tab");
+            await Task.Delay(50);
+            var selected = _editor.Selection is RichTextSelectionSet set ? set.Primary.Selection : (RichEdit.Core.RichTextSelection)_editor.Selection;
+            Equal(snapshot.Get<RichTableCell>(Cell(0, 1)).Blocks[0], selected.Active.Paragraph);
+            Equal(true, ((RichEditorHandler)Surface(Cell(0, 1)).Handler!).PlatformView.IsFocused, "right cell focus");
+            Equal(false, _editor.CanUndo);
+            Equal(true, Surface(Cell(0, 1)).SendKeyDown(EditorKey.Tab, EditorKeyModifiers.Shift), "Shift Tab");
+            await Task.Delay(30);
+            Equal(true, ((RichEditorHandler)Surface(Cell(0, 0)).Handler!).PlatformView.IsFocused, "left cell focus");
+            _editor.MoveToAdjacentCell(); _editor.MoveToAdjacentCell(); _editor.MoveToAdjacentCell();
+            Equal(true, _editor.MoveToAdjacentCell(), "append row");
+            await Task.Delay(150);
+            Equal(3, _editor.Document.CurrentSnapshot.GetTableGrid(_table).Rows);
+            Equal(true, ((RichEditorHandler)Surface(Cell(2, 0)).Handler!).PlatformView.IsFocused, $"new row focus: {_editor.Selection}");
+            _editor.Undo(); await Task.Delay(100);
+            Equal(2, _editor.Document.CurrentSnapshot.GetTableGrid(_table).Rows);
+            Equal(false, _editor.CanUndo);
+        });
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         File.WriteAllLines(report, results);
     }

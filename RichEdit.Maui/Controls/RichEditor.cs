@@ -143,6 +143,9 @@ public sealed partial class RichEditor : ContentView
     public bool TryCompleteComposition() => _view.TryCompleteComposition();
     /// <summary>Moves all text selections through native caret geometry.</summary>
     public bool MoveSelections(EditorKey direction, bool extend = false) => _view.MoveSelections(direction, extend);
+    /// <summary>Moves to the next or previous distinct table cell in row order. Forward navigation can append a row at the table end.</summary>
+    /// <remarks>Nested tables navigate within the nearest table. Navigation does not enter history; an appended row and its caret form one undo unit.</remarks>
+    public bool MoveToAdjacentCell(bool forward = true, bool appendRow = true) => _view.MoveToAdjacentCell(forward, appendRow);
     /// <summary>Adds a caret on the preceding native visual line.</summary>
     public bool AddCaretAbove() => _view.AddCaretAbove();
     /// <summary>Adds a caret on the following native visual line.</summary>

@@ -59,6 +59,10 @@ public partial class NativeEditorView
 
     private bool HandleSelectionKey(EditorKey key, EditorKeyModifiers modifiers)
     {
+        if (key == EditorKey.Tab && modifiers is EditorKeyModifiers.None or EditorKeyModifiers.Shift &&
+            MoveToAdjacentCell(modifiers == EditorKeyModifiers.None, appendRow: true)) return true;
+        if (key == EditorKey.Enter && modifiers == EditorKeyModifiers.Shift && StructuredSession is { } rich &&
+            ApplyStructuredNativeInput(rich.Selection, "\u2028")) return true;
         if (modifiers == EditorKeyModifiers.None && key is EditorKey.Enter or EditorKey.Backspace && TryHandleStructuredListKey(key)) return true;
         if (SourceSession is not null && modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete &&
             Selections.Any(item => item.AnchorVirtualSpaces != 0 || item.ActiveVirtualSpaces != 0))
