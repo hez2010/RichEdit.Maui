@@ -20,6 +20,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
     {
         _cancellation = cancellationToken;
         _fonts.Add(fallbackFont, 0);
+        if (marker is not null) Font("Arial");
         foreach (var list in snapshot.Nodes.Values.OfType<RichList>()) _lists.Add(list.Id, _lists.Count + 1);
         if (_lists.Count > 2000) throw new InvalidOperationException("RTF supports at most 2,000 list overrides.");
         foreach (var inline in snapshot.Nodes.Values.OfType<RichInline>())
@@ -111,7 +112,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
             await Masks("repch", RtfStyleState.Masks(paragraph.Character));
         }
         var position = 0;
-        if (marker?.Invoke(paragraph.Id, false) is { } paragraphStart) await T(paragraphStart);
+        if (marker?.Invoke(paragraph.Id, false) is { } paragraphStart) await ProjectionMarker(paragraphStart);
         foreach (var id in paragraph.Inlines)
         {
             var inline = snapshot.Get<RichInline>(id);
@@ -128,7 +129,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 await T(RtfFieldSyntax.HyperlinkInstruction(link));
                 await S(@"}{\fldrslt ");
             }
-            if (marker?.Invoke(inline.Id, false) is { } inlineStart) await T(inlineStart);
+            if (marker?.Invoke(inline.Id, false) is { } inlineStart) await ProjectionMarker(inlineStart);
             switch (inline)
             {
                 case RichText text:
@@ -150,13 +151,13 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                     await S(@"}{\fldrslt "); await T(!semantic && field.Result.Length == 0 ? "□" : field.Result); await S("}}");
                     break;
             }
-            if (marker?.Invoke(inline.Id, true) is { } inlineEnd) await T(inlineEnd);
+            if (marker?.Invoke(inline.Id, true) is { } inlineEnd) await ProjectionMarker(inlineEnd);
             if (inline.Link is not null) await S("}}");
             position += RichDocumentSnapshot.InlineLength(inline);
             await S("}");
         }
         if (semantic) await Anchors(paragraph.Id, position);
-        if (marker?.Invoke(paragraph.Id, true) is { } paragraphEnd) await T(paragraphEnd);
+        if (marker?.Invoke(paragraph.Id, true) is { } paragraphEnd) await ProjectionMarker(paragraphEnd);
         if (terminate) await C("par");
         await S("\n");
     }
@@ -187,6 +188,16 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         await C("v", format.Hidden ? 1 : 0);
         if (format.Language is { } language) await C("lang", CultureInfo.GetCultureInfo(language).LCID);
         if (format.Direction != RichDirection.Automatic) await C(format.Direction == RichDirection.RightToLeft ? "rtlch" : "ltrch");
+    }
+
+    private async Task ProjectionMarker(string text)
+    {
+        // A symbol font must not recode the temporary marker's ASCII identity.
+        // This group is removed in the detached native document before display.
+        await S(@"{\plain");
+        await C("f", _fonts["Arial"]);
+        await T(text);
+        await S("}");
     }
 
     private async Task Table(RichTable table, int level)

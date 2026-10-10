@@ -36,7 +36,18 @@ public class NativeTableContractTests
             {
                 var point = new RichEdit.Core.RichTextPoint(snapshot.Body, paragraph.Id, offset);
                 Assert.Equal(point, resolved.Map.ToRich(resolved.Map.ToNative(point)));
+                var source = resolved.Map.TextProjection.GetOffset(point);
+                Assert.Equal(source, resolved.Map.ToSource(resolved.Map.FromSource(source)));
             }
+        var table = snapshot.Get<RichEdit.Core.RichTable>(snapshot.Get<RichEdit.Core.RichStory>(snapshot.Body).Blocks[0]);
+        var grid = snapshot.GetTableGrid(table.Id);
+        var firstParagraph = snapshot.Get<RichEdit.Core.RichTableCell>(grid[0, 0]).Blocks[0];
+        var lastParagraph = snapshot.Get<RichEdit.Core.RichTableCell>(grid[1, 1]).Blocks[0];
+        var firstPosition = resolved.Map.ToNative(new(snapshot.Body, firstParagraph, 0));
+        var lastPosition = resolved.Map.ToNative(new(snapshot.Body, lastParagraph, 0));
+        Assert.Equal(new RichEdit.Core.RichCellSelection(table.Id, 0, 0, 2, 2), resolved.Map.SelectionFromNative(new(firstPosition, lastPosition)));
+        Assert.Equal(new RichEdit.Core.RichBoundarySelection(snapshot.Body, table.Id, RichEdit.Core.RichBlockEdge.After),
+            resolved.Map.SelectionFromNative(new(resolved.Map.NativeText.Length - 1, resolved.Map.NativeText.Length - 1)));
         native.Document.GetText(TextGetOptions.FormatRtf, out var saved);
         Assert.Contains(@"\nestrow", saved);
         Assert.Contains(@"\trowd", saved);

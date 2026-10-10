@@ -71,11 +71,72 @@ internal sealed class StructuredRichNativeMap
 
     private readonly ImmutableDictionary<RichNodeId, Paragraph> _paragraphs;
     private readonly ImmutableArray<Paragraph> _ordered;
+    private readonly RichTextProjection _text;
     private StructuredRichNativeMap(RichDocumentSnapshot snapshot, string nativeText, ImmutableArray<Paragraph> paragraphs)
-    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); }
+    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = snapshot.ProjectText(); }
     internal RichDocumentSnapshot Snapshot { get; }
     internal string NativeText { get; }
     internal ImmutableArray<Paragraph> Paragraphs => _ordered;
+    internal RichTextProjection TextProjection => _text;
+
+    internal int FromSource(int offset, bool after = true)
+    {
+        var point = _text.GetPoint(offset, after ? CaretAffinity.Downstream : CaretAffinity.Upstream);
+        if (point is { } value) return ToNative(value);
+        var next = _text.Paragraphs.FirstOrDefault(paragraph => paragraph.Range.Start > offset);
+        if (after && next is not null) return _paragraphs[next.Paragraph].Start;
+        var previous = _text.Paragraphs.LastOrDefault(paragraph => paragraph.Range.End < offset);
+        return previous is not null ? _paragraphs[previous.Paragraph].End : 0;
+    }
+
+    internal int ToSource(int nativeOffset)
+    {
+        nativeOffset = Math.Clamp(nativeOffset, 0, NativeText.Length);
+        if (ToRich(nativeOffset) is { } point) return _text.GetOffset(point);
+        var next = _ordered.FirstOrDefault(paragraph => paragraph.Start > nativeOffset);
+        return next is not null ? _text.GetOffset(new(Snapshot.Body, next.Id, 0)) : _text.Text.Length;
+    }
+
+    internal RichSelection SelectionFromNative(TextSelectionState selection)
+    {
+        selection.Range.Validate(NativeText.Length);
+        var anchor = ToRich(selection.Anchor);
+        var active = ToRich(selection.Active);
+        var body = Snapshot.Get<RichStory>(Snapshot.Body);
+        if (selection.Range.IsEmpty && active is null)
+        {
+            if (selection.Active >= _ordered[^1].End && Snapshot.Get<RichBlock>(body.Blocks[^1]) is RichTable)
+                return new RichBoundarySelection(Snapshot.Body, body.Blocks[^1], RichBlockEdge.After);
+            if (selection.Active < _ordered[0].Start && Snapshot.Get<RichBlock>(body.Blocks[0]) is RichTable)
+                return new RichBoundarySelection(Snapshot.Body, body.Blocks[0], RichBlockEdge.Before);
+        }
+        anchor ??= _text.GetPoint(ToSource(selection.Anchor));
+        active ??= _text.GetPoint(ToSource(selection.Active));
+        if (anchor is null || active is null) throw new ArgumentException("The native range does not have valid rich endpoints.", nameof(selection));
+        var firstCell = CellFor(anchor.Value.Paragraph);
+        var lastCell = CellFor(active.Value.Paragraph);
+        if (firstCell is { } first && lastCell is { } last && first != last)
+        {
+            var firstRow = Snapshot.Get<RichTableRow>(Snapshot.Get<RichTableCell>(first).Parent!.Value);
+            var lastRow = Snapshot.Get<RichTableRow>(Snapshot.Get<RichTableCell>(last).Parent!.Value);
+            if (firstRow.Parent == lastRow.Parent)
+            {
+                var grid = Snapshot.GetTableGrid(firstRow.Parent!.Value);
+                var a = grid.GetExtent(first); var b = grid.GetExtent(last);
+                var top = Math.Min(a.Row, b.Row); var left = Math.Min(a.Column, b.Column);
+                return grid.Expand(new(firstRow.Parent.Value, top, left,
+                    Math.Max(a.Row + a.RowCount, b.Row + b.RowCount) - top, Math.Max(a.Column + a.ColumnCount, b.Column + b.ColumnCount) - left));
+            }
+        }
+        return new RichEdit.Core.RichTextSelection(anchor.Value, active.Value);
+
+        RichNodeId? CellFor(RichNodeId paragraph)
+        {
+            for (var node = Snapshot.Get<RichNode>(paragraph); node.Parent is { } parent; node = Snapshot.Get<RichNode>(parent))
+                if (Snapshot.Get<RichNode>(parent) is RichTableCell cell) return cell.Id;
+            return null;
+        }
+    }
 
     internal static async Task<Prepared> PrepareAsync(RichDocumentSnapshot snapshot, CancellationToken cancellationToken = default)
     {
