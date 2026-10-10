@@ -204,8 +204,9 @@ public sealed partial class RichDocumentSnapshot
         throw new InvalidOperationException("A valid rich document must contain a paragraph.");
     }
 
-    /// <summary>Explicitly projects a story to text with snapshot-bound mappings for its paragraphs and structural separators.</summary>
-    public RichTextProjection ProjectText(RichNodeId? story = null) => new(this, story ?? Body);
+    /// <summary>Explicitly projects a story, block, cell, or list item to text with snapshot-bound rich addresses and structural separators.</summary>
+    /// <remarks>The default root is the complete body. A cell projection retains the same nodes and owning story; it is not an independent document.</remarks>
+    public RichTextProjection ProjectText(RichNodeId? root = null) => new(this, root ?? Body);
 
     internal static IEnumerable<RichNodeId> Children(RichNode node) => node switch
     {

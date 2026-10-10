@@ -26,19 +26,30 @@ public sealed record RichProjectedSeparator(int Position, RichSeparatorKind Kind
 /// <summary>An authored object represented by one placeholder in the explicit text projection.</summary>
 public sealed record RichProjectedObject(int Position, RichNodeId Object);
 
-/// <summary>An explicit plain-text projection with mappings tied to exactly one immutable rich snapshot.</summary>
+/// <summary>An explicit plain-text projection of a rich subtree, with mappings tied to exactly one immutable snapshot.</summary>
 public sealed class RichTextProjection
 {
     private readonly ImmutableDictionary<RichNodeId, RichProjectedParagraph> _byParagraph;
-    internal RichTextProjection(RichDocumentSnapshot snapshot, RichNodeId story)
+    internal RichTextProjection(RichDocumentSnapshot snapshot, RichNodeId root)
     {
         Snapshot = snapshot;
-        Story = story;
+        Root = root;
+        var rootNode = snapshot.Get<RichNode>(root);
+        var owner = rootNode;
+        while (owner.Parent is { } parent) owner = snapshot.Get<RichNode>(parent);
+        Story = owner is RichStory ? owner.Id : throw new ArgumentException("A projection root must belong to a story.", nameof(root));
         var text = new StringBuilder();
         var paragraphs = ImmutableArray.CreateBuilder<RichProjectedParagraph>();
         var separators = ImmutableArray.CreateBuilder<RichProjectedSeparator>();
         var objects = ImmutableArray.CreateBuilder<RichProjectedObject>();
-        EmitBlocks(snapshot.Get<RichStory>(story).Blocks, story);
+        switch (rootNode)
+        {
+            case RichStory story: EmitBlocks(story.Blocks, story.Id); break;
+            case RichTableCell cell: EmitBlocks(cell.Blocks, cell.Id); break;
+            case RichListItem item: EmitBlocks(item.Blocks, item.Id); break;
+            case RichBlock block: Emit(block); break;
+            default: throw new ArgumentException("A projection root must be a story, block, table cell, or list item.", nameof(root));
+        }
         Text = TextSnapshot.FromText(text.ToString());
         Paragraphs = paragraphs.ToImmutable();
         Separators = separators.ToImmutable();
@@ -110,6 +121,8 @@ public sealed class RichTextProjection
 
     /// <summary>Gets the immutable snapshot described by this mapping.</summary>
     public RichDocumentSnapshot Snapshot { get; }
+    /// <summary>Gets the projected story, block, table cell, or list item. Addresses still belong to the owning story.</summary>
+    public RichNodeId Root { get; }
     /// <summary>Gets the projected story identity.</summary>
     public RichNodeId Story { get; }
     /// <summary>Gets explicit plain text, including paragraph, cell, row, and soft-break separators.</summary>

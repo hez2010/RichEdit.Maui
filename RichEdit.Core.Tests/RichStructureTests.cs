@@ -7,6 +7,35 @@ namespace RichEdit.Core.Tests;
 public class RichStructureTests
 {
     [Fact]
+    public void CellProjectionsKeepSharedStoryAddressesAcrossParagraphEdits()
+    {
+        RichNodeId table = default, cell = default, paragraph = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            table = edit.InsertTable(edit.Body, 1, 1, [new(1440), new(1440)]);
+            cell = edit.Snapshot.GetTableGrid(table)[0, 1];
+            paragraph = edit.Snapshot.Get<RichTableCell>(cell).Blocks[0];
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "cell");
+        }));
+        var before = document.CurrentSnapshot.ProjectText(cell);
+        Assert.Equal(cell, before.Root);
+        Assert.Equal(document.CurrentSnapshot.Body, before.Story);
+        Assert.Equal("cell", before.Text.ToString());
+        Assert.Equal(new RichTextPoint(before.Story, paragraph, 2), before.GetPoint(2));
+        Assert.Throws<ArgumentException>(() => before.GetOffset(new(before.Story, new(2), 0)));
+        using var session = document.CreateSession();
+        session.Selection = new RichTextSelection(before.GetPoint(2)!.Value, before.GetPoint(2)!.Value);
+        session.ReplaceSelection("\nnext");
+        var after = document.CurrentSnapshot.ProjectText(cell);
+        Assert.Equal("ce\nnextll", after.Text.ToString());
+        Assert.Equal(2, after.Paragraphs.Length);
+        Assert.Equal("cell", before.Text.ToString());
+        Assert.Equal("\n\tce\nnextll", document.CurrentSnapshot.ProjectText().Text.ToString());
+        session.Undo();
+        Assert.Equal("cell", document.CurrentSnapshot.ProjectText(cell).Text.ToString());
+    }
+
+    [Fact]
     public void MergedCellRectanglesExpandToWholeIntersectedCells()
     {
         var snapshot = CreateMergedTable();
