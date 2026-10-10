@@ -51,9 +51,7 @@ internal static class RichTextClipboard
         var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
         package.SetText(fragment.Text);
         package.SetRtf(fragment.RtfText);
-        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
-        Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
-        await Task.CompletedTask;
+        await WindowsClipboardAccess.SetAsync(package);
 #elif IOS || MACCATALYST
         var pasteboard = UIKit.UIPasteboard.General;
         using var data = Foundation.NSData.FromString(

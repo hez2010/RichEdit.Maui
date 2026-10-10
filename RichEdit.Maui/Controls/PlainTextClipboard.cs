@@ -30,8 +30,7 @@ internal static class PlainTextClipboard
 #if WINDOWS
         var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
         data.SetText(text);
-        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
-        Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+        await WindowsClipboardAccess.SetAsync(data);
         _sequence = GetClipboardSequenceNumber();
 #elif IOS || MACCATALYST
         UIKit.UIPasteboard.General.String = text;
