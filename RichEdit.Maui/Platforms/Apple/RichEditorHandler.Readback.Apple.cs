@@ -203,7 +203,7 @@ public partial class RichEditorHandler
             return false;
         }
 
-        if (VirtualView.MaxLength < 0)
+        if (VirtualView.StructuredSession is not null || VirtualView.MaxLength < 0)
         {
             return true;
         }
@@ -551,7 +551,7 @@ public partial class RichEditorHandler
             0,
             document.Text.Length - start);
         var sourceLength = ReadDisplayReservationMetadata(document.Text).ToSource(document.Length);
-        if (VirtualView.MaxLength >= 0 && sourceLength > VirtualView.MaxLength && sourceLength > VirtualView.Document.Length)
+        if (VirtualView.StructuredSession is null && VirtualView.MaxLength >= 0 && sourceLength > VirtualView.MaxLength && sourceLength > VirtualView.Document.Length)
         {
             ApplyCurrentDocument(previousSelection.Start, previousSelection.Length);
             ApplyTypingFormatCore(VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);

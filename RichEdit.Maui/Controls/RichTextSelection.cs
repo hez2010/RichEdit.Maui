@@ -76,7 +76,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <param name="text">The replacement text. Null is treated as empty.</param>
     public void ReplaceText(string? text)
     {
-        if (_editor.Selections.Count > 1)
+        if (_editor.StructuredSession is not null || _editor.Selections.Count > 1)
         {
             _editor.ReplaceSelections(text ?? string.Empty);
             return;

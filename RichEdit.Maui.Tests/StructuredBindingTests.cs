@@ -38,6 +38,13 @@ public sealed class StructuredBindingTests
         {
             await Task.Delay(100);
             view.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(new(document.CurrentSnapshot.Body, paragraph, 0), new(document.CurrentSnapshot.Body, paragraph, 4));
+            var limited = document.CurrentSnapshot;
+            view.MaxLength = limited.ProjectText().Text.Length;
+            handler.PlatformView.Document.Selection.TypeText("TOO LONG");
+            await Task.Delay(30);
+            Assert.Same(limited, document.CurrentSnapshot);
+            Assert.False(document.CanUndo);
+            view.MaxLength = -1;
             handler.PlatformView.Document.Selection.TypeText("BETA");
             await Task.Delay(30);
             Assert.Equal("alpha\tBETA\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());

@@ -4,13 +4,20 @@ public sealed partial class RichTextDocument
 {
     private readonly List<WeakReference<NativeEditorView>> _views = [];
 
-    internal bool HasActiveComposition => GetAttachedEditors().Any(IsComposing);
+    internal bool HasActiveComposition
+    {
+        get
+        {
+            VerifyAccess();
+            return StructuredDocument?.ComposingSession is not null || SourceDocument?.ComposingSession is not null || GetAttachedEditors().Any(IsComposing);
+        }
+    }
 
     internal bool TryCompleteComposition()
     {
         VerifyAccess();
         foreach (var view in GetAttachedEditors())
-            if (IsComposing(view) && (view.Handler is not IRichEditorHandler handler || !handler.TryCompleteComposition()))
+            if (IsComposing(view) && !view.TryCompleteNativeComposition())
                 return false;
         return !HasActiveComposition;
     }

@@ -39,7 +39,7 @@ public partial class RichEditorHandler
 
     private RichTextDocumentSnapshot DisplayPresentationSnapshot => NativeProjection.IsEmpty ? VirtualView.PresentationSnapshot : _displayState!.Presentation;
 
-    private int DisplayInputLimit => VirtualView.MaxLength < 0 ? -1 : (int)Math.Min(int.MaxValue,
+    private int DisplayInputLimit => VirtualView.StructuredSession is not null || VirtualView.MaxLength < 0 ? -1 : (int)Math.Min(int.MaxValue,
         (long)VirtualView.MaxLength + NativeProjection.Reservations.Sum(static item => item.Text.Length));
 
     private IEnumerable<TextSpan> DisplayFoldRanges => VirtualView.Folding.EffectiveRanges.Select(range => NativeProjection.ToDisplay(range));

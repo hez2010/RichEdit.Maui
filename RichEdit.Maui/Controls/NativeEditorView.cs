@@ -657,12 +657,13 @@ public partial class NativeEditorView : View
         snapshot = Decorations.RestoreAuthoredSnapshot(snapshot, SelectedRange);
         var selection = selectionState ?? TextSelectionState.FromRange(new TextSpan(selectionStart, selectionLength));
         selection.Range.Validate(snapshot.Text.Length, nameof(selectionLength));
+        if (StructuredInputCoordinator is not null) { ForwardStructuredInput(snapshot, selection); return; }
         if (Composition.IsActive)
         {
             StageComposition(snapshot, selection, sourceToken);
             return;
         }
-        if (SourceSession is not null && MaxLength >= 0 && snapshot.Length > MaxLength && snapshot.Length > Document.Length)
+        if ((SourceSession is not null || StructuredSession is not null) && MaxLength >= 0 && snapshot.Length > MaxLength && snapshot.Length > Document.Length)
         {
             SynchronizeCompositionTracking(Document.CurrentSnapshot, null);
             (Handler as RichEditorHandler)?.CompleteCompositionTracking();

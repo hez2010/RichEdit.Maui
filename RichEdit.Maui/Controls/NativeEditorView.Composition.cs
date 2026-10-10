@@ -91,8 +91,17 @@ public partial class NativeEditorView
     {
         if (_structuredCompositionPrepared && StructuredSession?.Composition is { } structural)
         {
+            var accepted = AcceptsStructuredInputLength(structural.Snapshot);
             ClearCompositionSnapshot(notify: false);
-            try { structural.Commit(); }
+            try
+            {
+                if (accepted) structural.Commit();
+                else
+                {
+                    structural.Cancel();
+                    (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
+                }
+            }
             finally
             {
                 (Handler as RichEditorHandler)?.CompleteCompositionTracking();
@@ -172,8 +181,9 @@ public partial class NativeEditorView
 
     internal void DiscardComposition()
     {
+        if (HasCurrentStructuredCoordinator && _composition.IsActive) StructuredInputCoordinator!.DiscardComposition();
         SourceSession?.Composition?.Cancel();
-        StructuredSession?.Composition?.Cancel();
+        if (_ownsStructuredSession) StructuredSession?.Composition?.Cancel();
         var preview = _compositionPreviewDocument;
         if (preview is not null && ReferenceEquals(_compositionDocument, Document))
             preview.ReplaceSnapshotFromNative(Document.CurrentSnapshot, _previewSourceToken, nativeUndoOwned: true);

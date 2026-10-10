@@ -24,6 +24,7 @@ public sealed class RichComposition : IDisposable
     public RichSelection Selection { get; private set; }
     /// <summary>Gets a generation incremented by every successful provisional update.</summary>
     public long Generation { get; private set; }
+    internal long NextNodeId => _nextId;
 
     /// <summary>Stages native input operations without publishing document content or creating history.</summary>
     /// <remarks>A resulting selection can be supplied here or through the builder, but not both.</remarks>

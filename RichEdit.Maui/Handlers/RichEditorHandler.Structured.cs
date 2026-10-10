@@ -120,13 +120,11 @@ public partial class RichEditorHandler
         if (selected is RichBoundarySelection or RichCellSelection or RichBlockSelection)
         {
             if (VirtualView.Composition.IsActive) return true;
-            var result = session.Edit(edit => edit.SetSelection(edit.ReplaceSelection(selected, replacement, session.TypingCharacterFormat)),
-                new(Origin: TextChangeOrigin.User));
-            if (!result.Accepted) TryApplyStructuredNativeDocument();
+            if (!VirtualView.ApplyStructuredNativeInput(selected, replacement)) TryApplyStructuredNativeDocument();
             return true;
         }
         var before = session.Composition?.Snapshot ?? session.Document.CurrentSnapshot;
-        var builder = new RichDocumentEdit(before, Math.Max(session.Document.NextNodeId, before.Nodes.Keys.Max(id => id.Value)));
+        var builder = new RichDocumentEdit(before, session.Composition?.NextNodeId ?? session.Document.NextNodeId);
         RichDocumentSnapshot candidate;
         RichSelection after;
         try

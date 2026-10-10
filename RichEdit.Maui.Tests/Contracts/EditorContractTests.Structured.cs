@@ -7,6 +7,69 @@ internal static partial class EditorContractTests
     private static IEnumerable<Case> StructuredBindingCases()
     {
 #if ANDROID || IOS || MACCATALYST
+        yield return new("structured coordinated cell carets share one native composition and commit", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId left = default, right = default, leftParagraph = default, rightParagraph = default;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                var table = edit.InsertTable(edit.Body, 1, 1, (RichLength[])[new(1440), new(1440)]);
+                var snapshot = edit.Snapshot;
+                var grid = snapshot.GetTableGrid(table);
+                left = grid[0, 0]; right = grid[0, 1];
+                leftParagraph = snapshot.Get<RichTableCell>(left).Blocks[0];
+                rightParagraph = snapshot.Get<RichTableCell>(right).Blocks[0];
+                edit.ReplaceText(new(edit.Body, leftParagraph, 0), 0, "aa");
+                edit.ReplaceText(new(edit.Body, rightParagraph, 0), 0, "bb");
+            }));
+            var coordinator = new NativeEditorView();
+            coordinator.BindStructuredDocument(model);
+            try
+            {
+                editor.BindStructuredDocument(model, right, coordinator);
+                using var peer = new SharedEditor(editor);
+                peer.Editor.BindStructuredDocument(model, left, coordinator);
+                Equal(true, ReferenceEquals(editor.StructuredSession, coordinator.StructuredSession));
+                Equal(true, ReferenceEquals(peer.Editor.StructuredSession, coordinator.StructuredSession));
+                var set = new RichTextSelectionSet(model.CurrentSnapshot, (RichTextSelectionItem[])[
+                    new(new(new(model.CurrentSnapshot.Body, leftParagraph, 2), new(model.CurrentSnapshot.Body, leftParagraph, 2))),
+                    new(new(new(model.CurrentSnapshot.Body, rightParagraph, 2), new(model.CurrentSnapshot.Body, rightParagraph, 2)))], 1);
+                coordinator.StructuredSession!.Selection = set;
+                editor.Focus();
+                await Task.Delay(100);
+                var before = model.CurrentSnapshot;
+                coordinator.MaxLength = before.ProjectText().Text.Length + 1;
+                NativeMultiInsert(editor, "!");
+                Equal(true, ReferenceEquals(before, model.CurrentSnapshot));
+                Equal("aa", NativeText(peer.Editor));
+                Equal("bb", NativeText(editor));
+                coordinator.MaxLength = -1;
+                var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+#if ANDROID
+                using var info = new Android.Views.InputMethods.EditorInfo();
+                using var connection = native.OnCreateInputConnection(info)!;
+                using var marked = new Java.Lang.String("仮名");
+                connection.SetComposingText(marked, 1);
+#else
+                native.SetMarkedText("仮名", new Foundation.NSRange(2, 0));
+#endif
+                Equal(true, ReferenceEquals(before, model.CurrentSnapshot));
+                Equal(true, coordinator.Composition.IsActive);
+                Equal("aa", NativeText(peer.Editor));
+                Equal("bb仮名", coordinator.StructuredSession.Composition!.Snapshot.ProjectText(right).Text.ToString());
+                Equal(true, coordinator.TryCompleteComposition());
+                Equal("aa仮名", NativeText(peer.Editor));
+                Equal("bb仮名", NativeText(editor));
+                Equal(2, ((RichTextSelectionSet)coordinator.StructuredSession.Selection).Count);
+                coordinator.Undo();
+                Equal("aa", NativeText(peer.Editor));
+                Equal("bb", NativeText(editor));
+                Equal(set, coordinator.StructuredSession.Selection);
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.DiscardComposition(); editor.Document = previous; coordinator.Document = new RichTextDocument(); }
+        });
+
         yield return new("structured scoped cell composition uses the shared rich root and history", async editor =>
         {
             var previous = editor.Document;

@@ -7,6 +7,95 @@ namespace RichEdit.Maui.Tests;
 public sealed class StructuredScopeTests
 {
     [Fact]
+    public Task CoordinatedCellInputEditsEveryCaretWithOneSessionAndOneHistoryUnit() => WindowsTestHost.RunAsync(async () =>
+    {
+        RichNodeId leftCell = default, rightCell = default, leftParagraph = default, rightParagraph = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            var table = edit.InsertTable(edit.Body, 1, 1, (RichLength[])[new(1440), new(1440)]);
+            var snapshot = edit.Snapshot;
+            var grid = snapshot.GetTableGrid(table);
+            leftCell = grid[0, 0]; rightCell = grid[0, 1];
+            leftParagraph = snapshot.Get<RichTableCell>(leftCell).Blocks[0];
+            rightParagraph = snapshot.Get<RichTableCell>(rightCell).Blocks[0];
+            edit.ReplaceText(new(edit.Body, leftParagraph, 0), 0, "aa");
+            edit.ReplaceText(new(edit.Body, rightParagraph, 0), 0, "bb");
+        }));
+        var root = new NativeEditorView(); root.BindStructuredDocument(document);
+        var left = new NativeEditorView(); left.BindStructuredDocument(document, leftCell, root);
+        var right = new NativeEditorView(); right.BindStructuredDocument(document, rightCell, root);
+        var leftHandler = new RichEditorHandler(); var rightHandler = new RichEditorHandler();
+        var context = new MauiContext(WindowsTestHost.MauiApp.Services);
+        leftHandler.SetMauiContext(context); rightHandler.SetMauiContext(context);
+        left.Handler = leftHandler; right.Handler = rightHandler;
+        try
+        {
+            Assert.Same(root.StructuredSession, left.StructuredSession);
+            Assert.Same(root.StructuredSession, right.StructuredSession);
+            var set = new RichTextSelectionSet(document.CurrentSnapshot, (RichTextSelectionItem[])[
+                new(new(new(document.CurrentSnapshot.Body, leftParagraph, 1), new(document.CurrentSnapshot.Body, leftParagraph, 1))),
+                new(new(new(document.CurrentSnapshot.Body, rightParagraph, 1), new(document.CurrentSnapshot.Body, rightParagraph, 1)))], 1);
+            root.StructuredSession!.Selection = set;
+            var changes = 0;
+            document.Changed += (_, _) => changes++;
+            rightHandler.PlatformView.Document.Selection.TypeText("X");
+            await Task.Delay(30);
+            Assert.Equal("aXa", left.Document.Text);
+            Assert.Equal("bXb", right.Document.Text);
+            leftHandler.PlatformView.Document.GetText(TextGetOptions.None, out var nativeLeft);
+            rightHandler.PlatformView.Document.GetText(TextGetOptions.None, out var nativeRight);
+            Assert.Equal("aXa\r", nativeLeft);
+            Assert.Equal("bXb\r", nativeRight);
+            Assert.Equal(1, changes);
+            Assert.Equal(2, Assert.IsType<RichTextSelectionSet>(root.StructuredSession.Selection).Count);
+            root.Undo();
+            Assert.Equal(set, root.StructuredSession.Selection);
+            Assert.Equal("aa", left.Document.Text);
+            Assert.Equal("bb", right.Document.Text);
+            Assert.False(document.CanUndo);
+            root.MaxLength = document.CurrentSnapshot.ProjectText().Text.Length + 1;
+            var limited = document.CurrentSnapshot;
+            rightHandler.PlatformView.Document.Selection.TypeText("X");
+            await Task.Delay(30);
+            Assert.Same(limited, document.CurrentSnapshot);
+            rightHandler.PlatformView.Document.GetText(TextGetOptions.None, out var rejectedNative);
+            Assert.Equal("bb\r", rejectedNative);
+            root.MaxLength = -1;
+            var composing = typeof(RichEditorHandler).GetField("_isComposing", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var observe = typeof(RichEditorHandler).GetMethod("UpdateCompositionState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            try
+            {
+                var before = document.CurrentSnapshot;
+                composing.SetValue(rightHandler, true); observe.Invoke(rightHandler, null);
+                rightHandler.PlatformView.Document.Selection.TypeText("仮");
+                await Task.Delay(30);
+                Assert.Same(before, document.CurrentSnapshot);
+                Assert.True(root.Composition.IsActive);
+                Assert.Same(root.StructuredSession.Composition, right.StructuredSession!.Composition);
+                Assert.Equal("b仮b", root.StructuredSession.Composition!.Snapshot.ProjectText(rightCell).Text.ToString());
+                Assert.Equal("aa", root.StructuredSession.Composition.Snapshot.ProjectText(leftCell).Text.ToString());
+                left.Handler = null;
+                Assert.NotNull(root.StructuredSession.Composition);
+                composing.SetValue(rightHandler, false); observe.Invoke(rightHandler, null);
+                Assert.Equal("a仮a", document.CurrentSnapshot.ProjectText(leftCell).Text.ToString());
+                Assert.Equal("b仮b", document.CurrentSnapshot.ProjectText(rightCell).Text.ToString());
+                root.Undo();
+                Assert.Equal(set, root.StructuredSession.Selection);
+                Assert.False(document.CanUndo);
+            }
+            finally { composing.SetValue(rightHandler, false); right.DiscardComposition(); }
+            right.Document = new RichTextDocument();
+            Assert.True(root.StructuredSession.ReplaceSelection("Y").Accepted);
+            Assert.Equal("aYa", left.Document.Text);
+        }
+        finally
+        {
+            left.Handler = null; right.Handler = null;
+            ((IElementHandler)leftHandler).DisconnectHandler(); ((IElementHandler)rightHandler).DisconnectHandler();
+        }
+    });
+
+    [Fact]
     public Task NativeCellViewsEditOneSharedRootAndSurviveScopeRemovalAndUndo() => WindowsTestHost.RunAsync(async () =>
     {
         RichNodeId table = default, leftCell = default, rightCell = default;

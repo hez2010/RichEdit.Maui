@@ -4,7 +4,10 @@ namespace RichEdit.Maui;
 
 public partial class NativeEditorView
 {
+    private sealed class StructuredInputLimitException : Exception;
     internal RichEditorSession? StructuredSession { get; private set; }
+    internal NativeEditorView? StructuredInputCoordinator { get; private set; }
+    private bool _ownsStructuredSession = true;
     private bool _synchronizingStructured;
     private readonly Guid _structuredPrimaryId = Guid.NewGuid();
 
@@ -16,31 +19,41 @@ public partial class NativeEditorView
         previous.TypingFormatChanged -= OnStructuredTypingFormatChanged;
         previous.ReadOnlyChanged -= OnStructuredReadOnlyChanged;
         StructuredSession = null;
-        previous.Dispose();
+        StructuredInputCoordinator = null;
+        if (_ownsStructuredSession) previous.Dispose();
+        _ownsStructuredSession = true;
     }
 
-    internal void BindStructuredDocument(RichDocument document, RichNodeId? root = null)
+    internal void BindStructuredDocument(RichDocument document, RichNodeId? root = null, NativeEditorView? inputCoordinator = null)
     {
         VerifyAccess();
-        if (ReferenceEquals(StructuredSession?.Document, document) && Document.StructuredRoot == root) return;
+        if (ReferenceEquals(StructuredSession?.Document, document) && Document.StructuredRoot == root && ReferenceEquals(StructuredInputCoordinator, inputCoordinator)) return;
+        if (inputCoordinator is not null && (ReferenceEquals(inputCoordinator, this) || root is null ||
+            inputCoordinator.Document.StructuredRoot is not null || !ReferenceEquals(inputCoordinator.StructuredSession?.Document, document)))
+            throw new ArgumentException("A scoped input surface requires a full-document coordinator over the same rich document.", nameof(inputCoordinator));
         if (SourceSession is not null) throw new InvalidOperationException("A source view cannot bind a rich document.");
         Document.VerifyAttachmentChange();
         document.VerifyIdle();
         var projection = RichTextDocument.ProjectStructured(document, root);
-        var next = document.CreateSession();
-        next.IsReadOnly = IsReadOnly;
-        if (root is not null)
+        var next = inputCoordinator?.StructuredSession ?? document.CreateSession();
+        if (inputCoordinator is null) next.IsReadOnly = IsReadOnly;
+        if (root is not null && inputCoordinator is null)
         {
             var point = projection.StructuredProjection!.GetPoint(0)!.Value;
             next.Selection = new RichEdit.Core.RichTextSelection(point, point);
         }
         var previous = StructuredSession;
+        var previousCoordinator = StructuredInputCoordinator;
+        var previousOwned = _ownsStructuredSession;
         DiscardComposition();
         StructuredSession = next;
+        StructuredInputCoordinator = inputCoordinator;
+        _ownsStructuredSession = inputCoordinator is null;
         _synchronizingStructured = true;
         try
         {
             Document = projection;
+            if (inputCoordinator is not null) IsReadOnly = next.IsReadOnly;
             Selections = GetStructuredSelections()!;
             next.SelectionChanged += OnStructuredSelectionChanged;
             next.TypingFormatChanged += OnStructuredTypingFormatChanged;
@@ -48,7 +61,11 @@ public partial class NativeEditorView
         }
         catch
         {
-            if (!ReferenceEquals(Document, projection)) { StructuredSession = previous; next.Dispose(); }
+            if (!ReferenceEquals(Document, projection))
+            {
+                StructuredSession = previous; StructuredInputCoordinator = previousCoordinator; _ownsStructuredSession = previousOwned;
+                if (inputCoordinator is null) next.Dispose();
+            }
             throw;
         }
         finally { _synchronizingStructured = false; }
@@ -57,7 +74,7 @@ public partial class NativeEditorView
             previous.SelectionChanged -= OnStructuredSelectionChanged;
             previous.TypingFormatChanged -= OnStructuredTypingFormatChanged;
             previous.ReadOnlyChanged -= OnStructuredReadOnlyChanged;
-            previous.Dispose();
+            if (previousOwned) previous.Dispose();
         }
     }
 
@@ -93,10 +110,31 @@ public partial class NativeEditorView
         if (selection != session.Selection) session.Selection = selection;
     }
 
-    private bool ReplaceStructuredSelections(string text)
+    private bool ReplaceStructuredSelections(string text) =>
+        ApplyStructuredSelectionInput(StructuredSession!.Selection, text, TextChangeOrigin.Programmatic);
+
+    internal bool ApplyStructuredNativeInput(RichSelection selection, string text) => ApplyStructuredSelectionInput(selection, text, TextChangeOrigin.User);
+
+    private bool ApplyStructuredSelectionInput(RichSelection selection, string text, TextChangeOrigin origin)
     {
         if (IsReadOnly || Document.HasActiveComposition) return false;
-        return StructuredSession!.ReplaceSelection(text).Accepted;
+        try
+        {
+            return StructuredSession!.Edit(edit =>
+            {
+                edit.SetSelection(edit.ReplaceSelection(selection, text, StructuredSession.TypingCharacterFormat));
+                if (!AcceptsStructuredInputLength(edit.Snapshot)) throw new StructuredInputLimitException();
+            }, new(Origin: origin)).Accepted;
+        }
+        catch (StructuredInputLimitException) { return false; }
+    }
+
+    private bool AcceptsStructuredInputLength(RichDocumentSnapshot snapshot)
+    {
+        var limit = StructuredInputCoordinator?.MaxLength ?? MaxLength;
+        if (limit < 0) return true;
+        var length = snapshot.ProjectText().Text.Length;
+        return length <= limit || length <= StructuredSession!.Document.CurrentSnapshot.ProjectText().Text.Length;
     }
 
     internal bool DeleteStructuredCells()

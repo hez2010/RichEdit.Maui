@@ -71,6 +71,11 @@ public sealed class RichEditorControlTests
         Assert.Equal(editor.Selection, editor.GetValue(RichEditor.SelectionProperty));
         Assert.Throws<ObjectDisposedException>(() => session.ReplaceSelection("detached"));
         Assert.False(editor.IsModified);
+        using (var composition = editor.Session.BeginComposition())
+        {
+            Assert.False(editor.TryCompleteComposition());
+            composition.Cancel();
+        }
         return Task.CompletedTask;
     });
 }

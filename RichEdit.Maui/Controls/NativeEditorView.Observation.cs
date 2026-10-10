@@ -30,6 +30,7 @@ public partial class NativeEditorView
     {
         if (state == _composition)
             return;
+        if (StructuredInputCoordinator is not null) { SetScopedCompositionState(state); return; }
 
         var previous = _composition;
         _composition = state;
