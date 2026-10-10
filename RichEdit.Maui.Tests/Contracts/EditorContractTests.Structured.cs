@@ -6,6 +6,58 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+#if ANDROID || IOS || MACCATALYST
+        yield return new("structured scoped cell composition uses the shared rich root and history", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId left = default, right = default;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                var table = edit.InsertTable(edit.Body, 1, 1, (RichLength[])[new(1440), new(1440)]);
+                var snapshot = edit.Snapshot;
+                var grid = snapshot.GetTableGrid(table);
+                left = grid[0, 0]; right = grid[0, 1];
+                edit.ReplaceText(new(edit.Body, snapshot.Get<RichTableCell>(left).Blocks[0], 0), 0, "left");
+                edit.ReplaceText(new(edit.Body, snapshot.Get<RichTableCell>(right).Blocks[0], 0), 0, "right");
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model, left);
+                using var peer = new SharedEditor(editor);
+                peer.Editor.BindStructuredDocument(model, right);
+                Equal("left", NativeText(editor));
+                Equal("right", NativeText(peer.Editor));
+                editor.SelectedRange = new(4, 0);
+                editor.Focus();
+                await Task.Delay(100);
+                var before = model.CurrentSnapshot;
+                var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+#if ANDROID
+                using var info = new Android.Views.InputMethods.EditorInfo();
+                using var connection = native.OnCreateInputConnection(info)!;
+                using var marked = new Java.Lang.String("仮\n名");
+                connection.SetComposingText(marked, 1);
+#else
+                native.SetMarkedText("仮\n名", new Foundation.NSRange(3, 0));
+#endif
+                Equal(true, ReferenceEquals(before, model.CurrentSnapshot));
+                Equal("left仮\n名", editor.StructuredSession!.Composition!.Snapshot.ProjectText(left).Text.ToString());
+                Equal("right", NativeText(peer.Editor));
+#if ANDROID
+                connection.FinishComposingText();
+#else
+                native.UnmarkText();
+#endif
+                Equal("left仮\n名", model.CurrentSnapshot.ProjectText(left).Text.ToString());
+                Equal("right", model.CurrentSnapshot.ProjectText(right).Text.ToString());
+                peer.Editor.Undo();
+                Equal("left", NativeText(editor));
+                Equal("right", NativeText(peer.Editor));
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.DiscardComposition(); editor.Document = previous; }
+        });
+#endif
         yield return new("structured clipboard retains table cells through RTF copy paste and cut", async editor =>
         {
             var previous = editor.Document;

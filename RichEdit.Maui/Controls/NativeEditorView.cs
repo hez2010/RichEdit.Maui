@@ -649,6 +649,11 @@ public partial class NativeEditorView : View
         TextSelectionState? selectionState = null)
     {
         VerifyAccess();
+        if (StructuredSession is not null && Document.StructuredProjection is null)
+        {
+            (Handler as IRichEditorHandler)?.ApplyDocument(TextSpan.Empty, TypingCharacterFormat, TypingParagraphFormat);
+            return;
+        }
         snapshot = Decorations.RestoreAuthoredSnapshot(snapshot, SelectedRange);
         var selection = selectionState ?? TextSelectionState.FromRange(new TextSpan(selectionStart, selectionLength));
         selection.Range.Validate(snapshot.Text.Length, nameof(selectionLength));

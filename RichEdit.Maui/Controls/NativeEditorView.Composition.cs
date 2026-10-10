@@ -74,8 +74,8 @@ public partial class NativeEditorView
         if (StructuredSession?.Composition is { } richComposition)
             richComposition.Update(edit =>
             {
-                RichTextDocument.ApplyStructuredText(edit, changes.Changes, StructuredSession.TypingCharacterFormat);
-                edit.SetSelection(RichTextDocument.ToStructuredSelection(edit.Snapshot.ProjectText(), selection));
+                RichTextDocument.ApplyStructuredText(edit, changes.Changes, StructuredSession.TypingCharacterFormat, Document.StructuredRoot);
+                edit.SetSelection(RichTextDocument.ToStructuredSelection(edit.Snapshot.ProjectText(Document.StructuredRoot), selection));
             });
         _compositionPositionChanges.AddRange(changes.Changes.Where(change => change.Kind == RichTextChangeKind.Text));
         _compositionSnapshot = _compositionPreviewDocument.CurrentSnapshot.With();

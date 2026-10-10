@@ -9,6 +9,7 @@ public sealed partial class RichTextDocument
     private static readonly ConditionalWeakTable<RichDocument, RichTextDocument> StructuredProjections = new();
     internal RichDocument? StructuredDocument { get; }
     internal RichTextProjection? StructuredProjection { get; private set; }
+    internal RichNodeId? StructuredRoot { get; }
     private readonly IDisposable? _structuredSubscription;
     private object? _structuredOrigin;
     private RichTextChangeSet? _lastStructuredChange;
@@ -17,28 +18,40 @@ public sealed partial class RichTextDocument
     private string SerializeStructured()
     {
         using var stream = new MemoryStream();
-        RichEdit.Core.Rtf.RtfCodec.WriteAsync(StructuredProjection!.Snapshot, stream).GetAwaiter().GetResult();
+        RichEdit.Core.Rtf.RtfCodec.WriteAsync(StructuredDocument!.CurrentSnapshot, stream).GetAwaiter().GetResult();
         return System.Text.Encoding.ASCII.GetString(stream.GetBuffer(), 0, checked((int)stream.Length));
     }
 
     internal static RichTextDocument ProjectStructured(RichDocument document) => StructuredProjections.GetValue(document, static model => new(model));
+    internal static RichTextDocument ProjectStructured(RichDocument document, RichNodeId? root) => root is null
+        ? ProjectStructured(document) : new(document, root);
 
-    private RichTextDocument(RichDocument document)
+    private RichTextDocument(RichDocument document, RichNodeId? root = null)
     {
         StructuredDocument = document;
-        StructuredProjection = document.CurrentSnapshot.ProjectText();
+        StructuredRoot = root;
+        StructuredProjection = document.CurrentSnapshot.ProjectText(root);
         _snapshot = RichTextDocumentSnapshot.CreateStructuredProjection(StructuredProjection);
         Tracking = new(() => Length, document.VerifyAccess);
         _structuredSubscription = document.SubscribeProjection(PublishStructured);
-        document.StateChanged += (_, _) => RaiseUndoStateChanged();
+        var owner = new WeakReference<RichTextDocument>(this);
+        EventHandler? observer = null;
+        observer = (_, _) =>
+        {
+            if (owner.TryGetTarget(out var projection)) projection.RaiseUndoStateChanged();
+            else document.StateChanged -= observer;
+        };
+        document.StateChanged += observer;
     }
 
     private void PublishStructured(RichDocumentChangedEventArgs change)
     {
         var before = _snapshot;
-        StructuredProjection = change.After.ProjectText();
-        _snapshot = RichTextDocumentSnapshot.CreateStructuredProjection(StructuredProjection);
-        var structural = change.Before.Nodes.Values.Any(node => node is RichTable or RichList or RichField) || change.After.Nodes.Values.Any(node => node is RichTable or RichList or RichField);
+        StructuredProjection = StructuredRoot is { } root && !change.After.Nodes.ContainsKey(root) ? null : change.After.ProjectText(StructuredRoot);
+        _snapshot = StructuredProjection is { } projection ? RichTextDocumentSnapshot.CreateStructuredProjection(projection) :
+            new RichTextDocumentSnapshot("").WithVersion(change.After.Revision.Version, change.After.Revision.Identity);
+        var structural = StructuredRoot is null && (change.Before.Nodes.Values.Any(node => node is RichTable or RichList or RichField) ||
+            change.After.Nodes.Values.Any(node => node is RichTable or RichList or RichField));
         _lastStructuredChange = new(before.Version, _snapshot.Version, (RichTextChangeOrigin)change.Options.Origin,
             [.. CreateDelta(before, _snapshot)],
             change.Options.Tag, _structuredOrigin, before, _snapshot, undoDescription: change.Options.Description)
@@ -66,15 +79,15 @@ public sealed partial class RichTextDocument
         {
             void Apply(RichDocumentEdit edit)
             {
-                ApplyStructuredText(edit, changes, view?.StructuredSession?.TypingCharacterFormat);
+                ApplyStructuredText(edit, changes, view?.StructuredSession?.TypingCharacterFormat, StructuredRoot);
                 // Native fonts, proofing languages, and display overrides are not
                 // authored typing attributes. Explicit formatting commands have
                 // their own format-only transaction; text input uses session state.
                 if (!changes.Any(change => change.Kind == RichTextChangeKind.Text) && changes.Count != 0)
-                    ApplyStructuredFormatting(edit, candidate, changes);
+                    ApplyStructuredFormatting(edit, candidate, changes, StructuredRoot);
                 if (view is not null)
                 {
-                    var projection = edit.Snapshot.ProjectText();
+                    var projection = edit.Snapshot.ProjectText(StructuredRoot);
                     var selections = view.GetSelectionsAfterEdit(changes, projection.Text.Length);
                     edit.SetSelection(new RichTextSelectionSet(projection.Snapshot,
                         selections.Select(item => new RichTextSelectionItem(ToStructuredSelection(projection, new(item.Anchor, item.Active)))
@@ -94,19 +107,19 @@ public sealed partial class RichTextDocument
         finally { _structuredOrigin = null; _structuredCorrections = null; }
     }
 
-    internal static void ApplyStructuredText(RichDocumentEdit edit, IEnumerable<RichTextChange> changes, RichCharacterStyle? typingFormat = null)
+    internal static void ApplyStructuredText(RichDocumentEdit edit, IEnumerable<RichTextChange> changes, RichCharacterStyle? typingFormat = null, RichNodeId? root = null)
     {
         foreach (var change in changes.OfType<RichTextTextChange>())
         {
-            var projection = edit.Snapshot.ProjectText();
+            var projection = edit.Snapshot.ProjectText(root);
             var selection = ToStructuredSelection(projection, new(change.OldRange.Start, change.OldRange.End));
             edit.ReplaceSelection(selection, change.InsertedText, typingFormat);
         }
     }
 
-    private static void ApplyStructuredFormatting(RichDocumentEdit edit, RichTextDocumentSnapshot candidate, IReadOnlyList<RichTextChange> changes)
+    private static void ApplyStructuredFormatting(RichDocumentEdit edit, RichTextDocumentSnapshot candidate, IReadOnlyList<RichTextChange> changes, RichNodeId? root = null)
     {
-        var projection = edit.Snapshot.ProjectText();
+        var projection = edit.Snapshot.ProjectText(root);
         var expected = RichTextDocumentSnapshot.CreateStructuredProjection(projection);
         foreach (var change in changes.Where(change => change.Kind == RichTextChangeKind.CharacterFormat))
             foreach (var paragraph in projection.Paragraphs)

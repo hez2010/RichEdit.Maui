@@ -14,7 +14,8 @@ public partial class RichEditorHandler
         get
         {
 #if WINDOWS || IOS || MACCATALYST
-            return VirtualView?.StructuredSession?.Document.CurrentSnapshot.Nodes.Values.Any(node => node is RichTable or RichList or RichField) == true;
+            return VirtualView?.Document.StructuredRoot is null &&
+                VirtualView?.StructuredSession?.Document.CurrentSnapshot.Nodes.Values.Any(node => node is RichTable or RichList or RichField) == true;
 #else
             return false;
 #endif
