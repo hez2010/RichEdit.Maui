@@ -7,7 +7,8 @@ namespace RichEdit.Core.Rtf;
 // A native display projection deliberately excludes annotations and authored
 // cascade metadata. Persistence must use the semantic codec, not this projection.
 internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream output,
-    string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null, bool semantic = false)
+    string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null, bool semantic = false,
+    Func<RichNodeId, bool, string?>? marker = null, Func<string, string>? nativeText = null)
 {
     private readonly RtfOutput _output = new(output);
     private readonly Dictionary<string, int> _fonts = new(StringComparer.Ordinal);
@@ -110,6 +111,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
             await Masks("repch", RtfStyleState.Masks(paragraph.Character));
         }
         var position = 0;
+        if (marker?.Invoke(paragraph.Id, false) is { } paragraphStart) await T(paragraphStart);
         foreach (var id in paragraph.Inlines)
         {
             var inline = snapshot.Get<RichInline>(id);
@@ -126,11 +128,13 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 await T(RtfFieldSyntax.HyperlinkInstruction(link));
                 await S(@"}{\fldrslt ");
             }
+            if (marker?.Invoke(inline.Id, false) is { } inlineStart) await T(inlineStart);
             switch (inline)
             {
                 case RichText text:
                     if (semantic) await AnnotatedText(paragraph.Id, position, text.Content);
-                    else foreach (var chunk in text.Content.GetChunks(new(0, text.Content.Length))) await _output.TextAsync(chunk, _cancellation).ConfigureAwait(false);
+                    else foreach (var chunk in text.Content.GetChunks(new(0, text.Content.Length)))
+                        await _output.TextAsync(nativeText is null ? chunk : nativeText(chunk.ToString()).AsMemory(), _cancellation).ConfigureAwait(false);
                     break;
                 case RichSoftBreak:
                     if (semantic) await Anchors(paragraph.Id, position);
@@ -143,14 +147,16 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                     await S(@"{\field");
                     if (semantic) await S(@"{\*\refieldatom}");
                     await S(@"{\*\fldinst "); await T(field.Instruction);
-                    await S(@"}{\fldrslt "); await T(field.Result); await S("}}");
+                    await S(@"}{\fldrslt "); await T(!semantic && field.Result.Length == 0 ? "□" : field.Result); await S("}}");
                     break;
             }
+            if (marker?.Invoke(inline.Id, true) is { } inlineEnd) await T(inlineEnd);
             if (inline.Link is not null) await S("}}");
             position += RichDocumentSnapshot.InlineLength(inline);
             await S("}");
         }
         if (semantic) await Anchors(paragraph.Id, position);
+        if (marker?.Invoke(paragraph.Id, true) is { } paragraphEnd) await T(paragraphEnd);
         if (terminate) await C("par");
         await S("\n");
     }

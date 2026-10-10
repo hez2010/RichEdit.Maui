@@ -135,6 +135,38 @@ internal static class AppleEditorTests
                 edit.DeleteBlock(new(2));
             });
             await VerifyNativeTable(await StructuredRichProjection.CreateRtfAsync(snapshot));
+            using var saved = new MemoryStream();
+            await RichEdit.Core.Rtf.RtfCodec.WriteAsync(snapshot, saved);
+            await VerifyNativeTable(System.Text.Encoding.ASCII.GetString(saved.ToArray()));
+        });
+
+        await Test("structured table maps retain native empty cells and field addresses", async () =>
+        {
+            var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>
+            {
+                var table = edit.InsertTable(edit.Body, 1, 2, (RichEdit.Core.RichLength[])[new(2400), new(2400)]);
+                var initial = edit.Snapshot;
+                var first = initial.Get<RichEdit.Core.RichTableCell>(initial.GetTableGrid(table)[0, 0]).Blocks[0];
+                edit.ReplaceText(new(edit.Body, first, 0), 0, "literal\uFFF9\uFFFB\uFFFC");
+                edit.InsertField(new(edit.Body, first, 10), "DATE", "2026");
+                edit.SetHyperlink(new(edit.Body, first, 0), 7, new("https://example.test"));
+                edit.InsertTable(initial.GetTableGrid(table)[1, 1], 1, 1, (RichEdit.Core.RichLength[])[new(900)]);
+                edit.DeleteBlock(new(2));
+            });
+            var prepared = await StructuredRichNativeMap.PrepareAsync(snapshot);
+            using var data = NSData.FromArray(System.Text.Encoding.ASCII.GetBytes(prepared.Rtf));
+            using var imported = NSAttributedString.Create(data, new NSAttributedStringDocumentAttributes { DocumentType = NSDocumentType.RTF }, out var error);
+            if (imported is null || error is not null) throw new InvalidOperationException(error?.Description ?? "Missing imported RTF.");
+            using var content = new NSMutableAttributedString(imported);
+            var resolved = prepared.Resolve(content.Value ?? "");
+            foreach (var removal in resolved.Removals.Reverse()) content.Replace(new NSRange(removal.Start, removal.Length), "");
+            EditorContractTests.Equal(resolved.Map.NativeText, content.Value, "native-only markers removed before display");
+            foreach (var paragraph in snapshot.Nodes.Values.OfType<RichEdit.Core.RichParagraph>())
+                for (var offset = 0; offset <= snapshot.GetParagraphLength(paragraph.Id); offset++)
+                {
+                    var point = new RichEdit.Core.RichTextPoint(snapshot.Body, paragraph.Id, offset);
+                    EditorContractTests.Equal(point, resolved.Map.ToRich(resolved.Map.ToNative(point))!.Value, "structural/native caret round trip");
+                }
         });
 
         await Test("native smart selection transformations remain tracked", async () =>

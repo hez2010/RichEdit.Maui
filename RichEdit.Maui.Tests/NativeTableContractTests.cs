@@ -7,6 +7,43 @@ namespace RichEdit.Maui.Tests;
 public class NativeTableContractTests
 {
     [Fact]
+    public Task NativeStructuralMapRetainsEmptyCellsLiteralMarkersAndFieldAddresses() => WindowsTestHost.RunAsync(async () =>
+    {
+        var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>
+        {
+            var outer = edit.InsertTable(edit.Body, 1, 2, (RichEdit.Core.RichLength[])[new(2400), new(2400)]);
+            var initial = edit.Snapshot;
+            var first = initial.Get<RichEdit.Core.RichTableCell>(initial.GetTableGrid(outer)[0, 0]).Blocks[0];
+            edit.ReplaceText(new(edit.Body, first, 0), 0, "literal\uFFF9\uFFFB\uFFFC");
+            edit.InsertField(new(edit.Body, first, 10), "DATE", "2026");
+            edit.SetHyperlink(new(edit.Body, first, 0), 7, new("https://example.test"));
+            var cell = initial.GetTableGrid(outer)[1, 1];
+            edit.InsertTable(cell, 1, 1, (RichEdit.Core.RichLength[])[new(900)]);
+            edit.DeleteBlock(new(2));
+        });
+        var prepared = await StructuredRichNativeMap.PrepareAsync(snapshot);
+        var native = new RichEditBox();
+        native.Document.SetText(TextSetOptions.FormatRtf, prepared.Rtf);
+        var story = native.Document.GetRange(0, 0);
+        story.SetRange(0, story.StoryLength);
+        var resolved = prepared.Resolve(story.Text);
+        foreach (var removal in resolved.Removals.Reverse())
+            native.Document.GetRange(removal.Start, removal.End).SetText(TextSetOptions.None, "");
+        story.SetRange(0, story.StoryLength);
+        Assert.Equal(resolved.Map.NativeText, story.Text);
+        foreach (var paragraph in snapshot.Nodes.Values.OfType<RichEdit.Core.RichParagraph>())
+            for (var offset = 0; offset <= snapshot.GetParagraphLength(paragraph.Id); offset++)
+            {
+                var point = new RichEdit.Core.RichTextPoint(snapshot.Body, paragraph.Id, offset);
+                Assert.Equal(point, resolved.Map.ToRich(resolved.Map.ToNative(point)));
+            }
+        native.Document.GetText(TextGetOptions.FormatRtf, out var saved);
+        Assert.Contains(@"\nestrow", saved);
+        Assert.Contains(@"\trowd", saved);
+        Assert.DoesNotContain("RichMap", story.Text);
+    });
+
+    [Fact]
     public Task StructuredNestedTablesRemainNativeTables() => WindowsTestHost.RunAsync(async () =>
     {
         var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>
