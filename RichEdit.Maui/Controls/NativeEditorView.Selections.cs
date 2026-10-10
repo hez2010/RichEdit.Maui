@@ -67,6 +67,7 @@ public partial class NativeEditorView
         if (!_deferNotifications)
         {
             SynchronizeSourceSelection();
+            SynchronizeStructuredSelection();
             Document.BreakTypingUndoGroup();
             Commands?.Refresh();
             SelectionsChanged?.Invoke(this, EventArgs.Empty);

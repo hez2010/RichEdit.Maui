@@ -44,6 +44,9 @@ internal static partial class EditorContractTests
 #endif
     private static IEnumerable<Case> CreateCases()
     {
+        foreach (var test in StructuredBindingCases())
+            yield return test;
+
         foreach (var test in SharedDocumentCases())
             yield return test;
 

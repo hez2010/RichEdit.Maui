@@ -29,6 +29,7 @@ public sealed partial class RichTextDocument
     internal void VerifyAccess()
     {
         SourceDocument?.VerifyAccess();
+        StructuredDocument?.VerifyAccess();
         foreach (var view in _views)
             if (view.TryGetTarget(out var editor))
             {

@@ -36,6 +36,7 @@ public partial class NativeEditorView
         if (state.IsActive && !previous.IsActive)
         {
             if (SourceSession is { } session) session.BeginComposition();
+            StructuredSession?.BeginComposition();
             _compositionDocument = Document;
             _compositionPreviewDocument = new RichTextDocument(Document.CurrentSnapshot);
             Document.BreakTypingUndoGroup();

@@ -70,6 +70,12 @@ public partial class NativeEditorView
             {
                 foreach (var change in changes.Changes.OfType<RichTextTextChange>()) edit.Replace(change.OldRange, change.InsertedText);
             }, new(selection.Anchor, selection.Active));
+        if (StructuredSession?.Composition is { } richComposition)
+            richComposition.Update(edit =>
+            {
+                RichTextDocument.ApplyStructuredText(edit, changes.Changes, StructuredSession.TypingCharacterFormat);
+                edit.SetSelection(RichTextDocument.ToStructuredSelection(edit.Snapshot.ProjectText(), selection));
+            });
         _compositionPositionChanges.AddRange(changes.Changes.Where(change => change.Kind == RichTextChangeKind.Text));
         _compositionSnapshot = _compositionPreviewDocument.CurrentSnapshot.With();
         _compositionSelection = selection;
@@ -83,6 +89,7 @@ public partial class NativeEditorView
     private void CommitComposition()
     {
         SourceSession?.Composition?.Cancel();
+        StructuredSession?.Composition?.Cancel();
         var snapshot = _compositionSnapshot;
         var selection = _compositionSelection ?? SelectionState;
         var token = _compositionSourceToken;
@@ -136,6 +143,7 @@ public partial class NativeEditorView
     internal void DiscardComposition()
     {
         SourceSession?.Composition?.Cancel();
+        StructuredSession?.Composition?.Cancel();
         var preview = _compositionPreviewDocument;
         if (preview is not null && ReferenceEquals(_compositionDocument, Document))
             preview.ReplaceSnapshotFromNative(Document.CurrentSnapshot, _previewSourceToken, nativeUndoOwned: true);
@@ -166,6 +174,7 @@ public partial class NativeEditorView
     private void VerifySelectionMutation()
     {
         if (!_deferNotifications) SourceSession?.Document.VerifyIdle();
+        if (!_deferNotifications && !_synchronizingStructured) StructuredSession?.Document.VerifyIdle();
         if (_planningInput)
             throw new InvalidOperationException("Input rules must propose selections through their transaction builder.");
         if (Composition.IsActive && !_synchronizingSelection && !_deferNotifications && !_updatingSelections)

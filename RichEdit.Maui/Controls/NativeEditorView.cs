@@ -114,6 +114,13 @@ public partial class NativeEditorView : View
         typeof(bool),
         typeof(NativeEditorView),
         false,
+        coerceValue: static (bindable, value) =>
+        {
+            var editor = (NativeEditorView)bindable;
+            editor.VerifyAccess();
+            if (editor.StructuredSession is { } session && session.IsReadOnly != (bool)value) session.IsReadOnly = (bool)value;
+            return value;
+        },
         propertyChanged: static (bindable, _, _) => ((NativeEditorView)bindable).Commands.Refresh());
 
     /// <summary>Identifies the <see cref="IsSpellCheckEnabled"/> bindable property.</summary>
@@ -807,6 +814,8 @@ public partial class NativeEditorView : View
     internal void SetTypingCharacterFormat(RichTextCharacterFormat format)
     {
         VerifyAccess();
+        if (StructuredSession is { } session)
+            session.TypingCharacterFormat = session.TypingCharacterFormat.Overlay(RichTextDocument.CharacterOverrides(_typingCharacterFormat, format));
         _typingCharacterFormat = RichTextDocumentSnapshot.Validate(format);
         Document.BreakUndoGroup();
         ApplyTypingFormatToHandler();
@@ -885,6 +894,7 @@ public partial class NativeEditorView : View
         }
 
         newDocument.VerifyCanAttachEditor(this);
+        ReleaseStructuredBinding(newDocument);
         DetachDocument(oldDocument);
         AttachDocument(newDocument);
         DiscardComposition();
@@ -981,7 +991,7 @@ public partial class NativeEditorView : View
         Decorations.MapThrough(changeSet);
         var foldingChanged = Folding.MapThrough(changeSet);
         Adornments.MapThrough(changeSet);
-        var selections = SourceSession?.Selections ?? (ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionsAfter is { } requestedSet
+        var selections = SourceSession?.Selections ?? GetStructuredSelections() ?? (ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionsAfter is { } requestedSet
             ? requestedSet : GetSelectionsAfterEdit(changeSet.Changes, Document.Length));
         SetSelectionsFromDocument(selections);
         var selection = new TextSelectionState(selections.Primary.Anchor, selections.Primary.Active);
@@ -1093,7 +1103,8 @@ public partial class NativeEditorView : View
     private void RefreshTypingFormats()
     {
         var snapshot = Document.CurrentSnapshot;
-        _typingCharacterFormat = snapshot.GetCaretFormat(SelectionState.Active);
+        _typingCharacterFormat = StructuredSession is { } session
+            ? RichTextDocumentSnapshot.ToNative(session.ResolveTypingCharacterFormat()) : snapshot.GetCaretFormat(SelectionState.Active);
         _typingParagraphFormat = snapshot.GetParagraphFormat(SelectionState.Active);
     }
 
