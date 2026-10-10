@@ -85,6 +85,7 @@ public sealed class TextDocument
     private long _state;
     private long _savedState;
     private readonly List<WeakReference<TextEditorSession>> _sessions = [];
+    private readonly List<WeakReference<ProjectionSubscription>> _projections = [];
     private readonly LinkedList<HistoryEntry> _undo = [];
     private readonly LinkedList<HistoryEntry> _redo = [];
     private int _historyLimit = 1000;
@@ -411,11 +412,32 @@ public sealed class TextDocument
         _sessions.RemoveAll(reference => !reference.TryGetTarget(out var item) || ReferenceEquals(item, session));
     }
 
+    internal IDisposable SubscribeProjection(Action<TextDocumentChangedEventArgs> synchronize)
+    {
+        ArgumentNullException.ThrowIfNull(synchronize);
+        VerifyIdle();
+        var subscription = new ProjectionSubscription(this, synchronize);
+        _projections.Add(new(subscription));
+        return subscription;
+    }
+
+    private sealed class ProjectionSubscription(TextDocument document, Action<TextDocumentChangedEventArgs> synchronize) : IDisposable
+    {
+        internal Action<TextDocumentChangedEventArgs> Synchronize { get; } = synchronize;
+        public void Dispose()
+        {
+            document.VerifyAccess();
+            document._projections.RemoveAll(reference => !reference.TryGetTarget(out var item) || ReferenceEquals(item, this));
+        }
+    }
+
     private void Publish(TextDocumentChangedEventArgs change, TextEditorSession? invokingSession, TextSelectionSet? selection)
     {
         _busy = true;
         _sessions.RemoveAll(reference => !reference.TryGetTarget(out _));
         var sessions = _sessions.Select(reference => reference.TryGetTarget(out var session) ? session : null).OfType<TextEditorSession>().ToArray();
+        _projections.RemoveAll(reference => !reference.TryGetTarget(out _));
+        var projections = _projections.Select(reference => reference.TryGetTarget(out var projection) ? projection : null).OfType<ProjectionSubscription>().ToArray();
         List<Exception>? errors = null;
         void Notify(Action action) { try { action(); } catch (Exception error) { (errors ??= []).Add(error); } }
         try
@@ -423,6 +445,8 @@ public sealed class TextDocument
             Tracking.MapThrough(change.Map);
             foreach (var session in sessions)
                 session.Synchronize(change, ReferenceEquals(session, invokingSession) ? selection : null);
+            foreach (var projection in projections)
+                Notify(() => projection.Synchronize(change));
             foreach (var session in sessions)
                 Notify(() => session.Publish(change));
             if (Changed is { } observers)

@@ -6,6 +6,28 @@ namespace TextEdit.Core.Tests;
 public sealed class TextDocumentTests
 {
     [Fact]
+    public void DerivedProjectionsSeeMappedSessionsAndSynchronizeBeforePublicObservers()
+    {
+        var document = new TextDocument("abc");
+        using var view = document.CreateSession();
+        view.Selections = TextSelectionSet.Caret(3);
+        var projected = "abc";
+        using var projection = document.SubscribeProjection(change =>
+        {
+            Assert.Equal(4, view.Selections.Primary.Active);
+            Assert.Throws<InvalidOperationException>(() => document.Edit(edit => edit.Insert(0, "recursive")));
+            projected = change.After.ToString();
+        });
+        using var failing = document.SubscribeProjection(_ => throw new InvalidOperationException("Native rendering failed"));
+        var notifications = 0;
+        view.Changed += (_, _) => { Assert.Equal("!abc", projected); notifications++; };
+        document.Changed += (_, _) => { Assert.Equal("!abc", projected); notifications++; };
+        Assert.Throws<AggregateException>(() => document.Edit(edit => edit.Insert(0, "!")));
+        Assert.Equal(2, notifications);
+        Assert.Equal("!abc", document.Text);
+    }
+
+    [Fact]
     public void NativeInputAndRulesPublishOneAtomicStateAndOneUndoUnit()
     {
         var document = new TextDocument("Con");
