@@ -15,13 +15,13 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         BackgroundColor = Colors.White
     };
     private readonly Entry _focusTarget = new() { Placeholder = "Focus target" };
-    private readonly RichEditor _textView;
+    private readonly NativeEditorView _textView;
     private readonly CodeEditorActions _actions;
 
     internal CodeEditorTestPage(string? filter)
     {
         _actions = new CodeEditorActions(_editor);
-        _textView = ((Grid)_editor.Content).Children.OfType<RichEditor>().Single();
+        _textView = ((Grid)_editor.Content).Children.OfType<NativeEditorView>().Single();
         var layout = new Grid { RowDefinitions = [new(GridLength.Star), new(GridLength.Auto)] };
         layout.Add(_editor);
         layout.Add(_focusTarget, 0, 1);
@@ -130,13 +130,13 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.SelectionState = new RichTextSelectionState(4, 1);
             _editor.Selection.ReplaceText("9");
             _editor.SelectionState = new RichTextSelectionState(0, 0);
-            _editor.Document.Undo();
+            _editor.Undo();
             await _editor.Coloring().RefreshAsync();
             Equal("123456", _editor.Document.Text);
             Equal(new RichTextSelectionState(4, 1), _editor.SelectionState);
             Equal(false, _editor.Document.IsModified);
             Equal(1, _editor.GetOffset(_editor.CaretPosition));
-            _editor.Document.Redo();
+            _editor.Redo();
             Equal("1956", _editor.Document.Text);
             Equal(new RichTextSelectionState(2, 2), _editor.SelectionState);
         });

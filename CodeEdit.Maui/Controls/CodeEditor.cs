@@ -6,7 +6,7 @@ namespace CodeEdit.Maui;
 
 /// <summary>A native source-code editor with syntax colors, line numbers, and atomic editing commands.</summary>
 /// <remarks>
-/// Uses an internal <see cref="RichEditor"/> through its public APIs. Syntax colors are
+/// Uses an internal <see cref="NativeEditorView"/> through its public APIs. Syntax colors are
 /// view-owned decorations; they do not change source, saved state, or history. Persist source using Document.Text.
 /// </remarks>
 public sealed partial class CodeEditor : ContentView
@@ -165,14 +165,14 @@ public sealed partial class CodeEditor : ContentView
     private bool _synchronizingSelection;
     private CodeDocument _document = new();
 
-    internal RichEditor TextView { get; }
+    internal NativeEditorView TextView { get; }
     internal CodeEditorNativeAdapter? NativeAdapter { get; private set; }
     internal CodeLineMap Lines { get; private set; } = new(string.Empty);
 
     /// <summary>Creates an editor configured for source code.</summary>
     public CodeEditor()
     {
-        TextView = new RichEditor
+        TextView = new NativeEditorView
         {
             IsSpellCheckEnabled = false,
             IsTextPredictionEnabled = false,

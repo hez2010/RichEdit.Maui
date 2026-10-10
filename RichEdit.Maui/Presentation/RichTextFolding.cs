@@ -11,7 +11,7 @@ namespace RichEdit.Maui;
 /// </remarks>
 public sealed class RichTextFolding
 {
-    private readonly RichEditor _editor;
+    private readonly NativeEditorView _editor;
     private ImmutableArray<RichTextRange> _ranges = [];
     private ImmutableArray<RichTextRange> _effectiveRanges = [];
     private bool _changed;
@@ -20,7 +20,7 @@ public sealed class RichTextFolding
     private static readonly RichTextDecorationStyle FoldStyle = new() { Hidden = true };
 #endif
 
-    internal RichTextFolding(RichEditor editor)
+    internal RichTextFolding(NativeEditorView editor)
     {
         _editor = editor;
 #if WINDOWS

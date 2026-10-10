@@ -91,7 +91,7 @@ internal static class CharacterFormattingTests
         }
     }
 
-    private static void AssertMatchesFullRender(RichEditor editor, RichTextDecoration[][] layers, string context)
+    private static void AssertMatchesFullRender(NativeEditorView editor, RichTextDecoration[][] layers, string context)
     {
         var document = RichTextDocument.FromPlainText(editor.Document.Text);
         document.Edit(edit =>
@@ -128,7 +128,7 @@ internal static class CharacterFormattingTests
         }
     }
 
-    internal static object Capture(RichEditor editor, int position)
+    internal static object Capture(NativeEditorView editor, int position)
     {
 #if ANDROID
         var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;

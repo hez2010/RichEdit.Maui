@@ -3,7 +3,7 @@ using RichEdit.Maui;
 namespace CodeEdit.Maui;
 
 // Adapts public native APIs for viewport geometry and code-specific keyboard behavior.
-// Document content, formatting, selection, clipboard, and history stay with RichEditor.
+// Document content, formatting, selection, clipboard, and history stay with NativeEditorView.
 internal sealed partial class CodeEditorNativeAdapter : IDisposable
 {
     private readonly CodeEditor Owner;

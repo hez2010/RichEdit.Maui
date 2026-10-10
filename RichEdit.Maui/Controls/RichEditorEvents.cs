@@ -21,7 +21,7 @@ public sealed class RichTextDocumentReplacedEventArgs(RichTextDocument? oldDocum
 }
 
 /// <summary>
-/// Provides data for <see cref="RichEditor.ContentChanged"/>.
+/// Provides data for <see cref="NativeEditorView.ContentChanged"/>.
 /// </summary>
 public sealed class RichTextContentChangedEventArgs : EventArgs
 {
@@ -39,7 +39,7 @@ public sealed class RichTextContentChangedEventArgs : EventArgs
 }
 
 /// <summary>
-/// Provides data for <see cref="RichEditor.TextChanged"/>.
+/// Provides data for <see cref="NativeEditorView.TextChanged"/>.
 /// </summary>
 public sealed class RichTextTextChangedEventArgs : EventArgs
 {
@@ -61,7 +61,7 @@ public sealed class RichTextTextChangedEventArgs : EventArgs
 }
 
 /// <summary>
-/// Provides data for <see cref="RichEditor.SelectionChanged"/>.
+/// Provides data for <see cref="NativeEditorView.SelectionChanged"/>.
 /// </summary>
 public sealed class RichTextSelectionChangedEventArgs : EventArgs
 {

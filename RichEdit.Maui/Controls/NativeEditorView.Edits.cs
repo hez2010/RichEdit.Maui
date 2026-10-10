@@ -5,7 +5,7 @@ namespace RichEdit.Maui;
 /// <param name="Text">The replacement text. Line endings are normalized to LF.</param>
 public sealed record RichTextEdit(RichTextRange Range, string Text);
 
-public partial class RichEditor
+public partial class NativeEditorView
 {
     /// <summary>Atomically applies original-coordinate edits if this view still accepts the captured revision.</summary>
     /// <param name="revision">The captured document revision.</param>

@@ -15,7 +15,7 @@ public partial class RichTextView : UITextView
     /// <inheritdoc />
     public override NSUndoManager? UndoManager => _documentUndoManager ?? base.UndoManager;
 
-    internal void SetUndoEditor(RichEditor? editor) => _documentUndoManager.SetEditor(editor);
+    internal void SetUndoEditor(NativeEditorView? editor) => _documentUndoManager.SetEditor(editor);
 
     internal void NotifyUndoStateChanged() => _documentUndoManager.NotifyStateChanged();
 
@@ -152,14 +152,14 @@ public partial class RichTextView : UITextView
 
     private sealed class DocumentUndoManager : NSUndoManager
     {
-        private WeakReference<RichEditor>? _editor;
+        private WeakReference<NativeEditorView>? _editor;
 
         public DocumentUndoManager() => DisableUndoRegistration();
 
-        public void SetEditor(RichEditor? editor) =>
-            _editor = editor is null ? null : new WeakReference<RichEditor>(editor);
+        public void SetEditor(NativeEditorView? editor) =>
+            _editor = editor is null ? null : new WeakReference<NativeEditorView>(editor);
 
-        private RichEditor? Editor => _editor?.TryGetTarget(out var editor) == true ? editor : null;
+        private NativeEditorView? Editor => _editor?.TryGetTarget(out var editor) == true ? editor : null;
 
         public override bool CanUndo => Editor is { IsReadOnly: false, CanUndo: true };
 

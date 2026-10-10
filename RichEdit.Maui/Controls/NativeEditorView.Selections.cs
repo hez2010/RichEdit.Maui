@@ -2,15 +2,15 @@ using TextEdit.Core;
 
 namespace RichEdit.Maui;
 
-public sealed partial class RichEditor
+public partial class NativeEditorView
 {
     /// <summary>Identifies the two-way bindable <see cref="Selections"/> property.</summary>
     public static readonly BindableProperty SelectionsProperty = BindableProperty.Create(
-        nameof(Selections), typeof(TextSelectionSet), typeof(RichEditor), defaultBindingMode: BindingMode.TwoWay,
+        nameof(Selections), typeof(TextSelectionSet), typeof(NativeEditorView), defaultBindingMode: BindingMode.TwoWay,
         defaultValueCreator: static _ => TextSelectionSet.Caret(0),
         validateValue: static (view, value) =>
         {
-            var editor = (RichEditor)view;
+            var editor = (NativeEditorView)view;
             editor.VerifyAccess();
             editor.VerifySelectionMutation();
             if (value is not TextSelectionSet selections)
@@ -18,7 +18,7 @@ public sealed partial class RichEditor
             selections.Validate(editor.Document.Length);
             return true;
         },
-        propertyChanged: static (view, _, _) => ((RichEditor)view).OnSelectionsChanged());
+        propertyChanged: static (view, _, _) => ((NativeEditorView)view).OnSelectionsChanged());
 
     private bool _updatingSelections;
     private TextSelectionSet? _pendingSelections;

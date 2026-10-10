@@ -420,7 +420,7 @@ internal static partial class EditorContractTests
         (IReadOnlyList<Rect>)typeof(RichEditorHandler).GetProperty("SecondaryCaretBounds",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(handler)!;
 
-    private static void NativeMultiInsert(RichEditor editor, string text)
+    private static void NativeMultiInsert(NativeEditorView editor, string text)
     {
 #if ANDROID
         // Commit through the actual input connection. Assigning a native caret after

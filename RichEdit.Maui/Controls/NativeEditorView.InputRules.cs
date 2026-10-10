@@ -9,7 +9,7 @@ public sealed class RichTextInputRejectedEventArgs(Exception error) : EventArgs
     public Exception Error { get; } = error;
 }
 
-public sealed partial class RichEditor
+public partial class NativeEditorView
 {
     /// <summary>Gets synchronous rules that extend native input into one atomic edit. Rich-text replacements use LF line endings.</summary>
     public TextInputRules InputRules

@@ -11,29 +11,29 @@ using Microsoft.Maui.Handlers;
 namespace RichEdit.Maui;
 
 /// <summary>
-/// Connects <see cref="RichEditor"/> to the native rich editor for the current target.
+/// Connects <see cref="NativeEditorView"/> to the native rich editor for the current target.
 /// </summary>
-public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEditor>, IRichEditorHandler
+public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformRichEditor>, IRichEditorHandler
 {
     /// <summary>
     /// Gets the default property mapper used by rich-editor handlers.
     /// </summary>
-    public static IPropertyMapper<RichEditor, RichEditorHandler> Mapper =
-        new PropertyMapper<RichEditor, RichEditorHandler>(ViewMapper)
+    public static IPropertyMapper<NativeEditorView, RichEditorHandler> Mapper =
+        new PropertyMapper<NativeEditorView, RichEditorHandler>(ViewMapper)
         {
-            [nameof(RichEditor.Document)] = MapDocument,
-            [nameof(RichEditor.Placeholder)] = MapPlaceholder,
-            [nameof(RichEditor.PlaceholderColor)] = MapPlaceholder,
-            [nameof(RichEditor.TextColor)] = MapAppearance,
-            [nameof(RichEditor.FontFamily)] = MapAppearance,
-            [nameof(RichEditor.FontSize)] = MapAppearance,
-            [nameof(RichEditor.IsReadOnly)] = MapInputConfiguration,
-            [nameof(RichEditor.IsSpellCheckEnabled)] = MapInputConfiguration,
-            [nameof(RichEditor.IsTextPredictionEnabled)] = MapInputConfiguration,
-            [nameof(RichEditor.Keyboard)] = MapInputConfiguration,
-            [nameof(RichEditor.MaxLength)] = MapInputConfiguration,
-            [nameof(RichEditor.AutoSize)] = MapInputConfiguration,
-            [nameof(RichEditor.AcceptsTab)] = MapInputConfiguration,
+            [nameof(NativeEditorView.Document)] = MapDocument,
+            [nameof(NativeEditorView.Placeholder)] = MapPlaceholder,
+            [nameof(NativeEditorView.PlaceholderColor)] = MapPlaceholder,
+            [nameof(NativeEditorView.TextColor)] = MapAppearance,
+            [nameof(NativeEditorView.FontFamily)] = MapAppearance,
+            [nameof(NativeEditorView.FontSize)] = MapAppearance,
+            [nameof(NativeEditorView.IsReadOnly)] = MapInputConfiguration,
+            [nameof(NativeEditorView.IsSpellCheckEnabled)] = MapInputConfiguration,
+            [nameof(NativeEditorView.IsTextPredictionEnabled)] = MapInputConfiguration,
+            [nameof(NativeEditorView.Keyboard)] = MapInputConfiguration,
+            [nameof(NativeEditorView.MaxLength)] = MapInputConfiguration,
+            [nameof(NativeEditorView.AutoSize)] = MapInputConfiguration,
+            [nameof(NativeEditorView.AcceptsTab)] = MapInputConfiguration,
             // Native editing menus read the attached MAUI menu when they open.
             [nameof(IContextFlyoutElement.ContextFlyout)] = static (_, _) => { },
         };
@@ -251,7 +251,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     private partial void ClearUndoHistoryCore();
 
-    private static void MapDocument(RichEditorHandler handler, RichEditor editor)
+    private static void MapDocument(RichEditorHandler handler, NativeEditorView editor)
     {
         ((IRichEditorHandler)handler).ApplyDocument(
             editor.SelectedRange,
@@ -260,23 +260,23 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
         editor.Folding.NotifyChanged();
     }
 
-    private static void MapPlaceholder(RichEditorHandler handler, RichEditor editor) =>
+    private static void MapPlaceholder(RichEditorHandler handler, NativeEditorView editor) =>
         ((IRichEditorHandler)handler).ApplyAppearance(
             RichTextAppearanceChange.Placeholder |
             RichTextAppearanceChange.PlaceholderColor);
 
-    private static void MapAppearance(RichEditorHandler handler, RichEditor editor) =>
+    private static void MapAppearance(RichEditorHandler handler, NativeEditorView editor) =>
         ((IRichEditorHandler)handler).ApplyAppearance(
             RichTextAppearanceChange.TextColor |
             RichTextAppearanceChange.FontFamily |
             RichTextAppearanceChange.FontSize);
 
-    private static void MapInputConfiguration(RichEditorHandler handler, RichEditor editor) =>
+    private static void MapInputConfiguration(RichEditorHandler handler, NativeEditorView editor) =>
         handler.UpdateInputConfiguration(editor);
 
-    private partial void UpdatePlaceholder(RichEditor editor);
+    private partial void UpdatePlaceholder(NativeEditorView editor);
 
-    private partial void UpdateAppearance(RichEditor editor);
+    private partial void UpdateAppearance(NativeEditorView editor);
 
-    private partial void UpdateInputConfiguration(RichEditor editor);
+    private partial void UpdateInputConfiguration(NativeEditorView editor);
 }

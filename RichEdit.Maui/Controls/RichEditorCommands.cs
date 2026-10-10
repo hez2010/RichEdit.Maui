@@ -4,15 +4,15 @@ using System.Windows.Input;
 namespace RichEdit.Maui;
 
 /// <summary>
-/// Exposes history, selection, and clipboard commands for a <see cref="RichEditor"/>.
+/// Exposes history, selection, and clipboard commands for a <see cref="NativeEditorView"/>.
 /// </summary>
 public sealed class RichEditorCommands
 {
-    private readonly RichEditor _editor;
+    private readonly NativeEditorView _editor;
     private readonly Command[] _commands;
     private bool _clipboardSubscribed;
 
-    internal RichEditorCommands(RichEditor editor)
+    internal RichEditorCommands(NativeEditorView editor)
     {
         _editor = editor;
         Undo = Create(editor.Undo, () => CanMutateSelection && editor.CanUndo);

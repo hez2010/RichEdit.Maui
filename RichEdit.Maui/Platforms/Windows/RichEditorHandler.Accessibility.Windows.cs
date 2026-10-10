@@ -32,7 +32,7 @@ public partial class RichEditorHandler
     {
         internal readonly RichEditorHandler Handler;
         private readonly List<SourceImagePeer> _imagePeers = [];
-        private RichEditor? _eventEditor;
+        private NativeEditorView? _eventEditor;
         private readonly List<WeakReference<SourceTextRange>> _provisionalRanges = [];
         private string _inputText = "";
 
@@ -46,7 +46,7 @@ public partial class RichEditorHandler
             _provisionalRanges.Clear();
         }
 
-        internal RichEditor Editor => Handler.VirtualView;
+        internal NativeEditorView Editor => Handler.VirtualView;
 
         internal SourceTextPeer(SourceRichEditBox view, RichEditorHandler handler) : base(view)
         {

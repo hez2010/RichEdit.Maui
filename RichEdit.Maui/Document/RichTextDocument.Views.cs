@@ -2,7 +2,7 @@ namespace RichEdit.Maui;
 
 public sealed partial class RichTextDocument
 {
-    private readonly List<WeakReference<RichEditor>> _views = [];
+    private readonly List<WeakReference<NativeEditorView>> _views = [];
 
     internal bool HasActiveComposition => GetAttachedEditors().Any(IsComposing);
 
@@ -15,7 +15,7 @@ public sealed partial class RichTextDocument
         return !HasActiveComposition;
     }
 
-    private static bool IsComposing(RichEditor view) => view.Composition.IsActive ||
+    private static bool IsComposing(NativeEditorView view) => view.Composition.IsActive ||
         view.Handler is IRichEditorHandler { IsComposing: true };
 
     private void VerifyCompositionAccess(object? nativeSourceToken)
@@ -39,14 +39,14 @@ public sealed partial class RichTextDocument
     internal bool CanAttachEditor(object editor)
     {
         VerifyAccess();
-        return editor is RichEditor;
+        return editor is NativeEditorView;
     }
 
     internal void VerifyCanAttachEditor(object editor)
     {
         VerifyNoActiveEdit();
         ArgumentNullException.ThrowIfNull(editor);
-        if (editor is not RichEditor view)
+        if (editor is not NativeEditorView view)
             throw new ArgumentException("A document view must be a rich editor.", nameof(editor));
 
         view.VerifyAccess();
@@ -55,7 +55,7 @@ public sealed partial class RichTextDocument
     internal void AttachEditor(object editor)
     {
         VerifyCanAttachEditor(editor);
-        var view = (RichEditor)editor;
+        var view = (NativeEditorView)editor;
         if (!GetAttachedEditors().Contains(view))
             _views.Add(new(view));
     }
@@ -66,15 +66,15 @@ public sealed partial class RichTextDocument
         _views.RemoveAll(reference => !reference.TryGetTarget(out var view) || ReferenceEquals(view, editor));
     }
 
-    private RichEditor[] GetAttachedEditors()
+    private NativeEditorView[] GetAttachedEditors()
     {
         VerifyAccess();
         _views.RemoveAll(static reference => !reference.TryGetTarget(out _));
         return _views.Select(static reference => reference.TryGetTarget(out var editor) ? editor : null)
-            .OfType<RichEditor>().ToArray();
+            .OfType<NativeEditorView>().ToArray();
     }
 
-    private RichEditor? FindEditingView(object? sourceToken)
+    private NativeEditorView? FindEditingView(object? sourceToken)
     {
         if (sourceToken is null)
             return null;

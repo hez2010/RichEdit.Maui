@@ -385,7 +385,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     /// <summary>Restores preceding content and maps every attached view's selection through the change.</summary>
     public void Undo() => Undo(null);
 
-    internal void Undo(RichEditor? invokingEditor)
+    internal void Undo(NativeEditorView? invokingEditor)
     {
         VerifyNoActiveEdit();
         VerifyCompositionAccess(null);
@@ -406,7 +406,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     /// <summary>Reapplies the next content state and maps every attached view's selection through the change.</summary>
     public void Redo() => Redo(null);
 
-    internal void Redo(RichEditor? invokingEditor)
+    internal void Redo(NativeEditorView? invokingEditor)
     {
         VerifyNoActiveEdit();
         VerifyCompositionAccess(null);
@@ -630,7 +630,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         object? sourceToken = null,
         RichTextSelectionState? selection = null,
         IReadOnlyList<RichTextChange>? positionChanges = null,
-        RichEditor? selectionOwner = null,
+        NativeEditorView? selectionOwner = null,
         TextSelectionSet? selections = null)
     {
         ResetNativeEditCoalescing();

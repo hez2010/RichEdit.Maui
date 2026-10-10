@@ -231,14 +231,14 @@ public partial class RichEditorHandler
         VirtualView?.UpdateUndoStateFromPlatform();
     }
 
-    private partial void UpdatePlaceholder(RichEditor editor)
+    private partial void UpdatePlaceholder(NativeEditorView editor)
     {
-        if (editor.IsSet(RichEditor.PlaceholderProperty))
+        if (editor.IsSet(NativeEditorView.PlaceholderProperty))
         {
             PlatformView.Hint = editor.Placeholder;
         }
 
-        if (editor.IsSet(RichEditor.PlaceholderColorProperty))
+        if (editor.IsSet(NativeEditorView.PlaceholderColorProperty))
         {
             if (editor.PlaceholderColor is { } placeholderColor)
             {
@@ -251,18 +251,18 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void UpdateAppearance(RichEditor editor)
+    private partial void UpdateAppearance(NativeEditorView editor)
     {
-        if (editor.IsSet(RichEditor.TextColorProperty) && editor.TextColor is { } textColor)
+        if (editor.IsSet(NativeEditorView.TextColorProperty) && editor.TextColor is { } textColor)
         {
             PlatformView.SetTextColor(textColor.ToPlatform());
         }
-        else if (editor.IsSet(RichEditor.TextColorProperty) && _defaultTextColors is not null)
+        else if (editor.IsSet(NativeEditorView.TextColorProperty) && _defaultTextColors is not null)
         {
             PlatformView.SetTextColor(_defaultTextColors);
         }
 
-        if (editor.IsSet(RichEditor.FontSizeProperty))
+        if (editor.IsSet(NativeEditorView.FontSizeProperty))
         {
             if (editor.FontSize is { } fontSize)
             {
@@ -274,7 +274,7 @@ public partial class RichEditorHandler
             }
         }
 
-        if (editor.IsSet(RichEditor.FontFamilyProperty))
+        if (editor.IsSet(NativeEditorView.FontFamilyProperty))
         {
             PlatformView.Typeface = string.IsNullOrWhiteSpace(editor.FontFamily)
                 ? _defaultTypeface
@@ -307,7 +307,7 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void UpdateInputConfiguration(RichEditor editor)
+    private partial void UpdateInputConfiguration(NativeEditorView editor)
     {
         var selection = editor.SelectedRange;
         var wasApplying = _applyingDocument;

@@ -79,10 +79,10 @@ internal static partial class EditorContractTests
 
     private sealed partial class SharedEditor : IDisposable
     {
-        internal RichEditor Editor { get; }
+        internal NativeEditorView Editor { get; }
         private readonly RichEditorHandler _handler;
 
-        internal SharedEditor(RichEditor first)
+        internal SharedEditor(NativeEditorView first)
         {
             Editor = new RichEditor { Document = first.Document };
             _handler = new RichEditorHandler();

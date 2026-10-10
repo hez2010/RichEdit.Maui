@@ -150,7 +150,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
     [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
 #endif
-    private static Rect FoldingCaretRect(RichEditor editor, int offset)
+    private static Rect FoldingCaretRect(NativeEditorView editor, int offset)
     {
 #if WINDOWS
         var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;

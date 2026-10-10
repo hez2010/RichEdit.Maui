@@ -7,14 +7,14 @@ namespace RichEdit.Maui;
 /// </summary>
 public sealed partial class RichTextSelection : INotifyPropertyChanged
 {
-    private readonly RichEditor _editor;
+    private readonly NativeEditorView _editor;
     private RichTextCharacterFormat[]? _cachedCharacterFormats;
     private RichTextParagraphFormat[]? _cachedParagraphFormats;
     private RichTextRange _cachedFormatRange;
     private long _cachedFormatVersion = -1;
     private RichTextCharacterFormat? _cachedTypingCharacterFormat;
 
-    internal RichTextSelection(RichEditor editor)
+    internal RichTextSelection(NativeEditorView editor)
     {
         _editor = editor;
         CharacterFormat = new RichTextSelectionCharacterFormat(this);
@@ -51,7 +51,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <summary>Gets the paragraph format used by newly typed text.</summary>
     public RichTextParagraphFormat TypingParagraphFormat => _editor.TypingParagraphFormat;
 
-    internal RichEditor Editor => _editor;
+    internal NativeEditorView Editor => _editor;
 
     /// <summary>Moves the selection to a validated document range.</summary>
     /// <param name="range">The new range.</param>

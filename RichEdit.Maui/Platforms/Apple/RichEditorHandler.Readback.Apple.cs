@@ -461,7 +461,7 @@ public partial class RichEditorHandler
 
     private void QueueNativeReadback()
     {
-        if (_applyingDocument && !_applyingTypingFormat || ((IElementHandler)this).VirtualView is not RichEditor editor)
+        if (_applyingDocument && !_applyingTypingFormat || ((IElementHandler)this).VirtualView is not NativeEditorView editor)
         {
             return;
         }

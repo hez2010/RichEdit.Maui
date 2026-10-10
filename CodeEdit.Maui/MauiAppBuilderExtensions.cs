@@ -6,7 +6,7 @@ namespace CodeEdit.Maui;
 /// <summary>Provides CodeEditor registration for MAUI applications.</summary>
 public static class MauiAppBuilderExtensions
 {
-    /// <summary>Registers the RichEditor handler used internally by CodeEditor.</summary>
+    /// <summary>Registers the NativeEditorView handler used internally by CodeEditor.</summary>
     /// <param name="builder">The application builder.</param>
     /// <returns>The supplied builder.</returns>
     public static MauiAppBuilder UseCodeEditor(this MauiAppBuilder builder)

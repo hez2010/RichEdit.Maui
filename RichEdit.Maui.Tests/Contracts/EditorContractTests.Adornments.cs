@@ -181,7 +181,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
     [WinRT.DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
 #endif
-    private static Rect NativeAdornmentBounds(RichEditor editor, Button button)
+    private static Rect NativeAdornmentBounds(NativeEditorView editor, Button button)
     {
         var handler = (RichEditorHandler)editor.Handler!;
 #if WINDOWS
@@ -203,7 +203,7 @@ internal static partial class EditorContractTests
 #endif
     }
 
-    private static string AdornmentViewportDescription(RichEditor editor, int position)
+    private static string AdornmentViewportDescription(NativeEditorView editor, int position)
     {
         var native = ((RichEditorHandler)editor.Handler!).PlatformView;
 #if ANDROID
@@ -215,7 +215,7 @@ internal static partial class EditorContractTests
 #endif
     }
 
-    private static void ScrollAdornmentToPosition(RichEditor editor, int position)
+    private static void ScrollAdornmentToPosition(NativeEditorView editor, int position)
     {
         var native = ((RichEditorHandler)editor.Handler!).PlatformView;
 #if ANDROID

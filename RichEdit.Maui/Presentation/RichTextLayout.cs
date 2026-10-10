@@ -87,16 +87,16 @@ public sealed class RichTextLayoutSnapshot
 /// <summary>Queries visible native geometry on the editor's UI thread.</summary>
 public sealed class RichTextLayout
 {
-    private readonly RichEditor _editor;
+    private readonly NativeEditorView _editor;
     private readonly View? _ancestor;
     private readonly object _owner = new();
     private long _version;
     private bool _notificationQueued;
     private EventHandler? _changed;
 
-    internal RichTextLayout(RichEditor editor) => _editor = editor;
+    internal RichTextLayout(NativeEditorView editor) => _editor = editor;
 
-    private RichTextLayout(RichEditor editor, View ancestor)
+    private RichTextLayout(NativeEditorView editor, View ancestor)
     {
         _editor = editor;
         _ancestor = ancestor;
@@ -139,7 +139,7 @@ public sealed class RichTextLayout
     public RichTextLayoutSnapshot? Capture() => CaptureCore(includeInput: false);
 
     /// <summary>Captures native input layout, including this view's provisional marked text.</summary>
-    /// <returns>A capture whose provisional positions address <see cref="RichEditor.CompositionSnapshot"/>, or null before usable layout.</returns>
+    /// <returns>A capture whose provisional positions address <see cref="NativeEditorView.CompositionSnapshot"/>, or null before usable layout.</returns>
     public RichTextLayoutSnapshot? CaptureInput() => CaptureCore(includeInput: true);
 
     private RichTextLayoutSnapshot? CaptureCore(bool includeInput)

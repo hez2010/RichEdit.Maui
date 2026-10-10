@@ -82,7 +82,7 @@ public sealed partial class RichTextDecorationLayer : IDisposable
 /// <remarks>Use on the editor's UI thread. Ranges move with document edits; replacing the document clears all layers.</remarks>
 public sealed class RichTextDecorations
 {
-    private readonly RichEditor _editor;
+    private readonly NativeEditorView _editor;
     private readonly List<RichTextDecorationLayer> _layers = [];
     private RichTextDocumentSnapshot? _projectionSource;
     private RichTextDocumentSnapshot? _projection;
@@ -90,7 +90,7 @@ public sealed class RichTextDecorations
     private bool _refreshQueued;
     private long _notifiedVersion;
 
-    internal RichTextDecorations(RichEditor editor) => _editor = editor;
+    internal RichTextDecorations(NativeEditorView editor) => _editor = editor;
 
     /// <summary>Occurs when layers are changed, remapped by an edit, or cleared by document replacement.</summary>
     public event EventHandler? Changed;

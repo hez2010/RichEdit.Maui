@@ -3,7 +3,7 @@ using TextEdit.Core;
 
 namespace RichEdit.Maui;
 
-public sealed partial class RichEditor
+public partial class NativeEditorView
 {
     private sealed record NativeSelectionEdit(
         RichTextDocumentSnapshot Snapshot,

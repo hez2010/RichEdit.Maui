@@ -334,7 +334,7 @@ internal sealed partial class CodeEditorTestPage
         private readonly Android.Views.ActionMode.ICallback _callback;
         private readonly List<Android.Views.IMenuItem> _items = [];
 
-        internal NativeInputMenu(RichEditor editor)
+        internal NativeInputMenu(NativeEditorView editor)
         {
             var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;
             _callback = native.CustomSelectionActionModeCallback!;
@@ -373,7 +373,7 @@ internal sealed partial class CodeEditorTestPage
         private readonly UIKit.UIAction _suggested;
         private readonly List<UIKit.UIMenuElement> _items = [];
 
-        internal NativeInputMenu(RichEditor editor)
+        internal NativeInputMenu(NativeEditorView editor)
         {
 #if IOS
             if (!OperatingSystem.IsIOSVersionAtLeast(16))

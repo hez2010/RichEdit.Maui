@@ -106,7 +106,7 @@ public partial class RichEditorHandler
 
     private void OnEditorUndoStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
     {
-        if (args.PropertyName is nameof(RichEditor.CanUndo) or nameof(RichEditor.CanRedo) or nameof(RichEditor.IsReadOnly))
+        if (args.PropertyName is nameof(NativeEditorView.CanUndo) or nameof(NativeEditorView.CanRedo) or nameof(NativeEditorView.IsReadOnly))
         {
             PlatformView.NotifyUndoStateChanged();
         }
@@ -197,20 +197,20 @@ public partial class RichEditorHandler
 
     private partial void ClearUndoHistoryCore() => VirtualView?.Document.ClearUndoHistory();
 
-    private partial void UpdatePlaceholder(RichEditor editor)
+    private partial void UpdatePlaceholder(NativeEditorView editor)
     {
-        if (editor.IsSet(RichEditor.PlaceholderProperty))
+        if (editor.IsSet(NativeEditorView.PlaceholderProperty))
         {
             PlatformView.SetPlaceholder(editor.Placeholder);
         }
 
-        if (editor.IsSet(RichEditor.PlaceholderColorProperty))
+        if (editor.IsSet(NativeEditorView.PlaceholderColorProperty))
         {
             PlatformView.SetPlaceholderColor(editor.PlaceholderColor?.ToPlatform());
         }
     }
 
-    private partial void UpdateAppearance(RichEditor editor)
+    private partial void UpdateAppearance(NativeEditorView editor)
     {
         if (_applyingDocument)
         {
@@ -224,14 +224,14 @@ public partial class RichEditorHandler
         {
             // UITextView.Font/TextColor rewrite attributed text and can issue
             // delegate callbacks. Keep the entire appearance update guarded.
-            if (editor.IsSet(RichEditor.FontFamilyProperty) || editor.IsSet(RichEditor.FontSizeProperty))
+            if (editor.IsSet(NativeEditorView.FontFamilyProperty) || editor.IsSet(NativeEditorView.FontSizeProperty))
             {
                 var font = ResolveFont(RichTextCharacterFormat.Default);
                 PlatformView.Font = font;
                 PlatformView.SetPlaceholderFont(font);
             }
 
-            if (editor.IsSet(RichEditor.TextColorProperty))
+            if (editor.IsSet(NativeEditorView.TextColorProperty))
             {
                 var textColor = editor.TextColor?.ToPlatform();
                 PlatformView.TextColor = textColor ?? _defaultTextColor;
@@ -257,7 +257,7 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void UpdateInputConfiguration(RichEditor editor)
+    private partial void UpdateInputConfiguration(NativeEditorView editor)
     {
         var selection = editor.SelectedRange;
         var wasApplying = _applyingDocument;

@@ -1,6 +1,6 @@
 namespace RichEdit.Maui;
 
-public sealed partial class RichEditor
+public partial class NativeEditorView
 {
     /// <summary>Gets the hardware-key command bindings. Mutate the collection on the editor's UI thread.</summary>
     public EditorKeyBindingCollection KeyBindings { get; }

@@ -137,7 +137,7 @@ internal sealed class RichTextDisplayProjection
         return result.ToString();
     }
 
-    internal static RichTextDisplayProjection Create(RichEditor editor, double viewportWidth, ISet<RichTextAdornment>? included = null)
+    internal static RichTextDisplayProjection Create(NativeEditorView editor, double viewportWidth, ISet<RichTextAdornment>? included = null)
     {
         var source = editor.Document.Text;
         var candidates = new List<(RichTextAdornment Item, int Position, string Text, int Order)>();

@@ -1,6 +1,6 @@
 namespace RichEdit.Maui;
 
-public sealed partial class RichEditor
+public partial class NativeEditorView
 {
     private RichTextCompositionState _composition;
 

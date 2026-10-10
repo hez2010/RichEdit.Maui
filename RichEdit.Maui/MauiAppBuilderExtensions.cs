@@ -13,7 +13,10 @@ public static class MauiAppBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.ConfigureMauiHandlers(handlers =>
-            handlers.AddHandler<RichEditor, RichEditorHandler>());
+        {
+            handlers.AddHandler<NativeEditorView, RichEditorHandler>();
+            handlers.AddHandler<RichEditor, RichEditorHandler>();
+        });
         return builder;
     }
 }

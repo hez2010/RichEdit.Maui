@@ -120,14 +120,14 @@ public sealed partial class RichTextAdornment : IDisposable
 /// </remarks>
 public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment>
 {
-    private readonly RichEditor _editor;
+    private readonly NativeEditorView _editor;
     private readonly List<RichTextAdornment> _items = [];
     private double _marginWidth;
 
     internal RichTextAdornmentLayout Overlay { get; }
     internal long Version { get; private set; }
 
-    internal RichTextAdornments(RichEditor editor)
+    internal RichTextAdornments(NativeEditorView editor)
     {
         _editor = editor;
         Overlay = new(this);

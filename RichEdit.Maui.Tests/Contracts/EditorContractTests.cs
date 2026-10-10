@@ -18,7 +18,7 @@ internal static partial class EditorContractTests
 
     public static IReadOnlyList<Case> Cases { get; } = CreateCases().ToArray();
 
-    public static void Reset(RichEditor editor)
+    public static void Reset(NativeEditorView editor)
     {
         editor.IsReadOnly = false;
         editor.MaxLength = -1;
@@ -1043,7 +1043,7 @@ internal static partial class EditorContractTests
             },
     ]);
 
-    public static async Task Verify(RichEditor editor)
+    public static async Task Verify(NativeEditorView editor)
     {
         // Native text services may finish their edit after the initial callback.
         var native = "";
@@ -1066,7 +1066,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
     [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
 #endif
-    public static string NativeText(RichEditor editor)
+    public static string NativeText(NativeEditorView editor)
     {
 #if WINDOWS
         var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
@@ -1090,7 +1090,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
     [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
 #endif
-    public static void NativeSelect(RichEditor editor, RichTextRange range, bool backwards = false)
+    public static void NativeSelect(NativeEditorView editor, RichTextRange range, bool backwards = false)
     {
 #if WINDOWS
         var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
@@ -1106,7 +1106,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
     [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
 #endif
-    public static void NativeReplace(RichEditor editor, string text)
+    public static void NativeReplace(NativeEditorView editor, string text)
     {
         if (text.Length == 0 && editor.SelectedRange.IsEmpty)
             return;
@@ -1133,7 +1133,7 @@ internal static partial class EditorContractTests
     [DynamicWindowsRuntimeCast(typeof(Panel))]
     [DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.FrameworkElement))]
 #endif
-    private static void SetNativeFocus(RichEditor editor, bool focused)
+    private static void SetNativeFocus(NativeEditorView editor, bool focused)
     {
 #if WINDOWS
         var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;

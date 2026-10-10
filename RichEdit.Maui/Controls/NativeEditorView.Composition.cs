@@ -1,6 +1,6 @@
 namespace RichEdit.Maui;
 
-public sealed partial class RichEditor
+public partial class NativeEditorView
 {
     /// <summary>Requests completion of native composition in any view of this document without moving focus.</summary>
     /// <returns>True when all input is committed. False when native input must finish through the platform's own focus or IME interaction.</returns>

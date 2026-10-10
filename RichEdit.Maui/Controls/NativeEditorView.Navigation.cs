@@ -2,7 +2,7 @@ using TextEdit.Core;
 
 namespace RichEdit.Maui;
 
-public sealed partial class RichEditor
+public partial class NativeEditorView
 {
     /// <summary>Moves every selection using native caret navigation. Supports Left, Right, Up, Down, Home, and End.</summary>
     /// <returns>False while composing or when native layout is unavailable.</returns>
