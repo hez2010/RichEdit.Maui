@@ -245,4 +245,28 @@ public sealed class TextDocumentTests
         Assert.False(document.IsModified);
     }
 
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    [InlineData("\r")]
+    public void ExplicitLineEndingNormalizationIsAtomicAndUndoable(string ending)
+    {
+        var document = new TextDocument("a\r\nb\rc\n");
+        var before = document.CurrentSnapshot;
+        var changes = 0;
+        document.Changed += (_, _) => changes++;
+        document.Edit(edit => edit.NormalizeLineEndings(ending));
+        Assert.Equal(string.Join(ending, "a", "b", "c", ""), document.Text);
+        Assert.Equal(1, changes);
+        Assert.Equal(4, document.CurrentSnapshot.LineCount);
+        document.Edit(edit => edit.NormalizeLineEndings(ending));
+        Assert.Equal(1, changes);
+        document.Undo();
+        Assert.Equal(before.ToString(), document.Text);
+        Assert.False(document.CanUndo);
+        Assert.False(document.IsModified);
+        Assert.Throws<ArgumentException>(() => document.Edit(edit => edit.NormalizeLineEndings("bad")));
+        Assert.Equal(before.ToString(), document.Text);
+    }
+
 }

@@ -197,8 +197,12 @@ public sealed partial class CodeEditor
     /// <param name="edits">Original-coordinate source replacements.</param>
     /// <param name="selectionAfter">The resulting directional selection, or null to map the current selection.</param>
     /// <param name="options">Undo and application metadata.</param>
+    /// <param name="expectedSelectionGeneration">An optional captured selection generation, to reject results after the user moves a caret.</param>
     /// <returns>Whether the current view accepted the revision and edits.</returns>
     public bool TryApplyEdits(DocumentRevision revision, IReadOnlyList<TextReplacement> edits,
-        TextSelectionState? selectionAfter = null, TextEditOptions options = default) =>
-            TextView.TryApplySourceEdits(revision, edits, selectionAfter, options);
+        TextSelectionState? selectionAfter = null, TextEditOptions options = default, long? expectedSelectionGeneration = null) =>
+            TextView.TryApplySourceEdits(revision, edits, selectionAfter, options, expectedSelectionGeneration);
+
+    /// <summary>Gets a generation that changes when this view's selection changes or maps through a source edit.</summary>
+    public long SelectionGeneration => TextView.SourceSession!.SelectionGeneration;
 }

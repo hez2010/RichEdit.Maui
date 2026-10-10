@@ -100,7 +100,7 @@ public partial class NativeEditorView
     }
 
     internal bool TryApplySourceEdits(DocumentRevision revision, IReadOnlyList<TextReplacement> replacements,
-        TextSelectionState? selection, TextEditOptions options)
+        TextSelectionState? selection, TextEditOptions options, long? expectedSelectionGeneration = null)
     {
         VerifyAccess();
         ArgumentNullException.ThrowIfNull(replacements);
@@ -119,7 +119,7 @@ public partial class NativeEditorView
                 throw new ArgumentException("The source edit exceeds MaxLength.", nameof(replacements));
             if (selection is { } requested)
                 edit.SetSelections(new((TextSelection[])[Selections.Primary with { Anchor = requested.Anchor, Active = requested.Active }]));
-        }, options, revision);
+        }, options, revision, expectedSelectionGeneration);
         if (result.Accepted && result.Change is null) Selections = SourceSession.Selections;
         return result.Accepted;
     }

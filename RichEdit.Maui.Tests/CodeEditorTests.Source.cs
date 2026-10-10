@@ -6,6 +6,20 @@ namespace RichEdit.Maui.Tests;
 public partial class CodeEditorTests
 {
     [Fact]
+    public Task CheckedSourceEditsRejectResultsAfterSelectionMoves() => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new CodeEditor { Document = new("name"), SelectedRange = new(4, 0) };
+        var revision = editor.Document.Revision;
+        var generation = editor.SelectionGeneration;
+        editor.SelectedRange = new(0, 0);
+        Assert.False(editor.TryApplyEdits(revision, (TextReplacement[])[new(new(0, 4), "stale")], expectedSelectionGeneration: generation));
+        Assert.Equal("name", editor.Document.Text);
+        Assert.True(editor.TryApplyEdits(revision, (TextReplacement[])[new(new(0, 4), "fresh")], expectedSelectionGeneration: editor.SelectionGeneration));
+        editor.Undo();
+        Assert.Equal("name", editor.Document.Text);
+    });
+
+    [Fact]
     public Task UnchangedNativeReadbackPreservesSelectedMixedEndings() => WindowsTestHost.RunAsync(() =>
     {
         using var fixture = new CodeEditorFixture("a\r\nb\rc\n");

@@ -51,6 +51,21 @@ public sealed class TextDocumentEdit
     /// <summary>Deletes a bounded UTF-16 range.</summary>
     public void Delete(TextSpan range) => Replace(range, "");
 
+    /// <summary>Explicitly replaces every logical line terminator with LF, CRLF, or CR in this transaction.</summary>
+    /// <remarks>Text outside terminators is unchanged. The operation participates in ordinary document undo.</remarks>
+    public void NormalizeLineEndings(string lineEnding)
+    {
+        VerifyOpen();
+        if (lineEnding is not ("\n" or "\r\n" or "\r"))
+            throw new ArgumentException("Use LF, CRLF, or CR.", nameof(lineEnding));
+        var before = _snapshot;
+        for (var index = before.LineCount - 2; index >= 0; index--)
+        {
+            var line = before.GetLine(index);
+            Replace(new(line.Span.End, line.LineBreakLength), lineEnding);
+        }
+    }
+
     /// <summary>Applies disjoint replacements in the current candidate's original coordinates. Same-position insertions retain caller order.</summary>
     public void ReplaceBatch(IEnumerable<TextReplacement> replacements)
     {

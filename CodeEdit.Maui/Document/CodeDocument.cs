@@ -227,4 +227,7 @@ public sealed class CodeDocumentEdit
     /// <param name="range">The replaced range.</param>
     /// <param name="text">The replacement source.</param>
     public void ReplaceText(TextSpan range, string? text) => _edit.Replace(range, text ?? "");
+
+    /// <summary>Explicitly replaces every source line terminator with LF, CRLF, or CR in this undoable transaction.</summary>
+    public void NormalizeLineEndings(string lineEnding) => _edit.NormalizeLineEndings(lineEnding);
 }
