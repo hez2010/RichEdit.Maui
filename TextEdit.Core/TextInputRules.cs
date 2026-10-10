@@ -80,9 +80,13 @@ public sealed class TextInputRules
     private readonly List<Registration> _rules = [];
     private long _nextOrder;
     private bool _planning;
+    private readonly Action? _verifyAccess;
+
+    /// <summary>Creates a rule set with an optional dispatcher-access check supplied by its owner.</summary>
+    public TextInputRules(Action? verifyAccess = null) => _verifyAccess = verifyAccess;
 
     /// <summary>Gets the number of registered rules.</summary>
-    public int Count => _rules.Count;
+    public int Count { get { _verifyAccess?.Invoke(); return _rules.Count; } }
 
     /// <summary>Registers a synchronous rule. Disposing the registration removes it.</summary>
     public IDisposable Register(Action<TextInputContext> rule, int priority = 0)
@@ -152,6 +156,7 @@ public sealed class TextInputRules
 
     private void VerifyIdle()
     {
+        _verifyAccess?.Invoke();
         if (_planning)
             throw new InvalidOperationException("Input rules cannot be changed or recursively invoked during planning.");
     }

@@ -16,7 +16,16 @@ public sealed class TextSnapshot
     private readonly Node? _root;
     private WeakReference<string>? _materialized;
 
-    private TextSnapshot(Node? root) => _root = root;
+    private TextSnapshot(Node? root, DocumentRevision revision = default)
+    {
+        _root = root;
+        Revision = revision;
+    }
+
+    /// <summary>Gets the owning document revision, or an invalid revision for standalone text.</summary>
+    public DocumentRevision Revision { get; }
+
+    internal TextSnapshot WithRevision(DocumentRevision revision) => new(_root, revision) { _materialized = _materialized };
 
     /// <summary>Gets an empty snapshot with one empty line.</summary>
     public static TextSnapshot Empty { get; } = new(null);

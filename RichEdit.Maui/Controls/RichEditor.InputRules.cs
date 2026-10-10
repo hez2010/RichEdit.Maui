@@ -12,7 +12,11 @@ public sealed class RichTextInputRejectedEventArgs(Exception error) : EventArgs
 public sealed partial class RichEditor
 {
     /// <summary>Gets synchronous rules that extend native input into one atomic edit. Rich-text replacements use LF line endings.</summary>
-    public TextInputRules InputRules { get; } = new();
+    public TextInputRules InputRules
+    {
+        get { VerifyAccess(); return _inputRules ??= new(VerifyAccess); }
+    }
+    private TextInputRules? _inputRules;
 
     /// <summary>Occurs after a failed input plan restores committed native content without creating history.</summary>
     public event EventHandler<RichTextInputRejectedEventArgs>? InputRejected;
