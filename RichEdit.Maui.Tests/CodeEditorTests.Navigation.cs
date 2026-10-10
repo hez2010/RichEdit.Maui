@@ -5,6 +5,31 @@ namespace RichEdit.Maui.Tests;
 public partial class CodeEditorTests
 {
     [Fact]
+    public Task SingleVirtualCaretCreatesItsPresentationWithoutAnyWidgetsOrSecondaryCarets() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new CodeEditorFixture("x");
+        var editor = fixture.Editor;
+        var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
+        window.Activate();
+        try
+        {
+            await Task.Delay(80);
+            editor.Selections = new((TextSelection[])[new(1, 1) { AnchorVirtualSpaces = 3, ActiveVirtualSpaces = 3 }]);
+            await Task.Delay(40);
+            Assert.Single(fixture.Handler.SecondaryCaretBounds);
+            Assert.Equal(Microsoft.UI.Text.CaretType.Null, fixture.Handler.PlatformView.Document.CaretType);
+            Assert.Equal("x", editor.Document.Text);
+            Assert.False(editor.CanUndo);
+            editor.Selections = TextSelectionSet.Caret(1);
+            await Task.Delay(30);
+            Assert.Empty(fixture.Handler.SecondaryCaretBounds);
+            Assert.Equal(Microsoft.UI.Text.CaretType.Normal, fixture.Handler.PlatformView.Document.CaretType);
+        }
+        finally { window.Content = null; }
+    });
+
+    [Fact]
     public Task VirtualClipboardAndLengthLimitDoNotMaterializeSourceUntilAccepted() => WindowsTestHost.RunClipboardAsync(async () =>
     {
         var editor = new CodeEditor { Document = new("a") };
