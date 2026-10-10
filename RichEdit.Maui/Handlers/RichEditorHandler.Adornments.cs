@@ -25,6 +25,9 @@ public partial class RichEditorHandler
         _adornmentsConnected = true;
         ConnectInputObservation();
         VirtualView.ContentChanged += OnAdornmentContentChanged;
+        VirtualView.SelectionsChanged += OnSecondarySelectionsChanged;
+        VirtualView.Focused += OnSelectionFocusChanged;
+        VirtualView.Unfocused += OnSelectionFocusChanged;
         VirtualView.Folding.Changed += OnAdornmentLayoutChanged;
         VirtualView.Decorations.Changed += OnDecorationLayoutChanged;
         VirtualView.EffectiveAppearanceChanged += OnAdornmentLayoutChanged;
@@ -45,6 +48,10 @@ public partial class RichEditorHandler
         VirtualView.TextLayout.Invalidate();
         _adornmentLayoutQueued = false;
         VirtualView.ContentChanged -= OnAdornmentContentChanged;
+        VirtualView.SelectionsChanged -= OnSecondarySelectionsChanged;
+        VirtualView.Focused -= OnSelectionFocusChanged;
+        VirtualView.Unfocused -= OnSelectionFocusChanged;
+        DisconnectSecondarySelections();
         VirtualView.Folding.Changed -= OnAdornmentLayoutChanged;
         VirtualView.Decorations.Changed -= OnDecorationLayoutChanged;
         VirtualView.EffectiveAppearanceChanged -= OnAdornmentLayoutChanged;
@@ -69,6 +76,10 @@ public partial class RichEditorHandler
 
     private void OnAdornmentContentChanged(object? sender, RichTextContentChangedEventArgs args) => QueueAdornmentLayout();
 
+    private void OnSecondarySelectionsChanged(object? sender, EventArgs args) => QueueAdornmentLayout();
+
+    private void OnSelectionFocusChanged(object? sender, FocusEventArgs args) => QueueAdornmentLayout();
+
     private void OnDecorationLayoutChanged(object? sender, EventArgs args) => QueueAdornmentLayout();
 
     private void OnAdornmentLayoutChanged(object? sender, EventArgs args)
@@ -81,7 +92,8 @@ public partial class RichEditorHandler
     {
         if (_adornmentsConnected)
             VirtualView.TextLayout.Invalidate();
-        if (!_adornmentsConnected || _adornmentLayoutQueued || VirtualView.Adornments.Count == 0 && NativeProjection.IsEmpty)
+        if (!_adornmentsConnected || _adornmentLayoutQueued || VirtualView.Adornments.Count == 0 && NativeProjection.IsEmpty &&
+            VirtualView.Selections.Count < 2 && _secondarySelectionView is null)
             return;
 
         _adornmentLayoutQueued = true;
@@ -168,6 +180,7 @@ public partial class RichEditorHandler
                 item.LayoutBounds = bounds;
             }
 
+            UpdateSecondarySelections(viewport);
             ((IView)adornments.Overlay).Measure(viewport.Width, viewport.Height);
             ((IView)adornments.Overlay).Arrange(viewport);
             adornments.Overlay.ArrangeViews();

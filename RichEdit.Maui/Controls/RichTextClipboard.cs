@@ -16,6 +16,12 @@ internal static class RichTextClipboard
     private static string? _processFragmentToken;
 #endif
     private static RichTextDocumentFragment? _processFragment;
+    private static RichTextDocumentFragment? _plainProcessFragment;
+    private static RichTextDocumentFragment[]? _selectionFragments;
+
+    internal static IReadOnlyList<RichTextDocumentFragment>? GetSelectionFragments(RichTextDocumentFragment fragment) =>
+        ReferenceEquals(fragment, _processFragment) ? _selectionFragments :
+        ReferenceEquals(fragment, _plainProcessFragment) ? _selectionFragments?.Select(item => RichTextDocumentFragment.FromPlainText(item.Text)).ToArray() : null;
 
     public static bool HasContent
     {
@@ -34,7 +40,7 @@ internal static class RichTextClipboard
         }
     }
 
-    public static async Task SetAsync(RichTextDocumentFragment fragment)
+    public static async Task SetAsync(RichTextDocumentFragment fragment, IReadOnlyList<RichTextDocumentFragment>? selections = null)
     {
         ArgumentNullException.ThrowIfNull(fragment);
 #if WINDOWS
@@ -84,6 +90,8 @@ internal static class RichTextClipboard
         _processFragmentToken = token;
 #endif
         _processFragment = fragment;
+        _plainProcessFragment = RichTextDocumentFragment.FromPlainText(fragment.Text);
+        _selectionFragments = selections?.ToArray();
     }
 
     public static async Task<RichTextDocumentFragment?> GetAsync(bool asPlainText = false)
@@ -91,13 +99,13 @@ internal static class RichTextClipboard
 #if WINDOWS
         var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
         var sequence = _processClipboardSequence;
-        if (!asPlainText && sequence != 0 && sequence == GetClipboardSequenceNumber() &&
+        if (sequence != 0 && sequence == GetClipboardSequenceNumber() &&
             _processFragment is { } cached &&
             content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text) &&
             string.Equals(cached.Text, await content.GetTextAsync(), StringComparison.Ordinal) &&
             sequence == GetClipboardSequenceNumber())
         {
-            return cached;
+            return asPlainText ? _plainProcessFragment : cached;
         }
 
         if (!asPlainText && content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Rtf))
@@ -118,11 +126,11 @@ internal static class RichTextClipboard
             : null;
 #elif IOS || MACCATALYST
         var pasteboard = UIKit.UIPasteboard.General;
-        if (!asPlainText && pasteboard.ChangeCount == _processClipboardChangeCount &&
+        if (pasteboard.ChangeCount == _processClipboardChangeCount &&
             _processFragment is { } cached && string.Equals(cached.Text, pasteboard.String, StringComparison.Ordinal) &&
             pasteboard.ChangeCount == _processClipboardChangeCount)
         {
-            return cached;
+            return asPlainText ? _plainProcessFragment : cached;
         }
 
         var data = asPlainText ? null : pasteboard.DataForPasteboardType("public.rtf");
@@ -157,12 +165,12 @@ internal static class RichTextClipboard
         var item = clip is { ItemCount: > 0 } ? clip.GetItemAt(0) : null;
         var text = item?.CoerceToText(context)?.ToString();
         var token = item?.Intent?.GetStringExtra(RichFragmentTokenFormat);
-        if (!asPlainText && token is not null &&
+        if (token is not null &&
             string.Equals(token, _processFragmentToken, StringComparison.Ordinal) &&
             _processFragment is { } cached &&
             string.Equals(cached.Text, text, StringComparison.Ordinal))
         {
-            return cached;
+            return asPlainText ? _plainProcessFragment : cached;
         }
 #else
         var clipboard = Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default;

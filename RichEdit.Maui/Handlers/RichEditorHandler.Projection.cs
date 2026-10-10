@@ -235,7 +235,7 @@ public partial class RichEditorHandler
         return new(changes.VersionBefore, changes.VersionAfter, changes.Origin,
             [.. changes.Changes.Where(static change => change.Kind != RichTextChangeKind.Image)], changes.Tag,
             changes.SourceToken, changes.BeforeSnapshot, after, changes.UndoBehavior, changes.UndoDescription)
-        { SelectionAfter = changes.SelectionAfter, SelectionOwnerToken = changes.SelectionOwnerToken };
+        { SelectionAfter = changes.SelectionAfter, SelectionOwnerToken = changes.SelectionOwnerToken, SelectionsAfter = changes.SelectionsAfter };
     }
 
     private void UpdateDocumentFromDisplay(RichTextDocumentSnapshot snapshot, int selectionStart, int selectionLength,
@@ -258,7 +258,7 @@ public partial class RichEditorHandler
         // The source commit has moved/inactivated document-owned anchors. Reconcile any removed
         // reservation after native editing finishes, never in the middle of an IME callback.
         _projectionSource = VirtualView.Document.CurrentSnapshot;
-        _displayState = _displayState with { Source = map.Project(_projectionSource, _displayWidth) };
+        _displayState = _displayState with { Source = NativeProjection.Project(_projectionSource, _displayWidth) };
         QueueAdornmentLayout();
     }
 

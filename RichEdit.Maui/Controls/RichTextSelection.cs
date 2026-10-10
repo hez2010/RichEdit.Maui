@@ -76,6 +76,11 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <param name="text">The replacement text. Null is treated as empty.</param>
     public void ReplaceText(string? text)
     {
+        if (_editor.Selections.Count > 1)
+        {
+            _editor.ReplaceSelections(text ?? string.Empty);
+            return;
+        }
         if (_editor.IsReadOnly)
         {
             return;
@@ -104,6 +109,12 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
         if (fragment.IsPlainText)
         {
             ReplaceText(fragment.Text);
+            return;
+        }
+
+        if (_editor.Selections.Count > 1)
+        {
+            _editor.ReplaceRichSelections(fragment);
             return;
         }
 

@@ -23,24 +23,27 @@ public sealed partial class CodeEditor
     {
         if (IsReadOnly)
             return;
-        if (SelectedRange.IsEmpty)
-        {
-            var line = Lines.GetRange(Lines.GetLineIndex(SelectedRange.Start));
-            var column = 0;
-            foreach (var character in Document.Text.AsSpan(line.Start, SelectedRange.Start - line.Start))
-                column += character == '\t' ? IndentSize - column % IndentSize : 1;
-
-            var indentation = UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize);
-            ApplyEdits((RichTextEdit[])[new(SelectedRange, indentation)], "Indent");
-            return;
-        }
-
-        var (first, last) = Lines.GetSelectedLines(SelectedRange);
         var edits = new List<RichTextEdit>();
-        for (var line = first; line <= last; line++)
-            edits.Add(new(new RichTextRange(Lines.GetRange(line).Start, 0), Indentation));
+        foreach (var selection in Selections)
+        {
+            var range = new RichTextRange(selection.Range.Start, selection.Range.Length);
+            if (range.IsEmpty)
+            {
+                var line = Lines.GetRange(Lines.GetLineIndex(range.Start));
+                var column = 0;
+                foreach (var character in Document.Text.AsSpan(line.Start, range.Start - line.Start))
+                    column += character == '\t' ? IndentSize - column % IndentSize : 1;
 
-        ApplyEdits(edits, "Indent lines");
+                edits.Add(new(range, UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize)));
+            }
+            else
+            {
+                var (first, last) = Lines.GetSelectedLines(range);
+                for (var line = first; line <= last; line++)
+                    edits.Add(new(new RichTextRange(Lines.GetRange(line).Start, 0), Indentation));
+            }
+        }
+        ApplyEdits(edits.DistinctBy(static edit => edit.Range).ToArray(), "Indent");
     }
 
     /// <summary>Removes one indentation level from each selected line in one undo unit.</summary>
@@ -49,9 +52,8 @@ public sealed partial class CodeEditor
         if (IsReadOnly)
             return;
 
-        var (first, last) = Lines.GetSelectedLines(SelectedRange);
         var edits = new List<RichTextEdit>();
-        for (var line = first; line <= last; line++)
+        foreach (var line in SelectedSourceLines())
         {
             var range = Lines.GetRange(line);
             var length = 0;
@@ -73,7 +75,8 @@ public sealed partial class CodeEditor
         if (IsReadOnly)
             return;
 
-        ApplyEdits((RichTextEdit[])[new(SelectedRange, "\n" + (AutoIndent ? GetIndentation(SelectedRange.Start) : string.Empty))], "New line");
+        ApplyEdits(Selections.Select(selection => new RichTextEdit(
+            new(selection.Range.Start, selection.Range.Length), "\n" + (AutoIndent ? GetIndentation(selection.Range.Start) : string.Empty))).ToArray(), "New line");
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>
@@ -82,15 +85,16 @@ public sealed partial class CodeEditor
         if (IsReadOnly)
             return;
 
-        var (first, last) = Lines.GetSelectedLines(SelectedRange);
+        var selectedLines = SelectedSourceLines();
         var targets = new List<RichTextRange>();
-        for (var line = first; line <= last; line++)
+        foreach (var line in selectedLines)
         {
             var range = Lines.GetRange(line);
             var start = range.Start;
             while (start < range.End && Document.Text[start] is ' ' or '\t')
                 start++;
-            if (start != range.End || first == last)
+            if (start != range.End || selectedLines.Count == 1 || Selections.Any(selection =>
+                selection.Range.IsEmpty && Lines.GetLineIndex(selection.Active) == line))
                 targets.Add(new RichTextRange(start, range.End - start));
         }
 
@@ -136,6 +140,18 @@ public sealed partial class CodeEditor
     }
 
     private string Indentation => UseTabs ? "\t" : new string(' ', IndentSize);
+
+    private SortedSet<int> SelectedSourceLines()
+    {
+        var lines = new SortedSet<int>();
+        foreach (var selection in Selections)
+        {
+            var (first, last) = Lines.GetSelectedLines(new(selection.Range.Start, selection.Range.Length));
+            for (var line = first; line <= last; line++)
+                lines.Add(line);
+        }
+        return lines;
+    }
 
     private string GetIndentation(int position)
     {

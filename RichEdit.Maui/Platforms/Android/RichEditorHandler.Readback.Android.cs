@@ -277,7 +277,7 @@ public partial class RichEditorHandler
 
     private void OnNativeSelectionChanged(object? sender, NativeSelectionChangedEventArgs eventArgs)
     {
-        if (_applyingDocument || VirtualView is null)
+        if (_applyingDocument || HasTransientInputSelection || VirtualView is null)
         {
             return;
         }

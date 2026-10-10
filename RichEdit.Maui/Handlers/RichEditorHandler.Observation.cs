@@ -3,6 +3,9 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private int _compositionOperationDepth;
+    private bool _reconcilingInputOperation;
+
+    private bool HasTransientInputSelection => _compositionOperationDepth > 0 && !_reconcilingInputOperation;
 
     private void BeginCompositionOperation(bool startsComposition)
     {
@@ -17,6 +20,7 @@ public partial class RichEditorHandler
             return;
 
         _compositionOperationDepth = 1;
+        _reconcilingInputOperation = true;
         try
         {
             ReconcileCompositionSource();
@@ -24,6 +28,7 @@ public partial class RichEditorHandler
         finally
         {
             _compositionOperationDepth = 0;
+            _reconcilingInputOperation = false;
         }
 
         UpdateCompositionState();

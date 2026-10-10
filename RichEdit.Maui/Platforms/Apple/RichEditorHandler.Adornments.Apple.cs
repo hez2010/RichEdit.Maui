@@ -7,6 +7,12 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial (Color Caret, Color Selection) GetSecondarySelectionColors()
+    {
+        var tint = (PlatformView.TintColor ?? UIColor.Label).ToColor() ?? Colors.Black;
+        return (tint, tint.WithAlpha(0.3f));
+    }
+
     private partial void OffsetAdornmentScroll(double verticalDelta)
     {
         var inset = PlatformView.AdjustedContentInset;

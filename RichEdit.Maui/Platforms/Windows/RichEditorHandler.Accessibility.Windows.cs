@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Automation.Text;
 using Microsoft.UI.Xaml.Controls;
 using WinRT;
+using TextEdit.Core;
 using IValueProvider = Microsoft.UI.Xaml.Automation.Provider.IValueProvider;
 
 namespace RichEdit.Maui;
@@ -42,7 +43,7 @@ public partial class RichEditorHandler
             Disconnect();
             _eventEditor = Editor;
             _eventEditor.TextChanged += OnTextChanged;
-            _eventEditor.SelectionChanged += OnSelectionChanged;
+            _eventEditor.SelectionsChanged += OnSelectionChanged;
             _eventEditor.DocumentChanged += OnDocumentChanged;
         }
 
@@ -52,7 +53,7 @@ public partial class RichEditorHandler
                 return;
 
             _eventEditor.TextChanged -= OnTextChanged;
-            _eventEditor.SelectionChanged -= OnSelectionChanged;
+            _eventEditor.SelectionsChanged -= OnSelectionChanged;
             _eventEditor.DocumentChanged -= OnDocumentChanged;
             _eventEditor = null;
         }
@@ -74,7 +75,7 @@ public partial class RichEditorHandler
                 RaisePropertyChangedEvent(ValuePatternIdentifiers.ValueProperty, before, after);
         }
 
-        private void OnSelectionChanged(object? sender, RichTextSelectionChangedEventArgs args)
+        private void OnSelectionChanged(object? sender, EventArgs args)
         {
             if (ListenerExists(AutomationEvents.TextPatternOnTextSelectionChanged))
                 RaiseAutomationEvent(AutomationEvents.TextPatternOnTextSelectionChanged);
@@ -109,9 +110,10 @@ public partial class RichEditorHandler
 
         public ITextRangeProvider DocumentRange => Range(new(0, Editor.Document.Length));
 
-        public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.Single;
+        public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.Multiple;
 
-        public ITextRangeProvider[] GetSelection() => [Range(Editor.SelectedRange)];
+        public ITextRangeProvider[] GetSelection() => Editor.Selections
+            .Select(item => (ITextRangeProvider)Range(new(item.Range.Start, item.Range.Length))).ToArray();
 
         public ITextRangeProvider[] GetVisibleRanges() => Editor.TextLayout.Capture() is { } layout ?
             layout.Lines.SelectMany(static line => line.SourceRanges).Select(range => (ITextRangeProvider)Range(range)).ToArray() : [];
@@ -485,14 +487,43 @@ public partial class RichEditorHandler
         public void MoveEndpointByRange(TextPatternRangeEndpoint endpoint, ITextRangeProvider targetRange, TextPatternRangeEndpoint targetEndpoint) =>
             SetEndpoint(endpoint, Endpoint(Other(targetRange).Range, targetEndpoint));
 
-        public void Select() => _peer.Editor.SelectedRange = Range;
+        public void Select() => _peer.Editor.Selections = new((TextSelection[])[new(Range.Start, Range.End)]);
 
-        public void AddToSelection() => Select();
+        public void AddToSelection()
+        {
+            var selections = _peer.Editor.Selections;
+            _peer.Editor.Selections = new(selections.Append(new TextSelection(Range.Start, Range.End)), selections.PrimaryIndex);
+        }
 
         public void RemoveFromSelection()
         {
-            if (_peer.Editor.SelectedRange == Range)
-                _peer.Editor.SelectedRange = new(Range.Start, 0);
+            var removed = Range;
+            var selections = _peer.Editor.Selections;
+            var remaining = new List<TextSelection>();
+            foreach (var item in selections)
+            {
+                var range = item.Range;
+                if (range.IsEmpty)
+                {
+                    if (range.Start < removed.Start || range.Start > removed.End)
+                        remaining.Add(item);
+                    continue;
+                }
+                if (removed.IsEmpty || range.End <= removed.Start || range.Start >= removed.End)
+                {
+                    remaining.Add(item);
+                    continue;
+                }
+                var reversed = item.Anchor > item.Active;
+                if (range.Start < removed.Start)
+                    remaining.Add(item with { Anchor = reversed ? removed.Start : range.Start, Active = reversed ? range.Start : removed.Start,
+                        Id = reversed || range.End <= removed.End ? item.Id : Guid.NewGuid() });
+                if (range.End > removed.End)
+                    remaining.Add(item with { Anchor = reversed ? range.End : removed.End, Active = reversed ? removed.End : range.End,
+                        Id = !reversed || range.Start >= removed.Start ? item.Id : Guid.NewGuid() });
+            }
+            _peer.Editor.Selections = remaining.Count == 0 ? TextSelectionSet.Caret(removed.Start) :
+                new(remaining, Math.Max(0, remaining.FindIndex(item => item.Id == selections.Primary.Id)));
         }
 
         public void ScrollIntoView(bool alignToTop) => ((IRichEditorHandler)_peer.Handler).ScrollIntoView(Range);

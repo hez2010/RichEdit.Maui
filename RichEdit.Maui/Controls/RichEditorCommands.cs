@@ -17,8 +17,8 @@ public sealed class RichEditorCommands
         _editor = editor;
         Undo = Create(editor.Undo, () => CanMutateSelection && editor.CanUndo);
         Redo = Create(editor.Redo, () => CanMutateSelection && editor.CanRedo);
-        Cut = Create(async () => await editor.CutAsync(), () => CanMutateSelection && !editor.SelectedRange.IsEmpty);
-        Copy = Create(async () => await editor.CopyAsync(), () => !editor.SelectedRange.IsEmpty);
+        Cut = Create(async () => await editor.CutAsync(), () => CanMutateSelection && editor.Selections.Any(item => !item.Range.IsEmpty));
+        Copy = Create(async () => await editor.CopyAsync(), () => editor.Selections.Any(item => !item.Range.IsEmpty));
         Paste = Create(
             async () => await editor.PasteAsync(),
             CanPaste);

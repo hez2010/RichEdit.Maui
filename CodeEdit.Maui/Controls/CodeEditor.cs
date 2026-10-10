@@ -180,6 +180,7 @@ public sealed partial class CodeEditor : ContentView
             Document = _document.Source,
         };
         Selection = new CodeTextSelection(TextView.Selection);
+        InitializeSelections();
         TextView.Folding.Changed += (_, _) => InvalidateGutter();
         Commands = new CodeEditorCommands(this);
         _gutter = new GraphicsView { Drawable = new LineNumberDrawable(this), InputTransparent = true };

@@ -688,6 +688,7 @@ internal static class WindowsTestHost
                                     handlers.AddHandler<Microsoft.Maui.Controls.Layout, Microsoft.Maui.Handlers.LayoutHandler>();
                                     handlers.AddHandler<Microsoft.Maui.Controls.Button, Microsoft.Maui.Handlers.ButtonHandler>();
                                     handlers.AddHandler<Microsoft.Maui.Controls.Label, Microsoft.Maui.Handlers.LabelHandler>();
+                                    handlers.AddHandler<Microsoft.Maui.Controls.GraphicsView, Microsoft.Maui.Handlers.GraphicsViewHandler>();
                                 }).Build();
                                 completion.SetResult(dispatcher);
                             }

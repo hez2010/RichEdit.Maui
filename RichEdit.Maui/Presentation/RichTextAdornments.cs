@@ -296,6 +296,18 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
 internal sealed partial class RichTextAdornmentLayout : Layout
 {
     private readonly RichTextAdornments _adornments;
+    private GraphicsView? _selectionOverlay;
+
+    internal void SetSelectionOverlay(GraphicsView? view)
+    {
+        if (ReferenceEquals(_selectionOverlay, view))
+            return;
+        if (_selectionOverlay is { } previous)
+            Remove(previous);
+        _selectionOverlay = view;
+        if (view is not null)
+            Insert(0, view);
+    }
 
     internal RichTextAdornmentLayout(RichTextAdornments adornments)
     {
@@ -327,7 +339,7 @@ internal sealed partial class RichTextAdornmentLayout : Layout
             RemoveLogicalChild(item.View);
             var index = _adornments.TakeWhile(other => !ReferenceEquals(other, item)).Count(other => other.IsRealized && other.Position <= item.Position) +
                 _adornments.SkipWhile(other => !ReferenceEquals(other, item)).Skip(1).Count(other => other.IsRealized && other.Position < item.Position);
-            Insert(index, item.View);
+            Insert(index + (_selectionOverlay is null ? 0 : 1), item.View);
         }
         else
         {
@@ -341,6 +353,11 @@ internal sealed partial class RichTextAdornmentLayout : Layout
 
     internal void ArrangeViews()
     {
+        if (_selectionOverlay is { } overlay)
+        {
+            ((IView)overlay).Measure(Width, Height);
+            ((IView)overlay).Arrange(new(0, 0, Width, Height));
+        }
         foreach (var item in _adornments)
             if (item.IsRealized)
                 ((IView)item.View).Arrange(item.LayoutBounds);

@@ -329,6 +329,10 @@ public sealed class RichTextChangeSet
 
     internal object? SelectionOwnerToken { get; set; }
 
+    internal TextEdit.Core.TextSelectionSet? SelectionsAfter { get; set; }
+
+    internal RichTextChangeSet? NativeCorrections { get; set; }
+
     internal object? SourceToken { get; }
 
     internal RichTextDocumentSnapshot? BeforeSnapshot { get; }

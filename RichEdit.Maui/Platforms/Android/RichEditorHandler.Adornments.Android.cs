@@ -6,6 +6,10 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial (Color Caret, Color Selection) GetSecondarySelectionColors() =>
+        (new global::Android.Graphics.Color(PlatformView.CurrentTextColor).ToColor(),
+            new global::Android.Graphics.Color(PlatformView.HighlightColor).ToColor());
+
     private (RichTextRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
 
     partial void PreserveAdornmentScrollAnchor(int position, double top) => _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);

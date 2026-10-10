@@ -566,7 +566,7 @@ public partial class RichEditorHandler
 
     private void OnNativeSelectionChanged(UITextView textView)
     {
-        if (_applyingDocument || _applyingSelection || VirtualView is null)
+        if (_applyingDocument || _applyingSelection || HasTransientInputSelection || VirtualView is null)
         {
             return;
         }

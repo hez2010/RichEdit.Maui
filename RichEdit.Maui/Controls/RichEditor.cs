@@ -515,18 +515,18 @@ public sealed partial class RichEditor : View
         VerifyAccess();
         var document = Document;
         var snapshot = document.CurrentSnapshot;
-        var range = SelectedRange;
-        if (IsReadOnly || range.IsEmpty)
+        var selections = Selections;
+        if (IsReadOnly || Document.HasActiveComposition || selections.All(item => item.Range.IsEmpty))
         {
             return;
         }
 
-        var fragment = RichTextDocumentFragment.FromRange(snapshot, range);
-        await RichTextClipboard.SetAsync(fragment);
+        var clipboard = CreateSelectionClipboard(snapshot, selections);
+        await RichTextClipboard.SetAsync(clipboard.Payload, clipboard.Parts);
         if (IsReadOnly ||
             !ReferenceEquals(Document, document) ||
             document.Version != snapshot.Version ||
-            SelectedRange != range)
+            !ReferenceEquals(Selections, selections))
         {
             return;
         }
@@ -540,10 +540,11 @@ public sealed partial class RichEditor : View
     {
         VerifyAccess();
         var snapshot = Document.CurrentSnapshot;
-        var range = SelectedRange;
-        return range.IsEmpty
-            ? Task.CompletedTask
-            : RichTextClipboard.SetAsync(RichTextDocumentFragment.FromRange(snapshot, range));
+        var selections = Selections;
+        if (selections.All(item => item.Range.IsEmpty))
+            return Task.CompletedTask;
+        var clipboard = CreateSelectionClipboard(snapshot, selections);
+        return RichTextClipboard.SetAsync(clipboard.Payload, clipboard.Parts);
     }
 
     /// <summary>Pastes a portable fragment from the system clipboard.</summary>
@@ -556,7 +557,8 @@ public sealed partial class RichEditor : View
         var document = Document;
         var version = document.Version;
         var range = SelectedRange;
-        if (IsReadOnly)
+        var selections = Selections;
+        if (IsReadOnly || Document.HasActiveComposition)
         {
             return;
         }
@@ -568,15 +570,25 @@ public sealed partial class RichEditor : View
         }
 
         var args = new RichTextPastingEventArgs(fragment);
+        var fragments = RichTextClipboard.GetSelectionFragments(fragment);
         Pasting?.Invoke(this, args);
         if (!args.Cancel &&
             !IsReadOnly &&
             ReferenceEquals(Document, document) &&
             document.Version == version &&
-            SelectedRange == range &&
-            LimitFragmentToMaxLength(args.Fragment, range) is { } accepted)
+            ReferenceEquals(Selections, selections))
         {
-            Selection.ReplaceFragment(accepted);
+            if (selections.Count > 1)
+            {
+                if (fragments?.Count == selections.Count && (ReferenceEquals(args.Fragment, fragment) ||
+                    args.Fragment.IsPlainText && args.Fragment.Text == fragment.Text))
+                    ReplaceSelectionFragments(args.Fragment.IsPlainText
+                        ? fragments.Select(item => RichTextDocumentFragment.FromPlainText(item.Text)).ToArray() : fragments);
+                else
+                    ReplaceRichSelections(args.Fragment);
+            }
+            else if (LimitFragmentToMaxLength(args.Fragment, range) is { } accepted)
+                Selection.ReplaceFragment(accepted);
         }
     }
 
@@ -622,6 +634,22 @@ public sealed partial class RichEditor : View
         snapshot = Decorations.RestoreAuthoredSnapshot(snapshot, SelectedRange);
         var selection = selectionState ?? RichTextSelectionState.FromRange(new RichTextRange(selectionStart, selectionLength));
         selection.Range.Validate(snapshot.Text.Length, nameof(selectionLength));
+        var expanded = origin == RichTextChangeOrigin.User ? ExpandNativeSelectionEdit(snapshot, selection) : null;
+        var previousSelections = _pendingSelections;
+        RichTextChangeSet? corrections = null;
+        if (expanded is not null)
+        {
+            if (ReferenceEquals(expanded.Snapshot, Document.CurrentSnapshot))
+            {
+                (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
+                return;
+            }
+            snapshot = expanded.Snapshot;
+            _pendingSelections = expanded.Selections;
+            selection = new(expanded.Selections.Primary.Anchor, expanded.Selections.Primary.Active);
+            corrections = new(Document.Version, Document.Version + 1, origin, [.. expanded.NativeCorrections], null,
+                beforeSnapshot: expanded.NativeBefore, afterSnapshot: snapshot);
+        }
         _pendingPlatformSelection = selection;
         try
         {
@@ -633,15 +661,21 @@ public sealed partial class RichEditor : View
                 nativeUndoOwned,
                 origin,
                 mergeWithPrevious,
-                projectedVersion);
+                projectedVersion,
+                expanded?.Changes,
+                corrections);
             if (changes.IsEmpty)
             {
-                SetSelectionFromPlatform(selection);
+                if (expanded is not null)
+                    SetSelectionsFromDocument(expanded.Selections);
+                else
+                    SetSelectionFromPlatform(selection);
             }
         }
         finally
         {
             _pendingPlatformSelection = null;
+            _pendingSelections = previousSelections;
         }
     }
 
@@ -818,6 +852,7 @@ public sealed partial class RichEditor : View
         Adornments.Clear();
         var selection = SelectionState.Clamp(newDocument.Length);
         var selectionChanged = SelectionState != selection;
+        ResetSelectionsForDocument(selection);
         // The handler's Document mapper projects the new text and selection
         // together. Updating the old native text's selection here can report
         // that old content back into the newly attached document.
@@ -842,6 +877,7 @@ public sealed partial class RichEditor : View
 
     private void OnSelectionStateChanged(RichTextSelectionState before, RichTextSelectionState after)
     {
+        SynchronizeSelectionSet(after);
         _updatingSelectionRange = true;
         try
         {
@@ -897,11 +933,14 @@ public sealed partial class RichEditor : View
     {
         _deferNotifications = true;
         _selectionBeforeNotification = SelectionState;
+        _selectionsBeforeNotification = Selections;
         Decorations.MapThrough(changeSet);
         var foldingChanged = Folding.MapThrough(changeSet);
         Adornments.MapThrough(changeSet);
-        var selection = ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionAfter is { } requested
-            ? requested : GetSelectionAfterEdit(changeSet.Changes, Document.Length);
+        var selections = ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionsAfter is { } requestedSet
+            ? requestedSet : GetSelectionsAfterEdit(changeSet.Changes, Document.Length);
+        SetSelectionsFromDocument(selections);
+        var selection = new RichTextSelectionState(selections.Primary.Anchor, selections.Primary.Active);
         SetSelectionCore(selection, fromPlatform: true);
         var handler = Handler as IRichEditorHandler;
         if (handler is not null && !ReferenceEquals(changeSet.SourceToken, handler.SourceToken))
@@ -911,6 +950,8 @@ public sealed partial class RichEditor : View
             else
                 handler.ApplyChanges(changeSet, selection.Range, _typingCharacterFormat, _typingParagraphFormat);
         }
+        else if (handler is not null && changeSet.NativeCorrections is { IsEmpty: false } corrections)
+            handler.ApplyChanges(corrections, selection.Range, _typingCharacterFormat, _typingParagraphFormat);
         if (foldingChanged)
             handler?.ApplyFolding();
 
@@ -949,6 +990,8 @@ public sealed partial class RichEditor : View
         _deferredProperties.Clear();
         if (_selectionBeforeNotification != SelectionState)
             SelectionChanged?.Invoke(this, new RichTextSelectionChangedEventArgs(_selectionBeforeNotification, SelectionState));
+        if (_selectionsBeforeNotification is { } previousSelections && !SameSelections(previousSelections, Selections))
+            SelectionsChanged?.Invoke(this, EventArgs.Empty);
 
         RaiseSelectionFormatChanged();
         Commands.Refresh();
@@ -959,6 +1002,7 @@ public sealed partial class RichEditor : View
     internal void EndDocumentChange()
     {
         _deferNotifications = false;
+        _selectionsBeforeNotification = null;
         _deferredProperties.Clear();
     }
 
