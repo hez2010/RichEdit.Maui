@@ -150,6 +150,14 @@ public sealed class TextSnapshot
         return middle is null ? Empty : new(middle);
     }
 
+    /// <summary>Concatenates immutable text roots without materializing their contents. The result has no document revision.</summary>
+    public TextSnapshot Concat(TextSnapshot next)
+    {
+        ArgumentNullException.ThrowIfNull(next);
+        _ = checked(Length + next.Length);
+        return new(Join(_root, next._root));
+    }
+
     /// <summary>Materializes only the requested range.</summary>
     public string GetText(TextSpan range)
     {

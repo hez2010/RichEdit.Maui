@@ -5,6 +5,22 @@ namespace TextEdit.Core.Tests;
 
 public class TextSnapshotTests
 {
+    [Fact]
+    public void ConcatenationSharesRootsAndCountsCrLfAcrossTheirBoundary()
+    {
+        var first = new TextDocument(new string('a', 100_000) + "\r").CurrentSnapshot;
+        var second = new TextDocument("\nb\rnext").CurrentSnapshot;
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var joined = first.Concat(second);
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - allocated < 32_000);
+        Assert.False(joined.Revision.IsValid);
+        Assert.Equal(3, joined.LineCount);
+        Assert.Equal(new TextLine(new(0, 100_000), 2), joined.GetLine(0));
+        Assert.Equal("b", joined.GetText(joined.GetLine(1).Span));
+        Assert.Equal(100_001, first.Length);
+        Assert.Equal("\nb\rnext", second.ToString());
+    }
+
     [Theory]
     [InlineData(7)]
     [InlineData(51)]
