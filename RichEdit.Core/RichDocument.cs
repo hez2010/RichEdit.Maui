@@ -38,7 +38,7 @@ public sealed class RichSaveCapture
 }
 
 /// <summary>A structured rich document with one authored state, shared sessions, atomic transactions, and document-owned history.</summary>
-public sealed class RichDocument
+public sealed partial class RichDocument
 {
     private readonly object _identity = new();
     private readonly DocumentAccess _access = new();
@@ -75,9 +75,9 @@ public sealed class RichDocument
     /// <summary>Gets whether current content differs from the acknowledged saved state.</summary>
     public bool IsModified => _state != _savedState;
     /// <summary>Gets whether document undo is available.</summary>
-    public bool CanUndo => _undo.Count != 0;
+    public bool CanUndo => _undo.Count != 0 && !IsUndoGroupOpen;
     /// <summary>Gets whether document redo is available.</summary>
-    public bool CanRedo => _redo.Count != 0;
+    public bool CanRedo => _redo.Count != 0 && !IsUndoGroupOpen;
     /// <summary>Gets the next undo description.</summary>
     public string? UndoDescription => _undo.Last?.Value.Options.Description;
     /// <summary>Gets the next redo description.</summary>
@@ -138,8 +138,8 @@ public sealed class RichDocument
         _state = checked(++_nextState);
         _nextNode = plan.NextId;
         var estimate = EstimateChange(before, after);
-        _undo.AddLast(new HistoryEntry(before, after, plan.Map, beforeState, _state, session?.Selection, afterSelection, options with { Tag = null }, estimate));
-        _historyBytes += estimate - _redo.Sum(entry => entry.EstimatedBytes);
+        StoreHistory(new HistoryEntry(before, after, plan.Map, beforeState, _state, session?.Selection, afterSelection, options with { Tag = null }, estimate));
+        _historyBytes -= _redo.Sum(entry => entry.EstimatedBytes);
         _redo.Clear();
         TrimHistory();
         Volatile.Write(ref _snapshot, after);
@@ -155,6 +155,7 @@ public sealed class RichDocument
     internal void RestoreHistory(bool redo, RichEditorSession? invokingSession)
     {
         VerifyIdle();
+        if (IsUndoGroupOpen) throw new InvalidOperationException("Close the explicit undo group before restoring history.");
         if (ComposingSession is not null) throw new InvalidOperationException("Complete composition before restoring rich history.");
         var from = redo ? _redo : _undo;
         var to = redo ? _undo : _redo;
@@ -173,6 +174,7 @@ public sealed class RichDocument
     public void ClearHistory()
     {
         VerifyIdle();
+        if (IsUndoGroupOpen) throw new InvalidOperationException("Close the explicit undo group before clearing history.");
         _undo.Clear();
         _redo.Clear();
         _historyBytes = 0;

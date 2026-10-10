@@ -4,7 +4,7 @@ using TextEdit.Core;
 namespace RichEdit.Core;
 
 /// <summary>An immutable structured rich-document graph with one body story and document-owned styles.</summary>
-public sealed class RichDocumentSnapshot
+public sealed partial class RichDocumentSnapshot
 {
     /// <summary>Gets an immutable empty body containing one empty paragraph.</summary>
     public static RichDocumentSnapshot Empty { get; } = new(new(1), new RichNode[]

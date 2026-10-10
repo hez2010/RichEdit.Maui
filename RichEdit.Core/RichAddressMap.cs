@@ -6,8 +6,8 @@ namespace RichEdit.Core;
 /// <summary>An immutable sequence mapping rich points through text edits and structural paragraph changes.</summary>
 public sealed class RichAddressMap
 {
-    private readonly ImmutableArray<Step> _steps;
-    internal RichAddressMap(IEnumerable<Step> steps) => _steps = [.. steps];
+    private readonly ImmutableList<Step> _steps;
+    internal RichAddressMap(IEnumerable<Step> steps) => _steps = steps.ToImmutableList();
     internal RichAddressMap Invert() => new(_steps.Reverse().Select(step => step switch
     {
         Text text => (Step)new Text(text.Paragraph, text.Start, text.Inserted, text.Removed),
