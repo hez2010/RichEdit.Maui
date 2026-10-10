@@ -55,21 +55,42 @@ public sealed partial class RichTextAdornment : IDisposable
     private TextTrackedPosition _anchor;
     private RichTextAdornmentOptions _options;
     private int _lastPosition;
+    private View? _view;
+    internal Func<View>? CreateView { get; }
+    internal Action<View>? RecycleView { get; }
+    internal Size EstimatedSize { get; }
+    internal string? AccessibleDescription { get; }
 
     internal RichTextAdornment(RichTextAdornments owner, TextTrackedPosition anchor, View view, RichTextAdornmentOptions options)
     {
         _owner = owner;
         _anchor = anchor;
         _lastPosition = anchor.Position!.Value;
-        View = view;
+        _view = view;
         _options = options;
     }
+
+    internal RichTextAdornment(RichTextAdornments owner, TextTrackedPosition anchor, string key, Size estimate,
+        Func<View> create, Action<View>? recycle, string? description, RichTextAdornmentOptions options)
+    {
+        _owner = owner; _anchor = anchor; _lastPosition = anchor.Position!.Value; _options = options;
+        Key = key; EstimatedSize = estimate; MeasuredSize = estimate;
+        CreateView = create; RecycleView = recycle; AccessibleDescription = description;
+    }
+
+    /// <summary>Gets the stable key supplied by a widget source, or null for an explicitly attached view.</summary>
+    public string? Key { get; }
 
     /// <summary>Gets the current source position, tracking edits with the configured insertion affinity.</summary>
     public int Position => _anchor.Position is { } position ? _lastPosition = position : _lastPosition;
 
-    /// <summary>Gets the application-owned content, including its normal input and accessibility behavior.</summary>
-    public View View { get; }
+    /// <summary>Gets the application-owned content, creating a data-backed widget on explicit access if necessary.</summary>
+    /// <remarks>Use <see cref="CreatedView"/> to inspect realization without invoking a factory.</remarks>
+    public View View => _view ?? _owner.CreateWidgetView(this);
+
+    /// <summary>Gets the currently created content without invoking its factory. Offscreen data-backed widgets can return null after recycling.</summary>
+    public View? CreatedView => _view;
+    internal void SetView(View? view) => _view = view;
 
     /// <summary>Gets or sets the placement, sizing, and insertion-affinity options.</summary>
     public RichTextAdornmentOptions Options
@@ -122,6 +143,7 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
 {
     private readonly NativeEditorView _editor;
     private readonly List<RichTextAdornment> _items = [];
+    private readonly Dictionary<View, RichTextAdornment> _views = new(ReferenceEqualityComparer.Instance);
     private double _marginWidth;
 
     internal RichTextAdornmentLayout Overlay { get; }
@@ -132,6 +154,51 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
         _editor = editor;
         Overlay = new(this);
         editor.AddLogicalChild(Overlay);
+    }
+
+    internal NativeEditorView Editor => _editor;
+
+    /// <summary>Creates an independently owned source of widgets whose views are created near the viewport and recycled offscreen.</summary>
+    public RichTextWidgetSource CreateSource(Func<RichTextWidget, View> create, Action<RichTextWidget, View>? recycle = null)
+    {
+        _editor.VerifyAccess();
+        ArgumentNullException.ThrowIfNull(create);
+        return new(this, create, recycle);
+    }
+
+    internal RichTextAdornment AddWidget(RichTextWidget widget, Func<View> create, Action<View>? recycle)
+    {
+        var options = widget.Options ?? new();
+        var item = new RichTextAdornment(this, _editor.Document.Tracking.TrackPosition(widget.Position, options.Affinity),
+            widget.Id, widget.EstimatedSize, create, recycle, widget.AccessibleDescription, options);
+        _items.Add(item);
+        Update();
+        return item;
+    }
+
+    internal View CreateWidgetView(RichTextAdornment item)
+    {
+        _editor.VerifyAccess();
+        ObjectDisposedException.ThrowIf(!_items.Contains(item), item);
+        var view = item.CreateView!() ?? throw new InvalidOperationException("A widget factory must return a view.");
+        if (view.Parent is not null || ReferenceEquals(view, _editor)) throw new InvalidOperationException("A widget factory must return an unparented view.");
+        if (item.AccessibleDescription is { } description) SemanticProperties.SetDescription(view, description);
+        item.SetView(view);
+        Overlay.Own(view);
+        _views.Add(view, item);
+        view.MeasureInvalidated += OnMeasureInvalidated;
+        return view;
+    }
+
+    internal void RecycleWidgetView(RichTextAdornment item)
+    {
+        if (item.CreateView is null || item.CreatedView is not { } view) return;
+        view.MeasureInvalidated -= OnMeasureInvalidated;
+        _views.Remove(view);
+        Overlay.Release(view);
+        view.Handler?.DisconnectHandler();
+        item.SetView(null);
+        item.RecycleView?.Invoke(view);
     }
 
     /// <summary>Gets or sets the reserved left-margin width in device-independent units; the default is zero.</summary>
@@ -176,6 +243,7 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
         var item = new RichTextAdornment(this, _editor.Document.Tracking.TrackPosition(position, options.Affinity), view, options);
         _items.Add(item);
         Overlay.Own(view);
+        _views.Add(view, item);
         view.MeasureInvalidated += OnMeasureInvalidated;
         Update();
         return item;
@@ -224,7 +292,7 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
             return false;
 
         adornment.Release();
-        RemoveView(adornment.View);
+        RemoveView(adornment);
         Update();
         return true;
     }
@@ -239,7 +307,7 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
         foreach (var item in _items)
         {
             item.Release();
-            RemoveView(item.View);
+            RemoveView(item);
         }
 
         _items.Clear();
@@ -264,13 +332,16 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
             {
                 _items.RemoveAt(index);
                 item.Release();
-                RemoveView(item.View);
+                RemoveView(item);
             }
         }
     }
 
-    private void RemoveView(View view)
+    private void RemoveView(RichTextAdornment item)
     {
+        if (item.CreateView is not null) { RecycleWidgetView(item); return; }
+        var view = item.CreatedView!;
+        _views.Remove(view);
         view.MeasureInvalidated -= OnMeasureInvalidated;
         Overlay.Release(view);
         view.Handler?.DisconnectHandler();
@@ -278,9 +349,8 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
 
     private void OnMeasureInvalidated(object? sender, EventArgs args)
     {
-        if (_items.Find(item => ReferenceEquals(item.View, sender)) is { } item)
-            item.MeasureDirty = true;
-
+        if (sender is not View view || !_views.TryGetValue(view, out var item)) return;
+        item.MeasureDirty = true;
         Update();
     }
 
@@ -336,16 +406,22 @@ internal sealed partial class RichTextAdornmentLayout : Layout
         if (realized)
         {
             item.MeasureDirty = true;
-            RemoveLogicalChild(item.View);
+            var view = item.View;
+            RemoveLogicalChild(view);
             var index = _adornments.TakeWhile(other => !ReferenceEquals(other, item)).Count(other => other.IsRealized && other.Position <= item.Position) +
                 _adornments.SkipWhile(other => !ReferenceEquals(other, item)).Skip(1).Count(other => other.IsRealized && other.Position < item.Position);
-            Insert(index + (_selectionOverlay is null ? 0 : 1), item.View);
+            Insert(index + (_selectionOverlay is null ? 0 : 1), view);
         }
         else
         {
-            Remove(item.View);
-            AddLogicalChild(item.View);
-            item.View.Handler?.DisconnectHandler();
+            var view = item.CreatedView!;
+            if (item.CreateView is not null) _adornments.RecycleWidgetView(item);
+            else
+            {
+                Remove(view);
+                AddLogicalChild(view);
+                view.Handler?.DisconnectHandler();
+            }
         }
 
         item.IsRealized = realized;

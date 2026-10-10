@@ -90,8 +90,9 @@ public partial class RichEditorHandler
             }
             else if (item.MeasuredSize == Size.Zero || !item.IsRealized && item.MeasureDirty)
             {
-                var size = new Size(item.View.WidthRequest >= 0 ? item.View.WidthRequest : item.MeasuredSize.Width > 0 ? item.MeasuredSize.Width : Math.Min(100, _displayWidth),
-                    item.View.HeightRequest >= 0 ? item.View.HeightRequest : item.MeasuredSize.Height > 0 ? item.MeasuredSize.Height : Math.Max(20, (VirtualView.FontSize ?? 14) * 1.4));
+                var view = item.CreatedView;
+                var size = new Size(view?.WidthRequest >= 0 ? view.WidthRequest : item.MeasuredSize.Width > 0 ? item.MeasuredSize.Width : Math.Min(100, _displayWidth),
+                    view?.HeightRequest >= 0 ? view.HeightRequest : item.MeasuredSize.Height > 0 ? item.MeasuredSize.Height : Math.Max(20, (VirtualView.FontSize ?? 14) * 1.4));
                 measured |= item.MeasuredSize != size;
                 item.MeasuredSize = size;
                 item.MeasureDirty = false;

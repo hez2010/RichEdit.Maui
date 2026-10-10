@@ -33,7 +33,7 @@ public partial class NativeEditorView
         _structuredSurfaceUpdateDepth++;
         return new StructuredSurfaceUpdate(this);
     }
-    private sealed class StructuredSurfaceUpdate(NativeEditorView owner) : IDisposable
+    private sealed partial class StructuredSurfaceUpdate(NativeEditorView owner) : IDisposable
     {
         private NativeEditorView? _owner = owner;
         public void Dispose()

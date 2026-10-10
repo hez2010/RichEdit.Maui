@@ -57,9 +57,16 @@ public partial class RichEditorHandler
         VirtualView.EffectiveAppearanceChanged -= OnAdornmentLayoutChanged;
         DisconnectAdornmentViewport();
         DetachAdornmentOverlay();
+        foreach (var adornment in VirtualView.Adornments.ToArray())
+        {
+            if (adornment.CreateView is not null)
+            {
+                VirtualView.Adornments.Overlay.SetRealized(adornment, false);
+                VirtualView.Adornments.RecycleWidgetView(adornment);
+            }
+            else adornment.CreatedView?.Handler?.DisconnectHandler();
+        }
         VirtualView.Adornments.Overlay.Handler?.DisconnectHandler();
-        foreach (var adornment in VirtualView.Adornments)
-            adornment.View.Handler?.DisconnectHandler();
     }
 
     internal void UpdateAdornments()
@@ -117,6 +124,9 @@ public partial class RichEditorHandler
             var viewport = GetAdornmentViewport();
             var adornments = VirtualView.Adornments;
             var layout = CaptureTextLayoutCore();
+            // A missing native layout is not a viewport spanning the document.
+            // Native loaded/size callbacks schedule the first real layout pass.
+            if (viewport.Width <= 0 || viewport.Height <= 0 || layout is null) return;
             var sourceRanges = layout?.Lines.SelectMany(static line => line.SourceRanges).ToArray() ?? [];
             var visibleStart = sourceRanges.Length == 0 ? HitTestTextCore(new(0, 0))?.Position ?? 0 : sourceRanges.Min(static range => range.Start);
             var visibleEnd = sourceRanges.Length == 0 ? HitTestTextCore(new(viewport.Width, viewport.Height))?.Position ?? VirtualView.Document.Length : sourceRanges.Max(static range => range.End);
@@ -157,8 +167,8 @@ public partial class RichEditorHandler
                 if (!item.IsRealized || anchorPosition < visibleStart || anchorPosition > visibleEnd)
                 {
                     item.LayoutBounds = bounds;
-                    if (item.View.Bounds != bounds)
-                        ((IView)item.View).Arrange(bounds);
+                    if (item.CreatedView is { } view && view.Bounds != bounds)
+                        ((IView)view).Arrange(bounds);
 
                     continue;
                 }

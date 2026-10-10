@@ -11,6 +11,81 @@ public class AdornmentTests
     private static Microsoft.UI.Xaml.Window? _window;
 
     [Fact]
+    public Task WidgetPublicationRejectsStaleOrInvalidSetsAndRetainsMappedIdentities() => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new CodeEditor { Document = new("abcdef") };
+        var created = 0;
+        var recycled = 0;
+        using var source = editor.Adornments.CreateSource(_ => { created++; return new Label(); }, (_, _) => recycled++);
+        var descriptors = new[] { new RichTextWidget("one", 2, new(20, 20)), new RichTextWidget("two", 5, new(20, 20)) };
+        Assert.True(source.TryPublish(source.BeginUpdate(), descriptors));
+        var first = editor.Adornments[0];
+        var view = first.View;
+        Assert.Equal(1, created);
+        var stale = source.BeginUpdate();
+        editor.Document.Edit(edit => edit.InsertText(0, "!"));
+        Assert.False(source.TryPublish(stale, []));
+        Assert.True(source.TryPublish(source.BeginUpdate(), descriptors.Select(widget => widget with { Position = widget.Position + 1 })));
+        Assert.Same(first, editor.Adornments[0]);
+        Assert.Same(view, first.CreatedView);
+        Assert.Equal(3, first.Position);
+        var current = source.BeginUpdate();
+        Assert.Throws<ArgumentException>(() => source.TryPublish(current, [descriptors[0], descriptors[0]]));
+        Assert.Equal(2, editor.Adornments.Count);
+        editor.Document = new("new");
+        Assert.Empty(editor.Adornments);
+        Assert.Equal(1, recycled);
+        Assert.False(source.TryPublish(current, []));
+        Assert.True(source.TryPublish(source.BeginUpdate(), [new("one", 1, new(20, 20))]));
+        Assert.Single(editor.Adornments);
+        Assert.Null(editor.Adornments[0].CreatedView);
+        Assert.False(editor.CanUndo);
+    });
+
+    [Fact]
+    public Task WidgetSourcesCreateOnlyNearbyViewsAndRecycleWithoutChangingSource() => WithNativeEditor(async (editor, handler) =>
+    {
+        var text = string.Join('\n', Enumerable.Range(0, 120).Select(index => $"line {index:D3} content"));
+        editor.Document = RichTextDocument.FromPlainText(text);
+        var created = 0;
+        var recycled = 0;
+        using var source = editor.Adornments.CreateSource(widget =>
+        {
+            created++;
+            return new Label { Text = widget.Id, WidthRequest = 45, HeightRequest = 20 };
+        }, (_, view) => { Assert.Null(view.Parent); recycled++; });
+        var widgets = Enumerable.Range(0, 120).Select(index => new RichTextWidget($"hint-{index}", index * 17, new(45, 20),
+            Options: new() { Placement = RichTextAdornmentPlacement.Inline }, AccessibleDescription: $"Hint {index}")).ToArray();
+        var stale = source.BeginUpdate();
+        var request = source.BeginUpdate();
+        Assert.False(source.TryPublish(stale, widgets));
+        Assert.True(source.TryPublish(request, widgets));
+        Assert.Equal(0, created);
+        Assert.All(editor.Adornments, item => Assert.Null(item.CreatedView));
+        for (var attempt = 0; attempt < 100 && handler.NativeProjection.Reservations.Length < widgets.Length; attempt++) await Task.Delay(30);
+        Assert.Equal(widgets.Length, handler.NativeProjection.Reservations.Length);
+        Assert.InRange(created, 1, 80);
+        var first = editor.Adornments.First(item => item.CreatedView is not null);
+        var view = first.CreatedView;
+        var count = created;
+        Assert.True(source.TryPublish(source.BeginUpdate(), widgets));
+        Assert.Same(view, first.CreatedView);
+        Assert.Equal(count, created);
+        editor.ScrollIntoView(new(text.Length, 0));
+        for (var attempt = 0; attempt < 50 && editor.Adornments[^1].CreatedView is null; attempt++) await Task.Delay(30);
+        Assert.True(editor.Adornments[^1].CreatedView is not null,
+            $"created {created}, recycled {recycled}; visible {editor.TextLayout.Capture()?.Lines.FirstOrDefault()?.SourceRanges[0]}");
+        Assert.True(recycled > 0);
+        Assert.True(editor.Adornments.Count(item => item.CreatedView is not null) < 80);
+        Assert.Equal(text, editor.Document.Text);
+        Assert.False(editor.CanUndo);
+        Assert.False(editor.Document.IsModified);
+        source.Dispose();
+        Assert.Empty(editor.Adornments);
+        Assert.Equal(created, recycled);
+    });
+
+    [Fact]
     public Task DensePresentationWorkloadRecordsDeviceBaseline() => WithNativeEditor(async (editor, _) =>
         await EditorContractTests.Cases.Single(static test => test.Name.StartsWith("performance dense", StringComparison.Ordinal)).Run(editor));
 

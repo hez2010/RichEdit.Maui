@@ -9,6 +9,48 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> AdornmentCases()
     {
+        yield return new("adornments widget source realizes nearby data and recycles offscreen views", async editor =>
+        {
+            var text = string.Join('\n', Enumerable.Range(0, 120).Select(index => $"line {index:D3} content"));
+            editor.Document = RichTextDocument.FromPlainText(text);
+            editor.ScrollIntoView(new(0, 0));
+            await Task.Delay(80);
+            var rtf = editor.Document.RtfText;
+            var created = 0;
+            var recycled = 0;
+            using var source = editor.Adornments.CreateSource(widget =>
+            {
+                created++;
+                return new Label { Text = widget.Id, WidthRequest = 45, HeightRequest = 20 };
+            }, (_, view) => { Equal(true, view.Parent is null); recycled++; });
+            var data = Enumerable.Range(0, 120).Select(index => new RichTextWidget($"hint-{index}", index * 17, new(45, 20),
+                Options: new() { Placement = RichTextAdornmentPlacement.Inline }, AccessibleDescription: $"Hint {index}")).ToArray();
+            var stale = source.BeginUpdate();
+            var request = source.BeginUpdate();
+            Equal(false, source.TryPublish(stale, data));
+            Equal(true, source.TryPublish(request, data));
+            Equal(0, created, "publication does not invoke factories");
+            var handler = (RichEditorHandler)editor.Handler!;
+            for (var attempt = 0; attempt < 120 && handler.NativeProjection.Reservations.Length < data.Length; attempt++) await Task.Delay(30);
+            Equal(data.Length, handler.NativeProjection.Reservations.Length);
+            Equal(true, created is > 0 and < 100, $"created {created} views for {data.Length} descriptors");
+            var first = editor.Adornments.First(item => item.CreatedView is not null);
+            var view = first.CreatedView;
+            Equal(true, source.TryPublish(source.BeginUpdate(), data));
+            Equal(true, ReferenceEquals(view, first.CreatedView), "stable identities retain views");
+            editor.ScrollIntoView(new(text.Length, 0));
+            for (var attempt = 0; attempt < 100 && (editor.Adornments[^1].CreatedView is null || recycled == 0); attempt++) await Task.Delay(30);
+            Equal(true, editor.Adornments[^1].CreatedView is not null, "last visible widget is created");
+            Equal(true, recycled > 0, $"offscreen widgets recycle; created {created}, live {editor.Adornments.Count(item => item.CreatedView is not null)}, first visible {editor.TextLayout.Capture()?.Lines.FirstOrDefault()?.SourceRanges[0]}");
+            Equal(true, editor.Adornments.Count(item => item.CreatedView is not null) < 100);
+            Equal(text, editor.Document.Text);
+            Equal(rtf, editor.Document.RtfText);
+            Equal(false, editor.CanUndo);
+            source.Dispose();
+            Equal(0, editor.Adornments.Count);
+            Equal(created, recycled);
+            await Verify(editor);
+        });
         yield return new("adornments preserve content selection save state and redo", async editor =>
         {
             editor.Document = RichTextDocument.FromPlainText("head\nbody\ntail");

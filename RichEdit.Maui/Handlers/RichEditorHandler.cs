@@ -151,7 +151,11 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
         SetNativeSelectionCore(native);
     }
 
-    void IRichEditorHandler.ScrollIntoView(TextSpan range) => ScrollIntoViewCore(NativeProjection.ToDisplay(range));
+    void IRichEditorHandler.ScrollIntoView(TextSpan range)
+    {
+        ScrollIntoViewCore(NativeProjection.ToDisplay(range));
+        QueueAdornmentLayout();
+    }
 
     void IRichEditorHandler.ApplyTypingFormat(
         RichTextCharacterFormat characterFormat,

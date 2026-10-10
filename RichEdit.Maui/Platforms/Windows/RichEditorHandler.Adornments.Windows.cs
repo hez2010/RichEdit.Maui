@@ -16,6 +16,7 @@ public partial class RichEditorHandler
         _adornmentScroller?.ChangeView(null, Math.Max(0, _adornmentScroller.VerticalOffset + verticalDelta), null, true);
 
     private RichEditBox _adornmentView = null!;
+    private (int Position, double X, double Y)? _observedNativeViewport;
     private ScrollViewer? _adornmentScroller;
     private double _appliedAdornmentMargin;
 
@@ -43,6 +44,7 @@ public partial class RichEditorHandler
         _adornmentView = PlatformView;
         _adornmentView.Loaded += OnAdornmentLoaded;
         _adornmentView.SizeChanged += OnAdornmentSizeChanged;
+        _adornmentView.LayoutUpdated += OnAdornmentNativeLayoutUpdated;
         if (_adornmentView.IsLoaded)
             ConnectAdornmentScroller();
     }
@@ -51,6 +53,8 @@ public partial class RichEditorHandler
     {
         _adornmentView.Loaded -= OnAdornmentLoaded;
         _adornmentView.SizeChanged -= OnAdornmentSizeChanged;
+        _adornmentView.LayoutUpdated -= OnAdornmentNativeLayoutUpdated;
+        _observedNativeViewport = null;
         if (_adornmentScroller is not null)
             _adornmentScroller.ViewChanged -= OnAdornmentScrolled;
 
@@ -100,6 +104,22 @@ public partial class RichEditorHandler
     private void OnAdornmentSizeChanged(object sender, SizeChangedEventArgs args) => QueueAdornmentLayout();
 
     private void OnAdornmentScrolled(object? sender, ScrollViewerViewChangedEventArgs args) => QueueAdornmentLayout();
+
+    private void OnAdornmentNativeLayoutUpdated(object? sender, object args)
+    {
+        if (!_adornmentsConnected || _applyingDocument || !_adornmentView.IsLoaded || GetAdornmentViewport() is not { Width: > 0, Height: > 0 }) return;
+        // TOM can finish ScrollIntoView after the XAML scroll notification and
+        // our queued pass. Observe one native viewport boundary after layout;
+        // no selection movement or document-wide geometry walk is required.
+        var origin = TextLayoutOrigin();
+        NativeGeometryQueryCount += 2;
+        var range = _adornmentView.Document.GetRangeFromPoint(new(Math.Max(0, -origin.X), Math.Max(0, -origin.Y)), Microsoft.UI.Text.PointOptions.ClientCoordinates);
+        range.GetRect(Microsoft.UI.Text.PointOptions.ClientCoordinates | Microsoft.UI.Text.PointOptions.AllowOffClient, out var rect, out _);
+        var current = (range.StartPosition, rect.X + origin.X, rect.Y + origin.Y);
+        if (_observedNativeViewport == current) return;
+        _observedNativeViewport = current;
+        QueueAdornmentLayout();
+    }
 
     [DynamicWindowsRuntimeCast(typeof(ScrollViewer))]
     private void ConnectAdornmentScroller()

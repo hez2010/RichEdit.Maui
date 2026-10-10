@@ -210,7 +210,7 @@ public partial class RichEditorHandler
         internal double Scale => Handler.PlatformView.XamlRoot?.RasterizationScale ?? 1;
 
         [DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
-        internal IRawElementProviderSimple? ProviderFor(RichTextAdornment item) => item.View.Handler?.PlatformView is FrameworkElement native &&
+        internal IRawElementProviderSimple? ProviderFor(RichTextAdornment item) => item.CreatedView?.Handler?.PlatformView is FrameworkElement native &&
             (FromElement(native) ?? CreatePeerForElement(native)) is { } peer ? ProviderFromPeer(peer) : null;
 
         internal object Attribute(TextSpan range, int attribute)
