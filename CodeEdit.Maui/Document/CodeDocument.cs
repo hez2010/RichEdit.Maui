@@ -58,7 +58,7 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     public string Text => Source.Text;
 
     /// <summary>Gets an immutable source snapshot suitable for background work.</summary>
-    public CodeDocumentSnapshot CurrentSnapshot => _snapshot?.Revision == Revision ? _snapshot : _snapshot = new(Revision, Text);
+    public CodeDocumentSnapshot CurrentSnapshot => _snapshot?.Revision == Revision ? _snapshot : _snapshot = new(Revision, Source.CurrentSnapshot.TextBuffer);
 
     /// <summary>Gets whether undo is available.</summary>
     public bool CanUndo => Source.CanUndo;
@@ -131,10 +131,10 @@ public sealed class CodeDocumentSnapshot
     private readonly CodeLineMap _lines;
     internal CodeLineMap Lines => _lines;
 
-    internal CodeDocumentSnapshot(DocumentRevision revision, string text)
+    internal CodeDocumentSnapshot(DocumentRevision revision, TextSnapshot text)
     {
         Revision = revision;
-        Text = text;
+        TextBuffer = text;
         _lines = new(text);
     }
 
@@ -145,34 +145,37 @@ public sealed class CodeDocumentSnapshot
     public DocumentRevision Revision { get; }
 
     /// <summary>Gets the UTF-16 source text.</summary>
-    public string Text { get; }
+    public string Text => TextBuffer.ToString();
+
+    /// <summary>Gets the persistent text storage represented by this snapshot.</summary>
+    public TextSnapshot TextBuffer { get; }
+
+    /// <summary>Reads a bounded UTF-16 range without materializing the complete source.</summary>
+    public string GetText(TextSpan range) => TextBuffer.GetText(range);
 
     /// <summary>Gets the UTF-16 source length.</summary>
-    public int Length => Text.Length;
+    public int Length => TextBuffer.Length;
 
     /// <summary>Gets the number of logical source lines, including an empty trailing line.</summary>
     public int LineCount => _lines.Count;
 
-    /// <summary>Gets a one-based source line, excluding LF.</summary>
-    /// <param name="line">The one-based logical line.</param>
+    /// <summary>Gets a zero-based source line, excluding its terminator.</summary>
+    /// <param name="line">The zero-based logical line.</param>
     /// <returns>The line's source range.</returns>
-    public TextSpan GetLineRange(int line) => _lines.GetRange(line - 1);
+    public TextSpan GetLineRange(int line) => _lines.GetRange(line);
 
-    /// <summary>Converts a UTF-16 source offset to a one-based line and column.</summary>
+    /// <summary>Gets a zero-based source line with its exact terminator length.</summary>
+    public TextLine GetLine(int line) => TextBuffer.GetLine(line);
+
+    /// <summary>Converts a UTF-16 source offset to a zero-based line and column.</summary>
     /// <param name="offset">The source offset.</param>
     /// <returns>The source position.</returns>
-    public CodePosition GetPosition(int offset) => _lines.GetPosition(offset);
+    public TextPosition GetPosition(int offset) => _lines.GetPosition(offset);
 
-    /// <summary>Converts a one-based line and column to a UTF-16 source offset.</summary>
+    /// <summary>Converts a zero-based line and UTF-16 column to an exact source offset.</summary>
     /// <param name="position">The source position.</param>
     /// <returns>The source offset.</returns>
-    public int GetOffset(CodePosition position)
-    {
-        var range = GetLineRange(position.Line);
-        ArgumentOutOfRangeException.ThrowIfLessThan(position.Column, 1);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(position.Column - 1, range.Length);
-        return range.Start + position.Column - 1;
-    }
+    public int GetOffset(TextPosition position) => TextBuffer.GetOffset(position);
 }
 
 /// <summary>Describes source-only changes within a CodeDocument transaction.</summary>

@@ -65,7 +65,7 @@ public partial class CodeEditorTests
         Assert.Equal(4, editor.LineCount);
         Assert.False(editor.CanUndo);
         Assert.Equal(0, editor.Document.Version);
-        Assert.Equal(new TextSpan(6, 0), editor.GetLineRange(4));
+        Assert.Equal(new TextSpan(6, 0), editor.GetLineRange(3));
     });
 
     [Fact]
@@ -112,13 +112,13 @@ public partial class CodeEditorTests
         var actions = new CodeEditorActions(editor);
         actions.InsertNewLine();
         Assert.Equal("    call();\n    ", editor.Document.Text);
-        Assert.Equal(new CodePosition(2, 5), editor.CaretPosition);
+        Assert.Equal(new TextPosition(1, 4), editor.CaretPosition);
         editor.Undo();
         Assert.Equal("    call();", editor.Document.Text);
         editor.SelectedRange = new TextSpan(2, 0);
         actions.InsertNewLine();
         Assert.Equal("  \n    call();", editor.Document.Text);
-        Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
+        Assert.Equal(new TextPosition(1, 2), editor.CaretPosition);
     });
 
     [Fact]
@@ -210,9 +210,9 @@ public partial class CodeEditorTests
         var actions = new CodeEditorActions(editor);
         actions.GoToLine(2, 3);
         Assert.Equal(new TextSpan(5, 0), editor.SelectedRange);
-        Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
+        Assert.Equal(new TextPosition(1, 2), editor.CaretPosition);
         actions.GoToLine(100, 100);
-        Assert.Equal(new CodePosition(3, 1), editor.CaretPosition);
+        Assert.Equal(new TextPosition(2, 0), editor.CaretPosition);
         var previous = editor.Document;
         editor.Document = CodeDocument.FromPlainText("x");
         previous.Edit(edit => edit.InsertText(0, "detached\n"));
@@ -334,6 +334,23 @@ public partial class CodeEditorTests
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 0));
         editor.Undo();
         Assert.EndsWith("class A { }\n", editor.Document.Text);
+        Assert.False(editor.CanUndo);
+    });
+
+    [Fact]
+    public Task NativeIndentationPublishesOneCompleteTransactionAcrossCarets() => WindowsTestHost.RunAsync(() =>
+    {
+        using var fixture = new CodeEditorFixture("  a\n    b");
+        var editor = fixture.Editor;
+        editor.Selections = new((TextSelection[])[new(3, 3), new(9, 9)]);
+        var observed = new List<string>();
+        editor.Document.Changed += (_, _) => observed.Add(editor.Document.Text);
+        fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "\n");
+        Assert.Equal("  a\n  \n    b\n    ", editor.Document.Text);
+        Assert.Equal(new[] { editor.Document.Text }, observed);
+        Assert.Equal(new[] { 6, 17 }, editor.Selections.Select(selection => selection.Active));
+        editor.Undo();
+        Assert.Equal("  a\n    b", editor.Document.Text);
         Assert.False(editor.CanUndo);
     });
 

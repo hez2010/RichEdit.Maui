@@ -142,13 +142,13 @@ public partial class EditorApiTests
     {
         var editor = new CodeEditor { Document = new CodeDocument("abc\nxyz") };
         editor.SelectionState = new(6, 1);
-        Assert.Equal(new CodePosition(1, 2), editor.CaretPosition);
+        Assert.Equal(new TextPosition(0, 1), editor.CaretPosition);
         Assert.Equal(new TextSelectionState(6, 1), editor.GetValue(CodeEditor.SelectionStateProperty));
         editor.SetValue(CodeEditor.SelectionStateProperty, new TextSelectionState(1, 6));
-        Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
+        Assert.Equal(new TextPosition(1, 2), editor.CaretPosition);
         Assert.Equal(new TextSpan(1, 5), editor.SelectedRange);
         Assert.Equal(6, editor.GetOffset(editor.GetPosition(6)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => editor.GetOffset(new CodePosition(2, 5)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => editor.GetOffset(new TextPosition(1, 4)));
     });
 
     [Fact]

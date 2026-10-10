@@ -220,7 +220,7 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
             _ => "An identifier in the current document.",
         };
         var position = snapshot.GetPosition(range.Start);
-        InfoLocation = $"Line {position.Line}  ·  Column {position.Column}";
+        InfoLocation = $"Line {position.Line + 1}  ·  Column {position.Column + 1}";
         OnPropertyChanged(nameof(InfoWord));
         OnPropertyChanged(nameof(InfoKind));
         OnPropertyChanged(nameof(InfoDescription));

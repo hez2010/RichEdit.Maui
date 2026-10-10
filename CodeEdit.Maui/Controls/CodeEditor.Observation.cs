@@ -23,7 +23,7 @@ public sealed partial class CodeEditor
             if (!ReferenceEquals(source, _compositionSource))
             {
                 _compositionSource = source;
-                _compositionSnapshot = source is null ? null : new(default, source.Text);
+                _compositionSnapshot = source is null ? null : new(default, source.TextBuffer);
             }
             return _compositionSnapshot;
         }
@@ -79,7 +79,7 @@ public sealed partial class CodeEditor
             if (fragment.SourceRanges.Count == 0)
                 continue;
 
-            var number = lines.GetPosition(fragment.SourceRanges[0].Start).Line;
+            var number = lines.GetPosition(fragment.SourceRanges[0].Start).Line + 1;
             if (seen.Add(number))
                 result.Add(new(number, (float)fragment.Bounds.Y, (float)fragment.Bounds.Height, (float)fragment.Baseline));
         }

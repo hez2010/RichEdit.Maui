@@ -114,7 +114,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(rtf, _textView.Document.RtfText);
             Equal(false, _editor.Document.IsModified);
             Equal(new TextSelectionState(8, 1), _editor.SelectionState);
-            Equal(new CodePosition(1, 2), _editor.CaretPosition);
+            Equal(new TextPosition(0, 1), _editor.CaretPosition);
             ColorAt(0, TokenColor("keyword"));
             using var layer = _editor.Decorations.CreateLayer();
             layer.TrySet(_editor.Document.Revision, [new(new TextSpan(0, 5), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
@@ -207,9 +207,18 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         await Test("native newline and indentation share one undo unit", "    value", async () =>
         {
             _editor.SelectedRange = new TextSpan(_editor.Document.Length, 0);
-            EditorContractTests.NativeReplace(_textView, "\n");
-            await Task.Delay(200);
+            var observed = new List<string>();
+            void Changed(object? sender, RichTextDocumentChangedEventArgs args) => observed.Add(_editor.Document.Text);
+            _editor.Document.Changed += Changed;
+            try
+            {
+                EditorContractTests.NativeReplace(_textView, "\n");
+                await Task.Delay(200);
+            }
+            finally { _editor.Document.Changed -= Changed; }
             Equal("    value\n    ", _editor.Document.Text);
+            Equal(1, observed.Count, "native newline and indentation publish once");
+            Equal(_editor.Document.Text, observed[0]);
             _editor.Undo();
             Equal("    value", _editor.Document.Text);
             Equal(false, _editor.CanUndo, "newline undo units");

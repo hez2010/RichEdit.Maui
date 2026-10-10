@@ -23,10 +23,10 @@ public class EditorPrimitiveTests
         var captured = code.CurrentSnapshot;
         Assert.Equal(code.Source.Revision, captured.Revision);
         Assert.Equal(3, captured.LineCount);
-        Assert.Equal(new CodePosition(2, 3), captured.GetPosition(4));
-        Assert.Equal(4, captured.GetOffset(new(2, 3)));
+        Assert.Equal(new TextPosition(1, 2), captured.GetPosition(4));
+        Assert.Equal(4, captured.GetOffset(new(1, 2)));
         code.Edit(edit => edit.InsertText(0, "new\n"));
-        Assert.Equal(new TextSpan(2, 2), captured.GetLineRange(2));
+        Assert.Equal(new TextSpan(2, 2), captured.GetLineRange(1));
     }
 
     [Fact]

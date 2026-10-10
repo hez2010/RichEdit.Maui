@@ -31,8 +31,9 @@ public sealed partial class CodeEditor
             {
                 var line = Lines.GetRange(Lines.GetLineIndex(range.Start));
                 var column = 0;
-                foreach (var character in Document.Text.AsSpan(line.Start, range.Start - line.Start))
-                    column += character == '\t' ? IndentSize - column % IndentSize : 1;
+                foreach (var chunk in Document.CurrentSnapshot.TextBuffer.GetChunks(new(line.Start, range.Start - line.Start)))
+                    foreach (var character in chunk.Span)
+                        column += character == '\t' ? IndentSize - column % IndentSize : 1;
 
                 edits.Add(new(range, UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize)));
             }
@@ -56,11 +57,12 @@ public sealed partial class CodeEditor
         foreach (var line in SelectedSourceLines())
         {
             var range = Lines.GetRange(line);
+            var prefix = Document.CurrentSnapshot.GetText(new(range.Start, Math.Min(IndentSize, range.Length)));
             var length = 0;
-            if (!range.IsEmpty && Document.Text[range.Start] == '\t')
+            if (prefix.Length != 0 && prefix[0] == '\t')
                 length = 1;
             else
-                while (length < Math.Min(IndentSize, range.Length) && Document.Text[range.Start + length] == ' ')
+                while (length < prefix.Length && prefix[length] == ' ')
                     length++;
             if (length > 0)
                 edits.Add(new(new TextSpan(range.Start, length), string.Empty));
@@ -90,23 +92,21 @@ public sealed partial class CodeEditor
         foreach (var line in selectedLines)
         {
             var range = Lines.GetRange(line);
-            var start = range.Start;
-            while (start < range.End && Document.Text[start] is ' ' or '\t')
-                start++;
+            var start = range.Start + LeadingWhitespace(Document.CurrentSnapshot.TextBuffer, range);
             if (start != range.End || selectedLines.Count == 1 || Selections.Any(selection =>
                 selection.Range.IsEmpty && Lines.GetLineIndex(selection.Active) == line))
                 targets.Add(new TextSpan(start, range.End - start));
         }
 
         var uncomment = targets.Count > 0 && targets.All(range =>
-            Document.Text.AsSpan(range.Start, range.Length).StartsWith(LineCommentPrefix, StringComparison.Ordinal));
+            Document.CurrentSnapshot.GetText(new(range.Start, Math.Min(range.Length, LineCommentPrefix.Length))) == LineCommentPrefix);
         var edits = new List<RichTextEdit>();
         foreach (var range in targets)
         {
             if (uncomment)
             {
                 var length = LineCommentPrefix.Length;
-                if (length < range.Length && Document.Text[range.Start + length] == ' ')
+                if (length < range.Length && Document.CurrentSnapshot.TextBuffer[range.Start + length] == ' ')
                     length++;
 
                 edits.Add(new(new TextSpan(range.Start, length), string.Empty));
@@ -118,26 +118,20 @@ public sealed partial class CodeEditor
         ApplyEdits(edits, uncomment ? "Uncomment lines" : "Comment lines");
     }
 
-    /// <summary>Gets the source range for a one-based logical line, excluding its line terminator.</summary>
-    /// <param name="line">The one-based line number.</param>
+    /// <summary>Gets the source range for a zero-based logical line, excluding its line terminator.</summary>
+    /// <param name="line">The zero-based line number.</param>
     /// <returns>The line's UTF-16 source range.</returns>
-    public TextSpan GetLineRange(int line) => Lines.GetRange(line - 1);
+    public TextSpan GetLineRange(int line) => Lines.GetRange(line);
 
-    /// <summary>Converts a bounded UTF-16 offset to a one-based line and column.</summary>
+    /// <summary>Converts a bounded UTF-16 offset to a zero-based line and column.</summary>
     /// <param name="offset">The source offset.</param>
     /// <returns>The logical source position.</returns>
-    public CodePosition GetPosition(int offset) => Lines.GetPosition(offset);
+    public TextPosition GetPosition(int offset) => Lines.GetPosition(offset);
 
-    /// <summary>Converts a one-based line and UTF-16 column to a bounded source offset.</summary>
+    /// <summary>Converts a zero-based line and UTF-16 column to a bounded source offset.</summary>
     /// <param name="position">The logical source position.</param>
     /// <returns>The UTF-16 source offset.</returns>
-    public int GetOffset(CodePosition position)
-    {
-        var range = GetLineRange(position.Line);
-        ArgumentOutOfRangeException.ThrowIfLessThan(position.Column, 1);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(position.Column - 1, range.Length);
-        return range.Start + position.Column - 1;
-    }
+    public int GetOffset(TextPosition position) => Lines.Buffer.GetOffset(position);
 
     private string Indentation => UseTabs ? "\t" : new string(' ', IndentSize);
 
@@ -155,36 +149,44 @@ public sealed partial class CodeEditor
 
     private string GetIndentation(int position)
     {
-        var range = Lines.GetRange(Lines.GetLineIndex(position));
-        var end = range.Start;
-        while (end < Math.Min(position, range.End) && Document.Text[end] is ' ' or '\t')
-            end++;
-
-        return Document.Text[range.Start..end];
+        return GetIndentation(Document.CurrentSnapshot.TextBuffer, position);
     }
 
-    private void QueueNativeAutoIndent(RichTextChangeSet changes)
+    private static string GetIndentation(TextSnapshot snapshot, int position)
     {
-        if (!AutoIndent || IsReadOnly || NativeAdapter is not { } handler || Composition.IsActive)
-            return;
+        var line = snapshot.GetLine(snapshot.GetPosition(position).Line).Span;
+        var prefix = new TextSpan(line.Start, Math.Min(position, line.End) - line.Start);
+        return snapshot.GetText(new(prefix.Start, LeadingWhitespace(snapshot, prefix)));
+    }
 
-        var replacements = changes.Changes.OfType<RichTextTextChange>().ToArray();
-        if (replacements is not [{ InsertedText: "\n" } change])
-            return;
+    private static int LeadingWhitespace(TextSnapshot snapshot, TextSpan range)
+    {
+        var length = 0;
+        foreach (var chunk in snapshot.GetChunks(range))
+            foreach (var character in chunk.Span)
+            {
+                if (character is not (' ' or '\t'))
+                    return length;
+                length++;
+            }
+        return length;
+    }
 
-        var indentation = GetIndentation(change.NewRange.Start);
-        if (indentation.Length == 0)
+    private void PlanNativeAutoIndent(TextInputContext input)
+    {
+        if (!AutoIndent || IsReadOnly || input.InputChanges.Length != input.BeforeSelections.Count ||
+            input.InputChanges.Any(change => change.Text is not ("\n" or "\r\n" or "\r")))
             return;
-
-        var document = Document;
-        var version = document.Version;
-        var caret = new TextSpan(change.NewRange.End, 0);
-        handler.Post(() =>
+        var ranges = input.InputChanges.Select(change => change.Range).ToHashSet();
+        if (input.BeforeSelections.Any(selection => !ranges.Contains(selection.Range)))
+            return;
+        var map = new PositionMap(input.Before.Length, input.InputChanges.Select(change => new PositionChange(change.Range, change.Text.Length)));
+        foreach (var selection in input.BeforeSelections)
         {
-            if (ReferenceEquals(NativeAdapter, handler) && !Composition.IsActive && AutoIndent && !IsReadOnly && CanUndo &&
-                ReferenceEquals(Document, document) && document.Version == version && SelectedRange == caret)
-                ApplyEdits((RichTextEdit[])[new(caret, indentation)], "New line", RichTextUndoBehavior.MergeWithPrevious);
-        });
+            var indentation = GetIndentation(input.Before, selection.Range.Start);
+            if (indentation.Length != 0)
+                input.Replace(new(map.Map(selection.Range.Start)!.Value, 0), indentation);
+        }
     }
 
     private bool ApplyEdits(IReadOnlyList<RichTextEdit> edits, string description,

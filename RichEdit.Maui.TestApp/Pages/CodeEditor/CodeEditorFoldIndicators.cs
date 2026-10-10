@@ -85,7 +85,7 @@ internal sealed partial class CodeEditorFoldIndicators : IDisposable
         };
         button.Text = text;
         button.Command = new Command(() => _editor.Folding.Expand(range));
-        var description = $"Expand folded range at line {_editor.GetPosition(range.Start).Line} ({range.Length} characters)";
+        var description = $"Expand folded range at line {_editor.GetPosition(range.Start).Line + 1} ({range.Length} characters)";
         SemanticProperties.SetDescription(button, description);
         ToolTipProperties.SetText(button, description);
         return button;

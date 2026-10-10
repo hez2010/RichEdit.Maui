@@ -147,7 +147,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(line, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(column, 1);
-        var range = editor.GetLineRange(Math.Min(line, editor.LineCount));
+        var range = editor.GetLineRange(Math.Min(line, editor.LineCount) - 1);
         editor.SelectedRange = new TextSpan(range.Start + Math.Min(column - 1, range.Length), 0);
         editor.ScrollIntoView(editor.SelectedRange);
     }

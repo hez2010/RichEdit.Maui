@@ -167,7 +167,7 @@ public sealed partial class CodeEditor : ContentView
 
     internal NativeEditorView TextView { get; }
     internal CodeEditorNativeAdapter? NativeAdapter { get; private set; }
-    internal CodeLineMap Lines { get; private set; } = new(string.Empty);
+    internal CodeLineMap Lines { get; private set; } = new(TextSnapshot.Empty);
 
     /// <summary>Creates an editor configured for source code.</summary>
     public CodeEditor()
@@ -194,6 +194,7 @@ public sealed partial class CodeEditor : ContentView
         TextView.ContentChanged += OnContentChanged;
         TextView.KeyDown += (_, args) => KeyDown?.Invoke(this, args);
         InitializeKeyBindings();
+        TextView.InputRules.Register(PlanNativeAutoIndent);
         TextView.ContextMenuOpening += (_, args) =>
         {
             if (FlyoutBase.GetContextFlyout(this) is MenuFlyout menu)
@@ -315,8 +316,8 @@ public sealed partial class CodeEditor : ContentView
     /// <summary>Gets the logical line count, including a trailing empty line.</summary>
     public int LineCount => Lines.Count;
 
-    /// <summary>Gets the one-based position of the active selection endpoint.</summary>
-    public CodePosition CaretPosition => Lines.GetPosition(Math.Min(SelectionState.Active, Lines.Text.Length));
+    /// <summary>Gets the zero-based logical line and UTF-16 column of the active endpoint.</summary>
+    public TextPosition CaretPosition => Lines.GetPosition(Math.Min(SelectionState.Active, Lines.Buffer.Length));
 
     /// <summary>Gets whether an undo unit is available.</summary>
     public bool CanUndo => TextView.CanUndo;
@@ -418,8 +419,6 @@ public sealed partial class CodeEditor : ContentView
     {
         NativeAdapter?.UpdateConfiguration();
         UpdateLines();
-        if (args.ChangeSet.Origin == RichTextChangeOrigin.User)
-            QueueNativeAutoIndent(args.ChangeSet);
 
         ContentChanged?.Invoke(this, args);
         if (args.ChangeSet.IsTextChanged)
@@ -450,10 +449,11 @@ public sealed partial class CodeEditor : ContentView
 
     private void UpdateLines()
     {
-        if (ReferenceEquals(Lines.Text, Document.Text))
+        var buffer = Document.CurrentSnapshot.TextBuffer;
+        if (ReferenceEquals(Lines.Buffer, buffer))
             return;
 
-        Lines = new CodeLineMap(Document.Text);
+        Lines = new CodeLineMap(buffer);
         OnPropertyChanged(nameof(LineCount));
         OnPropertyChanged(nameof(CaretPosition));
         UpdateGutter();
@@ -488,7 +488,7 @@ public sealed partial class CodeEditor : ContentView
 
             foreach (var line in owner.GetVisibleLines())
             {
-                canvas.Font = new Microsoft.Maui.Graphics.Font(owner.FontFamily, line.Number == owner.CaretPosition.Line ? 700 : 400);
+                canvas.Font = new Microsoft.Maui.Graphics.Font(owner.FontFamily, line.Number == owner.CaretPosition.Line + 1 ? 700 : 400);
 #if IOS || MACCATALYST
                 // CoreText's framed drawing can omit text when its font metrics exceed
                 // the native used-rect height. Its point overload draws at a baseline.
