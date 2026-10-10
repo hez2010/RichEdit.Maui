@@ -6,6 +6,32 @@ namespace RichEdit.Core.Tests;
 public class RichDocumentTests
 {
     [Fact]
+    public void DocumentDefaultsResolveWithoutRewritingContentAndParticipateInHistory()
+    {
+        var document = RichDocument.FromPlainText("text");
+        var before = document.CurrentSnapshot;
+        var paragraph = before.Get<RichStory>(before.Body).Blocks[0];
+        var run = before.Get<RichParagraph>(paragraph).Inlines[0];
+        document.Edit(edit =>
+        {
+            edit.SetDefaultCharacterFormat(new() { FontFamily = "Example", FontSize = RichFontSize.FromPoints(14), Bold = true });
+            edit.SetDefaultParagraphFormat(new() { Alignment = RichAlignment.Center });
+        });
+        Assert.Same(before.Nodes, document.CurrentSnapshot.Nodes);
+        Assert.True(document.CurrentSnapshot.ResolveCharacter(run).Bold);
+        Assert.Equal("Example", document.CurrentSnapshot.ResolveCharacter(run).FontFamily);
+        Assert.Equal(RichAlignment.Center, document.CurrentSnapshot.ResolveParagraph(paragraph).Alignment);
+        document.Edit(edit => edit.SetCharacterFormat(new(edit.Body, paragraph, 0), 4, new() { Bold = StyleValue<bool>.Initial }));
+        Assert.False(document.CurrentSnapshot.ResolveCharacter(run).Bold);
+        document.Undo();
+        Assert.True(document.CurrentSnapshot.ResolveCharacter(run).Bold);
+        document.Undo();
+        Assert.False(document.CurrentSnapshot.ResolveCharacter(run).Bold);
+        Assert.Null(document.CurrentSnapshot.ResolveCharacter(run).FontFamily);
+        Assert.False(document.IsModified);
+    }
+
+    [Fact]
     public void CellSelectionsFollowRowAndColumnChangesAcrossDocumentUndo()
     {
         RichNodeId table = default;

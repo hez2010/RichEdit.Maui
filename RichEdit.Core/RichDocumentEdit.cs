@@ -12,6 +12,8 @@ public sealed partial class RichDocumentEdit
     private readonly ImmutableDictionary<RichAssetId, RichImageAsset>.Builder _assets;
     private readonly ImmutableDictionary<RichAnnotationId, RichBookmark>.Builder _bookmarks;
     private readonly ImmutableDictionary<RichAnnotationId, RichComment>.Builder _comments;
+    private RichCharacterStyle _defaultCharacter;
+    private RichParagraphStyle _defaultParagraph;
     private long _nextId;
     private bool _open = true;
     private readonly List<RichAddressMap.Step> _maps = [];
@@ -25,6 +27,8 @@ public sealed partial class RichDocumentEdit
         _assets = before.Assets.ToBuilder();
         _bookmarks = before.Bookmarks.ToBuilder();
         _comments = before.Comments.ToBuilder();
+        _defaultCharacter = before.DefaultCharacter;
+        _defaultParagraph = before.DefaultParagraph;
         _nextId = nextId;
     }
     /// <summary>Gets the body story identity.</summary>
@@ -33,6 +37,24 @@ public sealed partial class RichDocumentEdit
     public RichDocumentSnapshot Snapshot { get { VerifyOpen(); return Candidate(); } }
     /// <summary>Replaces document-owned styles without rewriting referenced content.</summary>
     public void SetStyles(RichStyleSheet styles) { VerifyOpen(); _styles = styles ?? throw new ArgumentNullException(nameof(styles)); }
+
+    /// <summary>Changes authored document character defaults without rewriting text or style references.</summary>
+    public void SetDefaultCharacterFormat(RichCharacterStyle format)
+    {
+        VerifyOpen();
+        ArgumentNullException.ThrowIfNull(format);
+        RichStyleSheet.Validate(format);
+        _defaultCharacter = format;
+    }
+
+    /// <summary>Changes authored document paragraph defaults without rewriting paragraph nodes.</summary>
+    public void SetDefaultParagraphFormat(RichParagraphStyle format)
+    {
+        VerifyOpen();
+        ArgumentNullException.ThrowIfNull(format);
+        RichStyleSheet.Validate(format);
+        _defaultParagraph = format;
+    }
 
     /// <summary>Sets the invoking view's selection in final candidate coordinates.</summary>
     public void SetSelection(RichSelection selection) { VerifyOpen(); SelectionAfter = selection ?? throw new ArgumentNullException(nameof(selection)); }
@@ -355,5 +377,6 @@ public sealed partial class RichDocumentEdit
     }
     internal void Close() => _open = false;
     private RichDocumentSnapshot Candidate(bool validate = true) => new(_body, _nodes.ToImmutable(), _styles, validate: validate,
-        assets: _assets.ToImmutable(), bookmarks: _bookmarks.ToImmutable(), comments: _comments.ToImmutable());
+        assets: _assets.ToImmutable(), bookmarks: _bookmarks.ToImmutable(), comments: _comments.ToImmutable(),
+        defaultCharacter: _defaultCharacter, defaultParagraph: _defaultParagraph);
 }

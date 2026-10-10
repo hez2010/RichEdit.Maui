@@ -126,7 +126,8 @@ public sealed class RichDocument
         });
         if (builder.SelectionAfter is not null && session is null) throw new InvalidOperationException("Resulting selections require an invoking session.");
         if (ReferenceEquals(plan.Snapshot.Nodes, before.Nodes) && ReferenceEquals(plan.Snapshot.Styles, before.Styles) && ReferenceEquals(plan.Snapshot.Assets, before.Assets) &&
-            ReferenceEquals(plan.Snapshot.Bookmarks, before.Bookmarks) && ReferenceEquals(plan.Snapshot.Comments, before.Comments))
+            ReferenceEquals(plan.Snapshot.Bookmarks, before.Bookmarks) && ReferenceEquals(plan.Snapshot.Comments, before.Comments) &&
+            plan.Snapshot.DefaultCharacter == before.DefaultCharacter && plan.Snapshot.DefaultParagraph == before.DefaultParagraph)
         {
             if (builder.SelectionAfter is { } selection) session!.Selection = selection;
             return new(TextEditRejection.None);

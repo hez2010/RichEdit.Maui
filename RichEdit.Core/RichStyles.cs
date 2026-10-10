@@ -139,14 +139,16 @@ public sealed class RichStyleSheet
     /// <summary>Gets definitions indexed by document-local identity.</summary>
     public ImmutableDictionary<RichStyleId, RichStyleDefinition> Definitions { get; }
 
-    /// <summary>Resolves document defaults, paragraph style, character style, and direct character overrides in that order.</summary>
+    /// <summary>Resolves document defaults, paragraph style and its direct character defaults, character style, and direct inline overrides in that order.</summary>
     public ResolvedCharacterStyle ResolveCharacter(RichStyleId? paragraphStyle = null, RichStyleId? characterStyle = null,
-        RichCharacterStyle? direct = null, RichCharacterStyle? defaults = null)
+        RichCharacterStyle? direct = null, RichCharacterStyle? defaults = null, RichCharacterStyle? paragraphDirect = null)
     {
         if (defaults is not null) Validate(defaults);
         if (direct is not null) Validate(direct);
+        if (paragraphDirect is not null) Validate(paragraphDirect);
         var result = (defaults ?? new()).Apply(new());
         if (paragraphStyle is { } paragraph) result = Resolve(paragraph, RichStyleKind.Paragraph).Character.Apply(result);
+        if (paragraphDirect is not null) result = paragraphDirect.Apply(result);
         if (characterStyle is { } character) result = Resolve(character, RichStyleKind.Character).Character.Apply(result);
         return direct?.Apply(result) ?? result;
     }

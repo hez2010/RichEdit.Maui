@@ -57,7 +57,8 @@ public sealed class RichDocumentSnapshot
 
     internal RichDocumentSnapshot(RichNodeId body, ImmutableDictionary<RichNodeId, RichNode> nodes, RichStyleSheet styles,
         DocumentRevision revision = default, bool validate = true, ImmutableDictionary<RichAssetId, RichImageAsset>? assets = null,
-        ImmutableDictionary<RichAnnotationId, RichBookmark>? bookmarks = null, ImmutableDictionary<RichAnnotationId, RichComment>? comments = null)
+        ImmutableDictionary<RichAnnotationId, RichBookmark>? bookmarks = null, ImmutableDictionary<RichAnnotationId, RichComment>? comments = null,
+        RichCharacterStyle? defaultCharacter = null, RichParagraphStyle? defaultParagraph = null)
     {
         Body = body;
         Nodes = nodes;
@@ -65,6 +66,8 @@ public sealed class RichDocumentSnapshot
         Assets = assets ?? ImmutableDictionary<RichAssetId, RichImageAsset>.Empty;
         Bookmarks = bookmarks ?? ImmutableDictionary<RichAnnotationId, RichBookmark>.Empty;
         Comments = comments ?? ImmutableDictionary<RichAnnotationId, RichComment>.Empty;
+        DefaultCharacter = defaultCharacter ?? new();
+        DefaultParagraph = defaultParagraph ?? new();
         Revision = revision;
         if (validate) Validate();
     }
@@ -81,9 +84,29 @@ public sealed class RichDocumentSnapshot
     public ImmutableDictionary<RichAnnotationId, RichBookmark> Bookmarks { get; }
     /// <summary>Gets persistent comments, including orphaned records.</summary>
     public ImmutableDictionary<RichAnnotationId, RichComment> Comments { get; }
+    /// <summary>Gets authored document character defaults. Unresolved values remain available for a view fallback.</summary>
+    public RichCharacterStyle DefaultCharacter { get; }
+    /// <summary>Gets authored document paragraph defaults.</summary>
+    public RichParagraphStyle DefaultParagraph { get; }
     /// <summary>Gets the document revision, or an invalid revision for a standalone builder snapshot.</summary>
     public DocumentRevision Revision { get; }
-    internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false, Assets, Bookmarks, Comments);
+    internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false,
+        Assets, Bookmarks, Comments, DefaultCharacter, DefaultParagraph);
+
+    /// <summary>Resolves authored character appearance for one inline without rewriting its style references or direct overrides.</summary>
+    public ResolvedCharacterStyle ResolveCharacter(RichNodeId inline)
+    {
+        var node = Get<RichInline>(inline);
+        var paragraph = Get<RichParagraph>(node.Parent!.Value);
+        return Styles.ResolveCharacter(paragraph.Style, node.Style, node.Format, DefaultCharacter, paragraph.Character);
+    }
+
+    /// <summary>Resolves authored paragraph appearance, including semantic heading level.</summary>
+    public ResolvedParagraphStyle ResolveParagraph(RichNodeId paragraph)
+    {
+        var node = Get<RichParagraph>(paragraph);
+        return Styles.ResolveParagraph(node.Style, node.Format, DefaultParagraph);
+    }
 
     /// <summary>Gets a typed node or rejects a missing node or mismatched structural kind.</summary>
     public T Get<T>(RichNodeId id) where T : RichNode => Nodes.TryGetValue(id, out var node) && node is T value ? value :
@@ -168,6 +191,8 @@ public sealed class RichDocumentSnapshot
     private void Validate()
     {
         ArgumentNullException.ThrowIfNull(Styles);
+        RichStyleSheet.Validate(DefaultCharacter);
+        RichStyleSheet.Validate(DefaultParagraph);
         foreach (var pair in Assets)
             if (!pair.Key.IsValid || pair.Value is null || pair.Value.Id != pair.Key || !Enum.IsDefined(pair.Value.Kind) || pair.Value.Data.IsDefaultOrEmpty)
                 throw new ArgumentException("Image resources require valid matching identities, formats, and owned payloads.");
