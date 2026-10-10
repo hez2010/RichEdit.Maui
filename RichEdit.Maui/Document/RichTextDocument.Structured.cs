@@ -9,7 +9,9 @@ public sealed partial class RichTextDocument
     private static readonly ConditionalWeakTable<RichDocument, RichTextDocument> StructuredProjections = new();
     internal RichDocument? StructuredDocument { get; }
     internal RichTextProjection? StructuredProjection { get; private set; }
-    internal RichNodeId? StructuredRoot { get; }
+    internal RichTextViewScope? StructuredScope { get; }
+    internal RichNodeId? StructuredRoot => StructuredScope?.Root;
+    internal RichTextProjection? ProjectStructuredSnapshot(RichDocumentSnapshot snapshot) => StructuredScope is null ? snapshot.ProjectText() : StructuredScope.Project(snapshot);
     private readonly IDisposable? _structuredSubscription;
     private object? _structuredOrigin;
     private RichTextChangeSet? _lastStructuredChange;
@@ -23,14 +25,14 @@ public sealed partial class RichTextDocument
     }
 
     internal static RichTextDocument ProjectStructured(RichDocument document) => StructuredProjections.GetValue(document, static model => new(model));
-    internal static RichTextDocument ProjectStructured(RichDocument document, RichNodeId? root) => root is null
-        ? ProjectStructured(document) : new(document, root);
+    internal static RichTextDocument ProjectStructured(RichDocument document, RichTextViewScope? scope) => scope is null
+        ? ProjectStructured(document) : new(document, scope);
 
-    private RichTextDocument(RichDocument document, RichNodeId? root = null)
+    private RichTextDocument(RichDocument document, RichTextViewScope? scope = null)
     {
         StructuredDocument = document;
-        StructuredRoot = root;
-        StructuredProjection = document.CurrentSnapshot.ProjectText(root);
+        StructuredScope = scope;
+        StructuredProjection = ProjectStructuredSnapshot(document.CurrentSnapshot) ?? throw new ArgumentException("The native text scope does not exist.", nameof(scope));
         _snapshot = RichTextDocumentSnapshot.CreateStructuredProjection(StructuredProjection);
         Tracking = new(() => Length, document.VerifyAccess);
         _structuredSubscription = document.SubscribeProjection(PublishStructured);
@@ -47,7 +49,7 @@ public sealed partial class RichTextDocument
     private void PublishStructured(RichDocumentChangedEventArgs change)
     {
         var before = _snapshot;
-        StructuredProjection = StructuredRoot is { } root && !change.After.Nodes.ContainsKey(root) ? null : change.After.ProjectText(StructuredRoot);
+        StructuredProjection = ProjectStructuredSnapshot(change.After);
         _snapshot = StructuredProjection is { } projection ? RichTextDocumentSnapshot.CreateStructuredProjection(projection) :
             new RichTextDocumentSnapshot("").WithVersion(change.After.Revision.Version, change.After.Revision.Identity);
         var structural = StructuredRoot is null && (change.Before.Nodes.Values.Any(node => node is RichTable or RichList or RichField) ||
@@ -80,15 +82,15 @@ public sealed partial class RichTextDocument
         {
             void Apply(RichDocumentEdit edit)
             {
-                ApplyStructuredText(edit, changes, view?.StructuredSession?.TypingCharacterFormat, StructuredRoot);
+                ApplyStructuredText(edit, changes, view?.StructuredSession?.TypingCharacterFormat, StructuredScope);
                 // Native fonts, proofing languages, and display overrides are not
                 // authored typing attributes. Explicit formatting commands have
                 // their own format-only transaction; text input uses session state.
                 if (!changes.Any(change => change.Kind == RichTextChangeKind.Text) && changes.Count != 0)
-                    ApplyStructuredFormatting(edit, candidate, changes, StructuredRoot);
+                    ApplyStructuredFormatting(edit, candidate, changes, StructuredScope);
                 if (view is not null)
                 {
-                    var projection = edit.Snapshot.ProjectText(StructuredRoot);
+                    var projection = ProjectStructuredSnapshot(edit.Snapshot)!;
                     var selections = view.GetSelectionsAfterEdit(changes, projection.Text.Length);
                     edit.SetSelection(new RichTextSelectionSet(projection.Snapshot,
                         selections.Select(item => new RichTextSelectionItem(ToStructuredSelection(projection, new(item.Anchor, item.Active)))
@@ -108,19 +110,20 @@ public sealed partial class RichTextDocument
         finally { _structuredOrigin = null; _structuredCorrections = null; }
     }
 
-    internal static void ApplyStructuredText(RichDocumentEdit edit, IEnumerable<RichTextChange> changes, RichCharacterStyle? typingFormat = null, RichNodeId? root = null)
+    internal static void ApplyStructuredText(RichDocumentEdit edit, IEnumerable<RichTextChange> changes, RichCharacterStyle? typingFormat = null, RichTextViewScope? scope = null)
     {
         foreach (var change in changes.OfType<RichTextTextChange>())
         {
-            var projection = edit.Snapshot.ProjectText(root);
-            var selection = ToStructuredSelection(projection, new(change.OldRange.Start, change.OldRange.End));
+            var projection = scope is null ? edit.Snapshot.ProjectText() : scope.Project(edit.Snapshot) ?? throw new InvalidOperationException("The native text scope was removed.");
+            var selection = projection.Paragraphs.IsEmpty && change.OldRange.IsEmpty ? scope!.StartSelection(projection) :
+                (RichSelection)ToStructuredSelection(projection, new(change.OldRange.Start, change.OldRange.End));
             edit.ReplaceSelection(selection, change.InsertedText, typingFormat);
         }
     }
 
-    internal static void ApplyStructuredFormatting(RichDocumentEdit edit, RichTextDocumentSnapshot candidate, IReadOnlyList<RichTextChange> changes, RichNodeId? root = null)
+    internal static void ApplyStructuredFormatting(RichDocumentEdit edit, RichTextDocumentSnapshot candidate, IReadOnlyList<RichTextChange> changes, RichTextViewScope? scope = null)
     {
-        var projection = edit.Snapshot.ProjectText(root);
+        var projection = scope is null ? edit.Snapshot.ProjectText() : scope.Project(edit.Snapshot) ?? throw new InvalidOperationException("The native text scope was removed.");
         var expected = RichTextDocumentSnapshot.CreateStructuredProjection(projection);
         foreach (var change in changes.Where(change => change.Kind == RichTextChangeKind.CharacterFormat))
             foreach (var paragraph in projection.Paragraphs)

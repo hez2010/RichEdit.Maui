@@ -25,23 +25,22 @@ public partial class NativeEditorView
     }
 
     internal void BindStructuredDocument(RichDocument document, RichNodeId? root = null, NativeEditorView? inputCoordinator = null)
+        => BindStructuredScope(document, root is null ? null : new(root.Value), inputCoordinator);
+
+    internal void BindStructuredScope(RichDocument document, RichTextViewScope? scope, NativeEditorView? inputCoordinator = null)
     {
         VerifyAccess();
-        if (ReferenceEquals(StructuredSession?.Document, document) && Document.StructuredRoot == root && ReferenceEquals(StructuredInputCoordinator, inputCoordinator)) return;
-        if (inputCoordinator is not null && (ReferenceEquals(inputCoordinator, this) || root is null ||
+        if (ReferenceEquals(StructuredSession?.Document, document) && Document.StructuredScope == scope && ReferenceEquals(StructuredInputCoordinator, inputCoordinator)) return;
+        if (inputCoordinator is not null && (ReferenceEquals(inputCoordinator, this) || scope is null ||
             inputCoordinator.Document.StructuredRoot is not null || !ReferenceEquals(inputCoordinator.StructuredSession?.Document, document)))
             throw new ArgumentException("A scoped input surface requires a full-document coordinator over the same rich document.", nameof(inputCoordinator));
         if (SourceSession is not null) throw new InvalidOperationException("A source view cannot bind a rich document.");
         Document.VerifyAttachmentChange();
         document.VerifyIdle();
-        var projection = RichTextDocument.ProjectStructured(document, root);
+        var projection = RichTextDocument.ProjectStructured(document, scope);
         var next = inputCoordinator?.StructuredSession ?? document.CreateSession();
         if (inputCoordinator is null) next.IsReadOnly = IsReadOnly;
-        if (root is not null && inputCoordinator is null)
-        {
-            var point = projection.StructuredProjection!.GetPoint(0)!.Value;
-            next.Selection = new RichEdit.Core.RichTextSelection(point, point);
-        }
+        if (scope is not null && inputCoordinator is null) next.Selection = scope.StartSelection(projection.StructuredProjection!);
         var previous = StructuredSession;
         var previousCoordinator = StructuredInputCoordinator;
         var previousOwned = _ownsStructuredSession;
@@ -113,16 +112,26 @@ public partial class NativeEditorView
     private bool ReplaceStructuredSelections(string text) =>
         ApplyStructuredSelectionInput(StructuredSession!.Selection, text, TextChangeOrigin.Programmatic);
 
-    internal bool ApplyStructuredNativeInput(RichSelection selection, string text) => ApplyStructuredSelectionInput(selection, text, TextChangeOrigin.User);
+    internal bool ApplyStructuredNativeInput(RichSelection selection, string text, TextSelectionState? insertionSelection = null) =>
+        ApplyStructuredSelectionInput(selection, text, TextChangeOrigin.User, insertionSelection);
 
-    private bool ApplyStructuredSelectionInput(RichSelection selection, string text, TextChangeOrigin origin)
+    private bool ApplyStructuredSelectionInput(RichSelection selection, string text, TextChangeOrigin origin, TextSelectionState? insertionSelection = null)
     {
         if (IsReadOnly || Document.HasActiveComposition) return false;
         try
         {
             return StructuredSession!.Edit(edit =>
             {
-                edit.SetSelection(edit.ReplaceSelection(selection, text, StructuredSession.TypingCharacterFormat));
+                var result = edit.ReplaceSelection(selection, text, StructuredSession.TypingCharacterFormat);
+                if (insertionSelection is { } local && result is RichEdit.Core.RichTextSelection caret)
+                {
+                    var projection = edit.Snapshot.ProjectText();
+                    var length = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Length;
+                    var start = projection.GetOffset(caret.Active) - length;
+                    result = new RichEdit.Core.RichTextSelection(projection.GetPoint(start + Math.Clamp(local.Anchor, 0, length))!.Value,
+                        projection.GetPoint(start + Math.Clamp(local.Active, 0, length))!.Value);
+                }
+                edit.SetSelection(result);
                 if (!AcceptsStructuredInputLength(edit.Snapshot)) throw new StructuredInputLimitException();
             }, new(Origin: origin)).Accepted;
         }
@@ -148,8 +157,7 @@ public partial class NativeEditorView
     {
         if (StructuredSession is not { } session) return null;
         if (Document.StructuredProjection is not { } projection) return TextSelectionSet.Caret(0);
-        var paragraphsInScope = Document.StructuredRoot is null ? null : projection.Paragraphs.Select(paragraph => paragraph.Paragraph).ToHashSet();
-        bool InScope(RichNodeId paragraph) => paragraphsInScope?.Contains(paragraph) ?? true;
+        bool InScope(RichNodeId paragraph) => projection.ContainsParagraph(paragraph);
         if (session.Selection is RichTextSelectionSet set)
         {
             var scopedSelections = set.Where(item => InScope(item.Selection.Anchor.Paragraph) && InScope(item.Selection.Active.Paragraph))

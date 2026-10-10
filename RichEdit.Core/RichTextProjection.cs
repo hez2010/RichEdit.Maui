@@ -30,7 +30,7 @@ public sealed record RichProjectedObject(int Position, RichNodeId Object);
 public sealed class RichTextProjection
 {
     private readonly ImmutableDictionary<RichNodeId, RichProjectedParagraph> _byParagraph;
-    internal RichTextProjection(RichDocumentSnapshot snapshot, RichNodeId root)
+    internal RichTextProjection(RichDocumentSnapshot snapshot, RichNodeId root, ImmutableArray<RichNodeId>? selectedBlocks = null)
     {
         Snapshot = snapshot;
         Root = root;
@@ -42,12 +42,19 @@ public sealed class RichTextProjection
         var paragraphs = ImmutableArray.CreateBuilder<RichProjectedParagraph>();
         var separators = ImmutableArray.CreateBuilder<RichProjectedSeparator>();
         var objects = ImmutableArray.CreateBuilder<RichProjectedObject>();
-        switch (rootNode)
+        if (selectedBlocks is { } subset)
         {
-            case RichStory story: EmitBlocks(story.Blocks, story.Id); break;
-            case RichTableCell cell: EmitBlocks(cell.Blocks, cell.Id); break;
-            case RichListItem item: EmitBlocks(item.Blocks, item.Id); break;
-            case RichBlock block: Emit(block); break;
+            if (rootNode is not (RichStory or RichTableCell or RichListItem) || subset.Any(id => snapshot.Get<RichBlock>(id).Parent != root))
+                throw new ArgumentException("Projected blocks must belong to one text container.", nameof(selectedBlocks));
+            Blocks = subset;
+            EmitBlocks(subset, root);
+        }
+        else switch (rootNode)
+        {
+            case RichStory story: Blocks = [.. story.Blocks]; EmitBlocks(story.Blocks, story.Id); break;
+            case RichTableCell cell: Blocks = [.. cell.Blocks]; EmitBlocks(cell.Blocks, cell.Id); break;
+            case RichListItem item: Blocks = [.. item.Blocks]; EmitBlocks(item.Blocks, item.Id); break;
+            case RichBlock block: Blocks = [block.Id]; Emit(block); break;
             default: throw new ArgumentException("A projection root must be a story, block, table cell, or list item.", nameof(root));
         }
         Text = TextSnapshot.FromText(text.ToString());
@@ -123,6 +130,9 @@ public sealed class RichTextProjection
     public RichDocumentSnapshot Snapshot { get; }
     /// <summary>Gets the projected story, block, table cell, or list item. Addresses still belong to the owning story.</summary>
     public RichNodeId Root { get; }
+    /// <summary>Gets the exact top-level blocks included in this projection.</summary>
+    public ImmutableArray<RichNodeId> Blocks { get; }
+    internal bool ContainsParagraph(RichNodeId paragraph) => _byParagraph.ContainsKey(paragraph);
     /// <summary>Gets the projected story identity.</summary>
     public RichNodeId Story { get; }
     /// <summary>Gets explicit plain text, including paragraph, cell, row, and soft-break separators.</summary>

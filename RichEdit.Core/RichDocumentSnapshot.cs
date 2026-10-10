@@ -208,6 +208,13 @@ public sealed partial class RichDocumentSnapshot
     /// <remarks>The default root is the complete body. A cell projection retains the same nodes and owning story; it is not an independent document.</remarks>
     public RichTextProjection ProjectText(RichNodeId? root = null) => new(this, root ?? Body);
 
+    /// <summary>Projects a contiguous sequence of complete blocks while retaining their owning story and rich addresses.</summary>
+    public RichTextProjection ProjectBlocks(RichBlockSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return new(this, selection.Parent, GetSelectedBlocks(selection));
+    }
+
     internal static IEnumerable<RichNodeId> Children(RichNode node) => node switch
     {
         RichStory story => story.Blocks,

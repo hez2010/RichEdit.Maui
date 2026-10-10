@@ -66,6 +66,23 @@ internal static partial class EditorContractTests
                 Equal("bb", NativeText(editor));
                 Equal(set, coordinator.StructuredSession.Selection);
                 Equal(false, model.CanUndo);
+                coordinator.SelectAll();
+                before = model.CurrentSnapshot;
+#if ANDROID
+                using var whole = new Java.Lang.String("whole\nbody");
+                connection.SetComposingText(whole, 1);
+#else
+                native.SetMarkedText("whole\nbody", new Foundation.NSRange(10, 0));
+#endif
+                Equal(true, ReferenceEquals(before, model.CurrentSnapshot));
+                Equal("whole\nbody", coordinator.StructuredSession.Composition!.Snapshot.ProjectText().Text.ToString());
+                Equal(true, coordinator.TryCompleteComposition());
+                Equal("whole\nbody", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(0, model.CurrentSnapshot.Nodes.Values.OfType<RichTable>().Count());
+                coordinator.Undo();
+                Equal(true, coordinator.StructuredSession.Selection is RichBlockSelection);
+                Equal("aa", NativeText(peer.Editor));
+                Equal("bb", NativeText(editor));
             }
             finally { editor.DiscardComposition(); editor.Document = previous; coordinator.Document = new RichTextDocument(); }
         });

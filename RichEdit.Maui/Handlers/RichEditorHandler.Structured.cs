@@ -48,6 +48,16 @@ public partial class RichEditorHandler
         _paintedCellSelection = null;
     }
 
+    internal void ApplyStructuredCompositionPreview(RichTextDocumentSnapshot snapshot, TextSelectionState selection)
+    {
+        _displayState = null;
+        _projectionSource = null;
+        _paintedSnapshot = snapshot;
+        CompleteCompositionTracking();
+        ApplyDisplayDocumentCore(snapshot, selection.Range.Start, selection.Range.Length);
+        _paintedSnapshot = snapshot;
+    }
+
     private void SetStructuredNativeMap(StructuredRichNativeMap map)
     {
         _structuredNativeMap = map;

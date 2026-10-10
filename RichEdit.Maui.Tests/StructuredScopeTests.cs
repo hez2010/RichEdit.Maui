@@ -6,6 +6,82 @@ namespace RichEdit.Maui.Tests;
 
 public sealed class StructuredScopeTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task EmptyNativeFlowBetweenTablesMaterializesParagraphsInTheParentStory(bool coordinated) => WindowsTestHost.RunAsync(async () =>
+    {
+        RichNodeId first = default, second = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            first = edit.InsertTable(edit.Body, 1, 1, (RichLength[])[new(1440)]);
+            second = edit.InsertTable(edit.Body, 2, 1, (RichLength[])[new(1440)]);
+            foreach (var pair in new[] { (first, "L"), (second, "R") })
+            {
+                var paragraph = edit.Snapshot.Get<RichTableCell>(edit.Snapshot.GetTableGrid(pair.Item1)[0, 0]).Blocks[0];
+                edit.ReplaceText(new(edit.Body, paragraph, 0), 0, pair.Item2);
+            }
+            edit.DeleteBlock(new(2));
+        }));
+        var scope = new RichTextViewScope(document.CurrentSnapshot.Body, first, second);
+        var projected = scope.Project(document.CurrentSnapshot)!;
+        Assert.Empty(projected.Blocks);
+        Assert.Null(projected.GetPoint(0));
+        var root = new NativeEditorView(); root.BindStructuredDocument(document);
+        var view = new NativeEditorView(); view.BindStructuredScope(document, scope, coordinated ? root : null);
+        var boundary = scope.StartSelection(projected);
+        view.StructuredSession!.Selection = boundary;
+        var handler = new RichEditorHandler();
+        handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
+        view.Handler = handler;
+        try
+        {
+            handler.PlatformView.Document.Selection.TypeText("X\rY");
+            await Task.Delay(30);
+            Assert.Equal("X\nY", view.Document.Text);
+            Assert.Equal("L\nX\nY\nR", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Equal(4, document.CurrentSnapshot.Get<RichStory>(document.CurrentSnapshot.Body).Blocks.Count);
+            view.Undo();
+            Assert.Equal(boundary, view.StructuredSession.Selection);
+            Assert.Equal("L\nR", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Equal("", view.Document.Text);
+            Assert.False(document.CanUndo);
+            if (coordinated)
+            {
+                var composing = typeof(RichEditorHandler).GetField("_isComposing", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                var observe = typeof(RichEditorHandler).GetMethod("UpdateCompositionState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                try
+                {
+                    var before = document.CurrentSnapshot;
+                    composing.SetValue(handler, true); observe.Invoke(handler, null);
+                    handler.PlatformView.Document.Selection.TypeText("仮\r名");
+                    await Task.Delay(30);
+                    Assert.Same(before, document.CurrentSnapshot);
+                    Assert.Equal("L\n仮\n名\nR", root.StructuredSession!.Composition!.Snapshot.ProjectText().Text.ToString());
+                    composing.SetValue(handler, false); observe.Invoke(handler, null);
+                    Assert.Equal("L\n仮\n名\nR", document.CurrentSnapshot.ProjectText().Text.ToString());
+                    root.Undo();
+                    Assert.Equal(boundary, root.StructuredSession.Selection);
+                    root.SelectAll();
+                    before = document.CurrentSnapshot;
+                    composing.SetValue(handler, true); observe.Invoke(handler, null);
+                    handler.PlatformView.Document.Selection.TypeText("whole\rstory");
+                    await Task.Delay(30);
+                    Assert.Same(before, document.CurrentSnapshot);
+                    Assert.Equal("whole\nstory", root.StructuredSession.Composition!.Snapshot.ProjectText().Text.ToString());
+                    composing.SetValue(handler, false); observe.Invoke(handler, null);
+                    Assert.Equal("whole\nstory", document.CurrentSnapshot.ProjectText().Text.ToString());
+                    Assert.Empty(document.CurrentSnapshot.Nodes.Values.OfType<RichTable>());
+                    root.Undo();
+                    Assert.Equal("L\nR", document.CurrentSnapshot.ProjectText().Text.ToString());
+                    Assert.IsType<RichBlockSelection>(root.StructuredSession.Selection);
+                }
+                finally { composing.SetValue(handler, false); view.DiscardComposition(); }
+            }
+        }
+        finally { view.Handler = null; ((IElementHandler)handler).DisconnectHandler(); }
+    });
+
     [Fact]
     public Task CoordinatedCellInputEditsEveryCaretWithOneSessionAndOneHistoryUnit() => WindowsTestHost.RunAsync(async () =>
     {
