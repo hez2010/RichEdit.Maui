@@ -172,6 +172,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     public RichTextSavePoint CreateSavePoint()
     {
         VerifyAccess();
+        VerifyCompositionAccess(null);
         _lastSavePointStateId = _stateId;
         return new RichTextSavePoint(_identity, _stateId);
     }

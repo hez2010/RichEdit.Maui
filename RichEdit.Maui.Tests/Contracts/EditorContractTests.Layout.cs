@@ -140,7 +140,8 @@ internal static partial class EditorContractTests
                 new() { Placement = RichTextAdornmentPlacement.Inline });
             await Task.Delay(100);
             Equal(before, CharacterFormattingTests.Capture(editor, 0), "native paint waits for composition");
-            Equal(editor.Document.Text, NativeText(editor), "native reservations wait for composition");
+            Equal("ab", editor.Document.Text, "marked text remains provisional");
+            Equal(editor.CompositionSnapshot!.Text, NativeText(editor), "native reservations wait for composition");
 #if ANDROID
             using var second = new Java.Lang.String("仮名文");
             connection.SetComposingText(second, 1);
@@ -160,15 +161,20 @@ internal static partial class EditorContractTests
             await Task.Delay(100);
         });
 
-        yield return new("composition is observable before source changes and ends without a text delta", async editor =>
+        yield return new("composition is provisional and publishes source once when marked text ends", async editor =>
         {
             editor.Document = RichTextDocument.FromPlainText("ab");
             editor.SelectedRange = new(1, 0);
             editor.Focus();
             await Task.Delay(100);
             var sawActiveTextChange = false;
+            var textChanges = 0;
             var transitions = new List<RichTextCompositionState>();
-            void OnText(object? sender, RichTextTextChangedEventArgs args) => sawActiveTextChange |= editor.Composition.IsActive;
+            void OnText(object? sender, RichTextTextChangedEventArgs args)
+            {
+                sawActiveTextChange |= editor.Composition.IsActive;
+                textChanges++;
+            }
             void OnComposition(object? sender, RichTextCompositionChangedEventArgs args) => transitions.Add(args.Current);
             editor.TextChanged += OnText;
             editor.CompositionChanged += OnComposition;
@@ -184,7 +190,11 @@ internal static partial class EditorContractTests
                 var native = ((RichEditorHandler)editor.Handler!).PlatformView;
                 native.SetMarkedText("仮名", new Foundation.NSRange(2, 0));
 #endif
-                Equal(true, sawActiveTextChange, "text observers see active composition");
+                Equal(false, sawActiveTextChange, "marked text does not publish authored content");
+                Equal(0, textChanges);
+                Equal("ab", editor.Document.Text);
+                Equal("a仮名b", editor.CompositionSnapshot!.Text);
+                Equal(default(RichTextRevision), editor.CompositionSnapshot.Revision);
                 Equal(true, editor.Composition.IsActive);
                 Equal(new RichTextRange(1, 2), editor.Composition.Range);
                 var snapshot = editor.Document.CurrentSnapshot;
@@ -198,7 +208,9 @@ internal static partial class EditorContractTests
                 native.UnmarkText();
 #endif
                 Equal(false, editor.Composition.IsActive);
-                Equal(true, ReferenceEquals(snapshot, editor.Document.CurrentSnapshot), "ending composition needs no source delta");
+                Equal(false, ReferenceEquals(snapshot, editor.Document.CurrentSnapshot), "ending composition commits the provisional text");
+                Equal(1, textChanges);
+                Equal(false, sawActiveTextChange);
                 Equal("a仮名b", editor.Document.Text);
                 Equal(true, transitions.First().IsActive);
                 Equal(false, transitions.Last().IsActive);

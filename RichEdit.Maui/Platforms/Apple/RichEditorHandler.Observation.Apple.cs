@@ -6,6 +6,12 @@ namespace RichEdit.Maui
 {
     public partial class RichEditorHandler
     {
+        private partial bool TryCompleteCompositionCore()
+        {
+            PlatformView.UnmarkText();
+            return !VirtualView.Composition.IsActive;
+        }
+
         private UIHoverGestureRecognizer? _pointerHover;
 
         private partial void ConnectInputObservation()

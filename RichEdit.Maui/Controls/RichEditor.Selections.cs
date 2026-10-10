@@ -12,6 +12,7 @@ public sealed partial class RichEditor
         {
             var editor = (RichEditor)view;
             editor.VerifyAccess();
+            editor.VerifySelectionMutation();
             if (value is not TextSelectionSet selections)
                 return false;
             selections.Validate(editor.Document.Length);

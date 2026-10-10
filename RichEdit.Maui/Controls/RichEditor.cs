@@ -42,6 +42,7 @@ public sealed partial class RichEditor : View
         {
             var editor = (RichEditor)bindable;
             editor.VerifyAccess();
+            editor.VerifySelectionMutation();
             return ((RichTextSelectionState)value).Clamp(editor.Document.Length);
         },
         propertyChanged: static (bindable, before, after) => ((RichEditor)bindable).OnSelectionStateChanged(
@@ -57,6 +58,7 @@ public sealed partial class RichEditor : View
         coerceValue: static (bindable, value) =>
         {
             ((RichEditor)bindable).VerifyAccess();
+            ((RichEditor)bindable).VerifySelectionMutation();
             var length = ((RichEditor)bindable).Document.Length;
             var range = value is RichTextRange richRange ? richRange : RichTextRange.Empty;
             var start = Math.Clamp(range.Start, 0, length);
@@ -117,16 +119,14 @@ public sealed partial class RichEditor : View
     /// <summary>Identifies the <see cref="IsSpellCheckEnabled"/> bindable property.</summary>
     public static readonly BindableProperty IsSpellCheckEnabledProperty = BindableProperty.Create(
         nameof(IsSpellCheckEnabled),
-        typeof(bool),
-        typeof(RichEditor),
-        true);
+        typeof(bool?),
+        typeof(RichEditor));
 
     /// <summary>Identifies the <see cref="IsTextPredictionEnabled"/> bindable property.</summary>
     public static readonly BindableProperty IsTextPredictionEnabledProperty = BindableProperty.Create(
         nameof(IsTextPredictionEnabled),
-        typeof(bool),
-        typeof(RichEditor),
-        true);
+        typeof(bool?),
+        typeof(RichEditor));
 
     /// <summary>Identifies the <see cref="Keyboard"/> bindable property.</summary>
     public static readonly BindableProperty KeyboardProperty = BindableProperty.Create(
@@ -327,7 +327,8 @@ public sealed partial class RichEditor : View
     /// <summary>Gets the source-anchored views displayed outside document content and undo/redo history.</summary>
     public RichTextAdornments Adornments { get; }
 
-    internal RichTextDocumentSnapshot PresentationSnapshot => Decorations.Project(Document.CurrentSnapshot);
+    internal RichTextDocumentSnapshot PresentationSnapshot => Composition.IsActive && Handler is RichEditorHandler handler &&
+        handler.GetCompositionPresentation() is { } painted ? painted : Decorations.Project(InputSnapshot);
 
     /// <summary>Gets or sets the empty-document placeholder text.</summary>
     public string Placeholder
@@ -372,17 +373,17 @@ public sealed partial class RichEditor : View
         set => SetValue(IsReadOnlyProperty, value);
     }
 
-    /// <summary>Gets or sets whether native spell checking is enabled.</summary>
-    public bool IsSpellCheckEnabled
+    /// <summary>Gets or sets the native spell-check override. Null uses the keyboard configuration.</summary>
+    public bool? IsSpellCheckEnabled
     {
-        get => (bool)GetValue(IsSpellCheckEnabledProperty);
+        get => (bool?)GetValue(IsSpellCheckEnabledProperty);
         set => SetValue(IsSpellCheckEnabledProperty, value);
     }
 
-    /// <summary>Gets or sets whether native text prediction is enabled.</summary>
-    public bool IsTextPredictionEnabled
+    /// <summary>Gets or sets the native text-prediction override. Null uses the keyboard configuration.</summary>
+    public bool? IsTextPredictionEnabled
     {
-        get => (bool)GetValue(IsTextPredictionEnabledProperty);
+        get => (bool?)GetValue(IsTextPredictionEnabledProperty);
         set => SetValue(IsTextPredictionEnabledProperty, value);
     }
 
@@ -634,6 +635,11 @@ public sealed partial class RichEditor : View
         snapshot = Decorations.RestoreAuthoredSnapshot(snapshot, SelectedRange);
         var selection = selectionState ?? RichTextSelectionState.FromRange(new RichTextRange(selectionStart, selectionLength));
         selection.Range.Validate(snapshot.Text.Length, nameof(selectionLength));
+        if (Composition.IsActive)
+        {
+            StageComposition(snapshot, selection, sourceToken);
+            return;
+        }
         var expanded = origin == RichTextChangeOrigin.User ? ExpandNativeSelectionEdit(snapshot, selection) : null;
         var previousSelections = _pendingSelections;
         RichTextChangeSet? corrections = null;
@@ -641,6 +647,8 @@ public sealed partial class RichEditor : View
         {
             if (ReferenceEquals(expanded.Snapshot, Document.CurrentSnapshot))
             {
+                SynchronizeCompositionTracking(Document.CurrentSnapshot, null);
+                (Handler as RichEditorHandler)?.CompleteCompositionTracking();
                 (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
                 return;
             }
@@ -651,6 +659,7 @@ public sealed partial class RichEditor : View
                 beforeSnapshot: expanded.NativeBefore, afterSnapshot: snapshot);
         }
         _pendingPlatformSelection = selection;
+        SynchronizeCompositionTracking(snapshot, expanded?.NativeCorrections);
         try
         {
             var nativeUndoOwned =
@@ -666,6 +675,8 @@ public sealed partial class RichEditor : View
                 corrections);
             if (changes.IsEmpty)
             {
+                if (_committingComposition)
+                    (Handler as RichEditorHandler)?.CompleteCompositionTracking();
                 if (expanded is not null)
                     SetSelectionsFromDocument(expanded.Selections);
                 else
@@ -682,7 +693,21 @@ public sealed partial class RichEditor : View
     internal void UpdateSelectionFromPlatform(int start, int length) =>
         UpdateSelectionFromPlatform(RichTextSelectionState.FromRange(new RichTextRange(start, length)));
 
-    internal void UpdateSelectionFromPlatform(RichTextSelectionState selection) => SetSelectionFromPlatform(selection);
+    internal void UpdateSelectionFromPlatform(RichTextSelectionState selection)
+    {
+        if (Composition.IsActive)
+        {
+            var provisional = selection.Clamp(InputSnapshot.Length);
+            if (_compositionSelection != provisional)
+            {
+                _compositionSelection = provisional;
+                OnPropertyChanged(nameof(CompositionSelection));
+                CompositionChanged?.Invoke(this, new(_composition, _composition));
+            }
+            return;
+        }
+        SetSelectionFromPlatform(selection);
+    }
 
     internal RichTextSelectionState InferSelectionState(RichTextRange range)
     {
@@ -845,7 +870,7 @@ public sealed partial class RichEditor : View
         newDocument.VerifyCanAttachEditor(this);
         DetachDocument(oldDocument);
         AttachDocument(newDocument);
-        SetCompositionState(default);
+        DiscardComposition();
         Decorations.Reset();
         TextLayout.Invalidate();
         Folding.Reset();
@@ -934,6 +959,8 @@ public sealed partial class RichEditor : View
         _deferNotifications = true;
         _selectionBeforeNotification = SelectionState;
         _selectionsBeforeNotification = Selections;
+        if (_committingComposition)
+            (Handler as RichEditorHandler)?.CompleteCompositionTracking();
         Decorations.MapThrough(changeSet);
         var foldingChanged = Folding.MapThrough(changeSet);
         Adornments.MapThrough(changeSet);

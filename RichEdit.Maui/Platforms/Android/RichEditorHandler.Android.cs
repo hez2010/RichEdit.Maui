@@ -328,16 +328,16 @@ public partial class RichEditorHandler
                                 : InputTypes.ClassText |
                                   InputTypes.TextFlagMultiLine |
                                   InputTypes.TextFlagCapSentences;
-            if (editor.Keyboard is not CustomKeyboard || editor.IsSet(RichEditor.IsTextPredictionEnabledProperty))
+            if (editor.Keyboard is not CustomKeyboard || editor.IsTextPredictionEnabled.HasValue)
             {
-                inputType = editor.IsTextPredictionEnabled
+                inputType = (editor.IsTextPredictionEnabled ?? true)
                     ? inputType | InputTypes.TextFlagAutoCorrect
                     : inputType & ~InputTypes.TextFlagAutoCorrect;
             }
 
-            if (editor.Keyboard is not CustomKeyboard || editor.IsSet(RichEditor.IsSpellCheckEnabledProperty))
+            if (editor.Keyboard is not CustomKeyboard || editor.IsSpellCheckEnabled.HasValue)
             {
-                inputType = editor.IsSpellCheckEnabled
+                inputType = (editor.IsSpellCheckEnabled ?? true)
                     ? inputType & ~InputTypes.TextFlagNoSuggestions
                     : inputType | InputTypes.TextFlagNoSuggestions;
             }

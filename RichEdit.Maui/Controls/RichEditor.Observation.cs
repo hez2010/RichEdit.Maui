@@ -33,6 +33,18 @@ public sealed partial class RichEditor
 
         var previous = _composition;
         _composition = state;
+        if (state.IsActive && !previous.IsActive)
+        {
+            _compositionDocument = Document;
+            _compositionPreviewDocument = new RichTextDocument(Document.CurrentSnapshot);
+            Document.BreakTypingUndoGroup();
+        }
+        if (!state.IsActive && previous.IsActive)
+        {
+            CommitComposition();
+            Document.BreakTypingUndoGroup();
+        }
+        Commands.Refresh();
         CompositionChanged?.Invoke(this, new(previous, state));
         TextLayout.Invalidate();
     }

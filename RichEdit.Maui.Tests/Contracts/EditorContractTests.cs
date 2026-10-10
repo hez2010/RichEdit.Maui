@@ -80,12 +80,12 @@ internal static partial class EditorContractTests
             Equal("1956", editor.Document.Text);
             Equal(true, editor.Document.IsModified);
             editor.SelectionState = new RichTextSelectionState(0, 0);
-            editor.Document.Undo();
+            editor.Undo();
             await Verify(editor);
             Equal("123456", editor.Document.Text);
             Equal(new RichTextSelectionState(4, 1), editor.SelectionState);
             Equal(false, editor.Document.IsModified);
-            editor.Document.Redo();
+            editor.Redo();
             await Verify(editor);
             Equal("1956", editor.Document.Text);
             Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
@@ -1048,12 +1048,14 @@ internal static partial class EditorContractTests
         {
             await Drain();
             native = NativeText(editor);
-            if (native == editor.Document.Text)
+            if (native == (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Text)
                 break;
         }
 
-        Equal(native, editor.Document.Text, "native projection");
+        Equal(native, (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Text, "native projection");
         Equal(true, editor.SelectedRange.Start >= 0 && editor.SelectedRange.End <= editor.Document.Length, "selection bounds");
+        if (editor.CompositionSelection is { } provisional)
+            Equal(true, provisional.Range.End <= (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Length, "provisional selection bounds");
     }
 
     public static Task Drain() => Task.Delay(20);

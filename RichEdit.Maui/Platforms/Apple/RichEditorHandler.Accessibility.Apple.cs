@@ -27,7 +27,7 @@ namespace RichEdit.Maui.Platforms.Apple
         /// <inheritdoc />
         public override string? AccessibilityValue
         {
-            get => ProjectionHandler?.VirtualView.Document.Text ?? base.AccessibilityValue;
+            get => ProjectionHandler?.VirtualView.InputSnapshot.Text ?? base.AccessibilityValue;
             set => base.AccessibilityValue = value;
         }
 
@@ -53,7 +53,7 @@ namespace RichEdit.Maui.Platforms.Apple
 
         private RichTextRange? AccessibilityLine(nint line)
         {
-            if (ProjectionHandler is not { VirtualView.Document.CurrentSnapshot: var source } || line < 0 || line >= source.Paragraphs.Length)
+            if (ProjectionHandler is not { VirtualView.InputSnapshot: var source } || line < 0 || line >= source.Paragraphs.Length)
                 return null;
 
             var start = source.Paragraphs[(int)line].Start;
@@ -63,7 +63,7 @@ namespace RichEdit.Maui.Platforms.Apple
 
         /// <inheritdoc />
         public string GetAccessibilityContent(nint lineNumber) => AccessibilityLine(lineNumber) is { } line ?
-            ProjectionHandler!.VirtualView.Document.Text.Substring(line.Start, line.Length) : "";
+            ProjectionHandler!.VirtualView.InputSnapshot.Text.Substring(line.Start, line.Length) : "";
 
         /// <inheritdoc />
         public CGRect GetAccessibilityFrame(nint lineNumber)
@@ -80,7 +80,7 @@ namespace RichEdit.Maui.Platforms.Apple
         }
 
         /// <inheritdoc />
-        public string GetAccessibilityPageContent() => ProjectionHandler?.VirtualView.Document.Text ?? "";
+        public string GetAccessibilityPageContent() => ProjectionHandler?.VirtualView.InputSnapshot.Text ?? "";
     }
 }
 #endif

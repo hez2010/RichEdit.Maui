@@ -6,6 +6,14 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial bool TryCompleteCompositionCore()
+    {
+        if (_isComposing)
+            return false;
+        UpdateCompositionState();
+        return !VirtualView.Composition.IsActive;
+    }
+
     private partial void ConnectInputObservation()
     {
         (Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.FromElement(PlatformView) as SourceTextPeer)?.Connect();

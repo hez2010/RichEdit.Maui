@@ -43,7 +43,7 @@ public partial class RichEditorHandler
         _adornmentsConnected = false;
         DisconnectInputObservation();
         _compositionOperationDepth = 0;
-        VirtualView.SetCompositionState(default);
+        VirtualView.DiscardComposition();
         LayoutAttachment = new();
         VirtualView.TextLayout.Invalidate();
         _adornmentLayoutQueued = false;

@@ -68,7 +68,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     public void Edit(Action<RichTextDocumentEdit> edit, RichTextSelectionState selectionAfter, RichTextEditOptions options = default)
     {
         _editor.VerifyAccess();
-        if (!_editor.IsReadOnly)
+        if (!_editor.IsReadOnly && !_editor.Document.HasActiveComposition)
             _editor.EditDocument(edit, selectionAfter, options);
     }
 
@@ -81,7 +81,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             _editor.ReplaceSelections(text ?? string.Empty);
             return;
         }
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -101,7 +101,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     public void ReplaceFragment(RichTextDocumentFragment fragment)
     {
         ArgumentNullException.ThrowIfNull(fragment);
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -130,7 +130,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
         Func<RichTextCharacterFormat, RichTextCharacterFormat> update)
     {
         ArgumentNullException.ThrowIfNull(update);
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -152,7 +152,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
         Func<RichTextParagraphFormat, RichTextParagraphFormat> update)
     {
         ArgumentNullException.ThrowIfNull(update);
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -258,7 +258,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     public void SetList(RichTextListDefinition definition, int level = 0)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -286,7 +286,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <param name="level">The zero-based level to apply.</param>
     public void SetList(RichTextListId listId, int level = 0)
     {
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -297,7 +297,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     internal void SetList(RichTextListItemFormat item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -315,7 +315,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <summary>Removes list state from selected paragraphs.</summary>
     public void ClearList()
     {
-        if (!_editor.IsReadOnly)
+        if (!_editor.IsReadOnly && !_editor.Document.HasActiveComposition)
         {
             _editor.EditDocument(edit => edit.RemoveList(Range));
         }
@@ -334,7 +334,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
-        if (!_editor.IsReadOnly)
+        if (!_editor.IsReadOnly && !_editor.Document.HasActiveComposition)
         {
             _editor.EditDocument(edit => edit.ChangeListLevel(Range, delta));
         }
@@ -345,7 +345,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     public void RestartList(int startAt)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(startAt);
-        if (!_editor.IsReadOnly)
+        if (!_editor.IsReadOnly && !_editor.Document.HasActiveComposition)
         {
             _editor.EditDocument(edit => edit.RestartList(Range, startAt));
         }
@@ -356,7 +356,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <param name="toolTip">An optional RTF tooltip.</param>
     public void SetLink(string target, string? toolTip = null)
     {
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -367,7 +367,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <summary>Removes hyperlinks intersecting the selection.</summary>
     public void RemoveLinks()
     {
-        if (!_editor.IsReadOnly)
+        if (!_editor.IsReadOnly && !_editor.Document.HasActiveComposition)
         {
             _editor.EditDocument(edit => edit.RemoveLinks(Range));
         }
@@ -378,7 +378,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     public void InsertImage(RichTextImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }
@@ -398,7 +398,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     /// <param name="result">The visible field result.</param>
     public void InsertField(string instruction, string result)
     {
-        if (_editor.IsReadOnly)
+        if (_editor.IsReadOnly || _editor.Document.HasActiveComposition)
         {
             return;
         }

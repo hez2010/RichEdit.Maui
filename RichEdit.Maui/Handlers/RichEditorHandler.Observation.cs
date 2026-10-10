@@ -7,6 +7,20 @@ public partial class RichEditorHandler
 
     private bool HasTransientInputSelection => _compositionOperationDepth > 0 && !_reconcilingInputOperation;
 
+    internal void CompleteCompositionTracking()
+    {
+        _inputPresentationSource = null;
+        _inputPresentation = null;
+        _inputPresentationMap = null;
+        CompleteCompositionTrackingCore();
+    }
+
+    partial void CompleteCompositionTrackingCore();
+
+    bool IRichEditorHandler.TryCompleteComposition() => TryCompleteCompositionCore();
+
+    private partial bool TryCompleteCompositionCore();
+
     private void BeginCompositionOperation(bool startsComposition)
     {
         _compositionOperationDepth++;
@@ -45,7 +59,7 @@ public partial class RichEditorHandler
             var start = NativeProjection.ToSource(nativeRange.Start);
             state = new(state.IsActive, new(start, NativeProjection.ToSource(nativeRange.End) - start));
         }
-        if (state.Range is { } range && range.End > VirtualView.Document.Length)
+        if (state.Range is { } range && range.End > VirtualView.InputSnapshot.Length)
             state = new(state.IsActive, null);
 
         VirtualView.SetCompositionState(state);

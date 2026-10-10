@@ -41,9 +41,12 @@ public sealed class RichTextLayoutSnapshot
     internal object Owner { get; }
     internal object Attachment { get; }
     internal Point Origin { get; }
+    internal object SourceIdentity { get; }
+    internal bool IncludesInput { get; }
 
     internal RichTextLayoutSnapshot(object owner, object attachment, RichTextRevision revision, long version,
-        Rect viewport, Rect textViewport, IEnumerable<RichTextVisualLine> lines, Point origin)
+        Rect viewport, Rect textViewport, IEnumerable<RichTextVisualLine> lines, Point origin,
+        RichTextDocumentSnapshot source, bool includesInput, bool isProvisional)
     {
         Owner = owner;
         Attachment = attachment;
@@ -53,6 +56,10 @@ public sealed class RichTextLayoutSnapshot
         TextViewport = textViewport;
         Lines = lines.ToImmutableArray();
         Origin = origin;
+        SourceIdentity = source;
+        SourceLength = source.Length;
+        IncludesInput = includesInput;
+        IsProvisional = isProvisional;
     }
 
     /// <summary>Gets the captured source-document revision.</summary>
@@ -60,6 +67,12 @@ public sealed class RichTextLayoutSnapshot
 
     /// <summary>Gets the layout generation, independent of source history.</summary>
     public long LayoutVersion { get; }
+
+    /// <summary>Gets whether positions address this view's provisional composition text.</summary>
+    public bool IsProvisional { get; }
+
+    /// <summary>Gets the UTF-16 length of the text addressed by this layout.</summary>
+    public int SourceLength { get; }
 
     /// <summary>Gets the visible editor rectangle in device-independent units.</summary>
     public Rect Viewport { get; }
@@ -123,15 +136,24 @@ public sealed class RichTextLayout
 
     /// <summary>Captures visible metadata, or null when no reconciled native layout is available.</summary>
     /// <returns>An immutable layout capture.</returns>
-    public RichTextLayoutSnapshot? Capture()
+    public RichTextLayoutSnapshot? Capture() => CaptureCore(includeInput: false);
+
+    /// <summary>Captures native input layout, including this view's provisional marked text.</summary>
+    /// <returns>A capture whose provisional positions address <see cref="RichEditor.CompositionSnapshot"/>, or null before usable layout.</returns>
+    public RichTextLayoutSnapshot? CaptureInput() => CaptureCore(includeInput: true);
+
+    private RichTextLayoutSnapshot? CaptureCore(bool includeInput)
     {
         _editor.VerifyAccess();
+        if (!includeInput && _editor.Composition.IsActive)
+            return null;
         if (Origin is not { } origin || _editor.Handler is not RichEditorHandler handler || handler.CaptureTextLayout() is not { } native)
             return null;
 
         return new(_owner, handler.LayoutAttachment, _editor.Document.Revision, Version,
             Translate(native.Viewport, origin), Translate(native.TextViewport, origin),
-            native.Lines.Select(line => line with { Bounds = Translate(line.Bounds, origin), Baseline = line.Baseline + origin.Y }), origin);
+            native.Lines.Select(line => line with { Bounds = Translate(line.Bounds, origin), Baseline = line.Baseline + origin.Y }), origin,
+            includeInput ? _editor.InputSnapshot : _editor.Document.CurrentSnapshot, includeInput, includeInput && _editor.Composition.IsActive);
     }
 
     /// <summary>Gets a visible caret rectangle without moving the caret.</summary>
@@ -144,10 +166,10 @@ public sealed class RichTextLayout
         if (!IsCurrent(layout))
             return null;
 
-        new RichTextRange(position, 0).Validate(_editor.Document.Length, nameof(position));
+        new RichTextRange(position, 0).Validate(layout.SourceLength, nameof(position));
         if (!Enum.IsDefined(affinity))
             throw new ArgumentOutOfRangeException(nameof(affinity));
-        if (_editor.Folding.FindRange(position) is not null)
+        if (_editor.InputFoldRanges.Any(range => position >= range.Start && position < range.End))
             return null;
         if (((RichEditorHandler)_editor.Handler!).GetTextCaretBounds(position, affinity) is not { } caret)
             return null;
@@ -165,7 +187,7 @@ public sealed class RichTextLayout
         if (!IsCurrent(layout))
             return Array.Empty<Rect>();
 
-        range.Validate(_editor.Document.Length, nameof(range));
+        range.Validate(layout.SourceLength, nameof(range));
         if (range.IsEmpty)
             return GetCaretBounds(layout, range.Start) is { } caret ? (Rect[])[caret] : Array.Empty<Rect>();
 
@@ -253,6 +275,8 @@ public sealed class RichTextLayout
         _editor.VerifyAccess();
         ArgumentNullException.ThrowIfNull(layout);
         return ReferenceEquals(layout.Owner, _owner) && layout.DocumentRevision == _editor.Document.Revision && layout.LayoutVersion == Version &&
+            ReferenceEquals(layout.SourceIdentity, layout.IncludesInput ? _editor.InputSnapshot : _editor.Document.CurrentSnapshot) &&
+            (layout.IncludesInput || !_editor.Composition.IsActive) &&
             Origin == layout.Origin && _editor.Handler is RichEditorHandler handler && ReferenceEquals(layout.Attachment, handler.LayoutAttachment) && handler.HasTextLayout;
     }
 

@@ -13,6 +13,13 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    [DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
+    partial void CompleteCompositionTrackingCore()
+    {
+        if (((IElementHandler)this).PlatformView is FrameworkElement view)
+            (FrameworkElementAutomationPeer.FromElement(view) as SourceTextPeer)?.CompleteCompositionTracking();
+    }
+
     private sealed partial class SourceRichEditBox(RichEditorHandler handler) : RichEditBox
     {
         protected override AutomationPeer OnCreateAutomationPeer() => new SourceTextPeer(this, handler);
@@ -26,6 +33,18 @@ public partial class RichEditorHandler
         internal readonly RichEditorHandler Handler;
         private readonly List<SourceImagePeer> _imagePeers = [];
         private RichEditor? _eventEditor;
+        private readonly List<WeakReference<SourceTextRange>> _provisionalRanges = [];
+        private string _inputText = "";
+
+        internal void TrackCompositionRange(SourceTextRange range) => _provisionalRanges.Add(new(range));
+
+        internal void CompleteCompositionTracking()
+        {
+            foreach (var reference in _provisionalRanges)
+                if (reference.TryGetTarget(out var range))
+                    range.CompleteCompositionTracking();
+            _provisionalRanges.Clear();
+        }
 
         internal RichEditor Editor => Handler.VirtualView;
 
@@ -45,6 +64,8 @@ public partial class RichEditorHandler
             _eventEditor.TextChanged += OnTextChanged;
             _eventEditor.SelectionsChanged += OnSelectionChanged;
             _eventEditor.DocumentChanged += OnDocumentChanged;
+            _eventEditor.CompositionChanged += OnCompositionChanged;
+            _inputText = Editor.InputSnapshot.Text;
         }
 
         internal void Disconnect()
@@ -55,20 +76,33 @@ public partial class RichEditorHandler
             _eventEditor.TextChanged -= OnTextChanged;
             _eventEditor.SelectionsChanged -= OnSelectionChanged;
             _eventEditor.DocumentChanged -= OnDocumentChanged;
+            _eventEditor.CompositionChanged -= OnCompositionChanged;
             _eventEditor = null;
         }
 
         private void OnTextChanged(object? sender, RichTextTextChangedEventArgs args)
         {
-            TextChanged(args.ChangeSet.BeforeSnapshot?.Text ?? "", Editor.Document.Text);
+            TextChanged(_inputText, Editor.InputSnapshot.Text);
             if (Editor.Composition.IsActive && ListenerExists(AutomationEvents.TextEditTextChanged))
                 RaiseTextEditTextChangedEvent(AutomationTextEditChangeType.Composition, args.Changes.Select(static change => change.InsertedText).ToArray());
+        }
+
+        private void OnCompositionChanged(object? sender, RichTextCompositionChangedEventArgs args)
+        {
+            OnSelectionChanged(sender, EventArgs.Empty);
+            var text = Editor.InputSnapshot.Text;
+            if (text != _inputText)
+                TextChanged(_inputText, text);
+            if (ListenerExists(AutomationEvents.TextEditTextChanged))
+                RaiseTextEditTextChangedEvent(args.Current.IsActive ? AutomationTextEditChangeType.Composition :
+                    AutomationTextEditChangeType.CompositionFinalized, (string[])[text]);
         }
 
         private void OnDocumentChanged(object? sender, RichTextDocumentReplacedEventArgs args) => TextChanged(args.OldDocument?.Text ?? "", args.NewDocument.Text);
 
         private void TextChanged(string before, string after)
         {
+            _inputText = after;
             if (ListenerExists(AutomationEvents.TextPatternOnTextChanged))
                 RaiseAutomationEvent(AutomationEvents.TextPatternOnTextChanged);
             if (before != after && ListenerExists(AutomationEvents.PropertyChanged))
@@ -100,29 +134,30 @@ public partial class RichEditorHandler
 
         protected override IList<AutomationPeer> GetChildrenCore()
         {
-            _imagePeers.RemoveAll(static peer => peer.Image is null);
+            _imagePeers.RemoveAll(static peer => peer.CanonicalImage is null);
             foreach (var image in Editor.Document.CurrentSnapshot.Images)
-                if (!_imagePeers.Any(peer => peer.Image?.Position == image.Position))
+                if (!_imagePeers.Any(peer => peer.CanonicalImage?.Position == image.Position))
                     _imagePeers.Add(new(this, image.Position));
 
-            return _imagePeers.OrderBy(static peer => peer.Image?.Position).Cast<AutomationPeer>().ToArray();
+            return _imagePeers.Where(static peer => peer.Image is not null).OrderBy(static peer => peer.Image!.Position).Cast<AutomationPeer>().ToArray();
         }
 
-        public ITextRangeProvider DocumentRange => Range(new(0, Editor.Document.Length));
+        public ITextRangeProvider DocumentRange => Range(new(0, Editor.InputSnapshot.Length));
 
         public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.Multiple;
 
-        public ITextRangeProvider[] GetSelection() => Editor.Selections
-            .Select(item => (ITextRangeProvider)Range(new(item.Range.Start, item.Range.Length))).ToArray();
+        public ITextRangeProvider[] GetSelection() => Editor.Composition.IsActive
+            ? [Range(Editor.InputSelection.Range)]
+            : Editor.Selections.Select(item => (ITextRangeProvider)Range(new(item.Range.Start, item.Range.Length))).ToArray();
 
-        public ITextRangeProvider[] GetVisibleRanges() => Editor.TextLayout.Capture() is { } layout ?
+        public ITextRangeProvider[] GetVisibleRanges() => Editor.TextLayout.CaptureInput() is { } layout ?
             layout.Lines.SelectMany(static line => line.SourceRanges).Select(range => (ITextRangeProvider)Range(range)).ToArray() : [];
 
         public ITextRangeProvider RangeFromPoint(Windows.Foundation.Point point)
         {
             var screen = GetBoundingRectangle();
             var scale = Scale;
-            var layout = Editor.TextLayout.Capture();
+            var layout = Editor.TextLayout.CaptureInput();
             var hit = layout is null ? null : Editor.TextLayout.HitTest(layout, new((point.X - screen.X) / scale, (point.Y - screen.Y) / scale));
             return Range(new(hit?.Position ?? Editor.SelectionState.Active, 0));
         }
@@ -142,7 +177,7 @@ public partial class RichEditorHandler
         public ITextRangeProvider GetCaretRange(out bool isActive)
         {
             isActive = Handler.PlatformView.FocusState != FocusState.Unfocused;
-            return Range(new(Editor.SelectionState.Active, 0));
+            return Range(new(Editor.InputSelection.Active, 0));
         }
 
         public ITextRangeProvider GetActiveComposition() => Editor.Composition.Range is { } range ? Range(range) : null!;
@@ -151,7 +186,7 @@ public partial class RichEditorHandler
 
         public bool IsReadOnly => Editor.IsReadOnly;
 
-        public string Value => Editor.Document.Text;
+        public string Value => Editor.InputSnapshot.Text;
 
         public void SetValue(string value)
         {
@@ -260,7 +295,7 @@ public partial class RichEditorHandler
 
         internal int[] Boundaries(TextUnit unit)
         {
-            var source = Editor.Document.CurrentSnapshot;
+            var source = Editor.InputSnapshot;
             IEnumerable<int> boundaries = unit switch
             {
                 TextUnit.Character => StringInfo.ParseCombiningCharacters(source.Text),
@@ -270,7 +305,7 @@ public partial class RichEditorHandler
                 TextUnit.Line or TextUnit.Paragraph => source.Paragraphs.Select(static paragraph => paragraph.Start),
                 _ => new[] { 0 },
             };
-            if (unit == TextUnit.Line && Editor.TextLayout.Capture() is { } layout)
+            if (unit == TextUnit.Line && Editor.TextLayout.CaptureInput() is { } layout)
                 boundaries = boundaries.Concat(layout.Lines.SelectMany(static line => line.SourceRanges).Select(static range => range.Start));
 
             return [.. boundaries.Append(source.Length).Distinct().Order()];
@@ -291,8 +326,19 @@ public partial class RichEditorHandler
             _range = _document.Tracking.TrackWeakRange(new(position, 1));
         }
 
-        internal RichTextImage? Image => ReferenceEquals(_owner.Editor.Document, _document) && _range.Range is { Length: 1 } range ?
+        internal RichTextImage? CanonicalImage => ReferenceEquals(_owner.Editor.Document, _document) && _range.Range is { Length: 1 } range ?
             _document.CurrentSnapshot.Images.FirstOrDefault(image => image.Position == range.Start) : null;
+
+        internal RichTextImage? Image
+        {
+            get
+            {
+                if (CanonicalImage is not { } image)
+                    return null;
+                var range = _owner.Editor.MapRangeToInput(new(image.Position, 1));
+                return range.Length == 1 ? _owner.Editor.InputSnapshot.Images.FirstOrDefault(item => item.Position == range.Start) : null;
+            }
+        }
 
         protected override string GetClassNameCore() => "Image";
 
@@ -308,7 +354,7 @@ public partial class RichEditorHandler
 
         protected override Windows.Foundation.Rect GetBoundingRectangleCore()
         {
-            if (Image is not { } image || _owner.Editor.TextLayout.Capture() is not { } layout ||
+            if (Image is not { } image || _owner.Editor.TextLayout.CaptureInput() is not { } layout ||
                 _owner.Editor.TextLayout.GetRangeBounds(layout, new(image.Position, 1)).FirstOrDefault() is not { Width: > 0 } rect)
                 return default;
 
@@ -323,23 +369,68 @@ public partial class RichEditorHandler
     private sealed partial class SourceTextRange : ITextRangeProvider, ITextRangeProvider2
     {
         private readonly SourceTextPeer _peer;
-        private readonly RichTextDocument _document;
+        private readonly RichTextDocument _rootDocument;
+        private RichTextDocument _document;
         private RichTextTrackedRange _tracking;
+        private RichTextDocument? _previewOwner;
+        private RichTextTrackedRange? _previewTracking;
 
         internal SourceTextRange(SourceTextPeer peer, RichTextRange range)
         {
             _peer = peer;
-            _document = peer.Editor.Document;
+            _rootDocument = peer.Editor.Document;
+            _document = peer.Editor.InputDocument;
             _tracking = _document.Tracking.TrackWeakRange(range);
+            if (!ReferenceEquals(_document, _rootDocument))
+                peer.TrackCompositionRange(this);
         }
 
-        private RichTextRange Range => ReferenceEquals(_document, _peer.Editor.Document) && _tracking.Range is { } range ? range :
-            throw new InvalidOperationException("The accessibility range belongs to a replaced document.");
+        private RichTextRange Range
+        {
+            get
+            {
+                if (!ReferenceEquals(_rootDocument, _peer.Editor.Document) || _tracking.Range is not { } range)
+                    throw new InvalidOperationException("The accessibility range belongs to a replaced document.");
+                var input = _peer.Editor.InputDocument;
+                if (ReferenceEquals(_document, _rootDocument) && !ReferenceEquals(input, _rootDocument))
+                {
+                    if (!ReferenceEquals(_previewOwner, input))
+                    {
+                        _previewTracking?.Dispose();
+                        var mapped = _peer.Editor.MapRangeToInput(range);
+                        _previewOwner = input;
+                        _previewTracking = input.Tracking.TrackWeakRange(mapped);
+                        _peer.TrackCompositionRange(this);
+                    }
+                    return _previewTracking!.Range!.Value;
+                }
+                return range;
+            }
+        }
+
+        internal void CompleteCompositionTracking()
+        {
+            _previewTracking?.Dispose();
+            _previewTracking = null;
+            _previewOwner = null;
+            if (!ReferenceEquals(_rootDocument, _peer.Editor.Document) || ReferenceEquals(_document, _rootDocument))
+                return;
+            var range = _tracking.Range ?? RichTextRange.Empty;
+            _tracking.Dispose();
+            _document = _rootDocument;
+            _tracking = _document.Tracking.TrackWeakRange(range.Clamp(_document.Length));
+        }
 
         private void Set(RichTextRange range)
         {
             _tracking.Dispose();
+            _previewTracking?.Dispose();
+            _previewTracking = null;
+            _previewOwner = null;
+            _document = _peer.Editor.InputDocument;
             _tracking = _document.Tracking.TrackWeakRange(range);
+            if (!ReferenceEquals(_document, _rootDocument))
+                _peer.TrackCompositionRange(this);
         }
 
         private SourceTextRange Other(ITextRangeProvider range) => range is SourceTextRange other && ReferenceEquals(other._peer, _peer) ? other :
@@ -371,7 +462,7 @@ public partial class RichEditorHandler
         {
             ArgumentException.ThrowIfNullOrEmpty(text);
             var range = Range;
-            var source = _document.Text.Substring(range.Start, range.Length);
+            var source = _peer.Editor.InputSnapshot.Text.Substring(range.Start, range.Length);
             var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             var index = backward ? source.LastIndexOf(text, comparison) : source.IndexOf(text, comparison);
             return index < 0 ? null! : _peer.Range(new(range.Start + index, text.Length));
@@ -404,7 +495,7 @@ public partial class RichEditorHandler
         public void GetBoundingRectangles(out double[] rectangles)
         {
             var range = Range;
-            if (_peer.Editor.TextLayout.Capture() is not { } layout)
+            if (_peer.Editor.TextLayout.CaptureInput() is not { } layout)
             {
                 rectangles = [];
                 return;
@@ -437,10 +528,10 @@ public partial class RichEditorHandler
 
             var range = Range;
             var length = maxLength < 0 ? range.Length : Math.Min(range.Length, maxLength);
-            if (length > 0 && length < range.Length && char.IsHighSurrogate(_document.Text[range.Start + length - 1]))
+            if (length > 0 && length < range.Length && char.IsHighSurrogate(_peer.Editor.InputSnapshot.Text[range.Start + length - 1]))
                 length--;
 
-            return _document.Text.Substring(range.Start, length);
+            return _peer.Editor.InputSnapshot.Text.Substring(range.Start, length);
         }
 
         public int Move(TextUnit unit, int count)
@@ -487,16 +578,26 @@ public partial class RichEditorHandler
         public void MoveEndpointByRange(TextPatternRangeEndpoint endpoint, ITextRangeProvider targetRange, TextPatternRangeEndpoint targetEndpoint) =>
             SetEndpoint(endpoint, Endpoint(Other(targetRange).Range, targetEndpoint));
 
-        public void Select() => _peer.Editor.Selections = new((TextSelection[])[new(Range.Start, Range.End)]);
+        public void Select()
+        {
+            if (_peer.Editor.Composition.IsActive)
+                _peer.Editor.InputSelection = new(Range.Start, Range.End);
+            else
+                _peer.Editor.Selections = new((TextSelection[])[new(Range.Start, Range.End)]);
+        }
 
         public void AddToSelection()
         {
+            if (_peer.Editor.Composition.IsActive)
+                throw new InvalidOperationException("Additional selections cannot be changed during composition.");
             var selections = _peer.Editor.Selections;
             _peer.Editor.Selections = new(selections.Append(new TextSelection(Range.Start, Range.End)), selections.PrimaryIndex);
         }
 
         public void RemoveFromSelection()
         {
+            if (_peer.Editor.Composition.IsActive)
+                throw new InvalidOperationException("Additional selections cannot be changed during composition.");
             var removed = Range;
             var selections = _peer.Editor.Selections;
             var remaining = new List<TextSelection>();

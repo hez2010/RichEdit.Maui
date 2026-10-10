@@ -16,10 +16,26 @@ public partial class RichEditorHandler
     private bool _updatingDisplayProjection;
     private bool _displayPublicationPending;
     private readonly HashSet<RichTextAdornment> _publishedAdornments = [];
+    private RichTextDocumentSnapshot? _inputPresentationSource;
+    private RichTextDocumentSnapshot? _inputPresentation;
+    private RichTextDisplayProjection? _inputPresentationMap;
+
+    internal RichTextDocumentSnapshot? GetCompositionPresentation()
+    {
+        if (_paintedSnapshot is null)
+            return null;
+        if (!ReferenceEquals(_inputPresentationSource, _paintedSnapshot) || !ReferenceEquals(_inputPresentationMap, NativeProjection))
+        {
+            _inputPresentationSource = _paintedSnapshot;
+            _inputPresentationMap = NativeProjection;
+            _inputPresentation = NativeProjection.Unproject(_paintedSnapshot);
+        }
+        return _inputPresentation;
+    }
 
     internal RichTextDisplayProjection NativeProjection => _displayState?.Projection ?? RichTextDisplayProjection.Empty;
 
-    private RichTextDocumentSnapshot DisplaySourceSnapshot => NativeProjection.IsEmpty ? VirtualView.Document.CurrentSnapshot : _displayState!.Source;
+    private RichTextDocumentSnapshot DisplaySourceSnapshot => NativeProjection.IsEmpty ? VirtualView.InputSnapshot : _displayState!.Source;
 
     private RichTextDocumentSnapshot DisplayPresentationSnapshot => NativeProjection.IsEmpty ? VirtualView.PresentationSnapshot : _displayState!.Presentation;
 
@@ -257,7 +273,7 @@ public partial class RichEditorHandler
             sourceToken, origin, mergeWithPrevious, projectedVersion, selection);
         // The source commit has moved/inactivated document-owned anchors. Reconcile any removed
         // reservation after native editing finishes, never in the middle of an IME callback.
-        _projectionSource = VirtualView.Document.CurrentSnapshot;
+        _projectionSource = VirtualView.InputSnapshot;
         _displayState = _displayState with { Source = NativeProjection.Project(_projectionSource, _displayWidth) };
         QueueAdornmentLayout();
     }

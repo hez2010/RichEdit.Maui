@@ -52,7 +52,7 @@ public partial class RichEditorHandler
             var attributes = storage.Length == 0 || PlatformView.SelectedRange.Location == storage.Length && PlatformView.SelectedRange.Length == 0
                 ? PlatformView.TypingAttributes2 : storage.GetAttributes(storage.Length - 1, out _);
             var font = new UIStringAttributes(attributes).Font ?? PlatformView.Font ?? UIFont.SystemFontOfSize(UIFont.SystemFontSize);
-            lines.Add(new(ImmutableArray.Create(new RichTextRange(VirtualView.Document.Length, 0)), end, end.Y + font.Ascender));
+            lines.Add(new(ImmutableArray.Create(new RichTextRange(VirtualView.InputSnapshot.Length, 0)), end, end.Y + font.Ascender));
         }
 
         return new(viewport, textViewport, lines.ToImmutableArray());

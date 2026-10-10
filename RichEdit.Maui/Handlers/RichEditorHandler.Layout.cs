@@ -7,7 +7,8 @@ public partial class RichEditorHandler
     internal long NativeGeometryQueryCount { get; private set; }
     internal object LayoutAttachment { get; private set; } = new();
 
-    internal bool HasTextLayout => _adornmentsConnected && !_applyingDocument && GetAdornmentViewport() is { Width: > 0, Height: > 0 };
+    internal bool HasTextLayout => _adornmentsConnected && !_applyingDocument &&
+        GetAdornmentViewport() is { Width: > 0, Height: > 0 };
 
     internal RichTextNativeLayout? CaptureTextLayout() => HasTextLayout ? CaptureTextLayoutCore() : null;
 
@@ -56,13 +57,14 @@ public partial class RichEditorHandler
 
         start = NativeProjection.ToSource(start);
         end = NativeProjection.ToSource(end);
-        start = Math.Clamp(start, 0, VirtualView.Document.Length);
-        end = Math.Clamp(end, start, VirtualView.Document.Length);
+        start = Math.Clamp(start, 0, VirtualView.InputSnapshot.Length);
+        end = Math.Clamp(end, start, VirtualView.InputSnapshot.Length);
         var result = new List<RichTextRange>();
-        if (start == end && VirtualView.Folding.FindRange(start) is null)
+        var folds = VirtualView.InputFoldRanges;
+        if (start == end && !folds.Any(range => start >= range.Start && start < range.End))
             result.Add(new(start, 0));
 
-        foreach (var hidden in VirtualView.Folding.EffectiveRanges)
+        foreach (var hidden in folds)
         {
             if (hidden.End <= start)
                 continue;
@@ -83,8 +85,8 @@ public partial class RichEditorHandler
     {
         isText &= !NativeProjection.ContainsDisplayCharacter(position);
         position = NativeProjection.ToSource(position);
-        position = Math.Clamp(position, 0, VirtualView.Document.Length);
-        if (VirtualView.Folding.FindRange(position) is { } hidden)
+        position = Math.Clamp(position, 0, VirtualView.InputSnapshot.Length);
+        if (VirtualView.InputFoldRanges.FirstOrDefault(range => position >= range.Start && position < range.End) is { IsEmpty: false } hidden)
             position = hidden.End;
 
         return new(position, affinity, isText ? RichTextHitKind.Text : RichTextHitKind.NearestPosition);

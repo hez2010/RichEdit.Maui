@@ -230,7 +230,7 @@ public partial class RichEditorHandler : ViewHandler<RichEditor, PlatformRichEdi
 
     private void SetSelectionCore(int start, int length)
     {
-        var range = new RichTextRange(start, length).Clamp(VirtualView.Document.Length);
+        var range = new RichTextRange(start, length).Clamp(VirtualView.InputSnapshot.Length);
         var selection = VirtualView.SelectionState;
         SetNativeSelectionCore(NativeProjection.ToDisplay(selection.Range == range ? selection : RichTextSelectionState.FromRange(range)));
     }

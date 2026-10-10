@@ -39,6 +39,13 @@ public sealed partial class RichEditor
         }
         if (primaryChange is null)
             return null;
+        var caretOffset = primaryChange.InsertedText.Length;
+        if (_committingComposition)
+        {
+            if (!nativeSelection.IsEmpty || nativeSelection.Active < primaryChange.NewRange.Start || nativeSelection.Active > primaryChange.NewRange.End)
+                return null;
+            caretOffset = nativeSelection.Active - primaryChange.NewRange.Start;
+        }
         var replacesSelection = primaryChange.OldRange == primaryRange;
         var deletesBackward = primaryRange.IsEmpty && primaryChange.InsertedText.Length == 0 &&
             primaryChange.OldRange.End == primary.Active;
@@ -92,7 +99,7 @@ public sealed partial class RichEditor
         var shift = 0;
         foreach (var item in ordered)
         {
-            var end = item.Range.Start + shift + item.Text.Length;
+            var end = item.Range.Start + shift + caretOffset;
             afterSelections.Add(item.Selection with { Anchor = end, Active = end });
             shift += item.Text.Length - item.Range.Length;
         }

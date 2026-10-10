@@ -299,16 +299,17 @@ internal static class AndroidEditorTests
                     async Task VerifyMarker()
                     {
                         await EditorContractTests.Verify(editor);
-                        Equal(list, editor.Document.CurrentSnapshot.Paragraphs[0].Format.List);
+                        var displayed = editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot;
+                        Equal(list, displayed.Paragraphs[0].Format.List);
                         var editable = native.EditableText!;
                         var marker = editable.GetSpans(0, editable.Length(), Java.Lang.Class.FromType(typeof(Java.Lang.Object)))!
                         .Single(span => span.GetType().Name == "RichListMarkerSpan");
                         Equal(0, editable.GetSpanStart(marker));
                         Equal(true, editable.GetSpanEnd(marker) > 0);
                         Equal(true, native.Layout!.GetParagraphLeft(0) > 0);
-                        if (editor.Document.Text.IndexOf('\n') is var newline && newline >= 0)
+                        if (displayed.Text.IndexOf('\n') is var newline && newline >= 0)
                         {
-                            Equal(null, editor.Document.CurrentSnapshot.Paragraphs[1].Format.List);
+                            Equal(null, displayed.Paragraphs[1].Format.List);
                             Equal(0, native.Layout.GetParagraphLeft(native.Layout.GetLineForOffset(newline + 1)));
                         }
                     }
@@ -338,9 +339,9 @@ internal static class AndroidEditorTests
             using var emoji = new Java.Lang.String("😀");
             editor.Selection.ToggleBold();
             connection.SetComposingText(composingN, 1);
-            EditorContractTests.Equal(true, editor.Document.CurrentSnapshot.Runs[0].Format.Bold, "first composing character");
+            EditorContractTests.Equal(true, editor.CompositionSnapshot!.Runs[0].Format.Bold, "first composing character");
             connection.SetComposingText(composingNi, 1);
-            EditorContractTests.Equal(true, editor.Document.CurrentSnapshot.Runs[0].Format.Bold, "replaced composing characters");
+            EditorContractTests.Equal(true, editor.CompositionSnapshot!.Runs[0].Format.Bold, "replaced composing characters");
             connection.CommitText(japanese, 1);
             connection.FinishComposingText();
             await EditorContractTests.Verify(editor);
@@ -369,7 +370,7 @@ internal static class AndroidEditorTests
             EditorContractTests.SameContent(final, editor.Document.CurrentSnapshot);
         });
 
-        await Test("metadata edits preserve ongoing IME composition", async () =>
+        await Test("metadata edits wait for native IME composition to complete", async () =>
         {
             native.RequestFocus();
             using var info = new Android.Views.InputMethods.EditorInfo();
@@ -377,11 +378,15 @@ internal static class AndroidEditorTests
             using var composing = new Java.Lang.String("n");
             using var committed = new Java.Lang.String("日本");
             connection.SetComposingText(composing, 1);
-            editor.Document.Edit(edit => edit.SetMetadata("author", "test"));
+            var rejected = false;
+            try { editor.Document.Edit(edit => edit.SetMetadata("author", "test")); }
+            catch (InvalidOperationException) { rejected = true; }
+            Equal(true, rejected);
             Equal(0, Android.Views.InputMethods.BaseInputConnection.GetComposingSpanStart(native.EditableText!));
             connection.CommitText(committed, 1);
             connection.FinishComposingText();
             await EditorContractTests.Verify(editor);
+            editor.Document.Edit(edit => edit.SetMetadata("author", "test"));
             Equal("日本", editor.Document.Text);
             Equal("test", editor.Document.CurrentSnapshot.Metadata["author"]);
         });

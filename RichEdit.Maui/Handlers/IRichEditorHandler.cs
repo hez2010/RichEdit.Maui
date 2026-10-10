@@ -20,6 +20,8 @@ internal interface IRichEditorHandler
 
     bool IsComposing { get; }
 
+    bool TryCompleteComposition();
+
     bool CanUndo { get; }
 
     bool CanRedo { get; }

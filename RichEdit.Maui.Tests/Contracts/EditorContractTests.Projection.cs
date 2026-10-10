@@ -35,14 +35,23 @@ internal static partial class EditorContractTests
             editor.Keyboard = Keyboard.Create(KeyboardFlags.CapitalizeWord);
             Equal(UIKit.UITextAutocapitalizationType.Words, native.AutocapitalizationType);
 #endif
-            editor.IsSpellCheckEnabled = true;
-            editor.IsTextPredictionEnabled = true;
+            editor.SetValue(RichEditor.IsSpellCheckEnabledProperty, true);
+            editor.SetValue(RichEditor.IsTextPredictionEnabledProperty, true);
 #if ANDROID
             Equal(0, (int)(native.InputType & global::Android.Text.InputTypes.TextFlagNoSuggestions));
             Equal(true, (native.InputType & global::Android.Text.InputTypes.TextFlagAutoCorrect) != 0);
 #else
             Equal(UIKit.UITextSpellCheckingType.Yes, native.SpellCheckingType);
             Equal(UIKit.UITextAutocorrectionType.Yes, native.AutocorrectionType);
+#endif
+            editor.ClearValue(RichEditor.IsSpellCheckEnabledProperty);
+            editor.IsTextPredictionEnabled = null;
+#if ANDROID
+            Equal(true, (native.InputType & global::Android.Text.InputTypes.TextFlagNoSuggestions) != 0);
+            Equal(0, (int)(native.InputType & global::Android.Text.InputTypes.TextFlagAutoCorrect));
+#else
+            Equal(UIKit.UITextSpellCheckingType.No, native.SpellCheckingType);
+            Equal(UIKit.UITextAutocorrectionType.No, native.AutocorrectionType);
 #endif
             await Task.Delay(30);
         });
@@ -109,10 +118,13 @@ internal static partial class EditorContractTests
             await Task.Delay(150);
             using var composition = new Java.Lang.String("?");
             Equal(true, connection.SetComposingText(composition, -2));
-            Equal("!abc?d", editor.Document.Text);
-            Equal(new RichTextRange(2, 0), editor.SelectedRange);
+            Equal("!abcd", editor.Document.Text);
+            Equal("!abc?d", editor.CompositionSnapshot!.Text);
+            Equal(new RichTextRange(2, 0), editor.CompositionSelection!.Value.Range);
             Equal(true, editor.Composition.IsActive);
             connection.FinishComposingText();
+            Equal("!abc?d", editor.Document.Text);
+            Equal(new RichTextRange(2, 0), editor.SelectedRange);
         });
 
         yield return new("projection Android baseline offsets raise text and images survive shifts", async editor =>
@@ -562,10 +574,14 @@ internal static partial class EditorContractTests
             connection.SetComposingText(marked, 1);
             Equal(true, editor.Composition.IsActive);
             Equal(new RichTextRange(2, 2), editor.Composition.Range);
-            Equal("A 仮名bc\ntail", editor.Document.Text);
+            Equal("A bc\ntail", editor.Document.Text);
+            Equal("A 仮名bc\ntail", editor.CompositionSnapshot!.Text);
+            using var provisionalNode = native.CreateAccessibilityNodeInfo()!;
+            Equal(editor.CompositionSnapshot.Text, provisionalNode.Text);
             connection.FinishComposingText();
             await Task.Delay(150);
             Equal(false, editor.Composition.IsActive);
+            Equal("A 仮名bc\ntail", editor.Document.Text);
             item.Dispose();
             await Task.Delay(150);
         });
@@ -611,7 +627,9 @@ internal static partial class EditorContractTests
             native.SetMarkedText("仮名", new Foundation.NSRange(2, 0));
             Equal(true, editor.Composition.IsActive);
             Equal(new RichTextRange(0, 2), editor.Composition.Range);
-            Equal("仮名abc\ntail", editor.Document.Text);
+            Equal("abc\ntail", editor.Document.Text);
+            Equal("仮名abc\ntail", editor.CompositionSnapshot!.Text);
+            Equal(editor.CompositionSnapshot.Text, native.AccessibilityValue);
             native.UnmarkText();
             await Task.Delay(150);
             Equal(editor.Document.Text, native.AccessibilityValue);

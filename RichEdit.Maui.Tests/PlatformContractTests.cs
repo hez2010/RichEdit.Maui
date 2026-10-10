@@ -10,7 +10,8 @@ public class PlatformContractTests
     private static Microsoft.UI.Xaml.Window? _window;
 
     public static IEnumerable<object[]> Scenarios => EditorContractTests.Cases
-        .Where(test => !test.Name.StartsWith("sharing", StringComparison.Ordinal) && !test.Name.StartsWith("selections", StringComparison.Ordinal))
+        .Where(test => !test.Name.StartsWith("sharing", StringComparison.Ordinal) && !test.Name.StartsWith("selections", StringComparison.Ordinal) &&
+            !test.Name.StartsWith("composition", StringComparison.Ordinal))
         .Select(test => new object[] { test.Name });
 
     public static IEnumerable<object[]> SharedScenarios => EditorContractTests.Cases
@@ -26,6 +27,13 @@ public class PlatformContractTests
     [Theory]
     [MemberData(nameof(SelectionScenarios))]
     public Task NativeMultipleSelectionContract(string name) => RunContract(name);
+
+    public static IEnumerable<object[]> CompositionScenarios => EditorContractTests.Cases
+        .Where(test => test.Name.StartsWith("composition", StringComparison.Ordinal)).Select(test => new object[] { test.Name });
+
+    [Theory]
+    [MemberData(nameof(CompositionScenarios))]
+    public Task NativeCompositionContract(string name) => RunContract(name);
 
     [Theory]
     [MemberData(nameof(Scenarios), DisableDiscoveryEnumeration = true)]

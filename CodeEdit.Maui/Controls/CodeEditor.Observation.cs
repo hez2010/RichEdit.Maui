@@ -4,11 +4,36 @@ namespace CodeEdit.Maui;
 
 public sealed partial class CodeEditor
 {
+    /// <summary>Requests native composition completion across views of this document without moving focus.</summary>
+    /// <returns>False when the native input method must finish through its own interaction.</returns>
+    public bool TryCompleteComposition() => TextView.TryCompleteComposition();
+
     /// <summary>Gets visible geometry and hit testing in this composed editor's coordinates.</summary>
     public RichTextLayout TextLayout { get; private set; } = null!;
 
     /// <summary>Gets authoritative native marked-text state.</summary>
     public RichTextCompositionState Composition => TextView.Composition;
+
+    /// <summary>Gets provisional native source with an invalid edit revision, or null outside composition.</summary>
+    public CodeDocumentSnapshot? CompositionSnapshot
+    {
+        get
+        {
+            var source = TextView.CompositionSnapshot;
+            if (!ReferenceEquals(source, _compositionSource))
+            {
+                _compositionSource = source;
+                _compositionSnapshot = source is null ? null : new(default, source.Text);
+            }
+            return _compositionSnapshot;
+        }
+    }
+
+    private RichTextDocumentSnapshot? _compositionSource;
+    private CodeDocumentSnapshot? _compositionSnapshot;
+
+    /// <summary>Gets the native provisional selection, or null outside composition.</summary>
+    public RichTextSelectionState? CompositionSelection => TextView.CompositionSelection;
 
     /// <summary>Occurs when native marked text starts, changes, or ends.</summary>
     public event EventHandler<RichTextCompositionChangedEventArgs>? CompositionChanged;
@@ -26,7 +51,12 @@ public sealed partial class CodeEditor
     {
         TextLayout = TextView.TextLayout.CreateRelativeTo(this);
         TextLayout.Changed += (_, _) => InvalidateGutter();
-        TextView.CompositionChanged += (_, args) => CompositionChanged?.Invoke(this, args);
+        TextView.CompositionChanged += (_, args) =>
+        {
+            OnPropertyChanged(nameof(CompositionSnapshot));
+            OnPropertyChanged(nameof(CompositionSelection));
+            CompositionChanged?.Invoke(this, args);
+        };
         TextView.PointerMoved += (_, args) => PointerMoved?.Invoke(this, TranslatePointer(args));
         TextView.PointerPressed += (_, args) => PointerPressed?.Invoke(this, TranslatePointer(args));
         TextView.PointerExited += (_, _) => PointerExited?.Invoke(this, EventArgs.Empty);
@@ -37,18 +67,19 @@ public sealed partial class CodeEditor
 
     internal IReadOnlyList<VisibleCodeLine> GetVisibleLines()
     {
-        var layout = TextLayout.Capture();
+        var layout = TextLayout.CaptureInput();
         if (layout is null)
             return Array.Empty<VisibleCodeLine>();
 
         var result = new List<VisibleCodeLine>();
         var seen = new HashSet<int>();
+        var lines = CompositionSnapshot?.Lines ?? Lines;
         foreach (var fragment in layout.Lines)
         {
             if (fragment.SourceRanges.Count == 0)
                 continue;
 
-            var number = Lines.GetPosition(fragment.SourceRanges[0].Start).Line;
+            var number = lines.GetPosition(fragment.SourceRanges[0].Start).Line;
             if (seen.Add(number))
                 result.Add(new(number, (float)fragment.Bounds.Y, (float)fragment.Bounds.Height, (float)fragment.Baseline));
         }

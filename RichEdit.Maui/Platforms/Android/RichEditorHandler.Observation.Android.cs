@@ -6,6 +6,16 @@ namespace RichEdit.Maui
 {
     public partial class RichEditorHandler
     {
+        private partial bool TryCompleteCompositionCore()
+        {
+            BeginCompositionOperation(false);
+            try { PlatformView.ClearComposingText(); }
+            finally { EndCompositionOperation(); }
+            if (Context?.GetSystemService(global::Android.Content.Context.InputMethodService) is InputMethodManager input)
+                input.RestartInput(PlatformView);
+            return !VirtualView.Composition.IsActive;
+        }
+
         private partial void ConnectInputObservation()
         {
             PlatformView.ProjectionHandler = this;
@@ -122,7 +132,7 @@ namespace RichEdit.Maui.Platforms.Android
                 outAttrs.InitialSelStart = handler.VirtualView.SelectionState.Anchor;
                 outAttrs.InitialSelEnd = handler.VirtualView.SelectionState.Active;
                 if (OperatingSystem.IsAndroidVersionAtLeast(30))
-                    outAttrs.SetInitialSurroundingText(handler.VirtualView.Document.Text);
+                    outAttrs.SetInitialSurroundingText(handler.VirtualView.InputSnapshot.Text);
             }
 
             return _sourceInputConnection = connection is null ? null : new ObservedInputConnection(this, connection);

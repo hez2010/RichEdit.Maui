@@ -947,14 +947,18 @@ internal static class AppleEditorTests
             EditorContractTests.SameContent(final, editor.Document.CurrentSnapshot);
         });
 
-        await Test("metadata edits preserve ongoing IME composition", async () =>
+        await Test("metadata edits wait for native IME composition to complete", async () =>
         {
             native.SetMarkedText("n", new NSRange(1, 0));
-            editor.Document.Edit(edit => edit.SetMetadata("author", "test"));
+            var rejected = false;
+            try { editor.Document.Edit(edit => edit.SetMetadata("author", "test")); }
+            catch (InvalidOperationException) { rejected = true; }
+            Equal(true, rejected);
             Equal(true, native.MarkedTextRange is not null);
             native.SetMarkedText("日本", new NSRange(2, 0));
             native.UnmarkText();
             await Drain();
+            editor.Document.Edit(edit => edit.SetMetadata("author", "test"));
             Equal("日本", editor.Document.Text);
             Equal("test", editor.Document.CurrentSnapshot.Metadata["author"]);
         });

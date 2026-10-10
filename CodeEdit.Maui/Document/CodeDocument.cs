@@ -129,6 +129,7 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
 public sealed class CodeDocumentSnapshot
 {
     private readonly CodeLineMap _lines;
+    internal CodeLineMap Lines => _lines;
 
     internal CodeDocumentSnapshot(RichTextRevision revision, string text)
     {

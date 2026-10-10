@@ -6,6 +6,15 @@ public sealed partial class RichTextDocument
 
     internal bool HasActiveComposition => GetAttachedEditors().Any(IsComposing);
 
+    internal bool TryCompleteComposition()
+    {
+        VerifyAccess();
+        foreach (var view in GetAttachedEditors())
+            if (IsComposing(view) && (view.Handler is not IRichEditorHandler handler || !handler.TryCompleteComposition()))
+                return false;
+        return !HasActiveComposition;
+    }
+
     private static bool IsComposing(RichEditor view) => view.Composition.IsActive ||
         view.Handler is IRichEditorHandler { IsComposing: true };
 

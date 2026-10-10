@@ -208,7 +208,7 @@ public partial class RichEditorHandler
             return true;
         }
 
-        var currentLength = VirtualView.Document.Length;
+        var currentLength = VirtualView.InputSnapshot.Length;
         var removedLength = range.Length > int.MaxValue
             ? currentLength
             : Math.Max(0, NativeProjection.ToSource((int)(range.Location + range.Length)) - NativeProjection.ToSource((int)range.Location));

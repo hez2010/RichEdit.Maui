@@ -10,7 +10,166 @@ internal static partial class EditorContractTests
 
     private static IEnumerable<Case> MultipleSelectionCases()
     {
+#if ANDROID || IOS || MACCATALYST
+        yield return new("composition multiple selections commit once and keep other views unchanged while marked", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("aa bb");
+            editor.Selections = new((TextSelection[])[new(2, 2), new(5, 5)], 1);
+            using var peer = new SharedEditor(editor);
+            editor.Focus();
+            await Task.Delay(100);
+            var snapshot = editor.Document.CurrentSnapshot;
+            var events = 0;
+            void Changed(object? sender, RichTextTextChangedEventArgs args) => events++;
+            editor.TextChanged += Changed;
+            try
+            {
+                var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+#if ANDROID
+                using var info = new Android.Views.InputMethods.EditorInfo();
+                using var connection = native.OnCreateInputConnection(info)!;
+                using var first = new Java.Lang.String("か");
+                using var second = new Java.Lang.String("仮名");
+                connection.SetComposingText(first, 1);
+                connection.SetComposingText(second, 1);
+#else
+                native.SetMarkedText("か", new Foundation.NSRange(1, 0));
+                native.SetMarkedText("仮名", new Foundation.NSRange(2, 0));
+#endif
+                Equal(true, ReferenceEquals(snapshot, editor.Document.CurrentSnapshot));
+                Equal("aa bb", NativeText(peer.Editor));
+                Equal("aa bb仮名", editor.CompositionSnapshot!.Text);
+                await Task.Delay(50);
+                Equal(null, editor.TextLayout.Capture());
+                var inputLayout = editor.TextLayout.CaptureInput()!;
+                Equal(true, inputLayout.IsProvisional);
+                Equal(7, inputLayout.SourceLength);
+                Equal(true, editor.TextLayout.GetCaretBounds(inputLayout, editor.CompositionSelection!.Value.Active) is not null);
+                Equal(0, events);
+                Equal(false, editor.Document.IsModified);
+                Equal(false, peer.Editor.TryApplyEdits(snapshot.Revision, (RichTextEdit[])[new(new(0, 0), "wrong")]));
+                var saveRejected = false;
+                try { editor.Document.CreateSavePoint(); }
+                catch (InvalidOperationException) { saveRejected = true; }
+                Equal(true, saveRejected);
+#if ANDROID
+                connection.FinishComposingText();
+#else
+                native.UnmarkText();
+#endif
+                await Verify(editor);
+                Equal("aa仮名 bb仮名", editor.Document.Text);
+                Equal(editor.Document.Text, NativeText(peer.Editor));
+                Equal(1, events);
+                Equal(false, editor.Composition.IsActive);
+                Equal(null, editor.CompositionSnapshot);
+                Equal(null, editor.TextLayout.GetCaretBounds(inputLayout, 0));
+                peer.Editor.Undo();
+                await Verify(editor);
+                Equal("aa bb", editor.Document.Text);
+                Equal(false, editor.CanUndo);
+                Equal(2, peer.Editor.Selections.Count);
+            }
+            finally { editor.TextChanged -= Changed; }
+        });
+
+        yield return new("composition cancellation creates no document version or undo entry", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("abc");
+            editor.Selections = new((TextSelection[])[new(0, 0), new(3, 3)]);
+            var before = editor.Document.CurrentSnapshot;
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+#if ANDROID
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var marked = new Java.Lang.String("仮");
+            using var empty = new Java.Lang.String("");
+            connection.SetComposingText(marked, 1);
+            connection.SetComposingText(empty, 1);
+            connection.FinishComposingText();
+#else
+            native.SetMarkedText("仮", new Foundation.NSRange(1, 0));
+            native.SetMarkedText("", new Foundation.NSRange(0, 0));
+            native.UnmarkText();
+#endif
+            await Verify(editor);
+            Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
+            Equal(false, editor.CanUndo);
+            Equal(2, editor.Selections.Count);
+            Equal("abc", NativeText(editor));
+        });
+
+        yield return new("composition can complete through another view before capturing a save point", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("a");
+            editor.SelectedRange = new(1, 0);
+            using var peer = new SharedEditor(editor);
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+#if ANDROID
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var marked = new Java.Lang.String("仮名");
+            connection.SetComposingText(marked, 1);
+#else
+            native.SetMarkedText("仮名", new Foundation.NSRange(2, 0));
+#endif
+            Equal("a", editor.Document.Text);
+            Equal(true, peer.Editor.TryCompleteComposition());
+            await Verify(editor);
+            Equal("a仮名", editor.Document.Text);
+            var saved = editor.Document.CreateSavePoint();
+            editor.Document.MarkSaved(saved);
+            Equal(false, editor.Document.IsModified);
+        });
+#endif
+
 #if WINDOWS
+        yield return new("composition Windows boundary keeps provisional UIA ranges valid through commit", editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("aa bb cc");
+            editor.Selections = new((TextSelection[])[new(2, 2), new(5, 5), new(8, 8)], 1);
+            var handler = (RichEditorHandler)editor.Handler!;
+            var native = handler.PlatformView;
+            var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(native);
+            var provider = (Microsoft.UI.Xaml.Automation.Provider.ITextProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Text);
+            var word = provider.DocumentRange.Clone();
+            word.MoveEndpointByUnit(Microsoft.UI.Xaml.Automation.Text.TextPatternRangeEndpoint.Start, Microsoft.UI.Xaml.Automation.Text.TextUnit.Character, 3);
+            word.MoveEndpointByUnit(Microsoft.UI.Xaml.Automation.Text.TextPatternRangeEndpoint.End, Microsoft.UI.Xaml.Automation.Text.TextUnit.Character, -3);
+            var composing = typeof(RichEditorHandler).GetField("_isComposing", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var observe = typeof(RichEditorHandler).GetMethod("UpdateCompositionState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            try
+            {
+                composing.SetValue(handler, true);
+                observe.Invoke(handler, null);
+                NativeReplace(editor, "仮");
+                native.Document.Selection.SetRange(6, 6);
+                Equal("aa bb cc", editor.Document.Text);
+                Equal("aa bb仮 cc", provider.DocumentRange.GetText(-1));
+                Equal("bb", word.GetText(-1));
+                var transient = provider.DocumentRange.Clone();
+                transient.MoveEndpointByUnit(Microsoft.UI.Xaml.Automation.Text.TextPatternRangeEndpoint.Start, Microsoft.UI.Xaml.Automation.Text.TextUnit.Character, 7);
+                Equal("cc", transient.GetText(-1));
+                Equal(false, editor.TryCompleteComposition());
+                // WinUI reconciles its final native text/selection before ending composition.
+                typeof(RichEditorHandler).GetMethod("ReconcileCompositionSource", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                    .Invoke(handler, null);
+                composing.SetValue(handler, false);
+                observe.Invoke(handler, null);
+                Equal("aa仮 bb仮 cc仮", editor.Document.Text);
+                Equal("bb", word.GetText(-1));
+                Equal("cc", transient.GetText(-1));
+                editor.Document.Edit(edit => edit.InsertText(0, "!"));
+                Equal("bb", word.GetText(-1));
+                Equal("cc", transient.GetText(-1));
+            }
+            finally
+            {
+                composing.SetValue(handler, false);
+                editor.DiscardComposition();
+            }
+            return Task.CompletedTask;
+        });
+
         yield return new("selections UI Automation exposes and edits the selection collection", editor =>
         {
             editor.Document = RichTextDocument.FromPlainText("abcdefghij");

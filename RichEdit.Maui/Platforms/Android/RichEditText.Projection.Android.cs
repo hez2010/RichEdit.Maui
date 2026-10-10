@@ -23,7 +23,7 @@ public partial class RichEditText
         {
             // Autofill is a source-text boundary. TextView's default implementation
             // copies and sorts every native span, including private reservations.
-            using var text = new Java.Lang.String(ProjectionHandler?.VirtualView.Document.Text ?? Text ?? "");
+            using var text = new Java.Lang.String(ProjectionHandler?.VirtualView.InputSnapshot.Text ?? Text ?? "");
             return NativeAutofillValue.ForText(text);
         }
     }
@@ -40,7 +40,7 @@ public partial class RichEditText
         }
 
         var editor = handler.VirtualView;
-        editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(new(0, editor.Document.Length), value.TextValue ?? "")]);
+        editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(new(0, editor.InputSnapshot.Length), value.TextValue ?? "")]);
     }
 
     private static AccessibilityEvent CreateSourceEvent(EventTypes type)
@@ -58,7 +58,7 @@ public partial class RichEditText
             return;
 
         var editor = handler.VirtualView;
-        var text = editor.Document.Text;
+        var text = editor.InputSnapshot.Text;
         if (_accessibleText != text)
         {
             var start = 0;
@@ -97,7 +97,7 @@ public partial class RichEditText
                 return;
 
             var composition = editor.Composition.Range;
-            input.UpdateSelection(this, editor.SelectionState.Anchor, editor.SelectionState.Active, composition?.Start ?? -1, composition?.End ?? -1);
+            input.UpdateSelection(this, editor.InputSelection.Anchor, editor.InputSelection.Active, composition?.Start ?? -1, composition?.End ?? -1);
             _sourceInputConnection?.PublishExtractedText(input);
         });
     }
@@ -108,10 +108,10 @@ public partial class RichEditText
             return TextFormatted ?? new Java.Lang.String("");
 
         var native = TextFormatted;
-        if (native is not ISpanned styled || native.Length() != handler.VirtualView.Document.Length + handler.NativeProjection.Reservations.Sum(static item => item.Text.Length))
-            return new Java.Lang.String(handler.VirtualView.Document.Text);
+        if (native is not ISpanned styled || native.Length() != handler.VirtualView.InputSnapshot.Length + handler.NativeProjection.Reservations.Sum(static item => item.Text.Length))
+            return new Java.Lang.String(handler.VirtualView.InputSnapshot.Text);
 
-        var source = new SpannableString(handler.VirtualView.Document.Text);
+        var source = new SpannableString(handler.VirtualView.InputSnapshot.Text);
         // Copy semantic styles with logical ranges. A copied editable also contains
         // native observers; deleting its reservations can replay text callbacks and
         // repeatedly rebuild its span index during a read-only accessibility query.
@@ -139,7 +139,7 @@ public partial class RichEditText
 
         var editor = handler.VirtualView;
         info.TextFormatted = SourceAccessibilityText();
-        info.SetTextSelection(editor.SelectionState.Anchor, editor.SelectionState.Active);
+        info.SetTextSelection(editor.InputSelection.Anchor, editor.InputSelection.Active);
     }
 
     /// <inheritdoc />
@@ -152,12 +152,12 @@ public partial class RichEditText
 
             var editor = handler.VirtualView;
             e.Text?.Clear();
-            e.Text?.Add(new Java.Lang.String(editor.Document.Text));
-            e.ItemCount = editor.Document.Length;
+            e.Text?.Add(new Java.Lang.String(editor.InputSnapshot.Text));
+            e.ItemCount = editor.InputSnapshot.Length;
             if (e.EventType == EventTypes.ViewTextSelectionChanged)
             {
-                e.FromIndex = editor.SelectionState.Anchor;
-                e.ToIndex = editor.SelectionState.Active;
+                e.FromIndex = editor.InputSelection.Anchor;
+                e.ToIndex = editor.InputSelection.Active;
             }
         }
 
@@ -174,30 +174,30 @@ public partial class RichEditText
             {
                 var start = arguments?.GetInt(AccessibilityNodeInfo.ActionArgumentSelectionStartInt, -1) ?? -1;
                 var end = arguments?.GetInt(AccessibilityNodeInfo.ActionArgumentSelectionEndInt, -1) ?? -1;
-                if (start < 0 || end < 0 || start > editor.Document.Length || end > editor.Document.Length)
+                if (start < 0 || end < 0 || start > editor.InputSnapshot.Length || end > editor.InputSnapshot.Length)
                     return false;
 
-                editor.SelectionState = new(start, end);
+                editor.InputSelection = new(start, end);
                 return true;
             }
             if (action == AccessibilityAction.SetText)
-                return editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(new(0, editor.Document.Length),
+                return editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(new(0, editor.InputSnapshot.Length),
                     arguments?.GetCharSequence(AccessibilityNodeInfo.ActionArgumentSetTextCharsequence) ?? "")]);
             if (action is AccessibilityAction.NextAtMovementGranularity or AccessibilityAction.PreviousAtMovementGranularity)
             {
                 var forward = action == AccessibilityAction.NextAtMovementGranularity;
-                var source = editor.Document.Text;
+                var source = editor.InputSnapshot.Text;
                 var unit = (MovementGranularity)(arguments?.GetInt(AccessibilityNodeInfo.ActionArgumentMovementGranularityInt) ?? 1);
                 var boundaries = unit == MovementGranularity.Character ? StringInfo.ParseCombiningCharacters(source) :
                     Enumerable.Range(0, source.Length).Where(index => index == 0 || (unit == MovementGranularity.Word ?
                         char.IsWhiteSpace(source[index - 1]) != char.IsWhiteSpace(source[index]) : source[index - 1] == '\n')).ToArray();
-                var active = editor.SelectionState.Active;
+                var active = editor.InputSelection.Active;
                 var next = forward ? boundaries.Append(source.Length).FirstOrDefault(position => position > active, active) : boundaries.LastOrDefault(position => position < active, active);
                 if (next == active)
                     return false;
 
                 var extend = arguments?.GetBoolean(AccessibilityNodeInfo.ActionArgumentExtendSelectionBoolean) == true;
-                editor.SelectionState = new(extend ? editor.SelectionState.Anchor : next, next);
+                editor.InputSelection = new(extend ? editor.InputSelection.Anchor : next, next);
                 using var traversed = CreateSourceEvent(EventTypes.ViewTextTraversedAtMovementGranularity);
                 traversed.FromIndex = Math.Min(active, next);
                 traversed.ToIndex = Math.Max(active, next);
@@ -242,7 +242,7 @@ public partial class RichEditText
             // relative movement against that same pre-edit buffer, including clamps.
             var anchor = cursor > 0 ? end : start;
             var sourceAnchor = handler.NativeProjection.ToSource(anchor);
-            var target = (int)Math.Clamp((long)sourceAnchor + cursor - (cursor > 0 ? 1 : 0), 0, handler.VirtualView.Document.Length);
+            var target = (int)Math.Clamp((long)sourceAnchor + cursor - (cursor > 0 ? 1 : 0), 0, handler.VirtualView.InputSnapshot.Length);
             var display = target == sourceAnchor ? anchor : handler.NativeProjection.ToDisplayCaret(target);
             return (int)Math.Clamp((long)display - anchor + (cursor > 0 ? 1 : 0), int.MinValue, int.MaxValue);
         }
@@ -255,8 +255,8 @@ public partial class RichEditText
             if (start < 0 || end < 0)
                 return false;
 
-            start = Math.Min(start, handler.VirtualView.Document.Length);
-            end = Math.Min(end, handler.VirtualView.Document.Length);
+            start = Math.Min(start, handler.VirtualView.InputSnapshot.Length);
+            end = Math.Min(end, handler.VirtualView.InputSnapshot.Length);
             var range = handler.NativeProjection.ToDisplay(new RichTextRange(Math.Min(start, end), Math.Abs(end - start)));
             var cursor = DisplayCursorPosition(newCursorPosition, range);
             return base.ReplaceText(start <= end ? range.Start : range.End, start <= end ? range.End : range.Start, text, cursor, textAttribute);
@@ -269,8 +269,8 @@ public partial class RichEditText
             if (Projection is not { } handler)
                 return base.GetTextBeforeCursorFormatted(n, flags);
 
-            var end = handler.VirtualView.SelectedRange.Start;
-            return new Java.Lang.String(handler.VirtualView.Document.Text[Math.Max(0, end - Math.Max(0, n))..end]);
+            var end = handler.VirtualView.InputSelection.Range.Start;
+            return new Java.Lang.String(handler.VirtualView.InputSnapshot.Text[Math.Max(0, end - Math.Max(0, n))..end]);
         }
 
         public override Java.Lang.ICharSequence? GetTextAfterCursorFormatted(int n, GetTextFlags flags)
@@ -278,14 +278,14 @@ public partial class RichEditText
             if (Projection is not { } handler)
                 return base.GetTextAfterCursorFormatted(n, flags);
 
-            var start = handler.VirtualView.SelectedRange.End;
-            var text = handler.VirtualView.Document.Text;
+            var start = handler.VirtualView.InputSelection.Range.End;
+            var text = handler.VirtualView.InputSnapshot.Text;
             var length = Math.Min(Math.Max(0, n), text.Length - start);
             return new Java.Lang.String(text.Substring(start, length));
         }
 
         public override Java.Lang.ICharSequence? GetSelectedTextFormatted(GetTextFlags flags) => Projection is { } handler ?
-            new Java.Lang.String(handler.VirtualView.Selection.Text) : base.GetSelectedTextFormatted(flags);
+            new Java.Lang.String(handler.VirtualView.InputSnapshot.Text.Substring(handler.VirtualView.InputSelection.Range.Start, handler.VirtualView.InputSelection.Range.Length)) : base.GetSelectedTextFormatted(flags);
 
         public override ExtractedText? GetExtractedText(ExtractedTextRequest? request, GetTextFlags flags)
         {
@@ -296,12 +296,12 @@ public partial class RichEditText
 
             return new()
             {
-                Text = new Java.Lang.String(handler.VirtualView.Document.Text),
+                Text = new Java.Lang.String(handler.VirtualView.InputSnapshot.Text),
                 StartOffset = 0,
                 PartialStartOffset = -1,
                 PartialEndOffset = -1,
-                SelectionStart = handler.VirtualView.SelectionState.Anchor,
-                SelectionEnd = handler.VirtualView.SelectionState.Active,
+                SelectionStart = handler.VirtualView.InputSelection.Anchor,
+                SelectionEnd = handler.VirtualView.InputSelection.Active,
             };
         }
 
@@ -335,8 +335,8 @@ public partial class RichEditText
             var editor = handler.VirtualView;
             var selection = editor.SelectedRange;
             var start = Math.Max(0, selection.Start - Math.Max(0, beforeLength));
-            var end = (int)Math.Min(editor.Document.Length, (long)selection.End + Math.Max(0, afterLength));
-            return new(new Java.Lang.String(editor.Document.Text[start..end]), editor.SelectionState.Anchor - start, editor.SelectionState.Active - start, start);
+            var end = (int)Math.Min(editor.InputSnapshot.Length, (long)selection.End + Math.Max(0, afterLength));
+            return new(new Java.Lang.String(editor.InputSnapshot.Text[start..end]), editor.InputSelection.Anchor - start, editor.InputSelection.Active - start, start);
         }
 
         public override bool DeleteSurroundingText(int beforeLength, int afterLength) => DeleteSource(beforeLength, afterLength, false);
@@ -354,7 +354,7 @@ public partial class RichEditText
             var range = editor.SelectedRange;
             var start = range.Start;
             var end = range.End;
-            var text = editor.Document.Text;
+            var text = editor.InputSnapshot.Text;
             if (codePoints)
             {
                 for (var i = 0; i < beforeLength && start > 0; i++)

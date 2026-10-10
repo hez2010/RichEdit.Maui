@@ -270,8 +270,8 @@ public partial class RichEditorHandler
     private partial void UpdateInputConfiguration(RichEditor editor)
     {
         PlatformView.IsReadOnly = editor.IsReadOnly;
-        PlatformView.IsSpellCheckEnabled = editor.IsSpellCheckEnabled;
-        PlatformView.IsTextPredictionEnabled = editor.IsTextPredictionEnabled;
+        PlatformView.IsSpellCheckEnabled = editor.IsSpellCheckEnabled ?? true;
+        PlatformView.IsTextPredictionEnabled = editor.IsTextPredictionEnabled ?? true;
         PlatformView.AcceptsReturn = true;
         UpdateDisplayInputLimit();
         var scope = ReferenceEquals(editor.Keyboard, Keyboard.Numeric)

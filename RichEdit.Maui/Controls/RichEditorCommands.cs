@@ -97,7 +97,7 @@ public sealed class RichEditorCommands
 
     private void OnClipboardContentChanged(object? sender, EventArgs eventArgs) => Refresh();
 
-    private bool CanMutateSelection => !_editor.IsReadOnly;
+    private bool CanMutateSelection => !_editor.IsReadOnly && !_editor.Document.HasActiveComposition;
 
     private bool CanPaste()
     {
