@@ -6,6 +6,23 @@ public partial class NativeEditorView
 {
     private readonly List<WeakReference<NativeEditorView>> _structuredSurfaces = [];
     private bool _focusingStructuredSelection;
+    private int _structuredSurfaceUpdateDepth;
+    internal bool IsUpdatingStructuredSurfaces => (StructuredInputCoordinator ?? this)._structuredSurfaceUpdateDepth != 0;
+    internal IDisposable BeginStructuredSurfaceUpdate()
+    {
+        _structuredSurfaceUpdateDepth++;
+        return new StructuredSurfaceUpdate(this);
+    }
+    private sealed class StructuredSurfaceUpdate(NativeEditorView owner) : IDisposable
+    {
+        private NativeEditorView? _owner = owner;
+        public void Dispose()
+        {
+            if (_owner is not { } view) return;
+            _owner = null;
+            view._structuredSurfaceUpdateDepth--;
+        }
+    }
     internal Point StructuredInputOffset { get; set; }
     internal Func<Rect>? StructuredInputBoundsProvider { get; set; }
     internal Point CurrentStructuredInputOffset => StructuredInputBoundsProvider?.Invoke().Location ?? StructuredInputOffset;
@@ -37,7 +54,7 @@ public partial class NativeEditorView
         if (Composition.IsActive && _structuredInputSurface?.TryGetTarget(out var active) == true && !ReferenceEquals(active, surface) &&
             !TryCompleteNativeComposition()) return;
         RememberStructuredInput(surface);
-        if (!_focusingStructuredSelection && StructuredSession?.Composition is null &&
+        if (!_focusingStructuredSelection && !IsUpdatingStructuredSurfaces && StructuredSession?.Composition is null &&
             StructuredSession?.Selection is not (RichCellSelection or RichBlockSelection or RichBoundarySelection))
         {
             if (StructuredSession?.Selection is not RichTextSelectionSet set || set.Primary.Id != surface.Selections.Primary.Id)

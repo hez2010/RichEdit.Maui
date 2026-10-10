@@ -140,6 +140,40 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             _editor.Undo(); Equal(set, _editor.Selection);
             Equal(false, _editor.CanUndo);
         });
+        await Test("list Enter and soft keyboard Backspace preserve native focus across item surfaces", async () =>
+        {
+            var cell = Cell(0, 0);
+            RichNodeId list = default;
+            var paragraph = _editor.Document.CurrentSnapshot.Get<RichTableCell>(cell).Blocks[0];
+            _editor.Edit(edit => list = edit.WrapInList(cell, 0, 1, numbered: true, startNumber: 3));
+            await Task.Delay(120);
+            var point = new RichTextPoint(_editor.Document.CurrentSnapshot.Body, paragraph, 1);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(point, point);
+            _editor.Focus(); await Task.Delay(40);
+            var first = _editor.NativeView.FindStructuredSurface(_editor.Selection)!;
+            var native = ((RichEditorHandler)first.Handler!).PlatformView;
+            using (var info = new Android.Views.InputMethods.EditorInfo())
+            using (var connection = native.OnCreateInputConnection(info)!)
+            using (var text = new Java.Lang.String("\n")) connection.CommitText(text, 1);
+            await Task.Delay(160);
+            Equal(2, _editor.Document.CurrentSnapshot.Get<RichList>(list).Items.Count);
+            Equal("a\na", _editor.Document.CurrentSnapshot.ProjectText(cell).Text.ToString());
+            var second = _editor.NativeView.FindStructuredSurface(_editor.Selection)!;
+            Equal(false, ReferenceEquals(first, second));
+            native = ((RichEditorHandler)second.Handler!).PlatformView;
+            Equal(true, native.IsFocused);
+            var selectionBeforeBackspace = $"{_editor.Selection}; native {native.SelectionStart}:{native.SelectionEnd}; surface {second.SelectionState}; " +
+                $"composition {_editor.Composition is not null}/{second.Composition.IsActive}; handler {native.ProjectionHandler is not null}; " +
+                string.Join("|", _editor.Document.CurrentSnapshot.Get<RichList>(list).Items.Select(id => $"{id.Value}:[{string.Join(',', _editor.Document.CurrentSnapshot.Get<RichListItem>(id).Blocks.Select(block => block.Value))}]"));
+            using (var info = new Android.Views.InputMethods.EditorInfo())
+            using (var connection = native.OnCreateInputConnection(info)!) connection.DeleteSurroundingText(1, 0);
+            await Task.Delay(160);
+            Equal(1, _editor.Document.CurrentSnapshot.Get<RichList>(list).Items.Count, $"before {selectionBeforeBackspace}; after {_editor.Selection}");
+            Equal("aa", _editor.Document.CurrentSnapshot.ProjectText(cell).Text.ToString());
+            Equal(true, ((RichEditorHandler)_editor.NativeView.FindStructuredSurface(_editor.Selection)!.Handler!).PlatformView.IsFocused);
+            _editor.Undo(); await Task.Delay(100);
+            Equal(2, _editor.Document.CurrentSnapshot.Get<RichList>(list).Items.Count);
+        });
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         File.WriteAllLines(report, results);
     }

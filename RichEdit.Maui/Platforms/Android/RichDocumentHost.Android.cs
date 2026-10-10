@@ -107,6 +107,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         var snapshot = _owner.Document.CurrentSnapshot;
         var shape = Shape(snapshot);
         if (_shape == shape) { RequestLayout(); PaintCellSelection(); return; }
+        using var selectionUpdate = _coordinator.BeginStructuredSurfaceUpdate();
         var focused = _coordinator.HasFocusedStructuredSurface;
         var used = new HashSet<RichTextViewScope>();
         _cells.Clear(); _cellBackgrounds.Clear(); _selectedCells = null; _tables.Clear();

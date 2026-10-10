@@ -42,6 +42,13 @@ public class PlatformContractTests
     [MemberData(nameof(InputRuleScenarios))]
     public Task NativeInputRuleContract(string name) => RunContract(name);
 
+    public static IEnumerable<object[]> StructuredScenarios => EditorContractTests.Cases
+        .Where(test => test.Name.StartsWith("structured", StringComparison.Ordinal)).Select(test => new object[] { test.Name });
+
+    [Theory]
+    [MemberData(nameof(StructuredScenarios))]
+    public Task NativeStructuredContract(string name) => RunContract(name);
+
     [Theory]
     [MemberData(nameof(Scenarios), DisableDiscoveryEnumeration = true)]
     public Task NativeEditorContract(string name) => RunContract(name);

@@ -59,6 +59,7 @@ public partial class NativeEditorView
 
     private bool HandleSelectionKey(EditorKey key, EditorKeyModifiers modifiers)
     {
+        if (modifiers == EditorKeyModifiers.None && key is EditorKey.Enter or EditorKey.Backspace && TryHandleStructuredListKey(key)) return true;
         if (SourceSession is not null && modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete &&
             Selections.Any(item => item.AnchorVirtualSpaces != 0 || item.ActiveVirtualSpaces != 0))
             return DeleteSourceVirtualSelections(key == EditorKey.Backspace);

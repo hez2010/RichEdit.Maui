@@ -6,6 +6,50 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured list native Enter splits items and empty Enter leaves the list", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId listId = default;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "ab");
+                listId = edit.WrapInList(edit.Body, 0, 1, numbered: true, startNumber: 4);
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(new(model.CurrentSnapshot.Body, new(2), 1), new(model.CurrentSnapshot.Body, new(2), 1));
+                NativeMultiInsert(editor, "\n");
+                await Task.Delay(40);
+                Equal(2, model.CurrentSnapshot.Get<RichList>(listId).Items.Count);
+                Equal("a\nb", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(true, editor.SendKeyDown(EditorKey.Backspace, EditorKeyModifiers.None));
+                Equal(1, model.CurrentSnapshot.Get<RichList>(listId).Items.Count);
+                Equal("ab", model.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.Undo();
+                NativeMultiInsert(editor, "\n");
+                await Task.Delay(40);
+                var snapshot = model.CurrentSnapshot;
+                var list = snapshot.Get<RichList>(listId);
+                Equal(3, list.Items.Count, $"{snapshot.ProjectText().Text}; selection {editor.StructuredSession.Selection}; " +
+                    string.Join("|", list.Items.Select(id => $"{id.Value}:[{string.Join(',', snapshot.Get<RichListItem>(id).Blocks.Select(block => block.Value))}]")));
+                var empty = snapshot.Get<RichListItem>(list.Items[1]).Blocks[0];
+                editor.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(new(snapshot.Body, empty, 0), new(snapshot.Body, empty, 0));
+                NativeMultiInsert(editor, "\n");
+                await Task.Delay(40);
+                var body = model.CurrentSnapshot.Get<RichStory>(snapshot.Body);
+                Equal(3, body.Blocks.Count);
+                Equal(empty, body.Blocks[1]);
+                Equal(6, model.CurrentSnapshot.Get<RichList>(body.Blocks[2]).StartNumber);
+                Equal("a\n\nb", model.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.Undo();
+                Equal(3, model.CurrentSnapshot.Get<RichList>(listId).Items.Count);
+                editor.Undo(); editor.Undo();
+                Equal("ab", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.Document = previous; }
+        });
 #if ANDROID || IOS || MACCATALYST
         yield return new("structured coordinated cell carets share one native composition and commit", async editor =>
         {

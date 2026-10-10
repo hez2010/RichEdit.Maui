@@ -366,6 +366,8 @@ public partial class RichEditText
 
         private bool DeleteSource(int beforeLength, int afterLength, bool codePoints)
         {
+            if (beforeLength == 1 && afterLength == 0 && owner.ProjectionHandler?.VirtualView.TryHandleStructuredListKey(EditorKey.Backspace) == true)
+                return true;
             if (Projection is not { } handler)
                 return codePoints ? base.DeleteSurroundingTextInCodePoints(beforeLength, afterLength) : base.DeleteSurroundingText(beforeLength, afterLength);
             if (beforeLength < 0 || afterLength < 0)

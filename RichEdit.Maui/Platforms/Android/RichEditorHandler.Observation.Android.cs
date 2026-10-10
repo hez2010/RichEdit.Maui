@@ -171,7 +171,12 @@ namespace RichEdit.Maui.Platforms.Android
 
             public override bool FinishComposingText() => Observe(false, () => base.FinishComposingText());
 
-            public override bool CommitText(Java.Lang.ICharSequence? text, int newCursorPosition) => Observe(false, () => base.CommitText(text, DisplayCursorPosition(newCursorPosition)));
+            public override bool CommitText(Java.Lang.ICharSequence? text, int newCursorPosition) =>
+                CommitListBreak(text, newCursorPosition) || Observe(false, () => base.CommitText(text, DisplayCursorPosition(newCursorPosition)));
+
+            private bool CommitListBreak(Java.Lang.ICharSequence? text, int newCursorPosition) =>
+                newCursorPosition == 1 && text?.ToString() is "\n" or "\r" or "\r\n" &&
+                owner.ProjectionHandler?.VirtualView.TryHandleStructuredListKey(EditorKey.Enter) == true;
 
             [SupportedOSPlatform("android33.0")]
             public override bool SetComposingText(Java.Lang.ICharSequence text, int newCursorPosition, TextAttribute? textAttribute) => Observe(
@@ -182,7 +187,7 @@ namespace RichEdit.Maui.Platforms.Android
             public override bool SetComposingRegion(int start, int end, TextAttribute? textAttribute) => Observe(true, () => base.SetComposingRegion(Display(start), Display(end), textAttribute));
 
             [SupportedOSPlatform("android33.0")]
-            public override bool CommitText(Java.Lang.ICharSequence text, int newCursorPosition, TextAttribute? textAttribute) => Observe(
+            public override bool CommitText(Java.Lang.ICharSequence text, int newCursorPosition, TextAttribute? textAttribute) => CommitListBreak(text, newCursorPosition) || Observe(
                 false,
                 () => base.CommitText(text, DisplayCursorPosition(newCursorPosition), textAttribute));
         }

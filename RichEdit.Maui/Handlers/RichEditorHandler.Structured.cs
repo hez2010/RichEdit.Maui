@@ -101,6 +101,7 @@ public partial class RichEditorHandler
 
     private bool TryUpdateStructuredSelection(TextSelectionState native)
     {
+        if (VirtualView.IsUpdatingStructuredSurfaces) return true;
         if (_structuredNativeMap is not { } map || VirtualView.StructuredSession is not { } session || VirtualView.Composition.IsActive) return false;
         if (native.Range.End > map.NativeText.Length) return false;
         if (session.Selection is RichCellSelection or RichBoundarySelection or RichBlockSelection or RichObjectSelection && _structuredSelection == native) return true;
@@ -129,6 +130,11 @@ public partial class RichEditorHandler
         var selected = (session.Composition?.Selection ?? session.Selection) is RichCellSelection or RichBlockSelection
             ? session.Composition?.Selection ?? session.Selection : map.SelectionFromNative(nativeRange);
         var replacement = text.Substring(prefix, text.Length - prefix - suffix).Replace('\r', '\n').Replace('\v', '\u2028');
+        if (VirtualView.TryHandleStructuredListReplacement(selected, replacement))
+        {
+            ((IRichEditorHandler)this).ApplyDocument(VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+            return true;
+        }
         if (selected is RichBoundarySelection or RichCellSelection or RichBlockSelection)
         {
             if (VirtualView.Composition.IsActive) return true;

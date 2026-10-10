@@ -144,6 +144,7 @@ namespace RichEdit.Maui.Platforms.Apple
         /// <inheritdoc />
         public override void InsertText(string text)
         {
+            if (text is "\n" or "\r" or "\r\n" && ProjectionHandler?.VirtualView.TryHandleStructuredListKey(EditorKey.Enter) == true) return;
             CompositionStarting?.Invoke(false);
             // Direct UITextInput insertion can omit ShouldChangeText. Retain its
             // native replacement range for the same validated incremental reader.
@@ -161,6 +162,7 @@ namespace RichEdit.Maui.Platforms.Apple
         /// <inheritdoc />
         public override void DeleteBackward()
         {
+            if (ProjectionHandler?.VirtualView.TryHandleStructuredListKey(EditorKey.Backspace) == true) return;
             if (ProjectionHandler?.VirtualView.DeleteStructuredCells() == true) return;
             ProjectionHandler?.PrepareNativeSourceKey(EditorKey.Backspace);
             base.DeleteBackward();

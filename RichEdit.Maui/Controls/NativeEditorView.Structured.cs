@@ -104,7 +104,7 @@ public partial class NativeEditorView
 
     private void SynchronizeStructuredSelection()
     {
-        if (_synchronizingStructured || StructuredSession is not { } session || session.Composition is not null) return;
+        if (_synchronizingStructured || IsUpdatingStructuredSurfaces || StructuredSession is not { } session || session.Composition is not null) return;
         if (Document.StructuredProjection is not { } projection) return;
         if (projection.Paragraphs.IsEmpty)
         {

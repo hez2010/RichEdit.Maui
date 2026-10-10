@@ -657,6 +657,11 @@ public partial class NativeEditorView : View
         snapshot = Decorations.RestoreAuthoredSnapshot(snapshot, SelectedRange);
         var selection = selectionState ?? TextSelectionState.FromRange(new TextSpan(selectionStart, selectionLength));
         selection.Range.Validate(snapshot.Text.Length, nameof(selectionLength));
+        if (origin == RichTextChangeOrigin.User && TryHandleStructuredListNativeText(snapshot))
+        {
+            (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
+            return;
+        }
         if (StructuredInputCoordinator is not null) { ForwardStructuredInput(snapshot, selection); return; }
         if (Composition.IsActive)
         {

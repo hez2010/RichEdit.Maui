@@ -46,6 +46,12 @@ public sealed partial class RichDocumentEdit
                 ReplaceText(start, 1, "");
                 break;
             case RichTextSelection range:
+                if (range.Anchor == range.Active && text is "\n" or "\r\n" or "\r" &&
+                    snapshot.Get<RichParagraph>(range.Active.Paragraph).Parent is { } listParent && snapshot.Nodes[listParent] is RichListItem)
+                {
+                    var next = SplitListItem(range.Active);
+                    return new RichTextSelection(next, next);
+                }
                 var reverse = snapshot.ComparePoints(range.Anchor, range.Active) > 0;
                 start = reverse ? range.Active : range.Anchor;
                 var end = reverse ? range.Anchor : range.Active;
