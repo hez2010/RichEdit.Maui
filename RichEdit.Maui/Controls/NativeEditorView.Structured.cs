@@ -18,6 +18,7 @@ public partial class NativeEditorView
         previous.SelectionChanged -= OnStructuredSelectionChanged;
         previous.TypingFormatChanged -= OnStructuredTypingFormatChanged;
         previous.ReadOnlyChanged -= OnStructuredReadOnlyChanged;
+        StructuredInputCoordinator?.UnregisterStructuredSurface(this);
         StructuredSession = null;
         StructuredInputCoordinator = null;
         if (_ownsStructuredSession) previous.Dispose();
@@ -75,6 +76,8 @@ public partial class NativeEditorView
             previous.ReadOnlyChanged -= OnStructuredReadOnlyChanged;
             if (previousOwned) previous.Dispose();
         }
+        previousCoordinator?.UnregisterStructuredSurface(this);
+        inputCoordinator?.RegisterStructuredSurface(this);
     }
 
     private void OnStructuredTypingFormatChanged(object? sender, EventArgs args)
@@ -103,6 +106,11 @@ public partial class NativeEditorView
     {
         if (_synchronizingStructured || StructuredSession is not { } session || session.Composition is not null) return;
         if (Document.StructuredProjection is not { } projection) return;
+        if (projection.Paragraphs.IsEmpty)
+        {
+            session.Selection = Document.StructuredScope!.StartSelection(projection);
+            return;
+        }
         var selection = new RichTextSelectionSet(projection.Snapshot, Selections.Select(item =>
             new RichTextSelectionItem(RichTextDocument.ToStructuredSelection(projection, new(item.Anchor, item.Active)))
             { Id = item.Id, PreferredVisualX = item.PreferredVisualX }), Selections.PrimaryIndex);
@@ -197,6 +205,7 @@ public partial class NativeEditorView
         else
         {
             var boundary = (RichBoundarySelection)session.Selection;
+            if (Document.StructuredScope?.BoundaryOffset(projection, boundary) is { } position) return TextSelectionSet.Caret(position);
             var snapshot = projection.Snapshot;
             var paragraphs = projection.Paragraphs.Where(paragraph => Within(paragraph.Paragraph)).ToArray();
             if (paragraphs.Length == 0) return TextSelectionSet.Caret(0);

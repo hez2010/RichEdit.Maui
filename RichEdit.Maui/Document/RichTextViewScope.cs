@@ -27,6 +27,10 @@ internal sealed record RichTextViewScope(RichNodeId Root, RichNodeId? PreviousBl
         throw new InvalidOperationException("The scope has no insertion boundary.");
     }
 
+    internal int? BoundaryOffset(RichTextProjection projection, RichBoundarySelection boundary) =>
+        boundary.Edge == RichBlockEdge.Before && boundary.Block == NextBlock ? projection.Text.Length :
+        boundary.Edge == RichBlockEdge.After && boundary.Block == PreviousBlock ? 0 : null;
+
     internal static RichTextViewScope AroundParagraph(RichDocumentSnapshot snapshot, RichNodeId paragraph)
     {
         var node = snapshot.Get<RichParagraph>(paragraph);

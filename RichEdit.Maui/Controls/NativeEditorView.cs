@@ -732,6 +732,8 @@ public partial class NativeEditorView : View
 
     internal void UpdateSelectionFromPlatform(TextSelectionState selection)
     {
+        if (HasCurrentStructuredCoordinator && !Composition.IsActive && StructuredSession!.Selection is
+            RichEdit.Core.RichCellSelection or RichEdit.Core.RichBlockSelection or RichEdit.Core.RichBoundarySelection) return;
         if (Composition.IsActive)
         {
             var provisional = selection.Clamp(InputSnapshot.Length);

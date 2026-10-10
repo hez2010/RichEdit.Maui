@@ -139,9 +139,24 @@ public partial class RichEditText
             return;
 
         var editor = handler.VirtualView;
+        if (StructuredTableCell is { } cell)
+        {
+            var selected = editor.StructuredSession?.Selection is RichEdit.Core.RichCellSelection cells && cells.Table == cell.Table &&
+                cell.Row >= cells.Row && cell.Row < cells.Row + cells.RowCount && cell.Column >= cells.Column && cell.Column < cells.Column + cells.ColumnCount;
+            if (OperatingSystem.IsAndroidVersionAtLeast(33))
+            {
+                using var builder = new AccessibilityNodeInfo.CollectionItemInfo.Builder();
+                builder.SetRowIndex(cell.Row); builder.SetRowSpan(cell.RowSpan); builder.SetColumnIndex(cell.Column); builder.SetColumnSpan(cell.ColumnSpan);
+                builder.SetHeading(false); builder.SetSelected(selected);
+                info.SetCollectionItemInfo(builder.Build());
+            }
+            else info.SetCollectionItemInfo(AccessibilityNodeInfo.CollectionItemInfo.Obtain(cell.Row, cell.RowSpan, cell.Column, cell.ColumnSpan, false, selected));
+        }
         info.TextFormatted = SourceAccessibilityText();
         info.SetTextSelection(editor.InputSelection.Anchor, editor.InputSelection.Active);
     }
+
+    internal RichNativeTableCell? StructuredTableCell { get; set; }
 
     /// <inheritdoc />
     public override void SendAccessibilityEventUnchecked(AccessibilityEvent? e)

@@ -93,7 +93,7 @@ public partial class RichEditorHandler
         if (_adornmentsConnected)
             VirtualView.TextLayout.Invalidate();
         if (!_adornmentsConnected || _adornmentLayoutQueued || VirtualView.Adornments.Count == 0 && NativeProjection.IsEmpty &&
-            VirtualView.Selections.Count < 2 && _secondarySelectionView is null)
+            VirtualView.Selections.Count < 2 && !VirtualView.DrawScopedPrimaryAsSecondary && _secondarySelectionView is null)
             return;
 
         _adornmentLayoutQueued = true;

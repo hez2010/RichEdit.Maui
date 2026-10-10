@@ -54,6 +54,7 @@ public partial class NativeEditorView
 
     internal void ObservePointer(RichTextPointerEventArgs args, bool pressed)
     {
+        if (HasCurrentStructuredCoordinator) ObserveCoordinatedPointer(args, pressed);
         if (pressed)
         {
             if (!Composition.IsActive && StructuredSession is { Selection: RichEdit.Core.RichCellSelection } session &&

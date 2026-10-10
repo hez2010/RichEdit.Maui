@@ -10,6 +10,8 @@ public partial class NativeEditorView
 
     private RichTextProjection ProjectStructuredInput(RichDocumentSnapshot snapshot) => StructuredInputScope is { } scope
         ? scope.Project(snapshot) ?? throw new InvalidOperationException("The native input scope was removed.") : snapshot.ProjectText();
+    internal RichTextProjection? ScopedInputProjection => Composition.IsActive && StructuredSession?.Composition is { } composition
+        ? ProjectStructuredInput(composition.Snapshot) : Document.StructuredProjection;
 
     internal bool TryCompleteNativeComposition()
     {
@@ -40,6 +42,14 @@ public partial class NativeEditorView
         var before = session.Composition?.Snapshot ?? session.Document.CurrentSnapshot;
         var scopedBefore = RichTextDocumentSnapshot.CreateStructuredProjection(ProjectStructuredInput(before));
         var changes = RichTextDocument.CreateDelta(scopedBefore, snapshot).ToArray();
+        if (!Composition.IsActive && !changes.Any(change => change.Kind == RichTextChangeKind.Text))
+        {
+            if (changes.Length != 0)
+                session.Edit(edit => RichTextDocument.ApplyStructuredFormatting(edit, snapshot, changes, StructuredInputScope), new(Origin: TextChangeOrigin.User));
+            // Focus and native format observations are not selection gestures.
+            // Preserve the parent's structural selection and primary caret.
+            return;
+        }
         if (!Composition.IsActive && session.Selection is RichCellSelection or RichBlockSelection or RichBoundarySelection &&
             changes.OfType<RichTextTextChange>().FirstOrDefault() is { } structural)
         {

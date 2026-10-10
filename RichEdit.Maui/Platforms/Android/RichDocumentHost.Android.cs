@@ -1,0 +1,297 @@
+using Android.Content;
+using Android.Graphics.Drawables;
+using Android.Views;
+using Android.Views.Accessibility;
+using Android.Widget;
+using Microsoft.Maui.Handlers;
+using Microsoft.Maui.Platform;
+using RichEdit.Core;
+using NativeView = Android.Views.View;
+using NativeGrid = Android.Widget.GridLayout;
+
+namespace RichEdit.Maui;
+
+internal sealed class RichDocumentHostView(RichEditor owner) : Microsoft.Maui.Controls.View
+{
+    internal RichEditor Owner { get; } = owner;
+}
+
+internal sealed class RichDocumentHostHandler : ViewHandler<RichDocumentHostView, RichDocumentHost>
+{
+    public RichDocumentHostHandler() : base(ViewMapper) { }
+    protected override RichDocumentHost CreatePlatformView() => new(Context, VirtualView.Owner, MauiContext!);
+    protected override void ConnectHandler(RichDocumentHost platformView) { base.ConnectHandler(platformView); platformView.Connect(); }
+    protected override void DisconnectHandler(RichDocumentHost platformView) { platformView.Disconnect(); base.DisconnectHandler(platformView); }
+}
+
+// Android has no RTF table editor. Keep editing and layout in native controls:
+// a scroll host, native grids, and native editable text flows over one rich session.
+internal sealed class RichDocumentHost : Android.Widget.ScrollView
+{
+    private readonly RichEditor _owner;
+    private readonly NativeEditorView _coordinator;
+    private readonly IMauiContext _context;
+    private readonly Dictionary<RichTextViewScope, NativeEditorView> _surfaces = [];
+    private readonly Dictionary<RichNodeId, Android.Widget.FrameLayout> _cells = [];
+    private readonly Dictionary<RichNodeId, GradientDrawable> _cellBackgrounds = [];
+    private HashSet<RichNodeId>? _selectedCells;
+    private readonly Dictionary<RichNodeId, RichTable> _tables = [];
+    private LinearLayout? _body;
+    private bool _connected;
+    private bool _queued;
+    private string? _shape;
+
+    internal RichDocumentHost(Context context, RichEditor owner, IMauiContext mauiContext) : base(context)
+    {
+        _owner = owner; _coordinator = owner.NativeView; _context = mauiContext;
+        FillViewport = true;
+        SetClipToPadding(true);
+    }
+
+    internal void Connect()
+    {
+        if (_connected) return;
+        _connected = true;
+        _owner.ContentChanged += OnContentChanged;
+        _owner.DocumentChanged += OnDocumentReplaced;
+        _owner.SelectionChanged += OnSelectionChanged;
+        _owner.CompositionChanged += OnCompositionChanged;
+        _coordinator.PropertyChanged += OnAppearanceChanged;
+        Rebuild();
+    }
+    internal void Disconnect()
+    {
+        if (!_connected) return;
+        _connected = false;
+        _owner.ContentChanged -= OnContentChanged;
+        _owner.DocumentChanged -= OnDocumentReplaced;
+        _owner.SelectionChanged -= OnSelectionChanged;
+        _owner.CompositionChanged -= OnCompositionChanged;
+        _coordinator.PropertyChanged -= OnAppearanceChanged;
+        foreach (var surface in _surfaces.Values) Release(surface);
+        _surfaces.Clear(); _cells.Clear(); _cellBackgrounds.Clear(); _selectedCells = null; _tables.Clear();
+        RemoveAllViews(); _body = null; _shape = null;
+    }
+    private void OnContentChanged(object? sender, RichDocumentChangedEventArgs args) => QueueRebuild();
+    private void OnDocumentReplaced(object? sender, RichDocumentReplacedEventArgs args) { _shape = null; QueueRebuild(); }
+    private void OnSelectionChanged(object? sender, EventArgs args) { PaintCellSelection(); }
+    private void OnCompositionChanged(object? sender, EventArgs args) { if (_owner.Composition is null) QueueRebuild(); }
+    private void OnAppearanceChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is not (nameof(NativeEditorView.FontFamily) or nameof(NativeEditorView.FontSize) or nameof(NativeEditorView.TextColor) or
+            nameof(NativeEditorView.IsReadOnly) or nameof(NativeEditorView.IsSpellCheckEnabled) or nameof(NativeEditorView.IsTextPredictionEnabled) or
+            nameof(NativeEditorView.Keyboard) or nameof(NativeEditorView.AcceptsTab) or nameof(NativeEditorView.MaxLength))) return;
+        foreach (var surface in _surfaces.Values) CopyAppearance(surface);
+        PaintCellSelection();
+    }
+    private void QueueRebuild()
+    {
+        if (!_connected || _queued) return;
+        _queued = true;
+        Post(() => { _queued = false; if (_connected && _owner.Composition is null) Rebuild(); });
+    }
+    private string Shape(RichDocumentSnapshot snapshot) => string.Join(";", snapshot.Nodes.Values.Where(node => node is not (RichParagraph or RichInline))
+        .OrderBy(node => node.Id.Value).Select(node => node switch
+        {
+            RichTable table => $"T{table.Id.Value}:{table.Parent}:{string.Join(',', table.Columns.Select(width => width.Twips))}:{string.Join(',', table.Rows)}",
+            RichTableCell cell => $"C{cell.Id.Value}:{cell.Parent}:{cell.Column}:{cell.ColumnSpan}:{cell.RowSpan}:{string.Join(',', cell.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
+            RichStory story => $"S{story.Id.Value}:{string.Join(',', story.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
+            RichList list => $"L{list.Id.Value}:{list.Parent}:{list.Numbered}:{list.StartNumber}:{string.Join(',', list.Items)}",
+            RichListItem item => $"I{item.Id.Value}:{item.Parent}:{string.Join(',', item.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
+            _ => $"{node.Id}:{node.Parent}",
+        }));
+
+    private void Rebuild()
+    {
+        if (_owner.Composition is not null) return;
+        var snapshot = _owner.Document.CurrentSnapshot;
+        var shape = Shape(snapshot);
+        if (_shape == shape) { RequestLayout(); PaintCellSelection(); return; }
+        var focused = _coordinator.HasFocusedStructuredSurface;
+        var used = new HashSet<RichTextViewScope>();
+        _cells.Clear(); _cellBackgrounds.Clear(); _selectedCells = null; _tables.Clear();
+        var body = Container(snapshot.Body, used);
+        RemoveAllViews();
+        AddView(body, new Android.Widget.ScrollView.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
+        _body = body; _shape = shape;
+        foreach (var pair in _surfaces.Where(pair => !used.Contains(pair.Key)).ToArray()) { Release(pair.Value); _surfaces.Remove(pair.Key); }
+        PaintCellSelection();
+        if (focused) Post(() => { if (_connected) _coordinator.FocusStructuredSelection(); });
+
+        LinearLayout Container(RichNodeId parent, HashSet<RichTextViewScope> scopes)
+        {
+            var stack = new LinearLayout(Context) { Orientation = Orientation.Vertical };
+            var blocks = RichDocumentSnapshot.Children(snapshot.Get<RichNode>(parent)).ToArray();
+            RichNodeId? previous = null;
+            foreach (var block in blocks.Where(id => snapshot.Get<RichNode>(id) is RichTable or RichList))
+            {
+                AddFlow(stack, new(parent, previous, block), scopes);
+                if (snapshot.Get<RichNode>(block) is RichTable table) stack.AddView(Table(table, scopes));
+                else
+                {
+                    var list = snapshot.Get<RichList>(block);
+                    for (var index = 0; index < list.Items.Count; index++)
+                    {
+                        var row = new LinearLayout(Context) { Orientation = Orientation.Horizontal };
+                        var marker = new TextView(Context) { Text = list.Numbered ? $"{list.StartNumber + index}." : "•", Gravity = GravityFlags.Top | GravityFlags.End };
+                        marker.SetTextSize(Android.Util.ComplexUnitType.Sp, (float)(_owner.FontSize ?? 14));
+                        marker.SetPadding(0, Pixels(4), Pixels(4), 0);
+                        row.AddView(marker, new LinearLayout.LayoutParams(Pixels(28), LayoutParams.WrapContent));
+                        row.AddView(Container(list.Items[index], scopes), new LinearLayout.LayoutParams(0, LayoutParams.WrapContent, 1));
+                        stack.AddView(row);
+                    }
+                }
+                previous = block;
+            }
+            AddFlow(stack, new(parent, previous, null), scopes);
+            return stack;
+        }
+        NativeView Table(RichTable table, HashSet<RichTextViewScope> scopes)
+        {
+            _tables.Add(table.Id, table);
+            var grid = new RichNativeTableGrid(Context!) { ColumnCount = table.Columns.Length, RowCount = table.Rows.Count, UseDefaultMargins = false };
+            for (var row = 0; row < table.Rows.Count; row++)
+                foreach (var cellId in snapshot.Get<RichTableRow>(table.Rows[row]).Cells)
+                {
+                    var cell = snapshot.Get<RichTableCell>(cellId);
+                    var frame = new Android.Widget.FrameLayout(Context!);
+                    var background = new GradientDrawable();
+                    background.SetStroke(Math.Max(1, Pixels(0.5)), Android.Graphics.Color.Gray);
+                    frame.Background = background;
+                    _cellBackgrounds.Add(cell.Id, background);
+                    frame.AddView(Container(cell.Id, scopes), new Android.Widget.FrameLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
+                    var parameters = new NativeGrid.LayoutParams(NativeGrid.InvokeSpec(row, cell.RowSpan, NativeGrid.Fill),
+                        NativeGrid.InvokeSpec(cell.Column, cell.ColumnSpan, NativeGrid.Fill))
+                    { Width = Pixels(table.Columns.Skip(cell.Column).Take(cell.ColumnSpan).Sum(width => width.Points)), Height = LayoutParams.WrapContent };
+                    grid.AddView(frame, parameters);
+                    _cells.Add(cell.Id, frame);
+                }
+            var horizontal = new HorizontalScrollView(Context) { HorizontalScrollBarEnabled = true };
+            horizontal.AddView(grid, new HorizontalScrollView.LayoutParams(LayoutParams.WrapContent, LayoutParams.WrapContent));
+            return horizontal;
+        }
+    }
+
+    private void AddFlow(LinearLayout parent, RichTextViewScope scope, HashSet<RichTextViewScope> used)
+    {
+        used.Add(scope);
+        if (_surfaces.TryGetValue(scope, out var previous) && !ReferenceEquals(previous.StructuredSession, _coordinator.StructuredSession))
+        { Release(previous); _surfaces.Remove(scope); }
+        if (!_surfaces.TryGetValue(scope, out var surface))
+        {
+            surface = new NativeEditorView { AutoSize = EditorAutoSizeOption.TextChanges };
+            CopyAppearance(surface);
+            surface.BindStructuredScope(_owner.Document, scope, _coordinator);
+            _surfaces.Add(scope, surface);
+            surface.StructuredInputBoundsProvider = () => SurfaceBounds(surface);
+        }
+        var native = surface.ToPlatform(_context);
+        (native.Parent as ViewGroup)?.RemoveView(native);
+        if (surface.Handler is RichEditorHandler handler)
+        {
+            handler.PlatformView.Background = null;
+            handler.PlatformView.SetMinHeight(0);
+            handler.PlatformView.SetPadding(Pixels(4), Pixels(4), Pixels(4), Pixels(4));
+            handler.PlatformView.StructuredTableCell = TableCellContext(scope.Root);
+        }
+        parent.AddView(native, new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
+    }
+    private void CopyAppearance(NativeEditorView surface)
+    {
+        surface.FontFamily = _coordinator.FontFamily; surface.FontSize = _coordinator.FontSize;
+        surface.TextColor = _coordinator.TextColor; surface.IsReadOnly = _coordinator.IsReadOnly;
+        surface.IsSpellCheckEnabled = _coordinator.IsSpellCheckEnabled;
+        surface.IsTextPredictionEnabled = _coordinator.IsTextPredictionEnabled;
+        surface.Keyboard = _coordinator.Keyboard; surface.AcceptsTab = _coordinator.AcceptsTab;
+        surface.MaxLength = _coordinator.MaxLength;
+    }
+    private RichNativeTableCell? TableCellContext(RichNodeId root)
+    {
+        var snapshot = _owner.Document.CurrentSnapshot;
+        for (var node = snapshot.Get<RichNode>(root); ; node = snapshot.Get<RichNode>(node.Parent!.Value))
+        {
+            if (node is RichTableCell cell)
+            {
+                var row = snapshot.Get<RichTableRow>(cell.Parent!.Value);
+                var table = snapshot.Get<RichTable>(row.Parent!.Value);
+                return new(table.Id, cell.Id, table.Rows.IndexOf(row.Id), cell.RowSpan, cell.Column, cell.ColumnSpan);
+            }
+            if (node.Parent is null) return null;
+        }
+    }
+    private void Release(NativeEditorView surface)
+    {
+        surface.StructuredInputBoundsProvider = null;
+        surface.Handler = null;
+        surface.Document = new RichTextDocument();
+    }
+    private void PaintCellSelection()
+    {
+        var selected = new HashSet<RichNodeId>();
+        if (_owner.Selection is RichCellSelection selection && _tables.ContainsKey(selection.Table))
+        {
+            var grid = _owner.Document.CurrentSnapshot.GetTableGrid(selection.Table);
+            for (var row = selection.Row; row < selection.Row + selection.RowCount; row++)
+                for (var column = selection.Column; column < selection.Column + selection.ColumnCount; column++) selected.Add(grid[row, column]);
+        }
+        if (_selectedCells?.SetEquals(selected) == true) return;
+        _selectedCells = selected;
+        foreach (var pair in _cellBackgrounds)
+        {
+            pair.Value.SetColor(selected.Contains(pair.Key) ? Android.Graphics.Color.Argb(70, 40, 120, 220) : Android.Graphics.Color.Transparent);
+        }
+    }
+    private int Pixels(double value) => checked((int)Math.Ceiling(value * (Resources?.DisplayMetrics?.Density ?? 1)));
+    private Rect SurfaceBounds(NativeEditorView surface)
+    {
+        if (surface.Handler?.PlatformView is not NativeView native) return Rect.Zero;
+        var origin = new int[2]; var location = new int[2];
+        GetLocationOnScreen(origin); native.GetLocationOnScreen(location);
+        var density = Resources?.DisplayMetrics?.Density ?? 1;
+        return new((location[0] - origin[0]) / density, (location[1] - origin[1]) / density, native.Width / density, native.Height / density);
+    }
+    protected override void OnScrollChanged(int left, int top, int oldLeft, int oldTop)
+    {
+        base.OnScrollChanged(left, top, oldLeft, oldTop);
+        _coordinator.TextLayout.Invalidate();
+    }
+    protected override void OnLayout(bool changed, int left, int top, int right, int bottom)
+    {
+        base.OnLayout(changed, left, top, right, bottom);
+        if (changed) _coordinator.TextLayout.Invalidate();
+        var origin = new int[2]; GetLocationOnScreen(origin);
+        foreach (var surface in _surfaces.Values)
+            if (surface.Handler?.PlatformView is NativeView native)
+            {
+                var location = new int[2]; native.GetLocationOnScreen(location);
+                var density = Resources?.DisplayMetrics?.Density ?? 1;
+                surface.StructuredInputOffset = new((location[0] - origin[0]) / density, (location[1] - origin[1]) / density);
+            }
+    }
+}
+
+internal sealed record RichNativeTableCell(RichNodeId Table, RichNodeId Cell, int Row, int RowSpan, int Column, int ColumnSpan);
+
+internal sealed class RichNativeTableGrid(Context context) : NativeGrid(context)
+{
+    public override void OnInitializeAccessibilityNodeInfo(AccessibilityNodeInfo? info)
+    {
+        base.OnInitializeAccessibilityNodeInfo(info);
+        if (info is null) return;
+        if (OperatingSystem.IsAndroidVersionAtLeast(35))
+        {
+            using var builder = new AccessibilityNodeInfo.CollectionInfo.Builder();
+            builder.SetRowCount(RowCount); builder.SetColumnCount(ColumnCount); builder.SetHierarchical(false);
+            builder.SetSelectionMode((int)Android.Views.Accessibility.SelectionMode.Multiple);
+            info.SetCollectionInfo(builder.Build());
+        }
+        else
+        {
+            // CollectionInfo.Builder is available from API 35. The public obtain
+            // factory is required on earlier supported Android releases.
+#pragma warning disable CA1422
+            info.SetCollectionInfo(AccessibilityNodeInfo.CollectionInfo.Obtain(RowCount, ColumnCount, false, Android.Views.Accessibility.SelectionMode.Multiple));
+#pragma warning restore CA1422
+        }
+    }
+}

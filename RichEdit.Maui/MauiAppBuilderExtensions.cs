@@ -15,6 +15,9 @@ public static class MauiAppBuilderExtensions
         builder.ConfigureMauiHandlers(handlers =>
         {
             handlers.AddHandler<NativeEditorView, RichEditorHandler>();
+#if ANDROID
+            handlers.AddHandler<RichDocumentHostView, RichDocumentHostHandler>();
+#endif
         });
         return builder;
     }

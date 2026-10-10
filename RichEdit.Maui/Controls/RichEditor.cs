@@ -148,9 +148,9 @@ public sealed partial class RichEditor : ContentView
     /// <summary>Adds a caret on the following native visual line.</summary>
     public bool AddCaretBelow() => _view.AddCaretBelow();
     /// <summary>Focuses the native editor.</summary>
-    public new bool Focus() => _view.Focus();
+    public new bool Focus() => _view.FocusStructuredSelection() || _view.Focus();
     /// <summary>Removes focus from the native editor.</summary>
-    public new void Unfocus() => _view.Unfocus();
+    public new void Unfocus() { _view.UnfocusStructuredSurface(); _view.Unfocus(); }
 
     private void BindDocument(RichDocument document)
     {
@@ -162,6 +162,7 @@ public sealed partial class RichEditor : ContentView
         OnPropertyChanged(nameof(Session));
         OnSelectionChanged(this, EventArgs.Empty);
         OnStateChanged();
+        UpdateStructureHost(immediate: true);
     }
     private void Subscribe(RichEditorSession session)
     {
@@ -188,7 +189,7 @@ public sealed partial class RichEditor : ContentView
         session.Document.StateChanged -= _stateObserver;
         _stateObserver = null;
     }
-    private void OnDocumentChanged(object? sender, RichDocumentChangedEventArgs args) { OnStateChanged(); ContentChanged?.Invoke(this, args); }
+    private void OnDocumentChanged(object? sender, RichDocumentChangedEventArgs args) { OnStateChanged(); ContentChanged?.Invoke(this, args); UpdateStructureHost(immediate: false); }
     private void OnSelectionChanged(object? sender, EventArgs args)
     {
         _synchronizingSelection = true;
@@ -205,4 +206,5 @@ public sealed partial class RichEditor : ContentView
         if (args.PropertyName is nameof(NativeEditorView.CanUndo) or nameof(NativeEditorView.CanRedo)) OnStateChanged();
     }
     private void OnStateChanged() { OnPropertyChanged(nameof(CanUndo)); OnPropertyChanged(nameof(CanRedo)); OnPropertyChanged(nameof(IsModified)); }
+    partial void UpdateStructureHost(bool immediate);
 }

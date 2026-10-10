@@ -13,6 +13,7 @@ public partial class NativeEditorView
 
     internal bool SendKeyDown(EditorKey key, EditorKeyModifiers modifiers)
     {
+        if (HasCurrentStructuredCoordinator) return StructuredInputCoordinator!.SendKeyDown(key, modifiers);
         if (key == EditorKey.None)
             return false;
 
@@ -29,6 +30,7 @@ public partial class NativeEditorView
 
     internal EditorContextMenuEventArgs CreateContextMenu()
     {
+        if (HasCurrentStructuredCoordinator) return StructuredInputCoordinator!.CreateContextMenu();
         var args = new EditorContextMenuEventArgs(FlyoutBase.GetContextFlyout(this) as MenuFlyout);
         ContextMenuOpening?.Invoke(this, args);
         EditorMenu.Validate(args.Items);

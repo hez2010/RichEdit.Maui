@@ -11,6 +11,7 @@ public partial class NativeEditorView
         VerifyAccess();
         if (direction is not (EditorKey.Left or EditorKey.Right or EditorKey.Up or EditorKey.Down or EditorKey.Home or EditorKey.End))
             throw new ArgumentOutOfRangeException(nameof(direction));
+        if (StructuredSession is not null && _structuredSurfaces.Count != 0) return MoveStructuredSelections(direction, extend);
         if (Composition.IsActive || Handler is not RichEditorHandler handler || !handler.HasTextLayout)
             return false;
         var moved = new List<TextSelection>();
@@ -56,6 +57,17 @@ public partial class NativeEditorView
     private bool HandleSelectionKey(EditorKey key, EditorKeyModifiers modifiers)
     {
         if (modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete && DeleteStructuredCells()) return true;
+        if (modifiers == EditorKeyModifiers.None && key is EditorKey.Left or EditorKey.Right or EditorKey.Up or EditorKey.Down or EditorKey.Home or EditorKey.End &&
+            StructuredSession?.Selection is RichEdit.Core.RichCellSelection or RichEdit.Core.RichBlockSelection)
+        {
+            var ranges = StructuredSession.Document.CurrentSnapshot.GetSelectedText(StructuredSession.Selection);
+            var backward = key is EditorKey.Left or EditorKey.Up or EditorKey.Home;
+            var selected = backward ? ranges[0] : ranges[^1];
+            var point = selected.Start with { Offset = selected.Start.Offset + (backward ? 0 : selected.Length) };
+            StructuredSession.Selection = new RichEdit.Core.RichTextSelection(point, point);
+            FocusStructuredSelection();
+            return true;
+        }
         if (modifiers == (EditorKeyModifiers.Control | EditorKeyModifiers.Alt) && key is EditorKey.Up or EditorKey.Down)
             return key == EditorKey.Up ? AddCaretAbove() : AddCaretBelow();
         if (Selections.Count < 2)

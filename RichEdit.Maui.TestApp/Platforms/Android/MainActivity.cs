@@ -13,6 +13,11 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnPostResume()
     {
         base.OnPostResume();
+        if (!_testsStarted && Intent?.GetBooleanExtra("run-rich-host-tests", false) == true)
+        {
+            _testsStarted = true;
+            Microsoft.Maui.Controls.Application.Current!.Windows[0].Page = new Tests.RichStructuredHostTestPage();
+        }
         if (!_testsStarted && Intent?.GetStringExtra("rtf-clipboard-action") is { } action)
         {
             _testsStarted = true;

@@ -6,10 +6,11 @@ public partial class RichEditorHandler
     private SecondarySelectionDrawable? _secondarySelectionDrawable;
 
     internal IReadOnlyList<Rect> SecondaryCaretBounds => _secondarySelectionDrawable?.Carets ?? [];
+    internal void RefreshSelectionPresentation() => QueueAdornmentLayout();
 
     private void UpdateSecondarySelections(Rect viewport)
     {
-        if (VirtualView.Selections.Count < 2)
+        if (VirtualView.Selections.Count < 2 && !VirtualView.DrawScopedPrimaryAsSecondary)
         {
             VirtualView.Adornments.Overlay.SetSelectionOverlay(null);
             _secondarySelectionView?.Handler?.DisconnectHandler();
@@ -35,7 +36,7 @@ public partial class RichEditorHandler
         if (captured is { } layout)
             foreach (var selection in VirtualView.Selections)
             {
-                if (selection.Id == VirtualView.Selections.Primary.Id)
+                if (selection.Id == VirtualView.Selections.Primary.Id && !VirtualView.DrawScopedPrimaryAsSecondary)
                     continue;
                 if (!selection.Range.IsEmpty)
                     ranges.AddRange(VirtualView.TextLayout.GetRangeBounds(layout, new(selection.Range.Start, selection.Range.Length)));
@@ -52,7 +53,8 @@ public partial class RichEditorHandler
         _secondarySelectionDrawable.Clip = captured?.TextViewport ?? viewport;
         _secondarySelectionDrawable.CaretColor = colors.Caret;
         _secondarySelectionDrawable.SelectionColor = colors.Selection;
-        _secondarySelectionDrawable.DrawCarets = VirtualView.IsFocused && !VirtualView.IsReadOnly && !VirtualView.Composition.IsActive;
+        _secondarySelectionDrawable.DrawCarets = (VirtualView.IsFocused || VirtualView.StructuredInputCoordinator?.HasFocusedStructuredSurface == true) &&
+            !VirtualView.IsReadOnly && !VirtualView.Composition.IsActive && VirtualView.StructuredSession?.Composition is null;
         _secondarySelectionView.Invalidate();
     }
 
