@@ -505,7 +505,11 @@ public partial class NativeEditorView : View
     }
 
     /// <summary>Selects the complete logical document.</summary>
-    public void SelectAll() => SelectedRange = new TextSpan(0, Document.Length);
+    public void SelectAll()
+    {
+        if (StructuredSession is { } session) session.SelectAll();
+        else SelectedRange = new TextSpan(0, Document.Length);
+    }
 
     /// <summary>Brings a document range into view without changing the selection.</summary>
     /// <param name="range">The bounded UTF-16 range to reveal.</param>

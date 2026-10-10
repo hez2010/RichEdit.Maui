@@ -110,6 +110,8 @@ internal sealed class StructuredRichNativeMap
         var anchor = ToRich(selection.Anchor);
         var active = ToRich(selection.Active);
         var body = Snapshot.Get<RichStory>(Snapshot.Body);
+        if (!selection.Range.IsEmpty && selection.Range.Start == 0 && selection.Range.End >= NativeText.Length - 1)
+            return new RichBlockSelection(body.Id, body.Blocks[0], body.Blocks[^1]);
         if (selection.Range.IsEmpty && active is null)
         {
             if (selection.Active >= _ordered[^1].End && Snapshot.Get<RichBlock>(body.Blocks[^1]) is RichTable)

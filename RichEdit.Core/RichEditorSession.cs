@@ -126,6 +126,13 @@ public sealed partial class RichEditorSession : IDisposable
     /// <summary>Pastes a rich fragment at the current typed selection or every text caret in one transaction.</summary>
     public RichEditResult ReplaceSelection(RichDocumentFragment fragment, RichEditOptions options = default) =>
         Edit(edit => edit.SetSelection(edit.ReplaceSelection(Selection, fragment)), options);
+    /// <summary>Selects every authored body block, including complete tables and lists.</summary>
+    public void SelectAll()
+    {
+        VerifyIdle();
+        var body = Document.CurrentSnapshot.Get<RichStory>(Document.CurrentSnapshot.Body);
+        Selection = new RichBlockSelection(body.Id, body.Blocks[0], body.Blocks[^1]);
+    }
     /// <summary>Undoes one global document unit and restores its recorded selection in this invoking view.</summary>
     public void Undo() { VerifyIdle(); if (!IsReadOnly) Document.RestoreHistory(false, this); }
     /// <summary>Redoes one global document unit and restores its recorded selection in this invoking view.</summary>

@@ -19,6 +19,16 @@ public sealed partial class RichDocumentEdit
         {
             case RichTextSelectionSet set:
                 return ReplaceSelections(set, Enumerable.Repeat(text, set.Count).ToArray(), typingFormat);
+            case RichBlockSelection blocks:
+                var selectedBlocks = snapshot.GetSelectedBlocks(blocks);
+                var firstParagraph = snapshot.Get<RichParagraph>(snapshot.EnumerateParagraphs(selectedBlocks[0]).First());
+                seed = firstParagraph.Inlines.Count == 0 ? null : snapshot.Get<RichInline>(firstParagraph.Inlines[0]);
+                var inserted = InsertParagraph(blocks.Parent, Blocks(Get<RichNode>(blocks.Parent)).IndexOf(selectedBlocks[0]));
+                _nodes[inserted] = Get<RichParagraph>(inserted) with
+                { Style = firstParagraph.Style, Format = firstParagraph.Format, Character = firstParagraph.Character };
+                foreach (var block in selectedBlocks) DeleteBlock(block);
+                start = new(_body, inserted, 0);
+                break;
             case RichBoundarySelection boundary:
                 start = new(boundary.Story, InsertParagraph(boundary), 0);
                 break;

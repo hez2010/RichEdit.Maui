@@ -7,6 +7,19 @@ public readonly record struct RichSelectedText(RichTextPoint Start, int Length, 
 
 public sealed partial class RichDocumentSnapshot
 {
+    /// <summary>Gets complete selected blocks in document order, validating that both endpoints share a text container.</summary>
+    public ImmutableArray<RichNodeId> GetSelectedBlocks(RichBlockSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        var parent = Get<RichNode>(selection.Parent);
+        if (parent is not (RichStory or RichTableCell or RichListItem)) throw new ArgumentException("Block selections require a text container.", nameof(selection));
+        var children = Children(parent).ToImmutableArray();
+        var first = children.IndexOf(selection.First);
+        var last = children.IndexOf(selection.Last);
+        if (first < 0 || last < 0) throw new ArgumentException("Selected blocks must belong to the same parent.", nameof(selection));
+        return children.Slice(Math.Min(first, last), Math.Abs(last - first) + 1);
+    }
+
     /// <summary>Enumerates selected paragraph-local ranges without flattening tables, lists, or object addresses.</summary>
     /// <remarks>Cell rectangles include only their cells, including nested content. A boundary has no text ranges.</remarks>
     public ImmutableArray<RichSelectedText> GetSelectedText(RichSelection selection)
@@ -20,6 +33,11 @@ public sealed partial class RichDocumentSnapshot
         {
             switch (value)
             {
+                case RichBlockSelection blocks:
+                    foreach (var block in GetSelectedBlocks(blocks))
+                        foreach (var paragraph in EnumerateParagraphs(block))
+                            result.Add(new(new(Body, paragraph, 0), GetParagraphLength(paragraph), true));
+                    break;
                 case RichTextSelectionSet set:
                     foreach (var item in set) Add(item.Selection);
                     break;

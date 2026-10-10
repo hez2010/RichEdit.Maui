@@ -78,6 +78,13 @@ public sealed class StructuredBindingTests
             handler.PlatformView.Document.GetText(TextGetOptions.FormatRtf, out var selectedRtf);
             Assert.Contains(@"\clcbpat", selectedRtf);
             Assert.Contains(@"\cellx1440", selectedRtf);
+            var selectedSnapshot = document.CurrentSnapshot;
+            var caretBounds = handler.GetTextCaretBounds(view.SelectedRange.Start, RichTextCaretAffinity.Downstream)!.Value;
+            view.ObservePointer(new(new(caretBounds.Left + 1, caretBounds.Center.Y), RichTextPointerDeviceKind.Mouse,
+                RichTextPointerButtons.Primary, EditorKeyModifiers.None), true);
+            Assert.IsType<RichEdit.Core.RichTextSelection>(view.StructuredSession.Selection);
+            Assert.Same(selectedSnapshot, document.CurrentSnapshot);
+            view.StructuredSession.Selection = new RichCellSelection(table, 0, 0, 1, 2);
             using var authored = new MemoryStream();
             await RichEdit.Core.Rtf.RtfCodec.WriteAsync(document.CurrentSnapshot, authored);
             Assert.DoesNotContain(@"\clcbpat", System.Text.Encoding.ASCII.GetString(authored.ToArray()));
@@ -135,6 +142,15 @@ public sealed class StructuredBindingTests
                 Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
             }
             finally { composing.SetValue(handler, false); view.DiscardComposition(); }
+            view.SelectAll();
+            Assert.IsType<RichBlockSelection>(view.StructuredSession.Selection);
+            handler.PlatformView.Document.Selection.TypeText("replaced");
+            await Task.Delay(30);
+            Assert.Equal("replaced", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Empty(document.CurrentSnapshot.Nodes.Values.OfType<RichTable>());
+            view.Undo();
+            Assert.IsType<RichBlockSelection>(view.StructuredSession.Selection);
+            Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
         }
         finally { window.Content = null; view.Handler = null; ((IElementHandler)handler).DisconnectHandler(); }
     });

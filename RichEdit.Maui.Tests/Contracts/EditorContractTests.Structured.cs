@@ -41,6 +41,13 @@ internal static partial class EditorContractTests
                 Equal("\t\n\t", source.CurrentSnapshot.ProjectText().Text.ToString());
                 editor.Undo();
                 Equal(cells, editor.StructuredSession.Selection);
+                editor.SelectAll();
+                Equal(true, editor.StructuredSession.Selection is RichBlockSelection);
+                await editor.CutAsync();
+                Equal(0, source.CurrentSnapshot.Nodes.Values.OfType<RichTable>().Count());
+                Equal("", source.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.Undo();
+                Equal(true, editor.StructuredSession.Selection is RichBlockSelection);
             }
             finally { editor.Document = previous; }
         });

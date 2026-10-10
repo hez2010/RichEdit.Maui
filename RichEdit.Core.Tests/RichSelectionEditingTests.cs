@@ -5,6 +5,33 @@ namespace RichEdit.Core.Tests;
 public sealed class RichSelectionEditingTests
 {
     [Fact]
+    public void SelectingAllBlocksRemovesTablesWhileSelectingCellsRetainsTheirGrid()
+    {
+        RichNodeId table = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            table = edit.InsertTable(edit.Body, 1, 2, [new(1000), new(1000)]);
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "before");
+            edit.InsertParagraph(edit.Body, 2, "after");
+        }));
+        using var session = document.CreateSession();
+        session.Selection = new RichCellSelection(table, 0, 0, 2, 2);
+        session.ReplaceSelection("");
+        Assert.Equal(2, document.CurrentSnapshot.GetTableGrid(table).Rows);
+        session.SelectAll();
+        var selection = Assert.IsType<RichBlockSelection>(session.Selection);
+        var copied = RichDocumentFragment.FromSelection(document.CurrentSnapshot, selection);
+        Assert.Equal(3, copied.Content.Get<RichStory>(copied.Content.Body).Blocks.Count);
+        Assert.Single(copied.Content.Nodes.Values.OfType<RichTable>());
+        session.ReplaceSelection("replacement");
+        Assert.Equal("replacement", document.CurrentSnapshot.ProjectText().Text.ToString());
+        Assert.Empty(document.CurrentSnapshot.Nodes.Values.OfType<RichTable>());
+        session.Undo();
+        Assert.Equal(selection, session.Selection);
+        Assert.Single(document.CurrentSnapshot.Nodes.Values.OfType<RichTable>());
+    }
+
+    [Fact]
     public void IdenticalTextReplacementOnlyCollapsesTheViewSelection()
     {
         var document = RichDocument.FromPlainText("abc");

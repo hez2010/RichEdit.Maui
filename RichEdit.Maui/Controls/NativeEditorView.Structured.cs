@@ -90,7 +90,7 @@ public partial class NativeEditorView
 
     internal bool DeleteStructuredCells()
     {
-        if (StructuredSession?.Selection is not RichCellSelection || Composition.IsActive) return false;
+        if (StructuredSession?.Selection is not (RichCellSelection or RichBlockSelection) || Composition.IsActive) return false;
         ReplaceStructuredSelections("");
         return true;
     }
@@ -107,6 +107,13 @@ public partial class NativeEditorView
             return new((TextSelection[])[new(projection.GetOffset(text.Anchor), projection.GetOffset(text.Active)) { Id = _structuredPrimaryId }]);
         if (session.Selection is RichObjectSelection selected)
             range = new(projection.Objects.Single(item => item.Object == selected.Object).Position, 1);
+        else if (session.Selection is RichBlockSelection blocks)
+        {
+            var selectedText = projection.Snapshot.GetSelectedText(blocks);
+            var first = projection.GetOffset(selectedText[0].Start);
+            var last = selectedText[^1];
+            range = new(first, projection.GetOffset(last.Start) + last.Length - first);
+        }
         else if (session.Selection is RichCellSelection cells)
         {
             var snapshot = projection.Snapshot;

@@ -150,7 +150,7 @@ public partial class NativeEditorView
     internal bool PrepareStructuredComposition()
     {
         if (_structuredCompositionPrepared || StructuredSession?.Composition is not { } composition ||
-            composition.Selection is not (RichEdit.Core.RichCellSelection or RichEdit.Core.RichBoundarySelection)) return false;
+            composition.Selection is not (RichEdit.Core.RichCellSelection or RichEdit.Core.RichBoundarySelection or RichEdit.Core.RichBlockSelection)) return false;
         composition.Update(edit => edit.SetSelection(edit.ReplaceSelection(composition.Selection, "", StructuredSession.TypingCharacterFormat)));
         var projection = composition.Snapshot.ProjectText();
         var selected = (RichEdit.Core.RichTextSelection)composition.Selection;

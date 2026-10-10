@@ -90,7 +90,7 @@ public partial class RichEditorHandler
     {
         if (_structuredNativeMap is not { } map || VirtualView.StructuredSession is not { } session || VirtualView.Composition.IsActive) return false;
         if (native.Range.End > map.NativeText.Length) return false;
-        if (session.Selection is RichCellSelection or RichBoundarySelection && _structuredSelection == native) return true;
+        if (session.Selection is RichCellSelection or RichBoundarySelection or RichBlockSelection && _structuredSelection == native) return true;
         var selection = map.SelectionFromNative(native);
         // Preserve stable multi-caret identities when the primary text range is
         // unchanged. A native structural selection deliberately replaces the set.
@@ -113,9 +113,10 @@ public partial class RichEditorHandler
         var suffix = 0;
         while (suffix < Math.Min(map.NativeText.Length, text.Length) - prefix && map.NativeText[^(suffix + 1)] == text[^(suffix + 1)]) suffix++;
         var nativeRange = new TextSelectionState(prefix, map.NativeText.Length - suffix);
-        var selected = (session.Composition?.Selection ?? session.Selection) is RichCellSelection cells ? cells : map.SelectionFromNative(nativeRange);
+        var selected = (session.Composition?.Selection ?? session.Selection) is RichCellSelection or RichBlockSelection
+            ? session.Composition?.Selection ?? session.Selection : map.SelectionFromNative(nativeRange);
         var replacement = text.Substring(prefix, text.Length - prefix - suffix).Replace('\r', '\n').Replace('\v', '\u2028');
-        if (selected is RichBoundarySelection or RichCellSelection)
+        if (selected is RichBoundarySelection or RichCellSelection or RichBlockSelection)
         {
             if (VirtualView.Composition.IsActive) return true;
             var result = session.Edit(edit => edit.SetSelection(edit.ReplaceSelection(selected, replacement, session.TypingCharacterFormat)),

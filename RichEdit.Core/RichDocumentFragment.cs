@@ -24,6 +24,14 @@ public sealed class RichDocumentFragment
         var body = snapshot.Body;
         switch (selection)
         {
+            case RichBlockSelection selectedBlocks:
+                foreach (var block in snapshot.GetSelectedBlocks(selectedBlocks))
+                {
+                    Copy(block);
+                    nodes[block] = nodes[block] with { Parent = body };
+                    blocks.Add(block);
+                }
+                break;
             case RichTextSelection text:
                 var reverse = snapshot.ComparePoints(text.Anchor, text.Active) > 0;
                 var start = reverse ? text.Active : text.Anchor;

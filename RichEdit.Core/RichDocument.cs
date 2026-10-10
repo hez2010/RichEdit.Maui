@@ -219,6 +219,9 @@ public sealed partial class RichDocument
             return new RichTextSelectionSet(after, set.Select(item => item with
             { Selection = (RichTextSelection)MapSelection(item.Selection, map, after) }), set.PrimaryIndex);
         if (selection is RichObjectSelection selected && after.Nodes.GetValueOrDefault(selected.Object) is RichImage or RichField) return selected;
+        if (selection is RichBlockSelection blocks && after.Nodes.GetValueOrDefault(blocks.First) is RichBlock first &&
+            after.Nodes.GetValueOrDefault(blocks.Last) is RichBlock last && first.Parent == blocks.Parent && last.Parent == blocks.Parent)
+            return after.NormalizeSelection(blocks);
         if (selection is RichBoundarySelection boundary && after.Nodes.GetValueOrDefault(boundary.Block) is RichBlock)
             return after.NormalizeSelection(boundary);
         if (selection is RichTextSelection text && map.Map(text.Anchor) is { } anchor && map.Map(text.Active) is { } active &&

@@ -85,6 +85,10 @@ public sealed record RichObjectSelection(RichNodeId Object) : RichSelection;
 /// <summary>A table rectangle in zero-based grid coordinates. Commands expand it to whole merged cells.</summary>
 public sealed record RichCellSelection(RichNodeId Table, int Row, int Column, int RowCount, int ColumnCount) : RichSelection;
 
+/// <summary>A contiguous inclusive range of complete blocks in one story, table cell, or list item.</summary>
+/// <remarks>Whole-document selection uses the body's first and last blocks. Removing blocks is distinct from clearing table cells.</remarks>
+public sealed record RichBlockSelection(RichNodeId Parent, RichNodeId First, RichNodeId Last) : RichSelection;
+
 /// <summary>A side of a structural block in its parent text container.</summary>
 public enum RichBlockEdge
 {

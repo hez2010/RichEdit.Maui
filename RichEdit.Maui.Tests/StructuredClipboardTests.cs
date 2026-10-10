@@ -48,6 +48,14 @@ public sealed class StructuredClipboardTests
         view.Undo();
         Assert.Equal(cells, view.StructuredSession.Selection);
         Assert.Contains("copy 日本語", source.CurrentSnapshot.ProjectText().Text.ToString());
+        view.SelectAll();
+        Assert.IsType<RichBlockSelection>(view.StructuredSession.Selection);
+        await view.CutAsync();
+        Assert.Empty(source.CurrentSnapshot.Nodes.Values.OfType<RichTable>());
+        Assert.Equal("", source.CurrentSnapshot.ProjectText().Text.ToString());
+        view.Undo();
+        Assert.IsType<RichBlockSelection>(view.StructuredSession.Selection);
+        Assert.Single(source.CurrentSnapshot.Nodes.Values.OfType<RichTable>());
     });
 
     [Fact]

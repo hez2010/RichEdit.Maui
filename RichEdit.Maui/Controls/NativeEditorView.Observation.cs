@@ -54,7 +54,14 @@ public partial class NativeEditorView
     internal void ObservePointer(RichTextPointerEventArgs args, bool pressed)
     {
         if (pressed)
+        {
+            if (!Composition.IsActive && StructuredSession is { Selection: RichEdit.Core.RichCellSelection } session &&
+                args.Modifiers == EditorKeyModifiers.None && (args.Buttons & RichTextPointerButtons.Primary) != 0 &&
+                Handler is RichEditorHandler handler && handler.HitTestText(args.Point) is { } hit &&
+                Document.StructuredProjection!.GetPoint(hit.Position) is { } point)
+                session.Selection = new RichEdit.Core.RichTextSelection(point, point);
             PointerPressed?.Invoke(this, args);
+        }
         else
             PointerMoved?.Invoke(this, args);
     }

@@ -175,6 +175,7 @@ public sealed partial class RichDocumentSnapshot
                 if (text.Anchor.Story != text.Active.Story) throw new ArgumentException("A text selection must belong to one story.", nameof(selection));
                 return text;
             case RichCellSelection cells: return GetTableGrid(cells.Table).Expand(cells);
+            case RichBlockSelection blocks: GetSelectedBlocks(blocks); return blocks;
             case RichObjectSelection selected when Nodes.GetValueOrDefault(selected.Object) is RichImage or RichField: return selected;
             case RichBoundarySelection boundary:
                 Get<RichStory>(boundary.Story);
