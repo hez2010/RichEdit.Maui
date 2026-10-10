@@ -23,28 +23,21 @@ public sealed partial class CodeEditor
     {
         if (IsReadOnly)
             return;
-        var edits = new List<TextReplacement>();
-        foreach (var selection in Selections)
+        if (Selections.All(selection => selection.Range.IsEmpty))
         {
-            var range = new TextSpan(selection.Range.Start, selection.Range.Length);
-            if (range.IsEmpty)
+            var values = Selections.Select(selection =>
             {
-                var line = Lines.GetRange(Lines.GetLineIndex(range.Start));
+                var line = Lines.GetRange(Lines.GetLineIndex(selection.Active));
                 var column = 0;
-                foreach (var chunk in Document.CurrentSnapshot.TextBuffer.GetChunks(new(line.Start, range.Start - line.Start)))
-                    foreach (var character in chunk.Span)
-                        column += character == '\t' ? TabSize - column % TabSize : 1;
-
-                edits.Add(new(range, UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize)));
-            }
-            else
-            {
-                var (first, last) = Lines.GetSelectedLines(range);
-                for (var line = first; line <= last; line++)
-                    edits.Add(new(new TextSpan(Lines.GetRange(line).Start, 0), Indentation));
-            }
+                foreach (var chunk in Document.CurrentSnapshot.TextBuffer.GetChunks(new(line.Start, selection.Active - line.Start)))
+                    foreach (var character in chunk.Span) column += character == '\t' ? TabSize - column % TabSize : 1;
+                column += Math.Min(selection.AnchorVirtualSpaces, selection.ActiveVirtualSpaces);
+                return UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize);
+            }).ToArray();
+            TextView.ReplaceSourceSelections(values);
+            return;
         }
-        ApplyEdits(edits.DistinctBy(static edit => edit.Range).ToArray(), "Indent");
+        ApplyEdits(SelectedSourceLines().Select(line => new TextReplacement(new(Lines.GetRange(line).Start, 0), Indentation)).ToArray(), "Indent");
     }
 
     /// <summary>Removes one indentation level from each selected line in one undo unit.</summary>
@@ -77,8 +70,7 @@ public sealed partial class CodeEditor
         if (IsReadOnly)
             return;
 
-        ApplyEdits(Selections.Select(selection => new TextReplacement(
-            new(selection.Range.Start, selection.Range.Length), NewLine + (AutoIndent ? GetIndentation(selection.Range.Start) : string.Empty))).ToArray(), "New line");
+        TextView.ReplaceSourceSelections(Selections.Select(selection => NewLine + (AutoIndent ? GetIndentation(selection.Range.Start) : string.Empty)).ToArray());
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>

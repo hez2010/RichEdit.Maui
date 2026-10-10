@@ -75,17 +75,17 @@ namespace RichEdit.Maui
             OnNativeSelectionChanged(PlatformView, new(PlatformView.SelectionStart, PlatformView.SelectionEnd));
         }
 
-        private void OnObservedPointer(MotionEvent e)
+        private bool OnObservedPointer(MotionEvent e)
         {
             if (e.ActionMasked is MotionEventActions.Down or MotionEventActions.Move)
                 _adornmentScrollAnchor = null;
             if (e.ActionMasked == MotionEventActions.HoverExit)
             {
                 VirtualView.ObservePointerExit();
-                return;
+                return false;
             }
-            if (e.ActionMasked is not (MotionEventActions.Down or MotionEventActions.Move or MotionEventActions.HoverMove or MotionEventActions.HoverEnter))
-                return;
+            if (e.ActionMasked is not (MotionEventActions.Down or MotionEventActions.Move or MotionEventActions.Up or MotionEventActions.Cancel or MotionEventActions.HoverMove or MotionEventActions.HoverEnter))
+                return false;
 
             var kind = e.GetToolType(0) switch
             {
@@ -111,7 +111,8 @@ namespace RichEdit.Maui
             if ((e.MetaState & MetaKeyStates.MetaOn) != 0)
                 modifiers |= EditorKeyModifiers.Meta;
 
-            VirtualView.ObservePointer(new(new(e.GetX() / LayoutDensity, e.GetY() / LayoutDensity), kind, buttons, modifiers), e.ActionMasked == MotionEventActions.Down);
+            if (e.ActionMasked is MotionEventActions.Up or MotionEventActions.Cancel) buttons = RichTextPointerButtons.None;
+            return VirtualView.ObservePointer(new(new(e.GetX() / LayoutDensity, e.GetY() / LayoutDensity), kind, buttons, modifiers), e.ActionMasked == MotionEventActions.Down);
         }
     }
 }
@@ -123,7 +124,7 @@ namespace RichEdit.Maui.Platforms.Android
         internal RichEditorHandler? ProjectionHandler { get; set; }
         internal Action<bool>? CompositionStarting { get; set; }
         internal Action? CompositionCompleted { get; set; }
-        internal Action<MotionEvent>? PointerObserved { get; set; }
+        internal Func<MotionEvent, bool>? PointerObserved { get; set; }
 
         /// <inheritdoc />
         public override IInputConnection? OnCreateInputConnection(EditorInfo? outAttrs)

@@ -35,7 +35,7 @@ public partial class NativeEditorView
             return expanded;
 
         var selections = expanded?.Selections ?? new TextSelectionSet((TextSelection[])
-            [Selections.Primary with { Anchor = selection.Anchor, Active = selection.Active, PreferredVisualX = null }]);
+            [Selections.Primary with { Anchor = selection.Anchor, Active = selection.Active, PreferredVisualX = null, AnchorVirtualSpaces = 0, ActiveVirtualSpaces = 0 }]);
         try
         {
             _planningInput = true;

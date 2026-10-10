@@ -40,6 +40,19 @@ public sealed record TextSelection
     /// <summary>Gets the preferred device-independent X coordinate for native vertical navigation, or null after other movement.</summary>
     public double? PreferredVisualX { get; init; }
 
+    /// <summary>Gets the number of unmaterialized spaces beyond the anchor's logical line end.</summary>
+    public int AnchorVirtualSpaces { get; init; }
+
+    /// <summary>Gets the number of unmaterialized spaces beyond the active endpoint's logical line end.</summary>
+    public int ActiveVirtualSpaces { get; init; }
+
+    /// <summary>Gets whether both real and virtual endpoints coincide.</summary>
+    public bool IsEmpty => Anchor == Active && AnchorVirtualSpaces == ActiveVirtualSpaces;
+
+    internal bool IsReversed => Anchor > Active || Anchor == Active && AnchorVirtualSpaces > ActiveVirtualSpaces;
+    internal int StartVirtualSpaces => IsReversed ? ActiveVirtualSpaces : AnchorVirtualSpaces;
+    internal int EndVirtualSpaces => IsReversed ? AnchorVirtualSpaces : ActiveVirtualSpaces;
+
     /// <summary>Gets the normalized source range.</summary>
     public TextSpan Range => new(Math.Min(Anchor, Active), Math.Abs(Active - Anchor));
 }
@@ -63,6 +76,8 @@ public sealed class TextSelectionSet : IReadOnlyList<TextSelection>
             ArgumentNullException.ThrowIfNull(item);
             ArgumentOutOfRangeException.ThrowIfNegative(item.Anchor);
             ArgumentOutOfRangeException.ThrowIfNegative(item.Active);
+            ArgumentOutOfRangeException.ThrowIfNegative(item.AnchorVirtualSpaces);
+            ArgumentOutOfRangeException.ThrowIfNegative(item.ActiveVirtualSpaces);
             if (item.Id == Guid.Empty || !identities.Add(item.Id))
                 throw new ArgumentException("Each selection must have a unique, nonempty identity.", nameof(selections));
             if (!Enum.IsDefined(item.Affinity))
@@ -85,10 +100,15 @@ public sealed class TextSelectionSet : IReadOnlyList<TextSelection>
             var winner = item.Id == primaryId ? item : previous;
             var start = previous.Range.Start;
             var end = Math.Max(previous.Range.End, item.Range.End);
+            var startSpaces = previous.Range.Start == item.Range.Start ? Math.Min(previous.StartVirtualSpaces, item.StartVirtualSpaces) : previous.StartVirtualSpaces;
+            var endSpaces = previous.Range.End == item.Range.End ? Math.Max(previous.EndVirtualSpaces, item.EndVirtualSpaces) :
+                end == previous.Range.End ? previous.EndVirtualSpaces : item.EndVirtualSpaces;
             normalized[^1] = winner with
             {
-                Anchor = winner.Anchor > winner.Active ? end : start,
-                Active = winner.Anchor > winner.Active ? start : end,
+                Anchor = winner.IsReversed ? end : start,
+                Active = winner.IsReversed ? start : end,
+                AnchorVirtualSpaces = winner.IsReversed ? endSpaces : startSpaces,
+                ActiveVirtualSpaces = winner.IsReversed ? startSpaces : endSpaces,
             };
         }
 
@@ -116,6 +136,23 @@ public sealed class TextSelectionSet : IReadOnlyList<TextSelection>
     {
         foreach (var item in _items)
             item.Range.Validate(textLength);
+    }
+
+    /// <summary>Validates real endpoints and requires virtual endpoints to be at a logical line end.</summary>
+    public void Validate(TextSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Validate(snapshot.Length);
+        foreach (var item in _items)
+        {
+            Check(item.Anchor, item.AnchorVirtualSpaces);
+            Check(item.Active, item.ActiveVirtualSpaces);
+        }
+        void Check(int position, int spaces)
+        {
+            if (spaces != 0 && snapshot.GetLine(snapshot.GetPosition(position).Line).Span.End != position)
+                throw new ArgumentException("Virtual space is only valid at a logical line end.");
+        }
     }
 
     /// <inheritdoc />

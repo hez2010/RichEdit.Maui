@@ -178,6 +178,17 @@ public sealed class RichTextLayout
         return caret.IntersectsWith(layout.TextViewport) ? caret : null;
     }
 
+    /// <summary>Gets the active caret rectangle, including unmaterialized virtual spaces measured by the native font.</summary>
+    public Rect? GetCaretBounds(RichTextLayoutSnapshot layout, TextSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        if (GetCaretBounds(layout, selection.Active, selection.ActiveVirtualSpaces == 0 ? (RichTextCaretAffinity)selection.Affinity : RichTextCaretAffinity.Upstream) is not { } caret)
+            return null;
+        if (selection.ActiveVirtualSpaces != 0)
+            caret.X += ((RichEditorHandler)_editor.Handler!).VirtualSpaceAdvance(selection.Active) * selection.ActiveVirtualSpaces;
+        return caret.IntersectsWith(layout.TextViewport) ? caret : null;
+    }
+
     /// <summary>Gets separate visible rectangles for a source range, including wraps and bidi fragments.</summary>
     /// <param name="layout">A current capture from this service.</param>
     /// <param name="range">The bounded source range. Empty ranges use downstream caret geometry.</param>

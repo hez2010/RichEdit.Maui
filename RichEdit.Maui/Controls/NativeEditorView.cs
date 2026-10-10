@@ -679,6 +679,7 @@ public partial class NativeEditorView : View
         {
             if (ReferenceEquals(expanded.Snapshot, Document.CurrentSnapshot))
             {
+                SetSelectionsFromDocument(expanded.Selections);
                 SynchronizeCompositionTracking(Document.CurrentSnapshot, null);
                 (Handler as RichEditorHandler)?.CompleteCompositionTracking();
                 (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);

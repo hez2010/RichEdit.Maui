@@ -108,7 +108,7 @@ public sealed class TextDocumentEdit
     internal (TextSnapshot Snapshot, ImmutableArray<TextChange> Changes, TextSelectionSet? Selections) Finish()
     {
         _open = false;
-        _selections?.Validate(_snapshot.Length);
+        _selections?.Validate(_snapshot);
         return (_snapshot, [.. _changes], _selections);
     }
 

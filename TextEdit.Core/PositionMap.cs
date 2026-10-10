@@ -87,6 +87,8 @@ public sealed class PositionMap
             Anchor = Map(selection.Anchor)!.Value,
             Active = Map(selection.Active)!.Value,
             PreferredVisualX = null,
+            AnchorVirtualSpaces = 0,
+            ActiveVirtualSpaces = 0,
         }), selections.PrimaryIndex);
     }
 

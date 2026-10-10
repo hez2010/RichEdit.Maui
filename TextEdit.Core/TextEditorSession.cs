@@ -37,7 +37,7 @@ public sealed class TextEditorSession : IDisposable
             ArgumentNullException.ThrowIfNull(value);
             VerifyIdle();
             VerifyNoComposition();
-            value.Validate(Document.Length);
+            value.Validate(Document.CurrentSnapshot);
             if (ReferenceEquals(_selections, value))
                 return;
             _selections = value;
@@ -100,6 +100,20 @@ public sealed class TextEditorSession : IDisposable
         return Document.Execute(edit, options, this, expectedRevision, expectedSelectionGeneration);
     }
 
+    /// <summary>Replaces every selection atomically, materializing virtual padding only for nonempty inserted text.</summary>
+    public TextEditResult ReplaceSelections(string text, TextEditOptions options = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        VerifyIdle();
+        return ReplaceSelections(Selections.Select(_ => text).ToArray(), options);
+    }
+
+    internal TextEditResult ReplaceSelections(IReadOnlyList<string> text, TextEditOptions options = default)
+    {
+        var plan = TextSelectionReplacement.Plan(Document.CurrentSnapshot, Selections, text);
+        return Edit(edit => { edit.ReplaceBatch(plan.Replacements); edit.SetSelections(plan.Selections); }, options);
+    }
+
     /// <summary>Commits recorded sequential native replacements and their dependent input rules atomically.</summary>
     /// <remarks>The native adapter supplies all originating replacements and resulting selections. Rule conflicts throw before publication.</remarks>
     public TextEditResult ApplyInput(IEnumerable<TextReplacement> replacements, TextSelectionSet selections,
@@ -133,7 +147,27 @@ public sealed class TextEditorSession : IDisposable
 
     internal void Synchronize(TextDocumentChangedEventArgs change, TextSelectionSet? requested)
     {
-        _selections = requested ?? change.Map.Map(_selections);
+        if (requested is not null) _selections = requested;
+        else
+        {
+            var old = _selections;
+            var mapped = change.Map.Map(old);
+            if (old.Any(item => item.AnchorVirtualSpaces != 0 || item.ActiveVirtualSpaces != 0))
+            {
+                var previous = old.ToDictionary(item => item.Id);
+                mapped = new(mapped.Select(item =>
+                {
+                    var before = previous[item.Id];
+                    return item with
+                    {
+                        AnchorVirtualSpaces = AtEnd(item.Anchor) ? before.AnchorVirtualSpaces : 0,
+                        ActiveVirtualSpaces = AtEnd(item.Active) ? before.ActiveVirtualSpaces : 0,
+                    };
+                }), mapped.PrimaryIndex);
+            }
+            _selections = mapped;
+            bool AtEnd(int position) => change.After.GetLine(change.After.GetPosition(position).Line).Span.End == position;
+        }
         SelectionGeneration++;
     }
     internal void Publish(TextDocumentChangedEventArgs change)

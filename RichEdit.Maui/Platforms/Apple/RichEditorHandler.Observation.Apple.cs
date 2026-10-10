@@ -83,7 +83,7 @@ namespace RichEdit.Maui.Platforms.Apple
         internal RichEditorHandler? ProjectionHandler { get; set; }
         internal Action<bool>? CompositionStarting { get; set; }
         internal Action? CompositionCompleted { get; set; }
-        internal Action<RichTextPointerEventArgs, bool>? PointerObserved { get; set; }
+        internal Func<RichTextPointerEventArgs, bool, bool>? PointerObserved { get; set; }
 
         internal bool MoveSourceVertically(EditorKey key, EditorKeyModifiers modifiers)
         {
@@ -169,21 +169,23 @@ namespace RichEdit.Maui.Platforms.Apple
         /// <inheritdoc />
         public override void TouchesBegan(NSSet touches, UIEvent? evt)
         {
-            ObserveTouches(touches, evt, true);
+            if (ObserveTouches(touches, evt, true)) { BecomeFirstResponder(); return; }
             base.TouchesBegan(touches, evt);
         }
 
         /// <inheritdoc />
         public override void TouchesMoved(NSSet touches, UIEvent? evt)
         {
-            ObserveTouches(touches, evt, false);
+            if (ObserveTouches(touches, evt, false)) return;
             base.TouchesMoved(touches, evt);
         }
 
-        private void ObserveTouches(NSSet touches, UIEvent? evt, bool pressed)
+        private bool ObserveTouches(NSSet touches, UIEvent? evt, bool pressed)
         {
             if (PointerObserved is null)
-                return;
+                return false;
+
+            var handled = false;
 
             foreach (var touch in touches.Cast<UITouch>())
             {
@@ -211,8 +213,22 @@ namespace RichEdit.Maui.Platforms.Apple
                 if ((evt?.ButtonMask & UIEventButtonMask.Secondary) != 0)
                     buttons |= RichTextPointerButtons.Secondary;
 
-                PointerObserved(new(new(location.X - ContentOffset.X, location.Y - ContentOffset.Y), kind, buttons, modifiers), pressed);
+                if (touch.Phase is UITouchPhase.Ended or UITouchPhase.Cancelled) buttons = RichTextPointerButtons.None;
+                handled |= PointerObserved(new(new(location.X - ContentOffset.X, location.Y - ContentOffset.Y), kind, buttons, modifiers), pressed);
             }
+            return handled;
+        }
+
+        /// <inheritdoc />
+        public override void TouchesEnded(NSSet touches, UIEvent? evt)
+        {
+            if (!ObserveTouches(touches, evt, false)) base.TouchesEnded(touches, evt);
+        }
+
+        /// <inheritdoc />
+        public override void TouchesCancelled(NSSet touches, UIEvent? evt)
+        {
+            if (!ObserveTouches(touches, evt, false)) base.TouchesCancelled(touches, evt);
         }
     }
 }

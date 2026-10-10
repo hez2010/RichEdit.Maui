@@ -14,7 +14,7 @@ public sealed partial class CodeEditor
             editor.VerifyAccess();
             if (value is not TextSelectionSet selections)
                 return false;
-            selections.Validate(editor.Document.Length);
+            selections.Validate(editor.Document.CurrentSnapshot.TextBuffer);
             return true;
         },
         propertyChanged: static (view, _, value) =>

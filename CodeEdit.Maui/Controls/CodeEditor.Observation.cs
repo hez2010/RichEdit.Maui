@@ -50,6 +50,7 @@ public sealed partial class CodeEditor
     private void InitializeObservation()
     {
         TextLayout = TextView.TextLayout.CreateRelativeTo(this);
+        TextView.SourcePointerInput = ObserveSelectionPointer;
         TextLayout.Changed += (_, _) => InvalidateGutter();
         TextView.CompositionChanged += (_, args) =>
         {

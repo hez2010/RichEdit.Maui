@@ -6,17 +6,19 @@ public partial class NativeEditorView
     internal string SourceNewLine { get; set; } = "\n";
     internal int SourceTabSize { get; set; } = 4;
     internal bool SourceWordWrap { get; set; } = true;
+    internal bool SourceVirtualSpaceEnabled { get; set; }
     internal event EventHandler<TextPastingEventArgs>? SourcePasting;
 
-    private Task CopySourceAsync() => Selections.All(selection => selection.Range.IsEmpty) ? Task.CompletedTask :
-        PlainTextClipboard.SetAsync(Selections.Select(selection => Document.GetText(selection.Range)).ToArray());
+    private Task CopySourceAsync() => Selections.All(selection => selection.IsEmpty) ? Task.CompletedTask :
+        PlainTextClipboard.SetAsync(Selections.Select(selection => Document.GetText(selection.Range) +
+            new string(' ', selection.Range.IsEmpty ? Math.Abs(selection.ActiveVirtualSpaces - selection.AnchorVirtualSpaces) : selection.EndVirtualSpaces)).ToArray());
 
     private async Task CutSourceAsync()
     {
         var session = SourceSession!;
         var revision = session.Document.Revision;
         var generation = session.SelectionGeneration;
-        if (IsReadOnly || Document.HasActiveComposition || Selections.All(selection => selection.Range.IsEmpty)) return;
+        if (IsReadOnly || Document.HasActiveComposition || Selections.All(selection => selection.IsEmpty)) return;
         await CopySourceAsync();
         if (ReferenceEquals(SourceSession, session) && revision == session.Document.Revision && generation == session.SelectionGeneration)
             ReplaceSourceSelections(Selections.Select(_ => "").ToArray());
@@ -120,7 +122,8 @@ public partial class NativeEditorView
             if (MaxLength >= 0 && edit.Snapshot.Length > MaxLength && edit.Snapshot.Length > Document.Length)
                 throw new ArgumentException("The source edit exceeds MaxLength.", nameof(replacements));
             if (selection is { } requested)
-                edit.SetSelections(new((TextSelection[])[Selections.Primary with { Anchor = requested.Anchor, Active = requested.Active }]));
+                edit.SetSelections(new((TextSelection[])[Selections.Primary with { Anchor = requested.Anchor, Active = requested.Active,
+                    AnchorVirtualSpaces = 0, ActiveVirtualSpaces = 0, PreferredVisualX = null }]));
         }, options, revision, expectedSelectionGeneration);
         if (result.Accepted && result.Change is null) Selections = SourceSession.Selections;
         return result.Accepted;
@@ -131,22 +134,36 @@ public partial class NativeEditorView
         var session = SourceSession!;
         if (IsReadOnly || Document.HasActiveComposition) return false;
         var before = Selections;
-        if (text.Count != before.Count) throw new ArgumentException("Supply one text value per selection.", nameof(text));
-        var after = new List<TextSelection>();
-        var shift = 0;
-        for (var i = 0; i < before.Count; i++)
-        {
-            var position = checked(before[i].Range.Start + shift + text[i].Length);
-            after.Add(before[i] with { Anchor = position, Active = position, PreferredVisualX = null });
-            shift = checked(shift + text[i].Length - before[i].Range.Length);
-        }
-        if (MaxLength >= 0 && Document.Length + shift > MaxLength && shift > 0) return false;
+        var plan = TextSelectionReplacement.Plan(session.Document.CurrentSnapshot, before, text);
+        if (MaxLength >= 0 && plan.Length > MaxLength && plan.Length > Document.Length) return false;
         var result = session.Edit(edit =>
         {
-            for (var i = before.Count - 1; i >= 0; i--) edit.Replace(before[i].Range, text[i]);
-            edit.SetSelections(new(after, before.PrimaryIndex));
+            edit.ReplaceBatch(plan.Replacements);
+            edit.SetSelections(plan.Selections);
         });
         if (result.Accepted && result.Change is null) Selections = session.Selections;
+        return result.Accepted;
+    }
+
+    private bool DeleteSourceVirtualSelections(bool backward)
+    {
+        if (IsReadOnly || Composition.IsActive) return false;
+        var text = Document.Text;
+        var targets = Selections.Select(item =>
+        {
+            if (!item.IsEmpty) return item;
+            if (item.ActiveVirtualSpaces != 0)
+            {
+                var spaces = Math.Max(0, item.ActiveVirtualSpaces - (backward ? 1 : 0));
+                return item with { AnchorVirtualSpaces = spaces, ActiveVirtualSpaces = spaces };
+            }
+            return backward ? item with { Anchor = PreviousTextElement(text, item.Active) } :
+                item with { Active = item.Active == text.Length ? item.Active : item.Active + System.Globalization.StringInfo.GetNextTextElementLength(text.AsSpan(item.Active)) };
+        });
+        var selections = new TextSelectionSet(targets, Selections.PrimaryIndex);
+        var plan = TextSelectionReplacement.Plan(Document.CurrentSnapshot.TextBuffer, selections, selections.Select(_ => "").ToArray());
+        var result = SourceSession!.Edit(edit => { edit.ReplaceBatch(plan.Replacements); edit.SetSelections(plan.Selections); });
+        if (result.Accepted && result.Change is null) Selections = SourceSession.Selections;
         return result.Accepted;
     }
 }

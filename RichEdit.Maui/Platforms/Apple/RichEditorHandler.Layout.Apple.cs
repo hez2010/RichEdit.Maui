@@ -45,7 +45,10 @@ public partial class RichEditorHandler
 
             glyph = next;
         }
-        if (GetTextCaretBoundsCore(DisplaySourceSnapshot.Length, RichTextCaretAffinity.Downstream) is { } end &&
+        // A caret's typographic top can differ from its line fragment's top.
+        // Only an empty trailing paragraph owns an additional visual row.
+        if ((DisplaySourceSnapshot.Length == 0 || DisplaySourceSnapshot.Text[^1] == '\n') &&
+            GetTextCaretBoundsCore(DisplaySourceSnapshot.Length, RichTextCaretAffinity.Downstream) is { } end &&
             end.IntersectsWith(textViewport) && (lines.Count == 0 || Math.Abs(lines[^1].Bounds.Y - end.Y) > 0.5))
         {
             var storage = PlatformView.TextStorage;

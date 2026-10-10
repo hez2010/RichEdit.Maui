@@ -40,7 +40,8 @@ public partial class NativeEditorView
         if (Composition.IsActive || Handler is not RichEditorHandler handler || !handler.HasTextLayout)
             return false;
         var primary = Selections.Primary;
-        if (handler.NavigateSelection(primary with { Anchor = primary.Active }, direction, false) is not { } next || next.Active == primary.Active)
+        if (handler.NavigateSelection(primary with { Anchor = primary.Active, AnchorVirtualSpaces = primary.ActiveVirtualSpaces }, direction, false) is not { } next ||
+            next.Active == primary.Active && next.ActiveVirtualSpaces == primary.ActiveVirtualSpaces)
             return false;
         var selections = Selections.ToList();
         var index = selections.FindIndex(item => item.Range.IsEmpty && item.Active == next.Active);
@@ -58,6 +59,9 @@ public partial class NativeEditorView
 
     private bool HandleSelectionKey(EditorKey key, EditorKeyModifiers modifiers)
     {
+        if (SourceSession is not null && modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete &&
+            Selections.Any(item => item.AnchorVirtualSpaces != 0 || item.ActiveVirtualSpaces != 0))
+            return DeleteSourceVirtualSelections(key == EditorKey.Backspace);
         if (modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete && DeleteStructuredCells()) return true;
         if (modifiers == EditorKeyModifiers.None && key is EditorKey.Left or EditorKey.Right or EditorKey.Up or EditorKey.Down or EditorKey.Home or EditorKey.End &&
             StructuredSession?.Selection is RichEdit.Core.RichCellSelection or RichEdit.Core.RichBlockSelection)
@@ -72,7 +76,7 @@ public partial class NativeEditorView
         }
         if (modifiers == (EditorKeyModifiers.Control | EditorKeyModifiers.Alt) && key is EditorKey.Up or EditorKey.Down)
             return key == EditorKey.Up ? AddCaretAbove() : AddCaretBelow();
-        if (Selections.Count < 2)
+        if (Selections.Count < 2 && !SourceVirtualSpaceEnabled && Selections.Primary.ActiveVirtualSpaces == 0)
             return false;
         var wordModifier = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Alt : EditorKeyModifiers.Control;
         if ((modifiers & ~EditorKeyModifiers.Shift) == wordModifier && key is EditorKey.Left or EditorKey.Right)

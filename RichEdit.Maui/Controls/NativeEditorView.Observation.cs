@@ -52,8 +52,11 @@ public partial class NativeEditorView
         TextLayout.Invalidate();
     }
 
-    internal void ObservePointer(RichTextPointerEventArgs args, bool pressed)
+    internal Func<RichTextPointerEventArgs, bool, bool>? SourcePointerInput { get; set; }
+
+    internal bool ObservePointer(RichTextPointerEventArgs args, bool pressed)
     {
+        var handled = SourcePointerInput?.Invoke(args, pressed) == true;
         if (HasCurrentStructuredCoordinator) ObserveCoordinatedPointer(args, pressed);
         if (pressed)
         {
@@ -66,6 +69,7 @@ public partial class NativeEditorView
         }
         else
             PointerMoved?.Invoke(this, args);
+        return handled;
     }
 
     internal void ObservePointerExit() => PointerExited?.Invoke(this, EventArgs.Empty);

@@ -209,7 +209,11 @@ public partial class RichEditText : AppCompatEditText
             _pointerDownY = e.GetY();
         }
 
-        PointerObserved?.Invoke(e);
+        if (PointerObserved?.Invoke(e) == true)
+        {
+            if (e.ActionMasked == MotionEventActions.Down) RequestFocus();
+            return true;
+        }
         if (ObserveSourceDrag(e))
             return true;
 

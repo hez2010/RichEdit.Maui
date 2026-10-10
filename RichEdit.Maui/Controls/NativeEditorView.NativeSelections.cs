@@ -14,7 +14,8 @@ public partial class NativeEditorView
 
     private NativeSelectionEdit? ExpandNativeSelectionEdit(RichTextDocumentSnapshot native, TextSelectionState nativeSelection)
     {
-        if (Selections.Count < 2 || Composition.IsActive || (Handler as IRichEditorHandler)?.IsComposing == true)
+        var hasVirtualSpace = SourceSession is not null && Selections.Any(item => item.AnchorVirtualSpaces != 0 || item.ActiveVirtualSpaces != 0);
+        if (Selections.Count < 2 && !hasVirtualSpace || Composition.IsActive || (Handler as IRichEditorHandler)?.IsComposing == true)
             return null;
 
         var before = Document.CurrentSnapshot;
@@ -53,6 +54,29 @@ public partial class NativeEditorView
             primaryChange.OldRange.Start == primary.Active;
         if (!replacesSelection && !deletesBackward && !deletesForward)
             return null;
+
+        if (hasVirtualSpace)
+        {
+            var targets = selections.Select(item =>
+            {
+                if (!item.Range.IsEmpty) return item;
+                if (item.ActiveVirtualSpaces != 0 || item.AnchorVirtualSpaces != 0)
+                {
+                    var spaces = item.IsEmpty && deletesBackward ? Math.Max(0, item.ActiveVirtualSpaces - 1) : item.StartVirtualSpaces;
+                    return primaryChange.InsertedText.Length == 0 ? item with { AnchorVirtualSpaces = spaces, ActiveVirtualSpaces = spaces } : item;
+                }
+                if (deletesBackward) return item with { Anchor = PreviousTextElement(before.Text, item.Active) };
+                if (deletesForward) return item with { Active = item.Active == before.Length ? item.Active : item.Active + StringInfo.GetNextTextElementLength(before.Text.AsSpan(item.Active)) };
+                return item;
+            }).ToArray();
+            var plan = TextSelectionReplacement.Plan(before.TextBuffer, new(targets, selections.PrimaryIndex),
+                selections.Select(_ => primaryChange.InsertedText).ToArray(), caretOffset);
+            if (MaxLength >= 0 && plan.Length > MaxLength && plan.Length > before.Length)
+                return new(before, [], native, RichTextDocument.CreateDelta(native, before), selections);
+            var candidate = new RichTextDocumentEdit(before);
+            foreach (var replacement in plan.Replacements.Reverse()) candidate.ReplaceText(replacement.Range, replacement.Text);
+            return new(candidate.Snapshot, candidate.Changes, native, RichTextDocument.CreateDelta(native, candidate.Snapshot), plan.Selections);
+        }
 
         var replacements = new List<(TextSelection Selection, TextSpan Range, string Text)>();
         foreach (var item in selections)

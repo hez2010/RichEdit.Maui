@@ -7,7 +7,7 @@ public partial class NativeEditorView
     private sealed class PasteLengthExceededException : Exception;
     internal event EventHandler<RichPastingEventArgs>? StructuredPasting;
 
-    internal bool HasClipboardSelection => StructuredSession is null ? Selections.Any(item => !item.Range.IsEmpty) : CanCopyStructured;
+    internal bool HasClipboardSelection => StructuredSession is null ? Selections.Any(item => !item.IsEmpty) : CanCopyStructured;
     private bool CanCopyStructured => StructuredSession is { } session && session.Selection switch
     {
         RichBoundarySelection => false,

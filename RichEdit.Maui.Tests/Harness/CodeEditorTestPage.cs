@@ -69,6 +69,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 _editor.AutoIndent = true;
                 _editor.NewLine = "\n";
                 _editor.WordWrap = false;
+                _editor.AllowVirtualSpace = false;
                 _editor.ShowLineNumbers = true;
                 _editor.Coloring().Palette = static token => token.Kind switch
                 {
@@ -154,6 +155,68 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             await Task.Delay(60);
             Equal("WWWWWWWWW\tX\n    X", _editor.Document.Text);
             Equal(true, Math.Abs((X(10) - X(0)) - (X(16) - X(12)) * 4) <= 2, "native typing advances the following tab to its next stop");
+        });
+
+        await Test("rectangle virtual space typing composition and undo", "abcd\r\nx\r\nabcdef", async () =>
+        {
+            var layout = _editor.TextLayout.Capture()!;
+            var first = _editor.TextLayout.GetCaretBounds(layout, 3)!.Value;
+            var last = _editor.TextLayout.GetCaretBounds(layout, 12)!.Value;
+            Equal(true, _editor.SelectRectangle(new(first.X, first.Center.Y), new(first.X, last.Center.Y), virtualSpace: true));
+            Equal(3, _editor.Selections.Count);
+            Equal(true, _editor.Selections.Select(item => item.Active).SequenceEqual(new[] { 3, 7, 12 }));
+            Equal(2, _editor.Selections[1].ActiveVirtualSpaces);
+            _editor.Selections = new(_editor.Selections, 1);
+            var before = _editor.Selections;
+            EditorContractTests.NativeReplace(_textView, "!");
+            Equal("abc!d\r\nx  !\r\nabc!def", _editor.Document.Text);
+            _editor.Undo();
+            Equal("abcd\r\nx\r\nabcdef", _editor.Document.Text);
+            Equal(2, _editor.Selections[1].ActiveVirtualSpaces);
+            Equal(false, _editor.CanUndo);
+#if ANDROID
+            var native = ((RichEditorHandler)_textView.Handler!).PlatformView;
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var composing = new Java.Lang.String("日");
+            using var committed = new Java.Lang.String("日本");
+            connection.SetComposingText(composing, 1);
+            Equal("abcd\r\nx\r\nabcdef", _editor.Document.Text);
+            connection.CommitText(committed, 1);
+            connection.FinishComposingText();
+#else
+            var native = ((RichEditorHandler)_textView.Handler!).PlatformView;
+            native.SetMarkedText("日", new Foundation.NSRange(1, 0));
+            Equal("abcd\r\nx\r\nabcdef", _editor.Document.Text);
+            native.SetMarkedText("日本", new Foundation.NSRange(2, 0));
+            native.UnmarkText();
+#endif
+            await Task.Delay(40);
+            Equal("abc日本d\r\nx  日本\r\nabc日本def", _editor.Document.Text);
+            _editor.Undo();
+            Equal(true, before.SequenceEqual(_editor.Selections));
+            Equal(false, _editor.CanUndo);
+            _editor.AllowVirtualSpace = true;
+            _editor.Selections = new((TextSelection[])[before[1]]);
+            Equal(true, _editor.MoveSelections(EditorKey.Right));
+            Equal(3, _editor.Selections.Primary.ActiveVirtualSpaces);
+            Equal(true, _editor.MoveSelections(EditorKey.Down));
+            Equal(13, _editor.Selections.Primary.Active);
+            Equal(0, _editor.Selections.Primary.ActiveVirtualSpaces);
+            Equal(false, _editor.CanUndo);
+            layout = _editor.TextLayout.Capture()!;
+            first = _editor.TextLayout.GetCaretBounds(layout, 3)!.Value;
+            last = _editor.TextLayout.GetCaretBounds(layout, 12)!.Value;
+            RichTextPointerEventArgs Pointer(Point point, RichTextPointerButtons buttons = RichTextPointerButtons.Primary,
+                EditorKeyModifiers modifiers = EditorKeyModifiers.Alt) => new(new(point.X - layout.Origin.X, point.Y - layout.Origin.Y),
+                    RichTextPointerDeviceKind.Mouse, buttons, modifiers);
+            Equal(true, _textView.ObservePointer(Pointer(first.Center), true));
+            Equal(2, _editor.Selections.Count);
+            Equal(true, _textView.ObservePointer(Pointer(new(first.X, last.Center.Y)), false));
+            Equal(3, _editor.Selections.Count);
+            Equal(true, _textView.ObservePointer(Pointer(last.Center, RichTextPointerButtons.None), false));
+            Equal(false, _textView.ObservePointer(Pointer(last.Center, modifiers: EditorKeyModifiers.None), true));
+            Equal(1, _editor.Selections.Count);
         });
 
         await Test("native word movement extends every caret", "alpha beta\r\ngamma delta", () =>

@@ -17,16 +17,12 @@ public partial class RichEditorHandler
     private partial void ConnectInputObservation()
     {
         (Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.FromElement(PlatformView) as SourceTextPeer)?.Connect();
-        PlatformView.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(OnObservedPointerMoved), true);
-        PlatformView.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnObservedPointerPressed), true);
         PlatformView.AddHandler(UIElement.PointerExitedEvent, new PointerEventHandler(OnObservedPointerExited), true);
     }
 
     private partial void DisconnectInputObservation()
     {
         (Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.FromElement(_adornmentView) as SourceTextPeer)?.Disconnect();
-        _adornmentView.RemoveHandler(UIElement.PointerMovedEvent, new PointerEventHandler(OnObservedPointerMoved));
-        _adornmentView.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnObservedPointerPressed));
         _adornmentView.RemoveHandler(UIElement.PointerExitedEvent, new PointerEventHandler(OnObservedPointerExited));
     }
 
@@ -34,14 +30,11 @@ public partial class RichEditorHandler
 
     private partial void ReconcileCompositionSource() => ReadNativeDocumentChange();
 
-    private void OnObservedPointerMoved(object sender, PointerRoutedEventArgs args) => ObservePointer(args, false);
-
-    private void OnObservedPointerPressed(object sender, PointerRoutedEventArgs args) => ObservePointer(args, true);
-
     private void OnObservedPointerExited(object sender, PointerRoutedEventArgs args) => VirtualView.ObservePointerExit();
 
-    private void ObservePointer(PointerRoutedEventArgs args, bool pressed)
+    private bool ObservePointer(PointerRoutedEventArgs args, bool pressed)
     {
+        if (!_adornmentsConnected) return false;
         var point = args.GetCurrentPoint(PlatformView);
         var properties = point.Properties;
         var buttons = RichTextPointerButtons.None;
@@ -58,6 +51,30 @@ public partial class RichEditorHandler
             PointerDeviceType.Pen => RichTextPointerDeviceKind.Pen,
             _ => RichTextPointerDeviceKind.Mouse,
         };
-        VirtualView.ObservePointer(new(new(point.Position.X, point.Position.Y), kind, buttons, GetEditorModifiers()), pressed);
+        return VirtualView.ObservePointer(new(new(point.Position.X, point.Position.Y), kind, buttons, GetEditorModifiers()), pressed);
+    }
+
+    private sealed partial class SourceRichEditBox
+    {
+        protected override void OnPointerPressed(PointerRoutedEventArgs args)
+        {
+            if (handler.ObservePointer(args, true))
+            {
+                args.Handled = true;
+                Focus(FocusState.Pointer);
+                CapturePointer(args.Pointer);
+            }
+            else base.OnPointerPressed(args);
+        }
+        protected override void OnPointerMoved(PointerRoutedEventArgs args)
+        {
+            if (handler.ObservePointer(args, false)) args.Handled = true;
+            else base.OnPointerMoved(args);
+        }
+        protected override void OnPointerReleased(PointerRoutedEventArgs args)
+        {
+            if (handler.ObservePointer(args, false)) { args.Handled = true; ReleasePointerCapture(args.Pointer); }
+            else base.OnPointerReleased(args);
+        }
     }
 }

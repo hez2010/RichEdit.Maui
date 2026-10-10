@@ -15,7 +15,8 @@ public partial class NativeEditorView
             editor.VerifySelectionMutation();
             if (value is not TextSelectionSet selections)
                 return false;
-            selections.Validate(editor.Document.Length);
+            if (editor.SourceSession is not null) selections.Validate(editor.Document.CurrentSnapshot.TextBuffer);
+            else selections.Validate(editor.Document.Length);
             return true;
         },
         propertyChanged: static (view, _, _) => ((NativeEditorView)view).OnSelectionsChanged());
@@ -79,7 +80,8 @@ public partial class NativeEditorView
         if (_updatingSelections)
             return;
         var before = Selections;
-        var primary = before.Primary with { Anchor = selection.Anchor, Active = selection.Active, PreferredVisualX = null };
+        if (before.Primary.Anchor == selection.Anchor && before.Primary.Active == selection.Active) return;
+        var primary = before.Primary with { Anchor = selection.Anchor, Active = selection.Active, PreferredVisualX = null, AnchorVirtualSpaces = 0, ActiveVirtualSpaces = 0 };
         var items = _synchronizingSelection || _deferNotifications
             ? before.Select(item => item.Id == primary.Id ? primary : item).ToArray()
             : (TextSelection[])[primary];
@@ -109,7 +111,7 @@ public partial class NativeEditorView
             var mapped = new TextSelectionState(item.Anchor, item.Active).Map(changeArray, length);
             if (item.Id == current.Primary.Id)
                 mapped = GetSelectionAfterEdit(changeArray, length);
-            return item with { Anchor = mapped.Anchor, Active = mapped.Active, PreferredVisualX = null };
+            return item with { Anchor = mapped.Anchor, Active = mapped.Active, PreferredVisualX = null, AnchorVirtualSpaces = 0, ActiveVirtualSpaces = 0 };
         }).ToArray();
         return new(items, current.PrimaryIndex);
     }
@@ -137,7 +139,7 @@ public partial class NativeEditorView
         _synchronizingSelection = true;
         try
         {
-            Selections = new((TextSelection[])[Selections.Primary with { Anchor = selection.Anchor, Active = selection.Active }]);
+            Selections = new((TextSelection[])[Selections.Primary with { Anchor = selection.Anchor, Active = selection.Active, AnchorVirtualSpaces = 0, ActiveVirtualSpaces = 0 }]);
         }
         finally { _synchronizingSelection = previous; }
     }

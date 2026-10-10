@@ -117,6 +117,23 @@ public sealed class TextComposition : IDisposable
             }
             selections = new(result, _beforeSelections.PrimaryIndex);
         }
+        if (_changes.Count != 0 && _canMirror && Selection.Range.IsEmpty &&
+            Selection.Active >= _primaryRange.Start && Selection.Active <= _primaryRange.End &&
+            _beforeSelections.Any(item => item.AnchorVirtualSpaces != 0 || item.ActiveVirtualSpaces != 0))
+        {
+            var text = Snapshot.GetText(_primaryRange);
+            var plan = TextSelectionReplacement.Plan(_before, _beforeSelections, _beforeSelections.Select(_ => text).ToArray(), Selection.Active - _primaryRange.Start);
+            var edit = new TextDocumentEdit(_before);
+            try
+            {
+                edit.ReplaceBatch(plan.Replacements);
+                var result = edit.Finish();
+                changes = result.Changes.ToList();
+                candidate = result.Snapshot;
+                selections = plan.Selections;
+            }
+            finally { edit.Close(); }
+        }
         if (_session.InputRules.Count != 0 && changes.Count != 0)
         {
             var rules = _session.InputRules.Plan(_before, candidate, _beforeSelections, selections,
