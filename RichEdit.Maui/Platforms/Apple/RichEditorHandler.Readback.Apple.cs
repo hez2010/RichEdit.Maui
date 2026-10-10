@@ -521,6 +521,15 @@ public partial class RichEditorHandler
         UpdateCompositionState();
         var previousSelection = VirtualView.SelectedRange;
 
+        if (_structuredNativeMap is not null && TryReadStructuredNativeChange(textView.Text ?? "",
+            new((int)textView.SelectedRange.Location, (int)(textView.SelectedRange.Location + textView.SelectedRange.Length))))
+        {
+            _pendingNativeChange = null;
+            _readNativeGeneration = _nativeEditGeneration;
+            VirtualView.UpdateUndoStateFromPlatform();
+            return;
+        }
+
         PlatformView.UpdatePlaceholderVisibility();
         var generation = _nativeEditGeneration;
         RichTextDocumentSnapshot document;
@@ -577,6 +586,9 @@ public partial class RichEditorHandler
         {
             return;
         }
+
+        if (_structuredNativeMap is not null && TryUpdateStructuredSelection(new((int)textView.SelectedRange.Location,
+            (int)(textView.SelectedRange.Location + textView.SelectedRange.Length)))) return;
 
         var start = Math.Clamp(
             (int)textView.SelectedRange.Location,

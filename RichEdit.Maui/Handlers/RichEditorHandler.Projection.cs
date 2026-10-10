@@ -48,6 +48,11 @@ public partial class RichEditorHandler
 
     private bool PrepareDisplayProjection()
     {
+        if (UsesStructuredNativeDocument)
+        {
+            if (_structuredNativeMap is null) TryApplyStructuredNativeDocument();
+            return false;
+        }
         var viewportWidth = GetAdornmentViewport().Width;
         var widthChanged = viewportWidth != _displayViewportWidth;
         if (!_displayPublicationPending && !widthChanged && _displayAdornmentVersion == VirtualView.Adornments.Version &&
@@ -120,6 +125,7 @@ public partial class RichEditorHandler
 
     private void ApplyCurrentDocument(int selectionStart, int selectionLength)
     {
+        if (TryApplyStructuredNativeDocument()) return;
         PrepareDisplayProjection();
         ApplyDisplayDocumentCore(DisplayPresentationSnapshot, selectionStart, selectionLength);
         CompleteDisplayProjection();
@@ -146,6 +152,7 @@ public partial class RichEditorHandler
     private void ApplyIncrementalChangesCore(RichTextChangeSet changes, TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat, RichTextParagraphFormat typingParagraphFormat)
     {
+        if (TryApplyStructuredNativeDocument()) return;
         changes = PrepareDisplayChanges(changes);
         ApplyDisplayChangesCore(changes, selection, typingCharacterFormat, typingParagraphFormat);
         CompleteDisplayProjection();

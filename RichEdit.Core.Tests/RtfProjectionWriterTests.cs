@@ -21,10 +21,10 @@ public class RtfProjectionWriterTests
             edit.DeleteBlock(new(2));
         });
         var tokens = await Tokens(document.CurrentSnapshot);
-        Assert.Equal(2, tokens.Count(token => token.Word == "trowd"));
+        Assert.Equal(4, tokens.Count(token => token.Word == "trowd"));
         Assert.Equal(4, tokens.Count(token => token.Word == "cell"));
-        Assert.Single(tokens, token => token.Word == "clmgf");
-        Assert.Single(tokens, token => token.Word == "clmrg");
+        Assert.Equal(2, tokens.Count(token => token.Word == "clmgf"));
+        Assert.Equal(2, tokens.Count(token => token.Word == "clmrg"));
         Assert.Contains(tokens, token => token.Word == "trwWidth" && token.Number == 2880);
         Assert.Contains(tokens, token => token.Word == "clwWidth" && token.Number == 1440);
         Assert.Contains(tokens, token => token.Word == "b" && token.Number == 1);

@@ -195,6 +195,7 @@ public sealed record RichTextRangeChange : RichTextChange
 /// </summary>
 public sealed class RichTextChangeSet
 {
+    internal bool RequiresStructuredProjection { get; init; }
     internal RichTextChangeSet(
         long versionBefore,
         long versionAfter,

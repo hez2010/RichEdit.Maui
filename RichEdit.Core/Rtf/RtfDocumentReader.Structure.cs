@@ -39,7 +39,6 @@ internal sealed partial class RtfDocumentReader
     {
         var level = Math.Max(1, _state.TableLevel);
         CloseTables(level);
-        _paragraph = null;
         TableFrame frame;
         if (_tables.Count != 0 && _tables[^1].Level == level) frame = _tables[^1];
         else
@@ -50,12 +49,15 @@ internal sealed partial class RtfDocumentReader
             frame = new(level, table, _container);
             _tables.Add(frame);
         }
-        if (_state.Destination == "nesttableprops" && frame.Row is { Complete: false } existing)
+        if (frame.Row is { Complete: false } existing)
         {
+            // RTF may repeat row descriptors after cell contents. WinUI needs
+            // these final descriptors to retain widths, merges, and shading.
             existing.Definitions.Clear();
+            frame.HorizontalContinue = frame.VerticalContinue = false;
             return;
         }
-        if (frame.Row is { Complete: false }) throw Error("A table row was not terminated");
+        _paragraph = null;
         var row = new Row();
         frame.Row = row;
         frame.Table.Rows.Add(row);

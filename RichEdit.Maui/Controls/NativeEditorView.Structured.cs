@@ -64,7 +64,11 @@ public partial class NativeEditorView
     {
         if (_deferNotifications || _synchronizingStructured) return;
         _synchronizingStructured = true;
-        try { SetSelectionsFromDocument(GetStructuredSelections()!); }
+        try
+        {
+            SetSelectionsFromDocument(GetStructuredSelections()!);
+            (Handler as RichEditorHandler)?.RefreshStructuredSelection();
+        }
         finally { _synchronizingStructured = false; }
     }
 
@@ -76,6 +80,19 @@ public partial class NativeEditorView
             new RichTextSelectionItem(RichTextDocument.ToStructuredSelection(projection, new(item.Anchor, item.Active)))
             { Id = item.Id, PreferredVisualX = item.PreferredVisualX }), Selections.PrimaryIndex);
         if (selection != session.Selection) session.Selection = selection;
+    }
+
+    private bool ReplaceStructuredSelections(string text)
+    {
+        if (IsReadOnly || Document.HasActiveComposition) return false;
+        return StructuredSession!.ReplaceSelection(text).Accepted;
+    }
+
+    internal bool DeleteStructuredCells()
+    {
+        if (StructuredSession?.Selection is not RichCellSelection || Composition.IsActive) return false;
+        ReplaceStructuredSelections("");
+        return true;
     }
 
     private TextSelectionSet? GetStructuredSelections()

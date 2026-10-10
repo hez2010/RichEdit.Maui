@@ -77,6 +77,22 @@ public sealed class RtfCodecTests
     }
 
     [Fact]
+    public async Task AdjacentTablesRetainSeparateIdentitiesWithoutAuthoringSpacerParagraphs()
+    {
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            var outer = edit.InsertTable(edit.Body, 1, 1, [new(3000)]);
+            var cell = edit.Snapshot.GetTableGrid(outer)[0, 0];
+            edit.InsertTable(cell, 1, 1, [new(1000)]);
+            edit.InsertTable(cell, 2, 1, [new(500), new(800)]);
+            edit.InsertTable(edit.Body, 2, 2, [new(700), new(900)]);
+            edit.DeleteBlock(new(2));
+        });
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal(Shape(snapshot), Shape(loaded));
+    }
+
+    [Fact]
     public async Task ImagesResourcesAnnotationsAndOrphansRoundTrip()
     {
         var document = new RichDocument(RichDocumentSnapshot.FromPlainText("abcdef\nsecond"));

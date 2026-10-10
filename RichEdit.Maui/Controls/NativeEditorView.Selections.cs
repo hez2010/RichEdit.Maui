@@ -124,6 +124,7 @@ public partial class NativeEditorView
         ArgumentNullException.ThrowIfNull(text);
         VerifyAccess();
         if (SourceSession is not null) return ReplaceSourceSelections(Selections.Select(_ => text).ToArray());
+        if (StructuredSession is not null) return ReplaceStructuredSelections(text);
         return ReplaceSelectionFragments(Selections.Select(_ => RichTextDocumentFragment.FromPlainText(text)).ToArray());
     }
 

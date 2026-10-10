@@ -36,6 +36,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     private bool _rtf;
     private bool _semantic;
     private bool _closed;
+    private bool _structuralGap;
     private long _offset;
     private CancellationToken _cancellation;
 
@@ -95,6 +96,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         }
         FlushBytes();
         if (!_rtf || !_closed) throw Error("Input is not a complete RTF document");
+        if (_structuralGap) throw Error("A structural RTF gap has no paragraph mark");
         CloseTables(0);
         if (!_semantic) while (_listStack.Count != 0 && _listStack.Peek().External) EndList();
         if (_listStack.Count != 0) throw Error("Unclosed semantic list");
@@ -169,6 +171,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     private void Text(string text)
     {
         if (_state.Destination == "skip" || text.Length == 0) return;
+        if (_structuralGap) throw Error("A structural RTF gap must be followed by its paragraph mark");
         _textLength = checked(_textLength + text.Length);
         if (_textLength > options.MaximumTextLength) throw Error("RTF text limit exceeded");
         if (_state.Capture is { } capture) { capture.Append(text); return; }

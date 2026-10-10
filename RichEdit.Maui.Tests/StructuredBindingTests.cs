@@ -6,6 +6,109 @@ namespace RichEdit.Maui.Tests;
 
 public sealed class StructuredBindingTests
 {
+    private static Microsoft.UI.Xaml.Window? _window;
+    [Fact]
+    public Task NativeTablesRemainStructuredThroughCellTypingUndoAndBoundaryInsertion() => WindowsTestHost.RunAsync(async () =>
+    {
+        RichNodeId table = default, paragraph = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            table = edit.InsertTable(edit.Body, 1, 2, (RichLength[])[new(1440), new(1440)]);
+            var snapshot = edit.Snapshot;
+            var grid = snapshot.GetTableGrid(table);
+            var labels = new[] { "alpha", "beta", "gamma", "delta" };
+            for (var row = 0; row < 2; row++)
+                for (var column = 0; column < 2; column++)
+                {
+                    var cellParagraph = snapshot.Get<RichTableCell>(grid[row, column]).Blocks[0];
+                    edit.ReplaceText(new(edit.Body, cellParagraph, 0), 0, labels[row * 2 + column]);
+                    if (row == 0 && column == 1) paragraph = cellParagraph;
+                }
+            edit.DeleteBlock(new(2));
+        }));
+        var view = new NativeEditorView();
+        view.BindStructuredDocument(document);
+        var handler = new RichEditorHandler();
+        handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
+        view.Handler = handler;
+        var window = _window ??= new Microsoft.UI.Xaml.Window();
+        window.Content = handler.ContainerView ?? handler.PlatformView;
+        window.Activate();
+        try
+        {
+            await Task.Delay(100);
+            view.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(new(document.CurrentSnapshot.Body, paragraph, 0), new(document.CurrentSnapshot.Body, paragraph, 4));
+            handler.PlatformView.Document.Selection.TypeText("BETA");
+            await Task.Delay(30);
+            Assert.Equal("alpha\tBETA\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Equal(2, document.CurrentSnapshot.GetTableGrid(table).Rows);
+            handler.PlatformView.Document.GetText(TextGetOptions.FormatRtf, out var rtf);
+            Assert.Equal(2, rtf.Split(@"\trowd", StringSplitOptions.None).Length - 1);
+            view.Undo();
+            Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+            handler.PlatformView.Document.Selection.EndKey(TextRangeUnit.Story, false);
+            await Task.Delay(30);
+            Assert.True(view.StructuredSession.Selection is RichBoundarySelection,
+                $"Native {handler.PlatformView.Document.Selection.StartPosition}:{handler.PlatformView.Document.Selection.EndPosition}; core {view.StructuredSession.Selection}; source {view.SelectionState}; mapped {handler.NativeProjection.IsStructured}");
+            handler.PlatformView.Document.Selection.TypeText("tail");
+            await Task.Delay(30);
+            Assert.Equal("alpha\tbeta\ngamma\tdelta\ntail", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Equal(2, document.CurrentSnapshot.Get<RichStory>(document.CurrentSnapshot.Body).Blocks.Count);
+            view.Undo();
+            Assert.Equal(2, document.CurrentSnapshot.GetTableGrid(table).Rows);
+            Assert.IsType<RichBoundarySelection>(view.StructuredSession.Selection);
+
+            view.StructuredSession.Selection = new RichCellSelection(table, 0, 0, 1, 2);
+            Assert.IsType<RichCellSelection>(view.StructuredSession.Selection);
+            handler.PlatformView.Document.GetText(TextGetOptions.FormatRtf, out var selectedRtf);
+            Assert.Contains(@"\clcbpat", selectedRtf);
+            Assert.Contains(@"\cellx1440", selectedRtf);
+            using var authored = new MemoryStream();
+            await RichEdit.Core.Rtf.RtfCodec.WriteAsync(document.CurrentSnapshot, authored);
+            Assert.DoesNotContain(@"\clcbpat", System.Text.Encoding.ASCII.GetString(authored.ToArray()));
+            Assert.True(view.SendKeyDown(EditorKey.Delete, EditorKeyModifiers.None));
+            await Task.Delay(30);
+            Assert.Equal("\t\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Equal(2, document.CurrentSnapshot.GetTableGrid(table).Columns);
+            view.Undo();
+            Assert.IsType<RichCellSelection>(view.StructuredSession.Selection);
+            Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+
+            var current = document.CurrentSnapshot;
+            var grid = current.GetTableGrid(table);
+            var alpha = current.Get<RichTableCell>(grid[0, 0]).Blocks[0];
+            view.StructuredSession.Selection = new RichTextSelectionSet(current, (RichTextSelectionItem[])[
+                new(new(new(current.Body, alpha, 5), new(current.Body, alpha, 5))),
+                new(new(new(current.Body, paragraph, 4), new(current.Body, paragraph, 4)))], 1);
+            handler.PlatformView.Document.Selection.TypeText("!");
+            await Task.Delay(30);
+            Assert.Equal("alpha!\tbeta!\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+            view.Undo();
+            Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Equal(2, Assert.IsType<RichTextSelectionSet>(view.StructuredSession.Selection).Count);
+            view.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(new(current.Body, paragraph, 2), new(current.Body, paragraph, 2));
+            var composing = typeof(RichEditorHandler).GetField("_isComposing", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var observe = typeof(RichEditorHandler).GetMethod("UpdateCompositionState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            try
+            {
+                composing.SetValue(handler, true);
+                observe.Invoke(handler, null);
+                handler.PlatformView.Document.Selection.TypeText("仮");
+                await Task.Delay(30);
+                Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+                Assert.Equal("alpha\tbe仮ta\ngamma\tdelta", view.StructuredSession.Composition!.Snapshot.ProjectText().Text.ToString());
+                typeof(RichEditorHandler).GetMethod("ReconcileCompositionSource", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(handler, null);
+                composing.SetValue(handler, false);
+                observe.Invoke(handler, null);
+                Assert.Equal("alpha\tbe仮ta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+                view.Undo();
+                Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+            }
+            finally { composing.SetValue(handler, false); view.DiscardComposition(); }
+        }
+        finally { window.Content = null; view.Handler = null; ((IElementHandler)handler).DisconnectHandler(); }
+    });
+
     [Fact]
     public Task NativeTypingPreservesRichStylesAcrossMultipleCaretsAndSharedUndo() => WindowsTestHost.RunAsync(async () =>
     {

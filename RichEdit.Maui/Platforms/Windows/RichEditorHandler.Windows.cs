@@ -105,6 +105,14 @@ public partial class RichEditorHandler
         _hasNativeLinks = false;
         _nativeTextSnapshot = null;
 
+        if (_structuredScratch is { } scratch)
+        {
+            scratch.Document.SetText(TextSetOptions.None, "");
+            scratch.Document.ClearUndoRedoHistory();
+            _structuredScratch = null;
+        }
+        _structuredNativeMap = null;
+
         base.DisconnectHandler(platformView);
     }
 

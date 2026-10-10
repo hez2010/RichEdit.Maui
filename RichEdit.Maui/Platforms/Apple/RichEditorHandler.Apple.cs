@@ -128,7 +128,16 @@ public partial class RichEditorHandler
             VirtualView?.Document.DefaultCharacterFormat);
         using var paragraphAttributes = CreateParagraphAttributes(paragraphFormat);
         using var attributes = new NSMutableDictionary(characterAttributes);
-        attributes.AddEntries(paragraphAttributes);
+        if (_structuredNativeMap is not null && PlatformView.TextStorage.Length > 0)
+        {
+            // RTF imports carry native NSTextTableBlock attributes. Keep the
+            // complete native paragraph style; a fresh style loses its cell.
+            var index = Math.Min((int)PlatformView.SelectedRange.Location, (int)PlatformView.TextStorage.Length - 1);
+            using var existing = PlatformView.TextStorage.GetAttributes(index, out _);
+            if (existing?[UIStringAttributeKey.ParagraphStyle] is { } nativeParagraph)
+                attributes[UIStringAttributeKey.ParagraphStyle] = nativeParagraph;
+        }
+        else attributes.AddEntries(paragraphAttributes);
         var current = PlatformView.TypingAttributes2;
         if (current is not null && current.Count == attributes.Count && attributes.Keys.All(key =>
             current[key] is { } prior && (prior, attributes[key]) switch

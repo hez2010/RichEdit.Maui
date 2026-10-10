@@ -22,7 +22,7 @@ internal sealed partial class RichTextDisplayProjection
     internal static RichTextDisplayProjection Empty { get; } = new([]);
     internal ImmutableArray<RichTextDisplayReservation> Reservations { get; }
 
-    internal bool IsEmpty => Reservations.IsEmpty && _lineEndings is null;
+    internal bool IsEmpty => Reservations.IsEmpty && _lineEndings is null && _structured is null;
 
     internal IEnumerable<(int Position, RichTextDisplayMarker Marker)> Markers => Reservations.SelectMany(static item =>
         item.Text.Select((character, offset) => (item.DisplayStart + offset, new RichTextDisplayMarker(item.Adornment, character))));
@@ -62,10 +62,11 @@ internal sealed partial class RichTextDisplayProjection
         return low;
     }
 
-    internal int ToDisplay(int position, bool after = true) => checked((_lineEndings?.ToDisplay(position, after) ?? position) + _prefixLengths[Bound(_sourcePositions, position, after)]);
+    internal int ToDisplay(int position, bool after = true) => _structured?.FromSource(position, after) ?? checked((_lineEndings?.ToDisplay(position, after) ?? position) + _prefixLengths[Bound(_sourcePositions, position, after)]);
 
     internal int ToSource(int position)
     {
+        if (_structured is { } rich) return rich.ToSource(position);
         var index = Bound(_displayStarts, position, false) - 1;
         var offset = index < 0 ? Math.Max(0, position) : position - _prefixLengths[index] - Math.Min(position - Reservations[index].DisplayStart, Reservations[index].Text.Length);
         return _lineEndings?.ToSource(Math.Clamp(offset, 0, _lineEndings.Display.Length)) ?? offset;
@@ -114,6 +115,12 @@ internal sealed partial class RichTextDisplayProjection
 
     internal string SourceText(string displayText, int displayStart = 0)
     {
+        if (_structured is { } rich)
+        {
+            var sourceStart = rich.ToSource(displayStart);
+            var sourceEnd = rich.ToSource(displayStart + displayText.Length);
+            return rich.TextProjection.Text.GetText(new(sourceStart, Math.Max(0, sourceEnd - sourceStart)));
+        }
         if (_lineEndings is not null)
         {
             var start = ToSource(displayStart);
@@ -197,6 +204,7 @@ internal sealed partial class RichTextDisplayProjection
 
     internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot, double viewportWidth)
     {
+        if (_structured is { } rich) return NativeDescription(rich);
         if (_lineEndings is not null)
         {
             var normalized = RichTextDocumentSnapshot.CreateSourceProjection(_lineEndings.Display)
@@ -287,6 +295,7 @@ internal sealed partial class RichTextDisplayProjection
 
     internal RichTextDocumentSnapshot Unproject(RichTextDocumentSnapshot snapshot)
     {
+        if (_structured is { } rich) return RichTextDocumentSnapshot.CreateStructuredProjection(rich.TextProjection);
         if (_lineEndings is not null)
         {
             var normalized = WithoutLineEndings().Unproject(snapshot);

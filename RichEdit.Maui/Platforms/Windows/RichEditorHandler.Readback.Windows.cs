@@ -235,6 +235,17 @@ public partial class RichEditorHandler
         var selection = PlatformView.Document.Selection;
         var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
         var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
+        if (_structuredNativeMap is not null)
+        {
+            UpdateCompositionState();
+            if (TryReadStructuredNativeChange(ReadNativeStoryText(PlatformView.Document),
+                (selection.Options & SelectionOptions.StartActive) != 0 ? new(nativeEnd, nativeStart) : new(nativeStart, nativeEnd)))
+            {
+                PlatformView.Document.ClearUndoRedoHistory();
+                VirtualView.UpdateUndoStateFromPlatform();
+                return;
+            }
+        }
         RichTextDocumentSnapshot document;
         int start;
         int end;
@@ -499,6 +510,11 @@ public partial class RichEditorHandler
         var selection = PlatformView.Document.Selection;
         var nativeStart = Math.Min(selection.StartPosition, selection.EndPosition);
         var nativeEnd = Math.Max(selection.StartPosition, selection.EndPosition);
+        if (_structuredNativeMap is { } rich)
+        {
+            if (ReadNativeStoryText(PlatformView.Document) != rich.NativeText) return;
+            if (TryUpdateStructuredSelection((selection.Options & SelectionOptions.StartActive) != 0 ? new(nativeEnd, nativeStart) : new(nativeStart, nativeEnd))) return;
+        }
         var start = nativeStart;
         var end = nativeEnd;
         if (_hasNativeLinks)

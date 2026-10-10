@@ -8,17 +8,28 @@ namespace RichEdit.Core.Rtf;
 // enters through RtfCodec so fidelity assessment happens before output begins.
 internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream output,
     string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null, bool semantic = false,
-    Func<RichNodeId, bool, string?>? marker = null, Func<string, string>? nativeText = null)
+    Func<RichNodeId, bool, string?>? marker = null, Func<string, string>? nativeText = null,
+    RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null)
 {
     private readonly RtfOutput _output = new(output);
     private readonly Dictionary<string, int> _fonts = new(StringComparer.Ordinal);
     private readonly Dictionary<RichColor, int> _colors = [];
     private readonly Dictionary<RichNodeId, int> _lists = [];
     private CancellationToken _cancellation;
+    private readonly HashSet<RichNodeId> _selectedCells = [];
 
     internal async Task WriteAsync(CancellationToken cancellationToken = default)
     {
         _cancellation = cancellationToken;
+        if (!semantic && selectedCells is { } selection)
+        {
+            var grid = snapshot.GetTableGrid(selection.Table);
+            selection = grid.Expand(selection);
+            for (var row = selection.Row; row < selection.Row + selection.RowCount; row++)
+                for (var column = selection.Column; column < selection.Column + selection.ColumnCount; column++) _selectedCells.Add(grid[row, column]);
+            Color(selectionBackground ?? new RichColor(0, 120, 215));
+            Color(selectionForeground ?? new RichColor(255, 255, 255));
+        }
         _fonts.Add(fallbackFont, 0);
         if (marker is not null) Font("Arial");
         foreach (var list in snapshot.Nodes.Values.OfType<RichList>()) _lists.Add(list.Id, _lists.Count + 1);
@@ -66,6 +77,18 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         {
             _cancellation.ThrowIfCancellationRequested();
             var terminate = terminateLast || index + 1 < blocks.Count;
+            if (index > 0 && snapshot.Get<RichNode>(blocks[index - 1]) is RichTable && snapshot.Get<RichNode>(blocks[index]) is RichTable)
+            {
+                // Standard RTF needs a non-table paragraph between independent
+                // adjacent tables. The marker identifies this structural gap;
+                // it is not an authored paragraph in the document model.
+                await C("pard");
+                if (tableLevel > 0) { await C("intbl"); await C("itap", tableLevel); }
+                await Character(snapshot.DefaultCharacter.Apply(new()));
+                if (semantic) await S(@"{\*\regap}");
+                if (marker?.Invoke(blocks[index - 1], true) is { } boundary) await ProjectionMarker(boundary);
+                await C("par");
+            }
             switch (snapshot.Get<RichBlock>(blocks[index]))
             {
                 case RichParagraph paragraph: await Paragraph(paragraph, tableLevel, terminate, listContext, index == 0); break;
@@ -104,7 +127,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         if (format.HeadingLevel is { } heading) await C("outlinelevel", heading - 1);
         if (format.Background is { } background) { await C("shading", 10000); await C("cfpat", _colors[background]); }
         if (firstInItem && list is not null) { await C("ls", _lists[list.Id]); await C("ilvl", 0); }
-        await Character(snapshot.Styles.ResolveCharacter(paragraph.Style, defaults: snapshot.DefaultCharacter, paragraphDirect: paragraph.Character));
+        await Character(SelectionAppearance(paragraph.Id, snapshot.Styles.ResolveCharacter(paragraph.Style, defaults: snapshot.DefaultCharacter, paragraphDirect: paragraph.Character)));
         if (semantic)
         {
             if (paragraph.Style is { } style) await C("s", style.Value);
@@ -117,7 +140,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         {
             var inline = snapshot.Get<RichInline>(id);
             await S("{");
-            await Character(snapshot.ResolveCharacter(id));
+            await Character(SelectionAppearance(paragraph.Id, snapshot.ResolveCharacter(id)));
             if (semantic)
             {
                 if (inline.Style is { } style) await C("cs", style.Value);
@@ -217,7 +240,14 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 else { await C("pard"); await C("intbl"); await C("itap", level); }
                 await C(level == 1 ? "cell" : "nestcell");
             }
-            if (level == 1) await C("row");
+            if (level == 1)
+            {
+                // Paragraph resets inside cells can replace RichEdit's pending
+                // row properties. Repeat the descriptor at the row terminator;
+                // this is standard RTF and retains widths, merges, and shading.
+                await RowProperties(row);
+                await C("row");
+            }
             else
             {
                 await S(@"{\*\nesttableprops ");
@@ -247,6 +277,12 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 if (extent.RowCount > 1) await C(extent.Row == row ? "clvmgf" : "clvmrg");
                 await C("clftsWidth", 3);
                 await C("clwWidth", table.Columns[column].Twips);
+                if (IsSelectedCell(grid[row, column]))
+                {
+                    await C("clshdng", 10000);
+                    await C("clcfpat", _colors[selectionBackground ?? new RichColor(0, 120, 215)]);
+                    await C("clcbpat", _colors[selectionBackground ?? new RichColor(0, 120, 215)]);
+                }
                 await C("cellx", boundaries[column]);
             }
         }
@@ -336,6 +372,14 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
     }
 
     private void Font(string? name) { if (name is not null && !_fonts.ContainsKey(name)) _fonts.Add(name, _fonts.Count); }
+    private bool IsSelectedCell(RichNodeId id)
+    {
+        if (_selectedCells.Count == 0) return false;
+        for (var node = snapshot.Get<RichNode>(id); ; node = snapshot.Get<RichNode>(node.Parent!.Value))
+        { if (_selectedCells.Contains(node.Id)) return true; if (node.Parent is null) return false; }
+    }
+    private ResolvedCharacterStyle SelectionAppearance(RichNodeId paragraph, ResolvedCharacterStyle format) =>
+        IsSelectedCell(paragraph) ? format with { Foreground = selectionForeground ?? new RichColor(255, 255, 255) } : format;
     private void Color(RichColor? color) { if (color is { } value && !_colors.ContainsKey(value)) _colors.Add(value, _colors.Count + 1); }
     private int Index(RichColor? color) => color is { } value ? _colors[value] : 0;
     private ValueTask S(string syntax) => _output.SyntaxAsync(syntax, _cancellation);

@@ -16,7 +16,11 @@ public sealed partial class RichTextDocumentSnapshot
         foreach (var projected in projection.Paragraphs)
         {
             var paragraph = snapshot.Get<RichParagraph>(projected.Paragraph);
-            paragraphs.Add(new(projected.Range.Start, ToNative(snapshot.ResolveParagraph(paragraph.Id))));
+            // This flat description addresses shared presentation APIs. Cell
+            // paragraphs retain their own formats in the structured/native map;
+            // a tab in this explicit projection is not a paragraph terminator.
+            if (projected.Range.Start == 0 || projection.Text.GetText(new(projected.Range.Start - 1, 1)) == "\n")
+                paragraphs.Add(new(projected.Range.Start, ToNative(snapshot.ResolveParagraph(paragraph.Id))));
             var position = projected.Range.Start;
             foreach (var id in paragraph.Inlines)
             {

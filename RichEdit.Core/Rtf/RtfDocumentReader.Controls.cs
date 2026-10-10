@@ -8,6 +8,7 @@ internal sealed partial class RtfDocumentReader
     private void Control(string word, int? number)
     {
         if (_state.Destination == "skip") return;
+        if (_structuralGap && word != "par") throw Error("A structural RTF gap must be followed by its paragraph mark");
         var n = number ?? 1;
         if (Destination(word)) { _state.AtStart = false; return; }
         if (_state.AtStart && _state.Ignorable && word != "remodel" && !(word == "cs" && _state.Destination == "stylesheet"))
@@ -30,7 +31,9 @@ internal sealed partial class RtfDocumentReader
             case "u": if (n is < short.MinValue or > ushort.MaxValue) throw Error("Invalid Unicode code unit"); Text(((char)(ushort)n).ToString()); _fallback = _state.UnicodeSkip; return;
             case "tab": if (_fallback > 0) _fallback--; else Text("\t"); return;
             case "line": if (_state.Capture is not null) Text("\u2028"); else SoftBreak(); return;
-            case "par": if (_state.Capture is not null) Text("\n"); else EndParagraph(); return;
+            case "par":
+                if (_structuralGap) { _structuralGap = false; return; }
+                if (_state.Capture is not null) Text("\n"); else EndParagraph(); return;
             case "emdash": Text("—"); return;
             case "endash": Text("–"); return;
             case "bullet": Text("•"); return;
@@ -144,6 +147,7 @@ internal sealed partial class RtfDocumentReader
             case "nesttableprops": SetDestination(word); _state.Capture = null; return true;
             case "reasset": SetDestination(word); _state.ResourceOnly = true; return true;
             case "reorphan": SetDestination(word); _state.Orphan = true; return true;
+            case "regap": SetDestination(word); return true;
             case "pict": SetDestination(word); _state.Picture = new(); _state.Capture = null; return true;
             case "blipuid": case "sn": case "sv": SetDestination(word); _state.Capture = new(); return true;
             case "picprop": case "sp": SetDestination(word); return true;
@@ -226,6 +230,11 @@ internal sealed partial class RtfDocumentReader
                 break;
             case "defchp": _defaultCharacter = child.Character; break;
             case "defpap": _defaultParagraph = child.Paragraph; break;
+            case "regap":
+                if (_paragraph is not null) throw Error("A structural gap cannot split an authored paragraph");
+                CloseTables(_state.InTable ? Math.Max(1, _state.TableLevel) : 0);
+                _structuralGap = true;
+                break;
             case "listoverride": _listOverrides[child.ListOverride] = child.ListId; break;
             case "relistbegin": BeginList(child.ListOverride); break;
             case "relistitem": ListItem(); break;

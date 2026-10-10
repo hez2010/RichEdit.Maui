@@ -6,6 +6,68 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+#if WINDOWS || IOS || MACCATALYST
+        yield return new("structured native table editing retains rows and cell selections", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId table = default, beta = default;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                table = edit.InsertTable(edit.Body, 1, 2, (RichLength[])[new(1440), new(1440)]);
+                var snapshot = edit.Snapshot;
+                var grid = snapshot.GetTableGrid(table);
+                var labels = new[] { "alpha", "beta", "gamma", "delta" };
+                for (var row = 0; row < 2; row++)
+                    for (var column = 0; column < 2; column++)
+                    {
+                        var paragraph = snapshot.Get<RichTableCell>(grid[row, column]).Blocks[0];
+                        edit.ReplaceText(new(edit.Body, paragraph, 0), 0, labels[row * 2 + column]);
+                        if (row == 0 && column == 1) beta = paragraph;
+                    }
+                edit.DeleteBlock(new(2));
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(new(model.CurrentSnapshot.Body, beta, 0), new(model.CurrentSnapshot.Body, beta, 4));
+                NativeMultiInsert(editor, "BETA");
+                Equal("alpha\tBETA\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(2, model.CurrentSnapshot.GetTableGrid(table).Rows);
+                editor.Undo();
+                Equal("alpha\tbeta\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+                var before = model.CurrentSnapshot;
+                editor.StructuredSession.Selection = new RichCellSelection(table, 0, 0, 1, 2);
+                Equal(true, ReferenceEquals(before, model.CurrentSnapshot));
+                Equal(true, editor.SendKeyDown(EditorKey.Delete, EditorKeyModifiers.None));
+                Equal("\t\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(2, model.CurrentSnapshot.GetTableGrid(table).Columns);
+                editor.Undo();
+                Equal(true, editor.StructuredSession.Selection is RichCellSelection);
+                editor.StructuredSession.Selection = new RichBoundarySelection(model.CurrentSnapshot.Body, table, RichBlockEdge.After);
+                NativeMultiInsert(editor, "tail");
+                Equal("alpha\tbeta\ngamma\tdelta\ntail", model.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.Undo();
+                Equal(1, model.CurrentSnapshot.Get<RichStory>(model.CurrentSnapshot.Body).Blocks.Count);
+#if IOS || MACCATALYST
+                editor.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(new(model.CurrentSnapshot.Body, beta, 2), new(model.CurrentSnapshot.Body, beta, 2));
+                editor.Focus();
+                await Task.Delay(100);
+                var committed = model.CurrentSnapshot;
+                var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+                native.SetMarkedText("仮名", new Foundation.NSRange(1, 0));
+                Equal(true, ReferenceEquals(committed, model.CurrentSnapshot));
+                Equal("alpha\tbe仮名ta\ngamma\tdelta", editor.StructuredSession.Composition!.Snapshot.ProjectText().Text.ToString());
+                Equal(3, ((RichEdit.Core.RichTextSelection)editor.StructuredSession.Composition.Selection).Active.Offset);
+                native.UnmarkText();
+                Equal("alpha\tbe仮名ta\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.Undo();
+                Equal("alpha\tbeta\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+#endif
+                await Task.Delay(30);
+            }
+            finally { editor.DiscardComposition(); editor.Document = previous; }
+        });
+#endif
 #if ANDROID || IOS || MACCATALYST
         yield return new("structured binding native composition keeps the rich root provisional", async editor =>
         {

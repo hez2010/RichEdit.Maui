@@ -997,9 +997,9 @@ public partial class NativeEditorView : View
         var selection = new TextSelectionState(selections.Primary.Anchor, selections.Primary.Active);
         SetSelectionCore(selection, fromPlatform: true);
         var handler = Handler as IRichEditorHandler;
-        if (handler is not null && !ReferenceEquals(changeSet.SourceToken, handler.SourceToken))
+        if (handler is not null && (changeSet.RequiresStructuredProjection || !ReferenceEquals(changeSet.SourceToken, handler.SourceToken)))
         {
-            if (changeSet.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
+            if (changeSet.RequiresStructuredProjection || changeSet.Changes.Any(static change => change.Kind == RichTextChangeKind.Reset))
                 handler.ApplyDocument(selection.Range, _typingCharacterFormat, _typingParagraphFormat);
             else
                 handler.ApplyChanges(changeSet, selection.Range, _typingCharacterFormat, _typingParagraphFormat);

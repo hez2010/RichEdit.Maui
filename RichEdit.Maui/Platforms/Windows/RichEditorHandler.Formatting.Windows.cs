@@ -185,6 +185,7 @@ public partial class RichEditorHandler
                 nativeCharacterFormat,
                 DisplaySourceSnapshot.ResolveCharacterFormat(characterFormat));
             nativeDocument.Selection.CharacterFormat.SetClone(nativeCharacterFormat);
+            if (_structuredNativeMap is not null) return;
             var nativeParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
             ApplyParagraphFormat(nativeParagraphFormat, paragraphFormat);
             nativeDocument.Selection.ParagraphFormat.SetClone(nativeParagraphFormat);

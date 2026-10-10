@@ -38,9 +38,11 @@ public sealed partial class RichTextDocument
         var before = _snapshot;
         StructuredProjection = change.After.ProjectText();
         _snapshot = RichTextDocumentSnapshot.CreateStructuredProjection(StructuredProjection);
+        var structural = change.Before.Nodes.Values.Any(node => node is RichTable or RichList or RichField) || change.After.Nodes.Values.Any(node => node is RichTable or RichList or RichField);
         _lastStructuredChange = new(before.Version, _snapshot.Version, (RichTextChangeOrigin)change.Options.Origin,
-            [.. CreateDelta(before, _snapshot)], change.Options.Tag, _structuredOrigin, before, _snapshot, undoDescription: change.Options.Description)
-        { NativeCorrections = _structuredCorrections };
+            [.. CreateDelta(before, _snapshot)],
+            change.Options.Tag, _structuredOrigin, before, _snapshot, undoDescription: change.Options.Description)
+        { NativeCorrections = _structuredCorrections, RequiresStructuredProjection = structural };
         InvalidateRtfCache();
         RaiseChanged(_lastStructuredChange, before, undoStateChanged: true);
     }

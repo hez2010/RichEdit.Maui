@@ -65,19 +65,23 @@ internal sealed class StructuredRichNativeMap
                 }
                 paragraphs.Add(new(node.Id, offsets[(node.Id, false)], offsets[(node.Id, true)], segments.ToImmutable()));
             }
-            return (new(Snapshot, text.ToString(), paragraphs.OrderBy(paragraph => paragraph.Start).ToImmutableArray()), removals.ToImmutable());
+            var boundaries = offsets.Where(pair => pair.Key.Item2 && Snapshot.Get<RichNode>(pair.Key.Item1) is RichTable)
+                .ToImmutableDictionary(pair => pair.Key.Item1, pair => pair.Value);
+            return (new(Snapshot, text.ToString(), paragraphs.OrderBy(paragraph => paragraph.Start).ToImmutableArray(), boundaries), removals.ToImmutable());
         }
     }
 
     private readonly ImmutableDictionary<RichNodeId, Paragraph> _paragraphs;
     private readonly ImmutableArray<Paragraph> _ordered;
     private readonly RichTextProjection _text;
-    private StructuredRichNativeMap(RichDocumentSnapshot snapshot, string nativeText, ImmutableArray<Paragraph> paragraphs)
-    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = snapshot.ProjectText(); }
+    private readonly ImmutableDictionary<RichNodeId, int> _boundaries;
+    private StructuredRichNativeMap(RichDocumentSnapshot snapshot, string nativeText, ImmutableArray<Paragraph> paragraphs, ImmutableDictionary<RichNodeId, int> boundaries)
+    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = snapshot.ProjectText(); _boundaries = boundaries; }
     internal RichDocumentSnapshot Snapshot { get; }
     internal string NativeText { get; }
     internal ImmutableArray<Paragraph> Paragraphs => _ordered;
     internal RichTextProjection TextProjection => _text;
+    internal int? BoundaryPosition(RichBoundarySelection boundary) => boundary.Edge == RichBlockEdge.After && _boundaries.TryGetValue(boundary.Block, out var offset) ? offset : null;
 
     internal int FromSource(int offset, bool after = true)
     {
@@ -100,6 +104,9 @@ internal sealed class StructuredRichNativeMap
     internal RichSelection SelectionFromNative(TextSelectionState selection)
     {
         selection.Range.Validate(NativeText.Length);
+        if (selection.Range.IsEmpty)
+            foreach (var boundary in _boundaries)
+                if (boundary.Value == selection.Active) return new RichBoundarySelection(Snapshot.Body, boundary.Key, RichBlockEdge.After);
         var anchor = ToRich(selection.Anchor);
         var active = ToRich(selection.Active);
         var body = Snapshot.Get<RichStory>(Snapshot.Body);
@@ -138,7 +145,9 @@ internal sealed class StructuredRichNativeMap
         }
     }
 
-    internal static async Task<Prepared> PrepareAsync(RichDocumentSnapshot snapshot, CancellationToken cancellationToken = default)
+    internal static async Task<Prepared> PrepareAsync(RichDocumentSnapshot snapshot, CancellationToken cancellationToken = default,
+        string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null,
+        RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var prefix = "RichMap" + Guid.NewGuid().ToString("N") + ":";
@@ -150,12 +159,13 @@ internal sealed class StructuredRichNativeMap
             prefix = "RichMap" + Guid.NewGuid().ToString("N") + ":";
         var markers = ImmutableArray.CreateBuilder<Marker>();
         using var stream = new MemoryStream();
-        await new RtfProjectionWriter(snapshot, stream, marker: (node, end) =>
+        await new RtfProjectionWriter(snapshot, stream, fallbackFont, fallbackSize, fallbackColor, marker: (node, end) =>
         {
             var marker = new Marker(node, end, prefix + markers.Count + ":");
             markers.Add(marker);
             return marker.Text;
-        }, nativeText: NativeLiteralText).WriteAsync(cancellationToken).ConfigureAwait(false);
+        }, nativeText: NativeLiteralText, selectedCells: selectedCells, selectionBackground: selectionBackground,
+            selectionForeground: selectionForeground).WriteAsync(cancellationToken).ConfigureAwait(false);
         return new(Encoding.ASCII.GetString(stream.GetBuffer(), 0, checked((int)stream.Length)), markers.ToImmutable(), snapshot, prefix);
     }
 

@@ -144,7 +144,8 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
         }
     }
 
-    void IRichEditorHandler.SetSelection(TextSelectionState selection) => SetNativeSelectionCore(NativeProjection.ToDisplay(selection));
+    void IRichEditorHandler.SetSelection(TextSelectionState selection) => SetNativeSelectionCore(
+        _structuredNativeMap is not null ? StructuredNativeSelection() : NativeProjection.ToDisplay(selection));
 
     void IRichEditorHandler.ScrollIntoView(TextSpan range) => ScrollIntoViewCore(NativeProjection.ToDisplay(range));
 

@@ -55,6 +55,7 @@ public partial class NativeEditorView
 
     private bool HandleSelectionKey(EditorKey key, EditorKeyModifiers modifiers)
     {
+        if (modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete && DeleteStructuredCells()) return true;
         if (modifiers == (EditorKeyModifiers.Control | EditorKeyModifiers.Alt) && key is EditorKey.Up or EditorKey.Down)
             return key == EditorKey.Up ? AddCaretAbove() : AddCaretBelow();
         if (Selections.Count < 2)
