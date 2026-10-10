@@ -23,7 +23,7 @@ public sealed partial class CodeEditor
     {
         if (IsReadOnly)
             return;
-        var edits = new List<RichTextEdit>();
+        var edits = new List<TextReplacement>();
         foreach (var selection in Selections)
         {
             var range = new TextSpan(selection.Range.Start, selection.Range.Length);
@@ -53,7 +53,7 @@ public sealed partial class CodeEditor
         if (IsReadOnly)
             return;
 
-        var edits = new List<RichTextEdit>();
+        var edits = new List<TextReplacement>();
         foreach (var line in SelectedSourceLines())
         {
             var range = Lines.GetRange(line);
@@ -77,8 +77,8 @@ public sealed partial class CodeEditor
         if (IsReadOnly)
             return;
 
-        ApplyEdits(Selections.Select(selection => new RichTextEdit(
-            new(selection.Range.Start, selection.Range.Length), "\n" + (AutoIndent ? GetIndentation(selection.Range.Start) : string.Empty))).ToArray(), "New line");
+        ApplyEdits(Selections.Select(selection => new TextReplacement(
+            new(selection.Range.Start, selection.Range.Length), NewLine + (AutoIndent ? GetIndentation(selection.Range.Start) : string.Empty))).ToArray(), "New line");
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>
@@ -100,7 +100,7 @@ public sealed partial class CodeEditor
 
         var uncomment = targets.Count > 0 && targets.All(range =>
             Document.CurrentSnapshot.GetText(new(range.Start, Math.Min(range.Length, LineCommentPrefix.Length))) == LineCommentPrefix);
-        var edits = new List<RichTextEdit>();
+        var edits = new List<TextReplacement>();
         foreach (var range in targets)
         {
             if (uncomment)
@@ -189,17 +189,16 @@ public sealed partial class CodeEditor
         }
     }
 
-    private bool ApplyEdits(IReadOnlyList<RichTextEdit> edits, string description,
-        RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit) =>
-            TryApplyEdits(Document.Revision, edits, options: new RichTextEditOptions(undoBehavior, description));
+    private bool ApplyEdits(IReadOnlyList<TextReplacement> edits, string description) =>
+        TryApplyEdits(Document.Revision, edits, options: new TextEditOptions(description));
 
-    /// <summary>Applies a checked source edit through the shared rich-editor transaction mechanism.</summary>
+    /// <summary>Applies a checked source edit through its source session.</summary>
     /// <param name="revision">The captured source revision.</param>
     /// <param name="edits">Original-coordinate source replacements.</param>
     /// <param name="selectionAfter">The resulting directional selection, or null to map the current selection.</param>
     /// <param name="options">Undo and application metadata.</param>
     /// <returns>Whether the current view accepted the revision and edits.</returns>
-    public bool TryApplyEdits(DocumentRevision revision, IReadOnlyList<RichTextEdit> edits,
-        TextSelectionState? selectionAfter = null, RichTextEditOptions options = default) =>
-            TextView.TryApplyEdits(revision, edits, selectionAfter, options);
+    public bool TryApplyEdits(DocumentRevision revision, IReadOnlyList<TextReplacement> edits,
+        TextSelectionState? selectionAfter = null, TextEditOptions options = default) =>
+            TextView.TryApplySourceEdits(revision, edits, selectionAfter, options);
 }

@@ -153,19 +153,19 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     public RichTextDocumentSnapshot CurrentSnapshot => _snapshot;
 
     /// <summary>Gets whether a recorded edit can be undone.</summary>
-    public bool CanUndo => _undo.Count != 0 && !IsUndoGroupOpen;
+    public bool CanUndo => SourceDocument?.CanUndo ?? (_undo.Count != 0 && !IsUndoGroupOpen);
 
     /// <summary>Gets whether an undone edit can be reapplied.</summary>
-    public bool CanRedo => _redo.Count != 0 && !IsUndoGroupOpen;
+    public bool CanRedo => SourceDocument?.CanRedo ?? (_redo.Count != 0 && !IsUndoGroupOpen);
 
     /// <summary>Gets the description of the next undo operation.</summary>
-    public string? UndoDescription => CanUndo ? _undo.Peek().Description : null;
+    public string? UndoDescription => SourceDocument is { } source ? source.UndoDescription : CanUndo ? _undo.Peek().Description : null;
 
     /// <summary>Gets the description of the next redo operation.</summary>
-    public string? RedoDescription => CanRedo ? _redo.Peek().Description : null;
+    public string? RedoDescription => SourceDocument is { } source ? source.RedoDescription : CanRedo ? _redo.Peek().Description : null;
 
     /// <summary>Gets whether the current content differs from the last marked saved state.</summary>
-    public bool IsModified => _stateId != _savedStateId;
+    public bool IsModified => SourceDocument?.IsModified ?? (_stateId != _savedStateId);
 
     /// <summary>Captures the current content state before saving its snapshot.</summary>
     /// <returns>A save point belonging to this document.</returns>
@@ -203,7 +203,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     }
 
     /// <summary>Gets whether an explicit undo group is open.</summary>
-    public bool IsUndoGroupOpen => _undoGroups.Count != 0;
+    public bool IsUndoGroupOpen => SourceDocument?.IsUndoGroupOpen ?? (_undoGroups.Count != 0);
 
     /// <summary>Groups subsequent recorded edits into one undo unit.</summary>
     /// <remarks>
@@ -358,6 +358,8 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         VerifyNoActiveEdit();
         VerifyCompositionAccess(sourceToken);
         var changes = recordedChanges ?? CreateDelta(_snapshot, snapshot);
+        if (SourceDocument is not null)
+            return CommitSourceChanges(changes, new(), origin, sourceToken, nativeCorrections);
         var completesProjection = projectedVersion == Version && _undo.TryPeek(out var projectedEdit) && projectedEdit.After.Version == Version;
         var undoBehavior = nativeUndoOwned
             ? RichTextUndoBehavior.ClearHistory
@@ -387,6 +389,11 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
 
     internal void Undo(NativeEditorView? invokingEditor)
     {
+        if (SourceDocument is { } source)
+        {
+            if (invokingEditor?.SourceSession is { } session) session.Undo(); else source.Undo();
+            return;
+        }
         VerifyNoActiveEdit();
         VerifyCompositionAccess(null);
         if (IsUndoGroupOpen)
@@ -408,6 +415,11 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
 
     internal void Redo(NativeEditorView? invokingEditor)
     {
+        if (SourceDocument is { } source)
+        {
+            if (invokingEditor?.SourceSession is { } session) session.Redo(); else source.Redo();
+            return;
+        }
         VerifyNoActiveEdit();
         VerifyCompositionAccess(null);
         if (IsUndoGroupOpen)
@@ -426,6 +438,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     /// <summary>Clears undo and redo without changing content or its saved state.</summary>
     public void ClearUndoHistory()
     {
+        if (SourceDocument is { } source) { source.ClearHistory(); return; }
         VerifyNoActiveEdit();
         VerifyNoOpenUndoGroup();
         ResetNativeEditCoalescing();
@@ -454,13 +467,16 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         _editInProgress = true;
         try
         {
-            edit(transaction);
+            if (SourceDocument is { } source) source.Plan(() => { edit(transaction); return 0; });
+            else edit(transaction);
         }
         finally
         {
             _editInProgress = false;
         }
 
+        if (SourceDocument is not null)
+            return CommitSourceChanges(transaction.Changes, options, origin, sourceToken);
         return Commit(transaction.Snapshot, transaction.Changes, origin, options, sourceToken);
     }
 
@@ -731,7 +747,8 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         {
             // Complete internal synchronization before application callbacks, regardless
             // of when those callbacks subscribed to the document.
-            if (changeSet.Changes.Any(change => change.Kind == RichTextChangeKind.Reset))
+            if (SourceDocument is not null) { /* The source authority already mapped tracking. */ }
+            else if (changeSet.Changes.Any(change => change.Kind == RichTextChangeKind.Reset))
                 Tracking.InvalidateAll();
             else
                 Tracking.MapThrough(new PositionMap(previousSnapshot.Length, changeSet.Changes.OfType<RichTextTextChange>()
@@ -746,7 +763,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
             Notify(() => OnPropertyChanged(nameof(CurrentSnapshot)));
             Notify(() => OnPropertyChanged(nameof(RtfText)));
             Notify(() => OnPropertyChanged(nameof(IsModified)));
-            if (!string.Equals(previousSnapshot.Text, Text, StringComparison.Ordinal))
+            if (!ReferenceEquals(previousSnapshot.TextBuffer, _snapshot.TextBuffer))
             {
                 Notify(() => OnPropertyChanged(nameof(Length)));
                 Notify(() => OnPropertyChanged(nameof(Text)));
@@ -808,6 +825,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     private void VerifyNoActiveEdit()
     {
         VerifyAccess();
+        SourceDocument?.VerifyIdle();
         if (_editInProgress || _notificationInProgress)
         {
             throw new InvalidOperationException(
@@ -817,6 +835,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
 
     internal T PlanInput<T>(Func<T> plan)
     {
+        if (SourceDocument is { } source) return source.Plan(plan);
         VerifyNoActiveEdit();
         _editInProgress = true;
         try { return plan(); }

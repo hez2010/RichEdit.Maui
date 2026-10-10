@@ -44,7 +44,7 @@ public partial class NativeEditorView
                     new(change.OldRange.Start, change.OldRange.Length), change.InsertedText)), _committingComposition));
             if (MaxLength >= 0 && plan.Snapshot.Length > MaxLength && plan.Snapshot.Length > before.Length)
                 throw new InvalidOperationException("The complete input plan exceeds MaxLength.");
-            if (plan.Replacements.Any(edit => edit.Text.Contains('\r')))
+            if (SourceSession is null && plan.Replacements.Any(edit => edit.Text.Contains('\r')))
                 throw new ArgumentException("Rich-text input rules must use LF line endings.");
             var transaction = new RichTextDocumentEdit(candidate);
             foreach (var edit in plan.Replacements)

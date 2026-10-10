@@ -25,8 +25,8 @@ public sealed partial class CodeEditor : ContentView
             editor._document = requested;
             try
             {
-                editor.TextView.Document = requested.Source;
-                if (ReferenceEquals(editor.TextView.Document, requested.Source))
+                editor.TextView.BindSourceDocument(requested.Source);
+                if (ReferenceEquals(editor.TextView.SourceSession?.Document, requested.Source))
                     return requested;
 
                 editor._document = previous;
@@ -177,9 +177,9 @@ public sealed partial class CodeEditor : ContentView
             IsSpellCheckEnabled = false,
             IsTextPredictionEnabled = false,
             Keyboard = Keyboard.Create(KeyboardFlags.None),
-            Document = _document.Source,
         };
-        Selection = new CodeTextSelection(TextView.Selection);
+        TextView.BindSourceDocument(_document.Source);
+        Selection = new CodeTextSelection(this);
         InitializeSelections();
         TextView.Folding.Changed += (_, _) => InvalidateGutter();
         Commands = new CodeEditorCommands(this);
@@ -191,7 +191,8 @@ public sealed partial class CodeEditor : ContentView
         grid.Add(TextView, 1);
         Content = grid;
         InitializeObservation();
-        TextView.ContentChanged += OnContentChanged;
+        _document.Source.Changed += OnContentChanged;
+        TextView.ContentChanged += (_, _) => { NativeAdapter?.UpdateConfiguration(); UpdateLines(); };
         TextView.KeyDown += (_, args) => KeyDown?.Invoke(this, args);
         InitializeKeyBindings();
         TextView.InputRules.Register(PlanNativeAutoIndent);
@@ -238,11 +239,7 @@ public sealed partial class CodeEditor : ContentView
                 NativeAdapter = new CodeEditorNativeAdapter(this, handler);
             }
         };
-        TextView.Pasting += (_, args) =>
-        {
-            Pasting?.Invoke(this, args);
-            args.Fragment = RichTextDocumentFragment.FromPlainText(args.Fragment.Text);
-        };
+        TextView.SourcePasting += (_, args) => Pasting?.Invoke(this, args);
         SetValue(DocumentProperty, _document);
         UpdateLines();
         UpdateAppearance();
@@ -313,6 +310,18 @@ public sealed partial class CodeEditor : ContentView
     /// <summary>Gets or sets the prefix used by the native line-comment shortcut.</summary>
     public string LineCommentPrefix { get => (string)GetValue(LineCommentPrefixProperty); set => SetValue(LineCommentPrefixProperty, value); }
 
+    /// <summary>Gets or sets the line ending inserted by native Enter and newline commands. Existing source endings are preserved.</summary>
+    public string NewLine
+    {
+        get => TextView.SourceNewLine;
+        set
+        {
+            VerifyAccess();
+            if (value is not ("\n" or "\r\n" or "\r")) throw new ArgumentException("Use LF, CRLF, or CR.", nameof(value));
+            TextView.SourceNewLine = value;
+        }
+    }
+
     /// <summary>Gets the logical line count, including a trailing empty line.</summary>
     public int LineCount => Lines.Count;
 
@@ -338,19 +347,19 @@ public sealed partial class CodeEditor : ContentView
     public event EventHandler<EditorContextMenuEventArgs>? ContextMenuOpening;
 
     /// <summary>Occurs after an atomic source-document change.</summary>
-    public event EventHandler<RichTextContentChangedEventArgs>? ContentChanged;
+    public event EventHandler<TextDocumentChangedEventArgs>? ContentChanged;
 
     /// <summary>Occurs after a replacement source document is attached and view state is synchronized.</summary>
     public event EventHandler<CodeDocumentReplacedEventArgs>? DocumentChanged;
 
     /// <summary>Occurs after logical source text changes.</summary>
-    public event EventHandler<RichTextTextChangedEventArgs>? TextChanged;
+    public event EventHandler<TextDocumentChangedEventArgs>? TextChanged;
 
     /// <summary>Occurs after the caret or selection changes.</summary>
     public event EventHandler<RichTextSelectionChangedEventArgs>? SelectionChanged;
 
-    /// <summary>Occurs before paste. The accepted fragment is converted to plain text.</summary>
-    public event EventHandler<RichTextPastingEventArgs>? Pasting;
+    /// <summary>Occurs before committing plain source text from the clipboard.</summary>
+    public event EventHandler<TextPastingEventArgs>? Pasting;
 
     /// <summary>Focuses the native text surface.</summary>
     /// <returns>Whether the focus request succeeded.</returns>
@@ -386,8 +395,13 @@ public sealed partial class CodeEditor : ContentView
 
     private void SetDocument(CodeDocument? previous, CodeDocument document)
     {
+        if (!ReferenceEquals(previous, document))
+        {
+            if (previous is not null) previous.Source.Changed -= OnContentChanged;
+            document.Source.Changed += OnContentChanged;
+        }
         _document = document;
-        TextView.Document = document.Source;
+        TextView.BindSourceDocument(document.Source);
         NativeAdapter?.UpdateConfiguration();
         SynchronizeSelectionProperties();
         UpdateLines();
@@ -415,14 +429,13 @@ public sealed partial class CodeEditor : ContentView
             throw new InvalidOperationException("CodeEditor must be mutated on its owning UI thread.");
     }
 
-    private void OnContentChanged(object? sender, RichTextContentChangedEventArgs args)
+    private void OnContentChanged(object? sender, TextDocumentChangedEventArgs args)
     {
         NativeAdapter?.UpdateConfiguration();
         UpdateLines();
 
         ContentChanged?.Invoke(this, args);
-        if (args.ChangeSet.IsTextChanged)
-            TextChanged?.Invoke(this, new RichTextTextChangedEventArgs(args.ChangeSet));
+        TextChanged?.Invoke(this, args);
     }
 
     private void OnTextViewPropertyChanged(object? sender, PropertyChangedEventArgs args)

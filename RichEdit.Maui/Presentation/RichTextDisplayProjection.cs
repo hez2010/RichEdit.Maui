@@ -16,13 +16,13 @@ internal sealed record RichTextDisplayReservation(RichTextAdornment Adornment, i
 // character and its application view; it does not retain obsolete source offsets.
 internal readonly record struct RichTextDisplayMarker(RichTextAdornment Adornment, char Character);
 
-internal sealed class RichTextDisplayProjection
+internal sealed partial class RichTextDisplayProjection
 {
     internal static ImmutableArray<byte> TransparentPixel { get; } = [.. Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=")];
     internal static RichTextDisplayProjection Empty { get; } = new([]);
     internal ImmutableArray<RichTextDisplayReservation> Reservations { get; }
 
-    internal bool IsEmpty => Reservations.IsEmpty;
+    internal bool IsEmpty => Reservations.IsEmpty && _lineEndings is null;
 
     internal IEnumerable<(int Position, RichTextDisplayMarker Marker)> Markers => Reservations.SelectMany(static item =>
         item.Text.Select((character, offset) => (item.DisplayStart + offset, new RichTextDisplayMarker(item.Adornment, character))));
@@ -62,12 +62,13 @@ internal sealed class RichTextDisplayProjection
         return low;
     }
 
-    internal int ToDisplay(int position, bool after = true) => checked(position + _prefixLengths[Bound(_sourcePositions, position, after)]);
+    internal int ToDisplay(int position, bool after = true) => checked((_lineEndings?.ToDisplay(position, after) ?? position) + _prefixLengths[Bound(_sourcePositions, position, after)]);
 
     internal int ToSource(int position)
     {
         var index = Bound(_displayStarts, position, false) - 1;
-        return index < 0 ? Math.Max(0, position) : position - _prefixLengths[index] - Math.Min(position - Reservations[index].DisplayStart, Reservations[index].Text.Length);
+        var offset = index < 0 ? Math.Max(0, position) : position - _prefixLengths[index] - Math.Min(position - Reservations[index].DisplayStart, Reservations[index].Text.Length);
+        return _lineEndings?.ToSource(Math.Clamp(offset, 0, _lineEndings.Display.Length)) ?? offset;
     }
 
     internal int ToDisplayCaret(int position, bool afterInline = true)
@@ -113,6 +114,11 @@ internal sealed class RichTextDisplayProjection
 
     internal string SourceText(string displayText, int displayStart = 0)
     {
+        if (_lineEndings is not null)
+        {
+            var start = ToSource(displayStart);
+            return _lineEndings.Source.GetText(new(start, ToSource(displayStart + displayText.Length) - start));
+        }
         if (IsEmpty)
             return displayText;
 
@@ -139,15 +145,17 @@ internal sealed class RichTextDisplayProjection
 
     internal static RichTextDisplayProjection Create(NativeEditorView editor, double viewportWidth, ISet<RichTextAdornment>? included = null)
     {
-        var source = editor.Document.Text;
+        var lineEndings = editor.SourceSession is null ? null : ReferenceEquals(editor.InputSnapshot.TextBuffer, editor.Document.SourceLineEndings?.Source)
+            ? editor.Document.SourceLineEndings : new LfTextProjection(editor.InputSnapshot.TextBuffer);
+        var source = lineEndings?.Display.ToString() ?? editor.Document.Text;
         var candidates = new List<(RichTextAdornment Item, int Position, string Text, int Order)>();
         foreach (var item in editor.Adornments)
         {
             if (!item.ReservesSpace || !item.IsValid || included is not null && !included.Contains(item))
                 continue;
 
-            var position = item.Position;
-            if (editor.Folding.FindRange(position) is not null)
+            var position = lineEndings?.ToDisplay(item.Position) ?? item.Position;
+            if (editor.Folding.FindRange(lineEndings?.ToSource(position) ?? position) is not null)
                 continue;
 
             var text = "\uFFFC";
@@ -170,7 +178,7 @@ internal sealed class RichTextDisplayProjection
                         (position < source.Length && source[position] != '\n' ? "\n" : "");
                     break;
             }
-            if (editor.Folding.FindRange(position) is not null)
+            if (editor.Folding.FindRange(lineEndings?.ToSource(position) ?? position) is not null)
                 continue;
 
             candidates.Add((item, position, text, order));
@@ -184,11 +192,21 @@ internal sealed class RichTextDisplayProjection
             shift += text.Length;
         }
 
-        return new(entries);
+        return lineEndings is null ? new(entries) : new RichTextDisplayProjection(entries).WithLineEndings(lineEndings);
     }
 
     internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot, double viewportWidth)
     {
+        if (_lineEndings is not null)
+        {
+            var normalized = RichTextDocumentSnapshot.CreateSourceProjection(_lineEndings.Display)
+                .With(runs: snapshot.Runs.Select(run =>
+                {
+                    var range = _lineEndings.ToDisplay(new TextSpan(run.Start, run.Length));
+                    return new RichTextRun(range.Start, range.Length, run.Format);
+                }).Where(run => run.Length > 0)).WithVersion(snapshot.Version);
+            return WithoutLineEndings().Project(normalized, viewportWidth);
+        }
         if (IsEmpty)
             return snapshot;
 
@@ -269,6 +287,15 @@ internal sealed class RichTextDisplayProjection
 
     internal RichTextDocumentSnapshot Unproject(RichTextDocumentSnapshot snapshot)
     {
+        if (_lineEndings is not null)
+        {
+            var normalized = WithoutLineEndings().Unproject(snapshot);
+            return RichTextDocumentSnapshot.CreateSourceProjection(_lineEndings.Source).With(runs: normalized.Runs.Select(run =>
+            {
+                var start = _lineEndings.ToSource(run.Start);
+                return new RichTextRun(start, _lineEndings.ToSource(run.End) - start, run.Format);
+            }));
+        }
         if (IsEmpty)
             return snapshot;
 

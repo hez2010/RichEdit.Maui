@@ -40,7 +40,7 @@ public partial class CodeEditorTests
             editor.Document = new CodeDocument();
             features.InsertSnippet();
             Assert.Equal("name", editor.Selection.Text);
-            Assert.True(editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(editor.SelectedRange, "answer")]));
+            Assert.True(editor.TryApplyEdits(editor.Document.Revision, (TextReplacement[])[new(editor.SelectedRange, "answer")]));
             Assert.True(features.NextPlaceholder());
             Assert.Equal("value", editor.Selection.Text);
             Assert.True(features.NextPlaceholder(previous: true));
@@ -58,14 +58,14 @@ public partial class CodeEditorTests
     });
 
     [Fact]
-    public Task PlainTextLoadingNormalizesLineEndingsWithoutHistory() => WindowsTestHost.RunAsync(() =>
+    public Task PlainTextLoadingPreservesLineEndingsWithoutHistory() => WindowsTestHost.RunAsync(() =>
     {
         var editor = new CodeEditor { Document = CodeDocument.FromPlainText("a\r\nb\rc\n") };
-        Assert.Equal("a\nb\nc\n", editor.Document.Text);
+        Assert.Equal("a\r\nb\rc\n", editor.Document.Text);
         Assert.Equal(4, editor.LineCount);
         Assert.False(editor.CanUndo);
         Assert.Equal(0, editor.Document.Version);
-        Assert.Equal(new TextSpan(6, 0), editor.GetLineRange(3));
+        Assert.Equal(new TextSpan(7, 0), editor.GetLineRange(3));
     });
 
     [Fact]
@@ -194,7 +194,8 @@ public partial class CodeEditorTests
         var second = new CodeEditor();
         second.Document = first.Document;
         Assert.Same(first.Document, second.Document);
-        Assert.Same(first.Document.Source, second.TextView.Document);
+        Assert.Same(first.Document.Source, second.TextView.SourceSession!.Document);
+        Assert.Same(first.TextView.Document, second.TextView.Document);
         first.SelectedRange = new(0, 1);
         second.SelectedRange = new(4, 0);
         first.Selection.ReplaceText("O");
@@ -253,8 +254,9 @@ public partial class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture("public class C { return 42; }");
         var editor = fixture.Editor;
-        editor.TextView.Document.Edit(edit => edit.UpdateCharacterFormat(new TextSpan(2, 8),
-            format => format with { FontWeight = 700, BackgroundColor = Microsoft.Maui.Graphics.Colors.Yellow }));
+        using var layer = editor.TextView.Decorations.CreateLayer();
+        Assert.True(layer.TrySet(editor.Document.Revision, new[] { new RichTextDecoration(new(2, 8),
+            new() { FontWeight = 700, BackgroundColor = Microsoft.Maui.Graphics.Colors.Yellow }) }));
         var before = editor.TextView.Document.CurrentSnapshot;
         await editor.Coloring().RefreshAsync();
         Assert.Equal(TokenColor(editor, "keyword"), NativeColor(fixture, 0));
@@ -285,8 +287,8 @@ public partial class CodeEditorTests
             editor.Selection.ReplaceText("throw");
             editor.Undo();
             var selection = editor.SelectedRange;
-            var changes = new List<RichTextChangeSet>();
-            editor.ContentChanged += (_, args) => changes.Add(args.ChangeSet);
+            var changes = new List<TextDocumentChangedEventArgs>();
+            editor.ContentChanged += (_, args) => changes.Add(args);
 
             var timer = System.Diagnostics.Stopwatch.StartNew();
             await editor.Coloring().RefreshAsync();
@@ -326,8 +328,8 @@ public partial class CodeEditorTests
         var start = editor.Document.Text.LastIndexOf("class", StringComparison.Ordinal);
         var previousFormat = editor.TextView.Document.CurrentSnapshot.Runs.First(run => run.Range.Start <= start && run.Range.End > start).Format;
         editor.Document.Edit(edit => edit.ReplaceText(new TextSpan(start, 5), "other"));
-        var changes = new List<RichTextChangeSet>();
-        editor.ContentChanged += (_, args) => changes.Add(args.ChangeSet);
+        var changes = new List<TextDocumentChangedEventArgs>();
+        editor.ContentChanged += (_, args) => changes.Add(args);
         await editor.Coloring().RefreshAsync();
         Assert.Empty(changes);
         Assert.Equal(editor.TextColor!, NativeColor(fixture, start));

@@ -131,7 +131,7 @@ internal sealed partial class CodeColorizer : IDisposable
         }
     }
 
-    private void OnTextChanged(object? sender, RichTextTextChangedEventArgs args) => Schedule();
+    private void OnTextChanged(object? sender, TextDocumentChangedEventArgs args) => Schedule();
 
     private void OnDocumentChanged(object? sender, CodeDocumentReplacedEventArgs args)
     {

@@ -1051,11 +1051,11 @@ internal static partial class EditorContractTests
         {
             await Drain();
             native = NativeText(editor);
-            if (native == (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Text)
+            if (native == (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n'))
                 break;
         }
 
-        Equal(native, (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Text, "native projection");
+        Equal(native, (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n'), "native projection");
         Equal(true, editor.SelectedRange.Start >= 0 && editor.SelectedRange.End <= editor.Document.Length, "selection bounds");
         if (editor.CompositionSelection is { } provisional)
             Equal(true, provisional.Range.End <= (editor.CompositionSnapshot ?? editor.Document.CurrentSnapshot).Length, "provisional selection bounds");

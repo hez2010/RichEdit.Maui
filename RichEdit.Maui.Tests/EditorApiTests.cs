@@ -39,7 +39,7 @@ public partial class EditorApiTests
         var document = new CodeDocument("a");
         document.Edit(edit => edit.InsertText(1, "b"));
         var snapshot = document.CurrentSnapshot;
-        var point = document.CreateSavePoint();
+        var point = document.CaptureSave();
         document.Edit(edit => edit.InsertText(2, "c"));
         document.MarkSaved(point);
         Assert.Equal("ab", snapshot.Text);
@@ -57,8 +57,8 @@ public partial class EditorApiTests
     {
         var document = new CodeDocument("a");
         document.Edit(edit => edit.InsertText(1, "b"));
-        var saved = document.CreateSavePoint();
-        document.Edit(edit => edit.InsertText(2, "c"), new(RichTextUndoBehavior.MergeWithPrevious));
+        var saved = document.CaptureSave();
+        document.Edit(edit => edit.InsertText(2, "c"));
         document.MarkSaved(saved);
         document.Undo();
         Assert.Equal("ab", document.Text);

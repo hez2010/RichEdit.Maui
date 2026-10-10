@@ -6,7 +6,11 @@ public sealed partial class RichTextDocument
         RichTextDocumentSnapshot before,
         RichTextDocumentSnapshot after)
     {
-        if (before.ContentEquals(after))
+        var sourceOnly = before.IsSourceProjection && after.IsSourceProjection &&
+            before.Runs.All(run => run.Format == before.DefaultCharacterFormat) &&
+            after.Runs.All(run => run.Format == after.DefaultCharacterFormat);
+        if (ReferenceEquals(before, after) || sourceOnly && ReferenceEquals(before.TextBuffer, after.TextBuffer) ||
+            !before.IsSourceProjection && before.ContentEquals(after))
         {
             return [];
         }
@@ -35,6 +39,8 @@ public sealed partial class RichTextDocument
                 after.GetText(textNewRange));
             changes.Add(textChange);
         }
+
+        if (sourceOnly) return changes;
 
         if (FindRunDifference(after, before, textChange) is { } characterRange)
         {

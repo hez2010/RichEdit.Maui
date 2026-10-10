@@ -65,6 +65,11 @@ public partial class NativeEditorView
         _compositionDocument ??= Document;
         _compositionPreviewDocument ??= new RichTextDocument(Document.CurrentSnapshot);
         var changes = _compositionPreviewDocument.ReplaceSnapshotFromNative(snapshot, _previewSourceToken, nativeUndoOwned: true);
+        if (SourceSession?.Composition is { } composition)
+            composition.Update(edit =>
+            {
+                foreach (var change in changes.Changes.OfType<RichTextTextChange>()) edit.Replace(change.OldRange, change.InsertedText);
+            }, new(selection.Anchor, selection.Active));
         _compositionPositionChanges.AddRange(changes.Changes.Where(change => change.Kind == RichTextChangeKind.Text));
         _compositionSnapshot = _compositionPreviewDocument.CurrentSnapshot.With();
         _compositionSelection = selection;
@@ -77,6 +82,7 @@ public partial class NativeEditorView
 
     private void CommitComposition()
     {
+        SourceSession?.Composition?.Cancel();
         var snapshot = _compositionSnapshot;
         var selection = _compositionSelection ?? SelectionState;
         var token = _compositionSourceToken;
@@ -129,6 +135,7 @@ public partial class NativeEditorView
 
     internal void DiscardComposition()
     {
+        SourceSession?.Composition?.Cancel();
         var preview = _compositionPreviewDocument;
         if (preview is not null && ReferenceEquals(_compositionDocument, Document))
             preview.ReplaceSnapshotFromNative(Document.CurrentSnapshot, _previewSourceToken, nativeUndoOwned: true);
@@ -158,6 +165,7 @@ public partial class NativeEditorView
 
     private void VerifySelectionMutation()
     {
+        if (!_deferNotifications) SourceSession?.Document.VerifyIdle();
         if (_planningInput)
             throw new InvalidOperationException("Input rules must propose selections through their transaction builder.");
         if (Composition.IsActive && !_synchronizingSelection && !_deferNotifications && !_updatingSelections)

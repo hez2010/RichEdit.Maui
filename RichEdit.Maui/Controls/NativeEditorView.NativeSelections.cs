@@ -114,7 +114,7 @@ public partial class NativeEditorView
             return 0;
         var start = text.LastIndexOf('\n', position - 1) + 1;
         if (start == position)
-            return position - 1;
+            return position > 1 && text[position - 2] == '\r' ? position - 2 : position - 1;
         while (start < position)
         {
             var next = start + StringInfo.GetNextTextElementLength(text.AsSpan(start));

@@ -56,10 +56,11 @@ public sealed class RichTextDocumentEdit
             ? before.Replace(_pendingTextEdits[0].Range.ToRange(), _pendingTextEdits[0].Text, _pendingTextEdits[0].Format)
             : before.ReplaceTextBatch(_pendingTextEdits);
         foreach (var edit in _pendingTextEdits)
-            if (!before.Text.AsSpan(edit.Range.Start, edit.Range.Length).SequenceEqual(edit.Text))
+            if (before.GetText(edit.Range) != edit.Text)
                 _changes.Add(new RichTextTextChange(edit.Range, edit.Text));
 
-        _changes.AddRange(RichTextDocument.CreateDelta(before, after).Where(static change => change.Kind != RichTextChangeKind.Text));
+        if (!before.IsSourceProjection)
+            _changes.AddRange(RichTextDocument.CreateDelta(before, after).Where(static change => change.Kind != RichTextChangeKind.Text));
         _pendingTextEdits.Clear();
         Snapshot = after;
     }
@@ -106,7 +107,7 @@ public sealed class RichTextDocumentEdit
             (range.Start >= _pendingTextEdits[^1].Range.Start || range.End > _pendingTextEdits[^1].Range.Start))
             FlushTextEdits();
 
-        var normalized = RichTextDocumentSnapshot.NormalizeText(text);
+        var normalized = _snapshot.IsSourceProjection ? text ?? "" : RichTextDocumentSnapshot.NormalizeText(text);
         var insertionFormat = RichTextDocumentSnapshot.Validate(format ?? _snapshot.GetCaretFormat(range.Start));
         var length = checked(_pendingLength - range.Length + normalized.Length);
         _pendingTextEdits.Add(new(range, normalized, insertionFormat));

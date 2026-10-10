@@ -57,7 +57,7 @@ public partial class RichEditorHandler
         _displayViewportWidth = viewportWidth;
         _displayAdornmentVersion = VirtualView.Adornments.Version;
         _displayDecorationVersion = VirtualView.Decorations.Version;
-        if (!VirtualView.Adornments.Any(static item => item.ReservesSpace))
+        if (VirtualView.SourceSession is null && !VirtualView.Adornments.Any(static item => item.ReservesSpace))
         {
             _displayPublicationPending = false;
             _publishedAdornments.Clear();
@@ -131,7 +131,10 @@ public partial class RichEditorHandler
     {
         var before = _paintedSnapshot ?? VirtualView.Decorations.Project(changes.BeforeSnapshot ?? VirtualView.Document.CurrentSnapshot);
         var hadReservations = !NativeProjection.IsEmpty;
+        var hadWidgets = !NativeProjection.Reservations.IsEmpty;
         PrepareDisplayProjection();
+        if (!hadWidgets && NativeProjection.Reservations.IsEmpty && VirtualView.Document.GetSourceDisplayChange(changes) is { } sourceChange)
+            return sourceChange;
         if (!hadReservations && NativeProjection.IsEmpty)
             return RemoveImagePositionChanges(changes);
 
@@ -261,9 +264,16 @@ public partial class RichEditorHandler
         var nativePresentation = presentation ?? PreserveNativePresentation(snapshot);
         var map = ReadDisplayReservationMetadata(snapshot.Text);
         var selection = map.ToSource(selectionState ?? TextSelectionState.FromRange(new(selectionStart, selectionLength)));
+        var source = map.Unproject(snapshot);
+        if (VirtualView.SourceSession is not null)
+        {
+            var restored = VirtualView.RestoreNativeSource(source, selection);
+            source = restored.Snapshot;
+            selection = restored.Selection;
+            map = map.WithLineEndings(restored.Projection);
+        }
         _displayState = new(map, snapshot, snapshot);
         _paintedSnapshot = nativePresentation;
-        var source = map.Unproject(snapshot);
         // Metadata has no native representation. An application can change it while IME
         // painting is deferred, so a native text callback must retain the current value.
         if (!ReferenceEquals(source.Metadata, VirtualView.Document.CurrentSnapshot.Metadata))

@@ -14,7 +14,10 @@ public sealed partial class RichTextDocumentSnapshot
 
     private readonly ImmutableArray<RichTextRun> _runs;
     private readonly TextSnapshot _text;
-    private readonly ImmutableArray<RichTextParagraph> _paragraphs;
+    private readonly ImmutableArray<RichTextParagraph> _paragraphEntries;
+    private readonly Lazy<ImmutableArray<RichTextParagraph>>? _plainParagraphs;
+    private ImmutableArray<RichTextParagraph> _paragraphs => _plainParagraphs?.Value ?? _paragraphEntries;
+    internal bool IsSourceProjection => _plainParagraphs is not null;
     private readonly ImmutableArray<RichTextLink> _links;
     private readonly ImmutableArray<RichTextField> _fields;
     private readonly ImmutableArray<RichTextImage> _images;
@@ -48,7 +51,7 @@ public sealed partial class RichTextDocumentSnapshot
         _listPictures = NormalizeListPictures(listPictures);
         var normalizedParagraphs = NormalizeParagraphs(Text, paragraphs, DefaultParagraphFormat);
         _lists = NormalizeLists(lists, normalizedParagraphs, nativeListsAuthoritative);
-        _paragraphs = BindParagraphLists(normalizedParagraphs, _lists);
+        _paragraphEntries = BindParagraphLists(normalizedParagraphs, _lists);
         ValidateRtfListCapacity(_paragraphs);
         ValidateListPictureReferences(_lists, _listPictures, nameof(listPictures));
         _links = NormalizeLinks(Length, links);
@@ -193,6 +196,7 @@ public sealed partial class RichTextDocumentSnapshot
 
     internal RichTextParagraphFormat GetParagraphFormat(int position)
     {
+        if (IsSourceProjection) return DefaultParagraphFormat;
         return _paragraphs[FindParagraphIndex(Math.Clamp(position, 0, Length))].Format;
     }
 
@@ -258,6 +262,7 @@ public sealed partial class RichTextDocumentSnapshot
 
     internal int FindParagraphIndex(int paragraphStart)
     {
+        if (IsSourceProjection) return _text.GetPosition(Math.Clamp(paragraphStart, 0, Length)).Line;
         var low = 0;
         var high = _paragraphs.Length - 1;
         while (low < high)
@@ -347,6 +352,8 @@ public sealed partial class RichTextDocumentSnapshot
         RichTextCharacterFormat? replacementFormat = null)
     {
         var (start, length) = range.GetOffsetAndLength(Length);
+        if (IsSourceProjection)
+            return CreateSourceProjection(_text.Replace(new(start, length), replacement ?? ""));
         replacement = NormalizeText(replacement);
         var oldEnd = start + length;
         var delta = replacement.Length - length;
@@ -526,7 +533,8 @@ public sealed partial class RichTextDocumentSnapshot
         DefaultCharacterFormat = source.DefaultCharacterFormat;
         DefaultParagraphFormat = source.DefaultParagraphFormat;
         _runs = source._runs;
-        _paragraphs = source._paragraphs;
+        _paragraphEntries = source._paragraphEntries;
+        _plainParagraphs = source._plainParagraphs;
         _links = source._links;
         _fields = source._fields;
         _images = source._images;

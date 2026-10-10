@@ -52,6 +52,7 @@
         <ProjectReference Include="..\TextEdit.Core\TextEdit.Core.csproj" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.101" />
         <InternalsVisibleTo Include="RichEdit.Maui.Tests" />
+        <InternalsVisibleTo Include="CodeEdit.Maui" />
     </ItemGroup>
 
     <ItemGroup>

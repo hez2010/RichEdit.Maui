@@ -149,7 +149,7 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
         _accepting = true;
         try
         {
-            if (!_editor.TryApplyEdits(_completionRevision, (RichTextEdit[])[new(_completionRange, text)], new(start + text.Length, start + text.Length)))
+            if (!_editor.TryApplyEdits(_completionRevision, (TextReplacement[])[new(_completionRange, text)], new(start + text.Length, start + text.Length)))
             {
                 DismissCompletion();
                 return false;
@@ -436,7 +436,7 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
                     var current = _editor.Document.CurrentSnapshot;
                     var brace = current.Text.IndexOf('{', item.Position);
                     if (brace >= 0)
-                        _editor.TryApplyEdits(current.Revision, (RichTextEdit[])[new(new(brace + 1, 0), "\n    public int Value => _value;\n")]);
+                        _editor.TryApplyEdits(current.Revision, (TextReplacement[])[new(new(brace + 1, 0), "\n    public int Value => _value;\n")]);
                 }));
             }
         }
@@ -476,7 +476,7 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
         OnPropertyChanged(nameof(IsInfoVisible));
     }
 
-    private void OnTextChanged(object? sender, RichTextTextChangedEventArgs args)
+    private void OnTextChanged(object? sender, TextDocumentChangedEventArgs args)
     {
         DismissCompletion();
         DismissHover();

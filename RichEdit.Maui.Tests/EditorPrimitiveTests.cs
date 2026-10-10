@@ -53,11 +53,11 @@ public class EditorPrimitiveTests
     {
         var editor = new CodeEditor { Document = new("abcd"), SelectionState = new(3, 1) };
         var snapshot = editor.Document.CurrentSnapshot;
-        RichTextEdit[] insert = [new(new(0, 0), "x")];
+        TextReplacement[] insert = [new(new(0, 0), "x")];
         Assert.False(editor.TryApplyEdits(default, insert));
         Assert.False(editor.TryApplyEdits(new CodeDocument("abcd").Revision, insert));
-        Assert.Throws<ArgumentException>(() => editor.TryApplyEdits(snapshot.Revision, (RichTextEdit[])[new(new(0, 3), "a"), new(new(2, 0), "b")]));
-        Assert.Throws<ArgumentException>(() => editor.TryApplyEdits(snapshot.Revision, (RichTextEdit[])[new(new(0, 3), "a"), new(new(2, 2), "b")]));
+        Assert.Throws<ArgumentException>(() => editor.TryApplyEdits(snapshot.Revision, (TextReplacement[])[new(new(0, 3), "a"), new(new(2, 0), "b")]));
+        Assert.Throws<ArgumentException>(() => editor.TryApplyEdits(snapshot.Revision, (TextReplacement[])[new(new(0, 3), "a"), new(new(2, 2), "b")]));
         Assert.Throws<ArgumentOutOfRangeException>(() => editor.TryApplyEdits(snapshot.Revision, insert, new(9, 9)));
         Assert.Same(snapshot, editor.Document.CurrentSnapshot);
         Assert.Equal(new TextSelectionState(3, 1), editor.SelectionState);
@@ -65,11 +65,11 @@ public class EditorPrimitiveTests
         editor.MaxLength = 4;
         Assert.False(editor.TryApplyEdits(snapshot.Revision, insert));
         editor.MaxLength = 1;
-        Assert.True(editor.TryApplyEdits(snapshot.Revision, (RichTextEdit[])[new(new(2, 2), "")]));
+        Assert.True(editor.TryApplyEdits(snapshot.Revision, (TextReplacement[])[new(new(2, 2), "")]));
         Assert.Equal("ab", editor.Document.Text);
         Assert.False(editor.TryApplyEdits(snapshot.Revision, insert));
         editor.IsReadOnly = true;
-        Assert.False(editor.TryApplyEdits(editor.Document.Revision, Array.Empty<RichTextEdit>()));
+        Assert.False(editor.TryApplyEdits(editor.Document.Revision, Array.Empty<TextReplacement>()));
     });
 
     [Fact]

@@ -19,7 +19,7 @@ internal sealed partial class CodeEditorTestPage
         features.InsertSnippet();
         Equal("var name = value;", _editor.Document.Text);
         Equal("name", _editor.Selection.Text);
-        Equal(true, _editor.TryApplyEdits(_editor.Document.Revision, (RichTextEdit[])[new(_editor.SelectedRange, "answer")]));
+        Equal(true, _editor.TryApplyEdits(_editor.Document.Revision, (TextReplacement[])[new(_editor.SelectedRange, "answer")]));
         Equal(true, features.NextPlaceholder());
         Equal("value", _editor.Selection.Text);
         Equal(true, features.NextPlaceholder(previous: true));

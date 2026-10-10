@@ -64,6 +64,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 _editor.MaxLength = -1;
                 _editor.UseTabs = false;
                 _editor.AutoIndent = true;
+                _editor.NewLine = "\n";
                 _editor.WordWrap = false;
                 _editor.ShowLineNumbers = true;
                 _editor.Coloring().Palette = static token => token.Kind switch
@@ -208,11 +209,11 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         {
             _editor.SelectedRange = new TextSpan(_editor.Document.Length, 0);
             var observed = new List<string>();
-            void Changed(object? sender, RichTextDocumentChangedEventArgs args) => observed.Add(_editor.Document.Text);
+            void Changed(object? sender, TextDocumentChangedEventArgs args) => observed.Add(_editor.Document.Text);
             _editor.Document.Changed += Changed;
             try
             {
-                EditorContractTests.NativeReplace(_textView, "\n");
+                EditorContractTests.NativeMultiInsert(_textView, "\n");
                 await Task.Delay(200);
             }
             finally { _editor.Document.Changed -= Changed; }
@@ -353,6 +354,46 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             await _editor.Coloring().RefreshAsync();
             await Task.Delay(30);
             Equal(unwrapped, NativeLineCount(), "wrapping after typing and highlighting");
+        });
+
+        await Test("mixed source endings survive native edits and clipboard", "a\r\nb\rc\n", async () =>
+        {
+            Equal("a\r\nb\rc\n", _editor.Document.Text);
+            _editor.SelectedRange = new(4, 0);
+            EditorContractTests.NativeReplace(_textView, "XY");
+            await EditorContractTests.Drain();
+            Equal("a\r\nbXY\rc\n", _editor.Document.Text);
+            Equal(new TextSpan(6, 0), _editor.SelectedRange);
+            _editor.Undo();
+            Equal("a\r\nb\rc\n", _editor.Document.Text);
+            _editor.SelectAll();
+            await _editor.CopyAsync();
+            _editor.Document = new();
+            await _editor.PasteAsync();
+            Equal("a\r\nb\rc\n", _editor.Document.Text);
+            _editor.Undo();
+            Equal("", _editor.Document.Text);
+        });
+
+        await Test("CRLF native newline and indentation commit at every caret", "  a\r\n    b", async () =>
+        {
+            _editor.NewLine = "\r\n";
+            _editor.Selections = new((TextSelection[])[new(3, 3), new(10, 10)]);
+            var changes = 0;
+            void Changed(object? sender, TextDocumentChangedEventArgs args) => changes++;
+            _editor.ContentChanged += Changed;
+            try
+            {
+                EditorContractTests.NativeMultiInsert(_textView, "\n");
+                await EditorContractTests.Drain();
+                Equal("  a\r\n  \r\n    b\r\n    ", _editor.Document.Text);
+                Equal(1, changes);
+                Equal("7,20", string.Join(",", _editor.Selections.Select(selection => selection.Active)));
+                _editor.Undo();
+                Equal("  a\r\n    b", _editor.Document.Text);
+                Equal(false, _editor.CanUndo);
+            }
+            finally { _editor.ContentChanged -= Changed; }
         });
 
         await Test("nested document undo groups project atomically", "start", async () =>

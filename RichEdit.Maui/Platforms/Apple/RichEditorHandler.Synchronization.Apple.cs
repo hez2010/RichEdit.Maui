@@ -94,10 +94,8 @@ public partial class RichEditorHandler
             PlatformView.AttributedText = attributed;
             ObserveTextStorage();
             SetSelectionCore(selectionStart, selectionLength);
-            ApplyEmptyParagraphTypingFormat(
-                document,
-                selectionStart,
-                selectionLength);
+            var displaySelection = NativeProjection.ToDisplay(new TextSpan(selectionStart, selectionLength));
+            ApplyEmptyParagraphTypingFormat(document, displaySelection.Start, displaySelection.Length);
             PlatformView.UpdatePlaceholderVisibility();
         }
         finally

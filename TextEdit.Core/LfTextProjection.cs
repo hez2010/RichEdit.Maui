@@ -7,7 +7,7 @@ namespace TextEdit.Core;
 internal sealed class LfTextProjection
 {
     internal LfTextProjection(TextSnapshot source) : this(source, source.NormalizeToLf()) { }
-    private LfTextProjection(TextSnapshot source, TextSnapshot display) { Source = source; Display = display; }
+    internal LfTextProjection(TextSnapshot source, TextSnapshot display) { Source = source; Display = display; }
     internal TextSnapshot Source { get; }
     internal TextSnapshot Display { get; }
     internal int ToDisplay(int source, bool afterCrLf = true) => Source.ToLfOffset(source, afterCrLf);

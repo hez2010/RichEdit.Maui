@@ -273,7 +273,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
                 var replacement = edits[i];
                 edit.ReplaceText(replacement.Range, replacement.Text);
             }
-        }, new RichTextEditOptions(undoDescription: description));
+        }, new TextEditOptions(Description: description));
         return true;
     }
 

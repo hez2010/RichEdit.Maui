@@ -14,7 +14,7 @@ public partial class CodeEditorTests
         var host = new Grid { Children = { editor } };
         using var features = new CodeEditorFeatures(editor, host);
         features.InsertSnippet();
-        Assert.True(editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(new(start, length), replacement)]));
+        Assert.True(editor.TryApplyEdits(editor.Document.Revision, (TextReplacement[])[new(new(start, length), replacement)]));
         var snapshot = editor.Document.CurrentSnapshot;
 
         // Paint synchronously so a regression is reported as a test failure instead of a dispatcher crash.
@@ -56,7 +56,7 @@ public partial class CodeEditorTests
         var host = new Grid { Children = { editor } };
         using var features = new CodeEditorFeatures(editor, host);
         features.InsertSnippet();
-        Assert.True(editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(editor.SelectedRange, "")]));
+        Assert.True(editor.TryApplyEdits(editor.Document.Revision, (TextReplacement[])[new(editor.SelectedRange, "")]));
 
         var dispatched = new TaskCompletionSource();
         Assert.True(editor.Dispatcher.Dispatch(() => dispatched.SetResult()));
@@ -64,7 +64,7 @@ public partial class CodeEditorTests
 
         Assert.True(features.NextPlaceholder(previous: true));
         Assert.Equal(new TextSpan(4, 0), editor.SelectedRange);
-        Assert.True(editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(editor.SelectedRange, "answer")]));
+        Assert.True(editor.TryApplyEdits(editor.Document.Revision, (TextReplacement[])[new(editor.SelectedRange, "answer")]));
         Assert.True(features.NextPlaceholder());
         Assert.Equal("value", editor.Selection.Text);
         Assert.True(features.NextPlaceholder(previous: true));

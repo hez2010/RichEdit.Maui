@@ -5,6 +5,12 @@ namespace RichEdit.Maui;
 /// <summary>Nonpersistent character appearance. Null properties leave the underlying appearance unchanged.</summary>
 public sealed record RichTextDecorationStyle
 {
+    /// <summary>Gets the font weight override.</summary>
+    public int? FontWeight { get; init; }
+
+    /// <summary>Gets the italic override.</summary>
+    public bool? Italic { get; init; }
+
     // Used only by the Windows folding projection, never authored formatting.
     internal bool? Hidden { get; init; }
 
@@ -22,6 +28,8 @@ public sealed record RichTextDecorationStyle
 
     internal RichTextCharacterFormat Apply(RichTextCharacterFormat format) => format with
     {
+        FontWeight = FontWeight ?? format.FontWeight,
+        Italic = Italic ?? format.Italic,
         Hidden = Hidden ?? format.Hidden,
         ForegroundColor = ForegroundColor ?? format.ForegroundColor,
         BackgroundColor = BackgroundColor ?? format.BackgroundColor,
@@ -278,11 +286,15 @@ public sealed class RichTextDecorations
             Underline = restored.Underline != observed.Underline ? typing.Underline : restored.Underline,
             UnderlineColor = !Equals(restored.UnderlineColor, observed.UnderlineColor) ? typing.UnderlineColor : restored.UnderlineColor,
             Hidden = restored.Hidden != observed.Hidden ? typing.Hidden : restored.Hidden,
+            FontWeight = restored.FontWeight != observed.FontWeight ? typing.FontWeight : restored.FontWeight,
+            Italic = restored.Italic != observed.Italic ? typing.Italic : restored.Italic,
         };
     }
 
     private static RichTextCharacterFormat Restore(RichTextCharacterFormat observed, RichTextCharacterFormat authored, RichTextCharacterFormat display) => observed with
         {
+            FontWeight = authored.FontWeight != display.FontWeight && observed.FontWeight == display.FontWeight ? authored.FontWeight : observed.FontWeight,
+            Italic = authored.Italic != display.Italic && observed.Italic == display.Italic ? authored.Italic : observed.Italic,
             Hidden = authored.Hidden != display.Hidden && observed.Hidden == display.Hidden ? authored.Hidden : observed.Hidden,
             ForegroundColor = !Equals(
                 authored.ForegroundColor,

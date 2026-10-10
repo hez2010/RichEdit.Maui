@@ -66,6 +66,7 @@ public partial class NativeEditorView
         finally { _updatingSelections = previous; }
         if (!_deferNotifications)
         {
+            SynchronizeSourceSelection();
             Document.BreakTypingUndoGroup();
             Commands?.Refresh();
             SelectionsChanged?.Invoke(this, EventArgs.Empty);
@@ -121,6 +122,7 @@ public partial class NativeEditorView
     {
         ArgumentNullException.ThrowIfNull(text);
         VerifyAccess();
+        if (SourceSession is not null) return ReplaceSourceSelections(Selections.Select(_ => text).ToArray());
         return ReplaceSelectionFragments(Selections.Select(_ => RichTextDocumentFragment.FromPlainText(text)).ToArray());
     }
 

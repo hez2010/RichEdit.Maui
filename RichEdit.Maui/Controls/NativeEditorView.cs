@@ -514,6 +514,7 @@ public partial class NativeEditorView : View
     public async Task CutAsync()
     {
         VerifyAccess();
+        if (SourceSession is not null) { await CutSourceAsync(); return; }
         var document = Document;
         var snapshot = document.CurrentSnapshot;
         var selections = Selections;
@@ -540,6 +541,7 @@ public partial class NativeEditorView : View
     public Task CopyAsync()
     {
         VerifyAccess();
+        if (SourceSession is not null) return CopySourceAsync();
         var snapshot = Document.CurrentSnapshot;
         var selections = Selections;
         if (selections.All(item => item.Range.IsEmpty))
@@ -555,6 +557,7 @@ public partial class NativeEditorView : View
     internal async Task PasteAsync(bool asPlainText)
     {
         VerifyAccess();
+        if (SourceSession is not null) { await PasteSourceAsync(); return; }
         var document = Document;
         var version = document.Version;
         var range = SelectedRange;
@@ -638,6 +641,13 @@ public partial class NativeEditorView : View
         if (Composition.IsActive)
         {
             StageComposition(snapshot, selection, sourceToken);
+            return;
+        }
+        if (SourceSession is not null && MaxLength >= 0 && snapshot.Length > MaxLength && snapshot.Length > Document.Length)
+        {
+            SynchronizeCompositionTracking(Document.CurrentSnapshot, null);
+            (Handler as RichEditorHandler)?.CompleteCompositionTracking();
+            (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
             return;
         }
         var expanded = origin == RichTextChangeOrigin.User ? ExpandNativeSelectionEdit(snapshot, selection) : null;
@@ -971,8 +981,8 @@ public partial class NativeEditorView : View
         Decorations.MapThrough(changeSet);
         var foldingChanged = Folding.MapThrough(changeSet);
         Adornments.MapThrough(changeSet);
-        var selections = ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionsAfter is { } requestedSet
-            ? requestedSet : GetSelectionsAfterEdit(changeSet.Changes, Document.Length);
+        var selections = SourceSession?.Selections ?? (ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionsAfter is { } requestedSet
+            ? requestedSet : GetSelectionsAfterEdit(changeSet.Changes, Document.Length));
         SetSelectionsFromDocument(selections);
         var selection = new TextSelectionState(selections.Primary.Anchor, selections.Primary.Active);
         SetSelectionCore(selection, fromPlatform: true);

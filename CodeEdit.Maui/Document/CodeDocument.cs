@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using RichEdit.Maui;
 
 namespace CodeEdit.Maui;
 
@@ -16,28 +15,29 @@ public sealed class CodeDocumentReplacedEventArgs(CodeDocument? oldDocument, Cod
 }
 
 /// <summary>A live plain-source document with atomic edits, snapshots, and document-owned history.</summary>
-/// <remarks>Line endings are normalized to LF. Attached documents are mutated on the editor's UI thread.</remarks>
+/// <remarks>CRLF, LF, and CR line endings are preserved exactly. Attached documents are mutated on the editor's UI thread.</remarks>
 public sealed partial class CodeDocument : INotifyPropertyChanged
 {
     private CodeDocumentSnapshot? _snapshot;
 
-    internal RichTextDocument Source { get; }
+    internal TextDocument Source { get; }
 
     /// <summary>Creates a source document with empty history and a clean saved state.</summary>
     /// <param name="text">The initial source, or null for empty source.</param>
     public CodeDocument(string? text = null)
     {
-        Source = RichTextDocument.FromPlainText(text);
-        Source.Changed += (_, args) => Changed?.Invoke(this, args);
-        Source.PropertyChanged += (_, args) =>
+        Source = new TextDocument(text ?? "");
+        Source.Changed += (_, args) =>
         {
-            if (args.PropertyName is nameof(Version) or nameof(Revision) or nameof(Length) or nameof(Text) or nameof(CurrentSnapshot) or
-                nameof(CanUndo) or nameof(CanRedo) or nameof(UndoDescription) or nameof(RedoDescription) or nameof(IsModified) or nameof(IsUndoGroupOpen))
-                PropertyChanged?.Invoke(this, args);
+            Changed?.Invoke(this, args);
+            foreach (var name in new[] { nameof(Version), nameof(Revision), nameof(Length), nameof(Text), nameof(CurrentSnapshot) })
+                PropertyChanged?.Invoke(this, new(name));
+            NotifyState();
         };
+        Source.StateChanged += (_, _) => NotifyState();
     }
 
-    /// <summary>Creates a source document with normalized line endings.</summary>
+    /// <summary>Creates a source document preserving its exact line endings.</summary>
     /// <param name="text">The source text.</param>
     /// <returns>A new source document.</returns>
     public static CodeDocument FromPlainText(string? text) => new(text);
@@ -49,7 +49,7 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     public TextTracking Tracking => Source.Tracking;
 
     /// <summary>Gets the monotonically increasing content revision.</summary>
-    public long Version => Source.Version;
+    public long Version => Source.Revision.Version;
 
     /// <summary>Gets the UTF-16 source length.</summary>
     public int Length => Source.Length;
@@ -58,7 +58,18 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     public string Text => Source.Text;
 
     /// <summary>Gets an immutable source snapshot suitable for background work.</summary>
-    public CodeDocumentSnapshot CurrentSnapshot => _snapshot?.Revision == Revision ? _snapshot : _snapshot = new(Revision, Source.CurrentSnapshot.TextBuffer);
+    public CodeDocumentSnapshot CurrentSnapshot
+    {
+        get
+        {
+            var source = Source.CurrentSnapshot;
+            var snapshot = Volatile.Read(ref _snapshot);
+            if (snapshot?.Revision == source.Revision) return snapshot;
+            snapshot = new(source.Revision, source);
+            Volatile.Write(ref _snapshot, snapshot);
+            return snapshot;
+        }
+    }
 
     /// <summary>Gets whether undo is available.</summary>
     public bool CanUndo => Source.CanUndo;
@@ -79,7 +90,7 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     public bool IsUndoGroupOpen => Source.IsUndoGroupOpen;
 
     /// <summary>Occurs once after an atomic source edit, with the attached selection already synchronized.</summary>
-    public event EventHandler<RichTextDocumentChangedEventArgs>? Changed;
+    public event EventHandler<TextDocumentChangedEventArgs>? Changed;
 
     /// <inheritdoc />
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -88,7 +99,7 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     /// <param name="edit">The transaction callback.</param>
     /// <param name="options">History and application metadata.</param>
     /// <returns>The committed change set.</returns>
-    public RichTextChangeSet Edit(Action<CodeDocumentEdit> edit, RichTextEditOptions options = default)
+    public TextDocumentChangedEventArgs? Edit(Action<CodeDocumentEdit> edit, TextEditOptions options = default)
     {
         ArgumentNullException.ThrowIfNull(edit);
         return Source.Edit(transaction => edit(new CodeDocumentEdit(transaction)), options);
@@ -97,7 +108,7 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     /// <summary>Reads a bounded UTF-16 source range.</summary>
     /// <param name="range">The range to read.</param>
     /// <returns>The source in that range.</returns>
-    public string GetText(TextSpan range) => Source.GetText(range);
+    public string GetText(TextSpan range) => Source.CurrentSnapshot.GetText(range);
 
     /// <summary>Undoes the preceding edit and maps each attached view's selection.</summary>
     public void Undo() => Source.Undo();
@@ -106,23 +117,40 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     public void Redo() => Source.Redo();
 
     /// <summary>Clears history without changing source or its saved state.</summary>
-    public void ClearUndoHistory() => Source.ClearUndoHistory();
+    public void ClearUndoHistory() => Source.ClearHistory();
 
     /// <summary>Groups separately committed edits into one undo unit.</summary>
     /// <param name="description">The group description.</param>
     /// <returns>A scope disposed in reverse nesting order.</returns>
     public IDisposable BeginUndoGroup(string? description = null) => Source.BeginUndoGroup(description);
 
-    /// <summary>Captures the source state to mark after an asynchronous save succeeds.</summary>
-    /// <returns>An opaque save point.</returns>
-    public RichTextSavePoint CreateSavePoint() => Source.CreateSavePoint();
+    /// <summary>Captures an immutable snapshot and its paired state to acknowledge after an asynchronous save succeeds.</summary>
+    /// <returns>The snapshot paired with its save token.</returns>
+    public TextSaveCapture CaptureSave() => Source.CaptureSave();
 
     /// <summary>Marks the current source state as saved.</summary>
-    public void MarkSaved() => Source.MarkSaved();
+    public void MarkSaved() => Source.MarkSaved(Source.CaptureSave());
 
     /// <summary>Marks a captured source state as saved, preserving the dirty state of intervening edits.</summary>
     /// <param name="savePoint">The successfully saved state.</param>
-    public void MarkSaved(RichTextSavePoint savePoint) => Source.MarkSaved(savePoint);
+    public void MarkSaved(TextSaveCapture savePoint) => Source.MarkSaved(savePoint);
+
+    /// <summary>Gets or sets the maximum retained undo units.</summary>
+    public int HistoryLimit { get => Source.HistoryLimit; set => Source.HistoryLimit = value; }
+
+    /// <summary>Gets or sets the estimated retained-history memory budget.</summary>
+    public long HistoryByteLimit { get => Source.HistoryByteLimit; set => Source.HistoryByteLimit = value; }
+
+    /// <summary>Gets the estimated history storage, excluding application-held snapshots.</summary>
+    public long RetainedHistoryByteEstimate => Source.RetainedHistoryByteEstimate;
+
+    private void NotifyState()
+    {
+        foreach (var name in new[] { nameof(CanUndo), nameof(CanRedo), nameof(UndoDescription), nameof(RedoDescription),
+            nameof(IsModified), nameof(IsUndoGroupOpen), nameof(RetainedHistoryByteEstimate) })
+            PropertyChanged?.Invoke(this, new(name));
+    }
+
 }
 
 /// <summary>An immutable plain-source snapshot.</summary>
@@ -182,21 +210,21 @@ public sealed class CodeDocumentSnapshot
 /// <remarks>Offsets observe preceding operations in the same callback.</remarks>
 public sealed class CodeDocumentEdit
 {
-    private readonly RichTextDocumentEdit _edit;
+    private readonly TextDocumentEdit _edit;
 
-    internal CodeDocumentEdit(RichTextDocumentEdit edit) => _edit = edit;
+    internal CodeDocumentEdit(TextDocumentEdit edit) => _edit = edit;
 
     /// <summary>Inserts source at a UTF-16 offset.</summary>
     /// <param name="position">The insertion offset.</param>
     /// <param name="text">The inserted source.</param>
-    public void InsertText(int position, string? text) => _edit.InsertText(position, text);
+    public void InsertText(int position, string? text) => _edit.Insert(position, text ?? "");
 
     /// <summary>Deletes a UTF-16 source range.</summary>
     /// <param name="range">The range to delete.</param>
-    public void DeleteText(TextSpan range) => _edit.DeleteText(range);
+    public void DeleteText(TextSpan range) => _edit.Delete(range);
 
     /// <summary>Replaces a UTF-16 range with source text.</summary>
     /// <param name="range">The replaced range.</param>
     /// <param name="text">The replacement source.</param>
-    public void ReplaceText(TextSpan range, string? text) => _edit.ReplaceText(range, text);
+    public void ReplaceText(TextSpan range, string? text) => _edit.Replace(range, text ?? "");
 }
