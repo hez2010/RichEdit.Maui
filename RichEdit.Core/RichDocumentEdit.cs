@@ -9,6 +9,7 @@ public sealed partial class RichDocumentEdit
     private readonly RichNodeId _body;
     private readonly ImmutableDictionary<RichNodeId, RichNode>.Builder _nodes;
     private RichStyleSheet _styles;
+    private readonly ImmutableDictionary<RichAssetId, RichImageAsset>.Builder _assets;
     private long _nextId;
     private bool _open = true;
     private readonly List<RichAddressMap.Step> _maps = [];
@@ -19,12 +20,13 @@ public sealed partial class RichDocumentEdit
         _body = before.Body;
         _nodes = before.Nodes.ToBuilder();
         _styles = before.Styles;
+        _assets = before.Assets.ToBuilder();
         _nextId = nextId;
     }
     /// <summary>Gets the body story identity.</summary>
     public RichNodeId Body { get { VerifyOpen(); return _body; } }
     /// <summary>Gets the current candidate as an immutable, validated snapshot.</summary>
-    public RichDocumentSnapshot Snapshot { get { VerifyOpen(); return new(_body, _nodes.ToImmutable(), _styles); } }
+    public RichDocumentSnapshot Snapshot { get { VerifyOpen(); return new(_body, _nodes.ToImmutable(), _styles, assets: _assets.ToImmutable()); } }
     /// <summary>Replaces document-owned styles without rewriting referenced content.</summary>
     public void SetStyles(RichStyleSheet styles) { VerifyOpen(); _styles = styles ?? throw new ArgumentNullException(nameof(styles)); }
 
@@ -77,7 +79,7 @@ public sealed partial class RichDocumentEdit
         ValidateText(text);
         var paragraph = Get<RichParagraph>(start.Paragraph);
         new TextSpan(start.Offset, length).Validate(Length(paragraph));
-        if (ReadText(paragraph, new(start.Offset, length)) == text) return;
+        if (IsPlainTextRange(paragraph, new(start.Offset, length)) && ReadText(paragraph, new(start.Offset, length)) == text) return;
         var inherited = InlineAt(paragraph, start.Offset);
         var (left, remainder) = Partition(paragraph, start.Offset, paragraph.Id);
         var (removed, right) = Partition(paragraph with { Inlines = remainder }, length, paragraph.Id);
@@ -291,12 +293,25 @@ public sealed partial class RichDocumentEdit
             if (first < last)
             {
                 if (inline is RichText text) result.Append(text.Content.GetText(new(first - position, last - first)));
-                else result.Append('\u2028');
+                else result.Append(inline is RichSoftBreak ? '\u2028' : '\uFFFC');
             }
             if (end >= range.End) break;
             position = end;
         }
         return result.ToString();
+    }
+    private bool IsPlainTextRange(RichParagraph paragraph, TextSpan range)
+    {
+        var position = 0;
+        foreach (var id in paragraph.Inlines)
+        {
+            var inline = Get<RichInline>(id);
+            var end = position + RichDocumentSnapshot.InlineLength(inline);
+            if (Math.Max(position, range.Start) < Math.Min(end, range.End) && inline is not RichText) return false;
+            if (end >= range.End) break;
+            position = end;
+        }
+        return true;
     }
     private T Get<T>(RichNodeId id) where T : RichNode => _nodes.TryGetValue(id, out var node) && node is T value ? value :
         throw new ArgumentException("The structural node does not exist with the requested kind.", nameof(id));
@@ -329,7 +344,7 @@ public sealed partial class RichDocumentEdit
     internal (RichDocumentSnapshot Snapshot, RichAddressMap Map, long NextId) Finish()
     {
         VerifyOpen();
-        var result = new RichDocumentSnapshot(_body, _nodes.ToImmutable(), _styles);
+        var result = new RichDocumentSnapshot(_body, _nodes.ToImmutable(), _styles, assets: _assets.ToImmutable());
         if (SelectionAfter is { } selection) SelectionAfter = result.NormalizeSelection(selection);
         _open = false;
         return (result, new(_maps), _nextId);

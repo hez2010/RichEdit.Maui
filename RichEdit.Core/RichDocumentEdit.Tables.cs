@@ -219,7 +219,7 @@ public sealed partial class RichDocumentEdit
         _nodes.Add(cell, new RichTableCell(cell, row, column, 1, 1, [paragraph]));
         return cell;
     }
-    private RichTableGrid Grid(RichNodeId table) => new RichDocumentSnapshot(_body, _nodes.ToImmutable(), _styles, validate: false).GetTableGrid(table);
+    private RichTableGrid Grid(RichNodeId table) => new RichDocumentSnapshot(_body, _nodes.ToImmutable(), _styles, validate: false, assets: _assets.ToImmutable()).GetTableGrid(table);
     private IEnumerable<RichNodeId> AllCells(RichTable table) => table.Rows.SelectMany(row => Get<RichTableRow>(row).Cells).ToArray();
     private ImmutableList<RichNodeId> SortCells(IEnumerable<RichNodeId> cells) => cells.OrderBy(id => Get<RichTableCell>(id).Column).ToImmutableList();
     private static IEnumerable<RichNodeId> Cells(RichTableGrid grid, RichCellSelection selection)

@@ -56,11 +56,12 @@ public sealed class RichDocumentSnapshot
     }
 
     internal RichDocumentSnapshot(RichNodeId body, ImmutableDictionary<RichNodeId, RichNode> nodes, RichStyleSheet styles,
-        DocumentRevision revision = default, bool validate = true)
+        DocumentRevision revision = default, bool validate = true, ImmutableDictionary<RichAssetId, RichImageAsset>? assets = null)
     {
         Body = body;
         Nodes = nodes;
         Styles = styles;
+        Assets = assets ?? ImmutableDictionary<RichAssetId, RichImageAsset>.Empty;
         Revision = revision;
         if (validate) Validate();
     }
@@ -71,9 +72,11 @@ public sealed class RichDocumentSnapshot
     public ImmutableDictionary<RichNodeId, RichNode> Nodes { get; }
     /// <summary>Gets document-owned reusable styles.</summary>
     public RichStyleSheet Styles { get; }
+    /// <summary>Gets immutable document-owned image resources.</summary>
+    public ImmutableDictionary<RichAssetId, RichImageAsset> Assets { get; }
     /// <summary>Gets the document revision, or an invalid revision for a standalone builder snapshot.</summary>
     public DocumentRevision Revision { get; }
-    internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false);
+    internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false, Assets);
 
     /// <summary>Gets a typed node or rejects a missing node or mismatched structural kind.</summary>
     public T Get<T>(RichNodeId id) where T : RichNode => Nodes.TryGetValue(id, out var node) && node is T value ? value :
@@ -91,6 +94,7 @@ public sealed class RichDocumentSnapshot
     {
         RichText text => text.Content.Length,
         RichSoftBreak => 1,
+        RichImage => 1,
         _ => throw new ArgumentException("Unsupported inline node."),
     };
 
@@ -117,6 +121,7 @@ public sealed class RichDocumentSnapshot
                 if (text.Anchor.Story != text.Active.Story) throw new ArgumentException("A text selection must belong to one story.", nameof(selection));
                 return text;
             case RichCellSelection cells: return GetTableGrid(cells.Table).Expand(cells);
+            case RichObjectSelection selected when Nodes.GetValueOrDefault(selected.Object) is RichImage: return selected;
             default: throw new ArgumentException("This selection does not address a supported authored object.", nameof(selection));
         }
     }
@@ -156,6 +161,9 @@ public sealed class RichDocumentSnapshot
     private void Validate()
     {
         ArgumentNullException.ThrowIfNull(Styles);
+        foreach (var pair in Assets)
+            if (!pair.Key.IsValid || pair.Value is null || pair.Value.Id != pair.Key || !Enum.IsDefined(pair.Value.Kind) || pair.Value.Data.IsDefaultOrEmpty)
+                throw new ArgumentException("Image resources require valid matching identities, formats, and owned payloads.");
         if (Get<RichStory>(Body).Parent is not null) throw new ArgumentException("The body must be a root story.");
         var visited = new HashSet<RichNodeId>();
         var pending = new Stack<(RichNode Node, int Depth)>();
@@ -190,7 +198,7 @@ public sealed class RichDocumentSnapshot
 
     private void ValidateNode(RichNode node)
     {
-        if (node is not (RichStory or RichParagraph or RichList or RichListItem or RichTable or RichTableRow or RichTableCell or RichText or RichSoftBreak))
+        if (node is not (RichStory or RichParagraph or RichList or RichListItem or RichTable or RichTableRow or RichTableCell or RichText or RichSoftBreak or RichImage))
             throw new ArgumentException("Unsupported authored node kind.");
         if (node is RichStory { Blocks: null } or RichParagraph { Inlines: null } or RichList { Items: null } or
             RichListItem { Blocks: null } or RichTable { Rows: null } or RichTableRow { Cells: null } or RichTableCell { Blocks: null })
@@ -216,6 +224,8 @@ public sealed class RichDocumentSnapshot
                     if (chunk.Span.ContainsAny('\r', '\n', '\u2028'))
                         throw new ArgumentException("Text runs cannot contain paragraph terminators or soft-break characters.");
                 break;
+            case RichImage image when !Assets.ContainsKey(image.Asset) || image.Width.Twips <= 0 || image.Height.Twips <= 0:
+                throw new ArgumentException("Images require an existing resource and positive authored dimensions.");
             case RichParagraph paragraph:
                 ArgumentNullException.ThrowIfNull(paragraph.Format);
                 ArgumentNullException.ThrowIfNull(paragraph.Character);

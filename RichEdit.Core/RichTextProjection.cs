@@ -23,6 +23,9 @@ public sealed record RichProjectedParagraph(RichNodeId Paragraph, TextSpan Range
 /// <summary>A structural separator; its text position is not an address for structural mutation.</summary>
 public sealed record RichProjectedSeparator(int Position, RichSeparatorKind Kind, RichNodeId Owner);
 
+/// <summary>An authored object represented by one placeholder in the explicit text projection.</summary>
+public sealed record RichProjectedObject(int Position, RichNodeId Object);
+
 /// <summary>An explicit plain-text projection with mappings tied to exactly one immutable rich snapshot.</summary>
 public sealed class RichTextProjection
 {
@@ -34,10 +37,12 @@ public sealed class RichTextProjection
         var text = new StringBuilder();
         var paragraphs = ImmutableArray.CreateBuilder<RichProjectedParagraph>();
         var separators = ImmutableArray.CreateBuilder<RichProjectedSeparator>();
+        var objects = ImmutableArray.CreateBuilder<RichProjectedObject>();
         EmitBlocks(snapshot.Get<RichStory>(story).Blocks, story);
         Text = TextSnapshot.FromText(text.ToString());
         Paragraphs = paragraphs.ToImmutable();
         Separators = separators.ToImmutable();
+        Objects = objects.ToImmutable();
         _byParagraph = Paragraphs.ToImmutableDictionary(item => item.Paragraph);
 
         void Separator(char value, RichSeparatorKind kind, RichNodeId owner)
@@ -68,6 +73,10 @@ public sealed class RichTextProjection
                                 foreach (var chunk in run.Content.GetChunks(new(0, run.Content.Length))) text.Append(chunk.Span);
                                 break;
                             case RichSoftBreak: text.Append('\u2028'); break;
+                            case RichImage image:
+                                objects.Add(new(text.Length, image.Id));
+                                text.Append('\uFFFC');
+                                break;
                         }
                     paragraphs.Add(new(paragraph.Id, new(start, text.Length - start)));
                     break;
@@ -109,6 +118,8 @@ public sealed class RichTextProjection
     public ImmutableArray<RichProjectedParagraph> Paragraphs { get; }
     /// <summary>Gets structural separator positions and kinds.</summary>
     public ImmutableArray<RichProjectedSeparator> Separators { get; }
+    /// <summary>Gets authored object positions, distinguishing them from literal placeholder characters in text.</summary>
+    public ImmutableArray<RichProjectedObject> Objects { get; }
 
     /// <summary>Maps a validated structural point into this snapshot's explicit text projection.</summary>
     public int GetOffset(RichTextPoint point)

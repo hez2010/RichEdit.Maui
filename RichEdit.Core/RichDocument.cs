@@ -63,7 +63,7 @@ public sealed class RichDocument
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         _snapshot = snapshot.WithRevision(new(_identity, 0));
-        _nextNode = snapshot.Nodes.Keys.Max(id => id.Value);
+        _nextNode = Math.Max(snapshot.Nodes.Keys.Max(id => id.Value), snapshot.Assets.Keys.Select(id => id.Value).DefaultIfEmpty().Max());
     }
     /// <summary>Creates a document from semantic paragraphs and soft breaks in plain text.</summary>
     public static RichDocument FromPlainText(string text) => new(RichDocumentSnapshot.FromPlainText(text));
@@ -124,7 +124,7 @@ public sealed class RichDocument
             finally { builder.Close(); }
         });
         if (builder.SelectionAfter is not null && session is null) throw new InvalidOperationException("Resulting selections require an invoking session.");
-        if (ReferenceEquals(plan.Snapshot.Nodes, before.Nodes) && ReferenceEquals(plan.Snapshot.Styles, before.Styles))
+        if (ReferenceEquals(plan.Snapshot.Nodes, before.Nodes) && ReferenceEquals(plan.Snapshot.Styles, before.Styles) && ReferenceEquals(plan.Snapshot.Assets, before.Assets))
         {
             if (builder.SelectionAfter is { } selection) session!.Selection = selection;
             return new(TextEditRejection.None);
@@ -200,6 +200,7 @@ public sealed class RichDocument
 
     internal static RichSelection MapSelection(RichSelection selection, RichAddressMap map, RichDocumentSnapshot after)
     {
+        if (selection is RichObjectSelection selected && after.Nodes.GetValueOrDefault(selected.Object) is RichImage) return selected;
         if (selection is RichTextSelection text && map.Map(text.Anchor) is { } anchor && map.Map(text.Active) is { } active &&
             after.Nodes.ContainsKey(anchor.Paragraph) && after.Nodes.ContainsKey(active.Paragraph))
             return new RichTextSelection(anchor with { Offset = Math.Min(anchor.Offset, after.GetParagraphLength(anchor.Paragraph)) },
@@ -278,6 +279,10 @@ public sealed class RichDocument
         foreach (var pair in after.Nodes)
             if (!before.Nodes.TryGetValue(pair.Key, out var value) || !ReferenceEquals(pair.Value, value))
                 estimate += 256 + (pair.Value is RichText text ? (long)text.Content.Length * 2 : 0);
+        foreach (var pair in before.Assets)
+            if (!after.Assets.TryGetValue(pair.Key, out var asset) || !ReferenceEquals(asset, pair.Value)) estimate += pair.Value.Data.Length;
+        foreach (var pair in after.Assets)
+            if (!before.Assets.TryGetValue(pair.Key, out var asset) || !ReferenceEquals(asset, pair.Value)) estimate += pair.Value.Data.Length;
         return estimate;
     }
     private sealed record HistoryEntry(RichDocumentSnapshot Before, RichDocumentSnapshot After, RichAddressMap Map,
