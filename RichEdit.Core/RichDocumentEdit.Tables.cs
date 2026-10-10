@@ -29,18 +29,22 @@ public sealed partial class RichDocumentEdit
         return table;
     }
 
-    /// <summary>Clears selected cell contents after expanding to whole merged cells, preserving the table grid.</summary>
+    /// <summary>Clears selected cell contents after expanding to whole merged cells, preserving the grid and each cell's initial paragraph defaults.</summary>
     public void ClearCells(RichCellSelection selection)
     {
         VerifyOpen();
         var grid = Grid(selection.Table);
         selection = grid.Expand(selection);
+        var before = Candidate(validate: false);
         foreach (var id in Cells(grid, selection))
         {
             var cell = Get<RichTableCell>(id);
+            var initial = before.Get<RichParagraph>(before.EnumerateParagraphs(id).First());
             foreach (var block in cell.Blocks) RemoveSubtree(block);
             _nodes[id] = cell with { Blocks = [] };
             EnsureParagraph(id);
+            var paragraph = Get<RichParagraph>(Get<RichTableCell>(id).Blocks[0]);
+            _nodes[paragraph.Id] = paragraph with { Style = initial.Style, Format = initial.Format, Character = initial.Character };
         }
     }
 

@@ -5,6 +5,36 @@ namespace RichEdit.Core.Tests;
 public class RichTableEditTests
 {
     [Fact]
+    public void ClearingCellContentRetainsParagraphDefaultsAndStyleInheritance()
+    {
+        RichNodeId table = default, cell = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            edit.SetStyles(new([new(new(1), "Cell", RichStyleKind.Paragraph) { Character = new() { Bold = true } }]));
+            table = edit.InsertTable(edit.Body, 1, 1, [new(1440)]);
+            cell = edit.Snapshot.GetTableGrid(table)[0, 0];
+            var paragraph = edit.Snapshot.Get<RichTableCell>(cell).Blocks[0];
+            edit.SetParagraphStyle(paragraph, new(1));
+            edit.SetParagraphFormat(paragraph, new() { Alignment = RichAlignment.Center });
+            edit.SetParagraphCharacterFormat(paragraph, new() { Italic = true });
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "content");
+        }));
+        using var session = document.CreateSession();
+        session.Selection = new RichCellSelection(table, 0, 0, 1, 1);
+        session.ReplaceSelection("");
+        var cleared = document.CurrentSnapshot.Get<RichParagraph>(document.CurrentSnapshot.Get<RichTableCell>(cell).Blocks[0]);
+        Assert.Equal(new RichStyleId(1), cleared.Style);
+        Assert.Equal(RichAlignment.Center, document.CurrentSnapshot.ResolveParagraph(cleared.Id).Alignment);
+        Assert.Equal(new RichCharacterStyle { Italic = true }, cleared.Character);
+        session.ReplaceSelection("new");
+        var run = Assert.Single(document.CurrentSnapshot.Get<RichParagraph>(cleared.Id).Inlines);
+        Assert.True(document.CurrentSnapshot.ResolveCharacter(run).Bold);
+        Assert.True(document.CurrentSnapshot.ResolveCharacter(run).Italic);
+        session.Undo(); session.Undo();
+        Assert.Equal("content", document.CurrentSnapshot.ProjectText(cell).Text.ToString());
+    }
+
+    [Fact]
     public void MergeAndSplitRetainContentAndParagraphIdentities()
     {
         var (snapshot, table) = Table(2, 2);
