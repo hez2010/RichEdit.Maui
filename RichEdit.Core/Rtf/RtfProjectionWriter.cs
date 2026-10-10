@@ -6,8 +6,8 @@ namespace RichEdit.Core.Rtf;
 
 // A native display projection deliberately excludes annotations and authored
 // cascade metadata. Persistence must use the semantic codec, not this projection.
-internal sealed class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream output,
-    string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null)
+internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream output,
+    string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null, bool semantic = false)
 {
     private readonly RtfOutput _output = new(output);
     private readonly Dictionary<string, int> _fonts = new(StringComparer.Ordinal);
@@ -32,12 +32,13 @@ internal sealed class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream 
             Color(snapshot.ResolveParagraph(paragraph.Id).Background);
             Collect(snapshot.Styles.ResolveCharacter(paragraph.Style, defaults: snapshot.DefaultCharacter, paragraphDirect: paragraph.Character));
         }
+        if (semantic) CollectSemanticResources();
         await S(@"{\rtf1\ansi\ansicpg1252\uc1\deff0{\fonttbl");
         foreach (var font in _fonts)
         {
             await S("{");
             await C("f", font.Value);
-            await T(font.Key);
+            await Name(font.Key);
             await S(";}");
         }
         await S(@"}{\colortbl;");
@@ -49,8 +50,10 @@ internal sealed class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream 
             await S(";");
         }
         await S("}\n");
+        if (semantic) await SemanticHeader();
         await ListTables();
         await Blocks(snapshot.Get<RichStory>(snapshot.Body).Blocks, 0, false);
+        if (semantic) await OrphanAnnotations();
         await S("}");
         await _output.FlushAsync(_cancellation).ConfigureAwait(false);
     }
@@ -66,11 +69,14 @@ internal sealed class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream 
                 case RichParagraph paragraph: await Paragraph(paragraph, tableLevel, terminate, listContext, index == 0); break;
                 case RichTable table: await Table(table, tableLevel + 1); break;
                 case RichList list:
+                    if (semantic) { await S(@"{\*\relistbegin"); await C("ls", _lists[list.Id]); await S("}"); }
                     for (var itemIndex = 0; itemIndex < list.Items.Count; itemIndex++)
                     {
+                        if (semantic) await S(@"{\*\relistitem}");
                         var item = snapshot.Get<RichListItem>(list.Items[itemIndex]);
                         await Blocks(item.Blocks, tableLevel, terminate || itemIndex + 1 < list.Items.Count, list);
                     }
+                    if (semantic) await S(@"{\*\relistend}");
                     break;
                 default: throw new NotSupportedException("The native RTF projection does not support this block kind.");
             }
@@ -84,10 +90,10 @@ internal sealed class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream 
         var format = snapshot.ResolveParagraph(paragraph.Id);
         await C(format.Alignment switch { RichAlignment.Center => "qc", RichAlignment.Right => "qr", RichAlignment.Justify => "qj", _ => "ql" });
         if (format.Direction != RichDirection.Automatic) await C(format.Direction == RichDirection.RightToLeft ? "rtlpar" : "ltrpar");
-        var listIndent = list is null ? 0 : ListDepth(list) * 720;
+        var listIndent = list is null || semantic ? 0 : ListDepth(list) * 720;
         await C("li", checked(format.LeadingIndent.Twips + listIndent));
         await C("ri", format.TrailingIndent.Twips);
-        await C("fi", firstInItem && list is not null ? -360 : format.FirstLineIndent.Twips);
+        await C("fi", firstInItem && list is not null && !semantic ? -360 : format.FirstLineIndent.Twips);
         await C("sb", format.SpaceBefore.Twips);
         await C("sa", format.SpaceAfter.Twips);
         await C("keep", format.KeepTogether ? 1 : 0);
@@ -97,21 +103,40 @@ internal sealed class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream 
         if (format.Background is { } background) { await C("shading", 10000); await C("cfpat", _colors[background]); }
         if (firstInItem && list is not null) { await C("ls", _lists[list.Id]); await C("ilvl", 0); }
         await Character(snapshot.Styles.ResolveCharacter(paragraph.Style, defaults: snapshot.DefaultCharacter, paragraphDirect: paragraph.Character));
+        if (semantic)
+        {
+            if (paragraph.Style is { } style) await C("s", style.Value);
+            await Masks("rep", RtfStyleState.Masks(paragraph.Format));
+            await Masks("repch", RtfStyleState.Masks(paragraph.Character));
+        }
+        var position = 0;
         foreach (var id in paragraph.Inlines)
         {
             var inline = snapshot.Get<RichInline>(id);
             await S("{");
             await Character(snapshot.ResolveCharacter(id));
+            if (semantic)
+            {
+                if (inline.Style is { } style) await C("cs", style.Value);
+                await Masks("rec", RtfStyleState.Masks(inline.Format));
+            }
             switch (inline)
             {
                 case RichText text:
-                    foreach (var chunk in text.Content.GetChunks(new(0, text.Content.Length))) await _output.TextAsync(chunk, _cancellation).ConfigureAwait(false);
+                    if (semantic) await AnnotatedText(paragraph.Id, position, text.Content);
+                    else foreach (var chunk in text.Content.GetChunks(new(0, text.Content.Length))) await _output.TextAsync(chunk, _cancellation).ConfigureAwait(false);
                     break;
-                case RichSoftBreak: await C("line"); break;
-                case RichImage image: await Image(image); break;
+                case RichSoftBreak:
+                    if (semantic) await Anchors(paragraph.Id, position);
+                    await C("line"); break;
+                case RichImage image:
+                    if (semantic) await Anchors(paragraph.Id, position);
+                    await Image(image); break;
             }
+            position += RichDocumentSnapshot.InlineLength(inline);
             await S("}");
         }
+        if (semantic) await Anchors(paragraph.Id, position);
         if (terminate) await C("par");
         await S("\n");
     }
@@ -262,6 +287,13 @@ internal sealed class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream 
         }, asset.Kind is RichImageKind.Wmf ? 8 : asset.Kind is RichImageKind.Dib ? 0 : null);
         await C("picwgoal", image.Width.Twips);
         await C("pichgoal", image.Height.Twips);
+        if (semantic)
+        {
+            await S(@"{\*\blipuid ");
+            await S(image.Asset.Value.ToString("x32", CultureInfo.InvariantCulture));
+            await S("}");
+            if (image.AlternativeText == "") await S(@"{\*\reemptyalt}");
+        }
         if (image.AlternativeText is { Length: > 0 } text)
         {
             await S(@"{\*\picprop{\sp{\sn wzDescription}{\sv ");

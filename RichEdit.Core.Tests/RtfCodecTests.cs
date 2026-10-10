@@ -1,0 +1,200 @@
+using System.Text;
+using RichEdit.Core.Rtf;
+using Xunit;
+
+namespace RichEdit.Core.Tests;
+
+public sealed class RtfCodecTests
+{
+    [Theory]
+    [InlineData("")]
+    [InlineData("one\ntwo\n")]
+    [InlineData("a{b}\\c\t日本語😀\u2028e\uFFFC")]
+    public async Task PlainContentRoundTripsAsSemanticParagraphs(string text)
+    {
+        var snapshot = RichDocumentSnapshot.FromPlainText(text);
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal(text, loaded.ProjectText().Text.ToString());
+        Assert.Equal(snapshot.Nodes.Values.OfType<RichParagraph>().Count(), loaded.Nodes.Values.OfType<RichParagraph>().Count());
+        Assert.All(loaded.Nodes.Values.OfType<RichInline>(), inline => Assert.Equal(new RichCharacterStyle(), inline.Format));
+    }
+
+    [Fact]
+    public async Task StylesDefaultsAndAllCascadeOperationsRoundTrip()
+    {
+        var character = new RichCharacterStyle
+        {
+            FontFamily = "Example; Family", FontSize = new RichFontSize(29), Bold = false,
+            Italic = StyleValue<bool>.Initial, Underline = RichUnderline.Wave, UnderlineColor = new RichColor(2, 3, 4),
+            Foreground = StyleValue<RichColor?>.FromValue(null), Background = new RichColor(11, 12, 13), Strike = RichStrike.Double,
+            Script = RichScript.Superscript, CharacterSpacing = new RichLength(17), SmallCaps = true,
+            AllCaps = false, Shadow = true, Outline = false, Hidden = true, Language = "ja-JP", Direction = RichDirection.RightToLeft,
+        };
+        var paragraph = new RichParagraphStyle { Alignment = RichAlignment.Justify, Direction = RichDirection.LeftToRight,
+            LeadingIndent = new RichLength(121), TrailingIndent = new RichLength(80), FirstLineIndent = new RichLength(-20),
+            SpaceBefore = new RichLength(24), SpaceAfter = new RichLength(30), HeadingLevel = 3, KeepTogether = true,
+            KeepWithNext = StyleValue<bool>.Initial, WidowControl = false, Background = new RichColor(42, 43, 44) };
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.SetDefaultCharacterFormat(new() { FontFamily = "Default", FontSize = new RichFontSize(24) });
+            edit.SetDefaultParagraphFormat(new() { SpaceAfter = new RichLength(60) });
+            edit.SetStyles(new([
+                new(new(1), "Body; name", RichStyleKind.Paragraph) { Character = new() { Bold = true }, Paragraph = new() { Alignment = RichAlignment.Center }, NextStyle = new(1) },
+                new(new(2), "Child", RichStyleKind.Paragraph) { BasedOn = new(1), Character = character, Paragraph = paragraph },
+            ]));
+            edit.SetParagraphStyle(new(2), new(2));
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "styled");
+            edit.SetCharacterFormat(new(edit.Body, new(2), 0), 6, character);
+            edit.SetParagraphFormat(new(2), paragraph);
+        });
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal(snapshot.DefaultCharacter, loaded.DefaultCharacter);
+        Assert.Equal(snapshot.DefaultParagraph, loaded.DefaultParagraph);
+        foreach (var style in snapshot.Styles.Definitions) Assert.Equal(style.Value, loaded.Styles.Definitions[style.Key]);
+        Assert.Equal(character, Assert.Single(loaded.Nodes.Values.OfType<RichText>()).Format);
+        Assert.Equal(paragraph, Assert.Single(loaded.Nodes.Values.OfType<RichParagraph>()).Format);
+    }
+
+    [Fact]
+    public async Task NestedMergedTablesAndListsRetainStructure()
+    {
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            var table = edit.InsertTable(edit.Body, 1, 3, [new(1000), new(2000), new(1400)]);
+            var initial = edit.Snapshot;
+            var cell = initial.GetTableGrid(table)[0, 0];
+            var paragraph = initial.Get<RichTableCell>(cell).Blocks[0];
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "merged");
+            edit.MergeCells(new(table, 0, 0, 2, 2));
+            edit.InsertTable(cell, 1, 2, [new(700)]);
+            var list = edit.WrapInList(edit.Body, 0, 2, true, 4);
+            var item = edit.Snapshot.Get<RichList>(list).Items[0];
+            edit.InsertParagraph(item, 1, "continuation");
+        });
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal(Shape(snapshot), Shape(loaded));
+        Assert.Equal(snapshot.ProjectText().Text.ToString(), loaded.ProjectText().Text.ToString());
+    }
+
+    [Fact]
+    public async Task ImagesResourcesAnnotationsAndOrphansRoundTrip()
+    {
+        var document = new RichDocument(RichDocumentSnapshot.FromPlainText("abcdef\nsecond"));
+        document.Edit(edit =>
+        {
+            var paragraph = new RichNodeId(2);
+            var range = new RichTextSelection(new(edit.Body, paragraph, 4, TextEdit.Core.CaretAffinity.Upstream), new(edit.Body, paragraph, 1));
+            edit.AddBookmark("Selection", range);
+            edit.AddComment(range, "a\r\nb\nc\rd😀", "Author", new DateTimeOffset(2026, 10, 11, 3, 25, 0, TimeSpan.Zero));
+            var orphan = edit.AddComment(new(new(edit.Body, paragraph, 0), new(edit.Body, paragraph, 1)), "keep");
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 1, "X");
+            var asset = edit.AddImageAsset(RichImageKind.Png, new byte[] { 1, 2, 3, 4 });
+            edit.InsertImage(new(edit.Body, paragraph, 6), asset, new(100), new(200), "Alt😀");
+            edit.InsertImage(new(edit.Body, paragraph, 7), asset, new(300), new(400), "");
+            edit.AddImageAsset(RichImageKind.Jpeg, new byte[] { 6, 7, 8 });
+        });
+        var snapshot = document.CurrentSnapshot;
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal(snapshot.ProjectText().Text.ToString(), loaded.ProjectText().Text.ToString());
+        Assert.Equal(2, loaded.Assets.Count);
+        var images = loaded.Nodes.Values.OfType<RichImage>().OrderBy(image => image.Width.Twips).ToArray();
+        Assert.Equal(images[0].Asset, images[1].Asset);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, loaded.Assets[images[0].Asset].Data);
+        Assert.Equal("Alt😀", images[0].AlternativeText);
+        Assert.Equal("", images[1].AlternativeText);
+        Assert.Equal(2, loaded.Comments.Count);
+        var comment = Assert.Single(loaded.Comments.Values, comment => !comment.IsOrphaned);
+        Assert.Equal("a\r\nb\nc\rd😀", comment.Text);
+        Assert.Equal("Author", comment.Author);
+        Assert.Equal(new DateTimeOffset(2026, 10, 11, 3, 25, 0, TimeSpan.Zero), comment.Created);
+        Assert.Equal(4, comment.Range!.Anchor.Offset);
+        Assert.Equal(1, comment.Range.Active.Offset);
+        Assert.Equal(TextEdit.Core.CaretAffinity.Upstream, comment.Range.Anchor.Affinity);
+        Assert.Equal("Selection", Assert.Single(loaded.Bookmarks.Values).Name);
+    }
+
+    [Fact]
+    public async Task ExternalRtfDecodesDbcsAndReportsUnsupportedDestinations()
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\ansi\ansicpg932 A\'82\'a0\u12354?{\*\unknown hidden}{\b B}{\pict\pngblip\picwgoal20\pichgoal20 0102}}"));
+        var result = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("AああB\uFFFC", result.Snapshot.ProjectText().Text.ToString());
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Feature == "unknown");
+        input.Position = 0;
+        await Assert.ThrowsAsync<RtfFidelityException>(() => RtfCodec.ReadAsync(input, new() { RequireLossless = true }, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task LimitsCancellationAndStreamOwnershipAreEnforced()
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1 abcdef}"));
+        await Assert.ThrowsAsync<FormatException>(() => RtfCodec.ReadAsync(input, new() { MaximumTextLength = 3 }, TestContext.Current.CancellationToken));
+        Assert.True(input.CanRead);
+        using var output = new MemoryStream();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RtfCodec.WriteAsync(RichDocumentSnapshot.Empty, output, new(true)));
+        Assert.Equal(0, output.Length);
+        Assert.True(output.CanWrite);
+    }
+
+    [Fact]
+    public async Task StreamingDecoderRetainsDbcsPairsAcrossBufferBoundaries()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var expected = "a" + new string('あ', 10_000);
+        using var stream = new MemoryStream();
+        stream.Write(Encoding.ASCII.GetBytes(@"{\rtf1\ansi\ansicpg932 "));
+        stream.Write(Encoding.GetEncoding(932).GetBytes(expected));
+        stream.WriteByte((byte)'}');
+        stream.Position = 0;
+        var result = await RtfCodec.ReadAsync(stream, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(expected, result.Snapshot.ProjectText().Text.ToString());
+    }
+
+    [Fact]
+    public async Task ExternalListsAndTablesImportAsStructure()
+    {
+        const string rtf = @"{\rtf1\ansi{\*\listtable{\list{\listlevel\levelnfc0\levelstartat3}\listid1}}{\*\listoverridetable{\listoverride\listid1\ls1}}
+\pard\ls1 first\par\pard\ls1 second\par\pard tail\par
+\trowd\cellx1000\cellx2000\intbl A\cell B\cell\row
+\trowd\cellx1000\cellx2000\intbl C\cell D\cell\row}";
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(rtf));
+        var result = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(result.Diagnostics);
+        var list = Assert.Single(result.Snapshot.Nodes.Values.OfType<RichList>());
+        Assert.True(list.Numbered);
+        Assert.Equal(3, list.StartNumber);
+        Assert.Equal(2, list.Items.Count);
+        var table = Assert.Single(result.Snapshot.Nodes.Values.OfType<RichTable>());
+        Assert.Equal(2, table.Rows.Count);
+        Assert.Equal("first\nsecond\ntail\nA\tB\nC\tD", result.Snapshot.ProjectText().Text.ToString());
+    }
+
+    private static async Task<RichDocumentSnapshot> RoundTrip(RichDocumentSnapshot snapshot)
+    {
+        using var output = new MemoryStream();
+        await RtfCodec.WriteAsync(snapshot, output, TestContext.Current.CancellationToken);
+        output.Position = 0;
+        var result = await RtfCodec.ReadAsync(output, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(result.Diagnostics);
+        return result.Snapshot;
+    }
+
+    private static string Shape(RichDocumentSnapshot snapshot)
+    {
+        return Visit(snapshot.Body);
+        string Visit(RichNodeId id)
+        {
+            var node = snapshot.Get<RichNode>(id);
+            var detail = node switch
+            {
+                RichText text => text.Content.ToString(),
+                RichTable table => string.Join(',', table.Columns.Select(width => width.Twips)),
+                RichTableCell cell => $"{cell.Column},{cell.ColumnSpan},{cell.RowSpan}",
+                RichList list => $"{list.Numbered},{list.StartNumber}",
+                _ => "",
+            };
+            return $"{node.GetType().Name}({detail})[" + string.Join('|', RichDocumentSnapshot.Children(node).Select(Visit)) + "]";
+        }
+    }
+}

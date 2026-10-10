@@ -27,8 +27,10 @@ public class NativeTableContractTests
         Assert.Contains(@"\nestrow", saved);
     });
 
-    [Fact]
-    public Task StructuredModelTablesProjectIntoTheNativeEngineWithCharacterFormatting()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task StructuredModelTablesProjectIntoTheNativeEngineWithCharacterFormatting(bool persistent)
     {
         return WindowsTestHost.RunAsync(async () =>
         {
@@ -50,7 +52,14 @@ public class NativeTableContractTests
                 edit.DeleteBlock(new(2));
         });
         var native = new RichEditBox();
-        var rtf = await StructuredRichProjection.CreateRtfAsync(snapshot);
+        string rtf;
+        if (persistent)
+        {
+            using var stream = new MemoryStream();
+            await RichEdit.Core.Rtf.RtfCodec.WriteAsync(snapshot, stream);
+            rtf = System.Text.Encoding.ASCII.GetString(stream.ToArray());
+        }
+        else rtf = await StructuredRichProjection.CreateRtfAsync(snapshot);
         native.Document.SetText(TextSetOptions.FormatRtf, rtf);
         native.Document.GetText(TextGetOptions.None, out var text);
         Assert.Contains("alpha", text);
