@@ -641,6 +641,8 @@ public sealed partial class RichEditor : View
             return;
         }
         var expanded = origin == RichTextChangeOrigin.User ? ExpandNativeSelectionEdit(snapshot, selection) : null;
+        if (origin == RichTextChangeOrigin.User)
+            expanded = PlanNativeInput(snapshot, selection, expanded);
         var previousSelections = _pendingSelections;
         RichTextChangeSet? corrections = null;
         if (expanded is not null)
@@ -650,6 +652,11 @@ public sealed partial class RichEditor : View
                 SynchronizeCompositionTracking(Document.CurrentSnapshot, null);
                 (Handler as RichEditorHandler)?.CompleteCompositionTracking();
                 (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
+                if (_rejectedInput is { } error)
+                {
+                    _rejectedInput = null;
+                    InputRejected?.Invoke(this, new(error));
+                }
                 return;
             }
             snapshot = expanded.Snapshot;

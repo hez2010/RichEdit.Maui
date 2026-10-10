@@ -158,6 +158,8 @@ public sealed partial class RichEditor
 
     private void VerifySelectionMutation()
     {
+        if (_planningInput)
+            throw new InvalidOperationException("Input rules must propose selections through their transaction builder.");
         if (Composition.IsActive && !_synchronizingSelection && !_deferNotifications && !_updatingSelections)
             throw new InvalidOperationException("Complete native composition before changing the document selection.");
     }

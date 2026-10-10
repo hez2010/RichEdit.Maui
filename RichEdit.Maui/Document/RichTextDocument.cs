@@ -811,6 +811,14 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         }
     }
 
+    internal T PlanInput<T>(Func<T> plan)
+    {
+        VerifyNoActiveEdit();
+        _editInProgress = true;
+        try { return plan(); }
+        finally { _editInProgress = false; }
+    }
+
     private void VerifyNoOpenUndoGroup()
     {
         if (IsUndoGroupOpen)

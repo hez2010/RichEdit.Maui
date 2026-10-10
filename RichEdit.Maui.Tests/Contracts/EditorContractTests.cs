@@ -50,6 +50,9 @@ internal static partial class EditorContractTests
         foreach (var test in MultipleSelectionCases())
             yield return test;
 
+        foreach (var test in InputRuleCases())
+            yield return test;
+
         foreach (var test in FoldingCases())
             yield return test;
 
