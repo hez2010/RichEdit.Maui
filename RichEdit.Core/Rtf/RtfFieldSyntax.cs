@@ -21,8 +21,7 @@ internal static class RtfFieldSyntax
             if (!token.Switch) { target ??= token.Value; continue; }
             if (token.Value.Equals("\\l", StringComparison.OrdinalIgnoreCase) && index + 1 < tokens.Length) fragment = tokens[++index].Value;
             else if (token.Value.Equals("\\o", StringComparison.OrdinalIgnoreCase) && index + 1 < tokens.Length) tip = tokens[++index].Value;
-            else if (token.Value.Equals("\\t", StringComparison.OrdinalIgnoreCase) && index + 1 < tokens.Length) index++;
-            else if (!token.Value.Equals("\\m", StringComparison.OrdinalIgnoreCase) && !token.Value.Equals("\\n", StringComparison.OrdinalIgnoreCase)) return false;
+            else return false;
         }
         if (fragment is not null) target = (target ?? "") + "#" + fragment;
         if (string.IsNullOrWhiteSpace(target)) return false;

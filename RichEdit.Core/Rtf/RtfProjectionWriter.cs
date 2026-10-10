@@ -4,8 +4,8 @@ using TextEdit.Core;
 
 namespace RichEdit.Core.Rtf;
 
-// A native display projection deliberately excludes annotations and authored
-// cascade metadata. Persistence must use the semantic codec, not this projection.
+// Native display omits annotation and cascade metadata. Semantic persistence
+// enters through RtfCodec so fidelity assessment happens before output begins.
 internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream output,
     string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null, bool semantic = false,
     Func<RichNodeId, bool, string?>? marker = null, Func<string, string>? nativeText = null)

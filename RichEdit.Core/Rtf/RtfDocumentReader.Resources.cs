@@ -55,6 +55,12 @@ internal sealed partial class RtfDocumentReader
             if (picture.Name is { Length: > 0 } key) _assetNames.Add(key, asset);
         }
         if (child.ResourceOnly) return;
+        if (_state.Destination == "fldrslt" && _state.Capture is { } result)
+        {
+            Report("field-result-object", "A picture inside a field result was retained as an unused resource with a text fallback.");
+            result.Append(picture.Alt ?? "\uFFFC");
+            return;
+        }
         var width = picture.Width > 0 ? picture.Width : picture.PixelWidth > 0 ? checked(picture.PixelWidth * 15) : 1440;
         var height = picture.Height > 0 ? picture.Height : picture.PixelHeight > 0 ? checked(picture.PixelHeight * 15) : 1440;
         if (picture.Width <= 0 || picture.Height <= 0) Report("picture-size", "Missing picture dimensions were inferred at 96 DPI, with a one-inch fallback.");

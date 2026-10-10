@@ -160,7 +160,12 @@ internal sealed partial class RtfDocumentReader
                 if (_state.Field is not { } field) throw Error("A field result has no field");
                 if (!field.Atom && RtfFieldSyntax.TryHyperlink(field.Instruction, out var link))
                 { field.IsLink = true; _state.Link = link; _state.Capture = null; }
-                else _state.Capture = field.Result;
+                else
+                {
+                    if (!field.Atom && field.Instruction.TrimStart().StartsWith("HYPERLINK ", StringComparison.OrdinalIgnoreCase))
+                        Report("hyperlink-options", "A hyperlink with unsupported options was retained as a field atom.");
+                    _state.Capture = field.Result;
+                }
                 return true;
             case "refieldatom": if (_state.Field is { } atom) atom.Atom = true; SetDestination(word); return true;
             case "leveltext": case "levelnumbers": case "listtext": case "pntext":

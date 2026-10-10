@@ -41,6 +41,8 @@ internal sealed partial class RtfDocumentReader
             case "ltrch": format = format with { Direction = RichDirection.LeftToRight }; break;
             default: return false;
         }
+        if (_state.Destination == "fldrslt" && _state.Capture is not null && _state.Character != format)
+            Report("field-result-format", "Formatting inside a field result was reduced to the field's outer character style.");
         _state.Character = format;
         return true;
     }
@@ -69,6 +71,8 @@ internal sealed partial class RtfDocumentReader
             case "cfpat": case "cbpat": format = format with { Background = Color(n) }; break;
             default: return false;
         }
+        if (_state.Destination == "fldrslt" && _state.Capture is not null && _state.Paragraph != format)
+            Report("field-result-format", "Paragraph formatting inside a field result was omitted.");
         _state.Paragraph = format;
         return true;
     }

@@ -125,6 +125,19 @@ public sealed class RtfCodecTests
     }
 
     [Fact]
+    public async Task UnsupportedHyperlinkBehaviorRetainsTheInstructionAndReportsItsEditingLimit()
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1{\field{\*\fldinst HYPERLINK ""https://example.test"" \\t ""frame""}{\fldrslt result}}}"));
+        var result = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        var field = Assert.Single(result.Snapshot.Nodes.Values.OfType<RichField>());
+        Assert.Contains("frame", field.Instruction);
+        Assert.Equal("result", field.Result);
+        Assert.Contains(result.Diagnostics, value => value.Feature == "hyperlink-options");
+        var loaded = await RoundTrip(result.Snapshot);
+        Assert.Equal(field.Instruction, Assert.Single(loaded.Nodes.Values.OfType<RichField>()).Instruction);
+    }
+
+    [Fact]
     public async Task LimitsCancellationAndStreamOwnershipAreEnforced()
     {
         using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1 abcdef}"));
