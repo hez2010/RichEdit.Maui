@@ -64,6 +64,7 @@ public sealed class RichDocument
         ArgumentNullException.ThrowIfNull(snapshot);
         _snapshot = snapshot.WithRevision(new(_identity, 0));
         _nextNode = Math.Max(snapshot.Nodes.Keys.Max(id => id.Value), snapshot.Assets.Keys.Select(id => id.Value).DefaultIfEmpty().Max());
+        _nextNode = Math.Max(_nextNode, snapshot.Bookmarks.Keys.Concat(snapshot.Comments.Keys).Select(id => id.Value).DefaultIfEmpty().Max());
     }
     /// <summary>Creates a document from semantic paragraphs and soft breaks in plain text.</summary>
     public static RichDocument FromPlainText(string text) => new(RichDocumentSnapshot.FromPlainText(text));
@@ -124,7 +125,8 @@ public sealed class RichDocument
             finally { builder.Close(); }
         });
         if (builder.SelectionAfter is not null && session is null) throw new InvalidOperationException("Resulting selections require an invoking session.");
-        if (ReferenceEquals(plan.Snapshot.Nodes, before.Nodes) && ReferenceEquals(plan.Snapshot.Styles, before.Styles) && ReferenceEquals(plan.Snapshot.Assets, before.Assets))
+        if (ReferenceEquals(plan.Snapshot.Nodes, before.Nodes) && ReferenceEquals(plan.Snapshot.Styles, before.Styles) && ReferenceEquals(plan.Snapshot.Assets, before.Assets) &&
+            ReferenceEquals(plan.Snapshot.Bookmarks, before.Bookmarks) && ReferenceEquals(plan.Snapshot.Comments, before.Comments))
         {
             if (builder.SelectionAfter is { } selection) session!.Selection = selection;
             return new(TextEditRejection.None);
@@ -283,6 +285,10 @@ public sealed class RichDocument
             if (!after.Assets.TryGetValue(pair.Key, out var asset) || !ReferenceEquals(asset, pair.Value)) estimate += pair.Value.Data.Length;
         foreach (var pair in after.Assets)
             if (!before.Assets.TryGetValue(pair.Key, out var asset) || !ReferenceEquals(asset, pair.Value)) estimate += pair.Value.Data.Length;
+        estimate += before.Bookmarks.Where(pair => after.Bookmarks.GetValueOrDefault(pair.Key) != pair.Value).Sum(pair => 128L + pair.Value.Name.Length * 2L);
+        estimate += after.Bookmarks.Where(pair => before.Bookmarks.GetValueOrDefault(pair.Key) != pair.Value).Sum(pair => 128L + pair.Value.Name.Length * 2L);
+        estimate += before.Comments.Where(pair => after.Comments.GetValueOrDefault(pair.Key) != pair.Value).Sum(pair => 256L + 2L * (pair.Value.Author.Length + (long)pair.Value.Text.Length));
+        estimate += after.Comments.Where(pair => before.Comments.GetValueOrDefault(pair.Key) != pair.Value).Sum(pair => 256L + 2L * (pair.Value.Author.Length + (long)pair.Value.Text.Length));
         return estimate;
     }
     private sealed record HistoryEntry(RichDocumentSnapshot Before, RichDocumentSnapshot After, RichAddressMap Map,

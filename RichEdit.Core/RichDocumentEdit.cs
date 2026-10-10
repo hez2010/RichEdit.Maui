@@ -10,6 +10,8 @@ public sealed partial class RichDocumentEdit
     private readonly ImmutableDictionary<RichNodeId, RichNode>.Builder _nodes;
     private RichStyleSheet _styles;
     private readonly ImmutableDictionary<RichAssetId, RichImageAsset>.Builder _assets;
+    private readonly ImmutableDictionary<RichAnnotationId, RichBookmark>.Builder _bookmarks;
+    private readonly ImmutableDictionary<RichAnnotationId, RichComment>.Builder _comments;
     private long _nextId;
     private bool _open = true;
     private readonly List<RichAddressMap.Step> _maps = [];
@@ -21,12 +23,14 @@ public sealed partial class RichDocumentEdit
         _nodes = before.Nodes.ToBuilder();
         _styles = before.Styles;
         _assets = before.Assets.ToBuilder();
+        _bookmarks = before.Bookmarks.ToBuilder();
+        _comments = before.Comments.ToBuilder();
         _nextId = nextId;
     }
     /// <summary>Gets the body story identity.</summary>
     public RichNodeId Body { get { VerifyOpen(); return _body; } }
     /// <summary>Gets the current candidate as an immutable, validated snapshot.</summary>
-    public RichDocumentSnapshot Snapshot { get { VerifyOpen(); return new(_body, _nodes.ToImmutable(), _styles, assets: _assets.ToImmutable()); } }
+    public RichDocumentSnapshot Snapshot { get { VerifyOpen(); return Candidate(); } }
     /// <summary>Replaces document-owned styles without rewriting referenced content.</summary>
     public void SetStyles(RichStyleSheet styles) { VerifyOpen(); _styles = styles ?? throw new ArgumentNullException(nameof(styles)); }
 
@@ -92,7 +96,7 @@ public sealed partial class RichDocumentEdit
             left = left.Add(id);
         }
         _nodes[paragraph.Id] = paragraph with { Inlines = Coalesce(left.AddRange(right)) };
-        _maps.Add(new RichAddressMap.Text(paragraph.Id, start.Offset, length, text.Length));
+        Record(new RichAddressMap.Text(paragraph.Id, start.Offset, length, text.Length));
     }
 
     /// <summary>Inserts an authored soft line break without creating a paragraph boundary.</summary>
@@ -106,7 +110,7 @@ public sealed partial class RichDocumentEdit
         var id = Allocate();
         _nodes.Add(id, new RichSoftBreak(id, paragraph.Id) { Style = inherited?.Style, Format = inherited?.Format ?? new() });
         _nodes[paragraph.Id] = paragraph with { Inlines = left.Add(id).AddRange(right) };
-        _maps.Add(new RichAddressMap.Text(paragraph.Id, point.Offset, 0, 1));
+        Record(new RichAddressMap.Text(paragraph.Id, point.Offset, 0, 1));
         return id;
     }
 
@@ -142,7 +146,7 @@ public sealed partial class RichDocumentEdit
         _nodes[paragraph.Id] = paragraph with { Inlines = first };
         _nodes.Add(next, paragraph with { Id = next, Inlines = second, Style = style });
         SetBlocks(parent, siblings.Insert(index + 1, next));
-        _maps.Add(new RichAddressMap.Split(paragraph.Id, next, point.Offset));
+        Record(new RichAddressMap.Split(paragraph.Id, next, point.Offset));
         return next;
     }
 
@@ -163,7 +167,7 @@ public sealed partial class RichDocumentEdit
         _nodes[first] = left with { Inlines = Coalesce(left.Inlines.AddRange(right.Inlines)) };
         _nodes.Remove(second);
         SetBlocks(parent, siblings.RemoveAt(index + 1));
-        _maps.Add(new RichAddressMap.Join(second, first, length));
+        Record(new RichAddressMap.Join(second, first, length));
     }
 
     /// <summary>Moves a block to a new position while preserving all identities and text addresses.</summary>
@@ -212,7 +216,7 @@ public sealed partial class RichDocumentEdit
             _nodes.Remove(id);
         }
         EnsureParagraph(parent);
-        _maps.Add(new RichAddressMap.Remove(removed.ToImmutable()));
+        Record(new RichAddressMap.Remove(removed.ToImmutable()));
     }
 
     private (ImmutableList<RichNodeId> First, ImmutableList<RichNodeId> Second) Partition(RichParagraph paragraph, int offset, RichNodeId secondParent)
@@ -344,10 +348,12 @@ public sealed partial class RichDocumentEdit
     internal (RichDocumentSnapshot Snapshot, RichAddressMap Map, long NextId) Finish()
     {
         VerifyOpen();
-        var result = new RichDocumentSnapshot(_body, _nodes.ToImmutable(), _styles, assets: _assets.ToImmutable());
+        var result = Candidate();
         if (SelectionAfter is { } selection) SelectionAfter = result.NormalizeSelection(selection);
         _open = false;
         return (result, new(_maps), _nextId);
     }
     internal void Close() => _open = false;
+    private RichDocumentSnapshot Candidate(bool validate = true) => new(_body, _nodes.ToImmutable(), _styles, validate: validate,
+        assets: _assets.ToImmutable(), bookmarks: _bookmarks.ToImmutable(), comments: _comments.ToImmutable());
 }

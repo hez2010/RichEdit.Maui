@@ -56,12 +56,15 @@ public sealed class RichDocumentSnapshot
     }
 
     internal RichDocumentSnapshot(RichNodeId body, ImmutableDictionary<RichNodeId, RichNode> nodes, RichStyleSheet styles,
-        DocumentRevision revision = default, bool validate = true, ImmutableDictionary<RichAssetId, RichImageAsset>? assets = null)
+        DocumentRevision revision = default, bool validate = true, ImmutableDictionary<RichAssetId, RichImageAsset>? assets = null,
+        ImmutableDictionary<RichAnnotationId, RichBookmark>? bookmarks = null, ImmutableDictionary<RichAnnotationId, RichComment>? comments = null)
     {
         Body = body;
         Nodes = nodes;
         Styles = styles;
         Assets = assets ?? ImmutableDictionary<RichAssetId, RichImageAsset>.Empty;
+        Bookmarks = bookmarks ?? ImmutableDictionary<RichAnnotationId, RichBookmark>.Empty;
+        Comments = comments ?? ImmutableDictionary<RichAnnotationId, RichComment>.Empty;
         Revision = revision;
         if (validate) Validate();
     }
@@ -74,9 +77,13 @@ public sealed class RichDocumentSnapshot
     public RichStyleSheet Styles { get; }
     /// <summary>Gets immutable document-owned image resources.</summary>
     public ImmutableDictionary<RichAssetId, RichImageAsset> Assets { get; }
+    /// <summary>Gets persistent bookmarks, including orphaned records.</summary>
+    public ImmutableDictionary<RichAnnotationId, RichBookmark> Bookmarks { get; }
+    /// <summary>Gets persistent comments, including orphaned records.</summary>
+    public ImmutableDictionary<RichAnnotationId, RichComment> Comments { get; }
     /// <summary>Gets the document revision, or an invalid revision for a standalone builder snapshot.</summary>
     public DocumentRevision Revision { get; }
-    internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false, Assets);
+    internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false, Assets, Bookmarks, Comments);
 
     /// <summary>Gets a typed node or rejects a missing node or mismatched structural kind.</summary>
     public T Get<T>(RichNodeId id) where T : RichNode => Nodes.TryGetValue(id, out var node) && node is T value ? value :
@@ -184,6 +191,30 @@ public sealed class RichDocumentSnapshot
         }
         if (visited.Count != Nodes.Count) throw new ArgumentException("All authored nodes must be reachable from the body story.");
         foreach (var table in Nodes.Values.OfType<RichTable>()) _ = GetTableGrid(table.Id);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in Bookmarks)
+        {
+            if (!pair.Key.IsValid || pair.Value is null || pair.Value.Id != pair.Key || Comments.ContainsKey(pair.Key))
+                throw new ArgumentException("Annotations require unique, matching identities.");
+            ValidateBookmarkName(pair.Value.Name);
+            if (!names.Add(pair.Value.Name)) throw new ArgumentException("Bookmark names must be unique without regard to case.");
+            if (pair.Value.Range is { } range) NormalizeSelection(range);
+        }
+        foreach (var pair in Comments)
+        {
+            if (!pair.Key.IsValid || pair.Value is null || pair.Value.Id != pair.Key || pair.Value.Text is null || pair.Value.Author is null)
+                throw new ArgumentException("Comments require matching identities, text, and author values.");
+            if (pair.Value.Range is { } range) NormalizeSelection(range);
+            if (pair.Value.Created is { } date && (date.Offset != TimeSpan.Zero || date.Ticks % TimeSpan.TicksPerMinute != 0 || date.Year is < 1900 or > 2411))
+                throw new ArgumentException("Comment dates use UTC minutes in the RTF date range.");
+        }
+    }
+
+    internal static void ValidateBookmarkName(string name)
+    {
+        if (string.IsNullOrEmpty(name) || name.Length > 40 || !(char.IsLetter(name[0]) || name[0] == '_') ||
+            name.Any(character => !(char.IsLetterOrDigit(character) || character == '_')))
+            throw new ArgumentException("Bookmark names use one through forty letters, digits, or underscores and begin with a letter or underscore.", nameof(name));
     }
 
     private static bool Accepts(RichNode parent, RichNode child) => parent switch

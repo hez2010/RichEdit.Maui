@@ -35,7 +35,7 @@ public sealed partial class RichDocumentEdit
         _nodes.Add(id, new RichImage(id, paragraph.Id, asset, width, height)
         { Style = inherited?.Style, Format = inherited?.Format ?? new(), AlternativeText = alternativeText });
         _nodes[paragraph.Id] = paragraph with { Inlines = left.Add(id).AddRange(right) };
-        _maps.Add(new RichAddressMap.Text(paragraph.Id, point.Offset, 0, 1));
+        Record(new RichAddressMap.Text(paragraph.Id, point.Offset, 0, 1));
         return id;
     }
 }
