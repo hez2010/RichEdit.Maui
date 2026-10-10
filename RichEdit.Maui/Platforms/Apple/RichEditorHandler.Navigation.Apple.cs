@@ -7,7 +7,7 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private partial (TextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
-        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX)
+        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX, bool byWord)
     {
         var vertical = direction is EditorKey.Up or EditorKey.Down;
         var position = selection.Active;
@@ -54,7 +54,9 @@ public partial class RichEditorHandler
                     EditorKey.Up => UITextLayoutDirection.Up,
                     _ => UITextLayoutDirection.Down,
                 };
-                using var next = PlatformView.GetDisplayPosition(current, nativeDirection, 1);
+                using var next = byWord
+                    ? PlatformView.GetDisplayWordBoundary(current, nativeDirection)
+                    : PlatformView.GetDisplayPosition(current, nativeDirection, 1);
                 if (next is not null)
                     position = checked((int)PlatformView.GetDisplayOffset(PlatformView.BeginningOfDocument, next));
             }

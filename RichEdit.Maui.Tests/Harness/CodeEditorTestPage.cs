@@ -156,6 +156,25 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(true, Math.Abs((X(10) - X(0)) - (X(16) - X(12)) * 4) <= 2, "native typing advances the following tab to its next stop");
         });
 
+        await Test("native word movement extends every caret", "alpha beta\r\ngamma delta", () =>
+        {
+            _editor.Selections = new((TextSelection[])[new(0, 0), new(12, 12)]);
+            var identity = _editor.Selections.Primary.Id;
+            Equal(true, _editor.MoveSelections(EditorKey.Right, extend: true, byWord: true));
+            Equal(2, _editor.Selections.Count);
+            Equal(identity, _editor.Selections.Primary.Id);
+            Equal(0, _editor.Selections[0].Anchor);
+            Equal(12, _editor.Selections[1].Anchor);
+            foreach (var selection in _editor.Selections) Equal(true, selection.Range.Length is >= 5 and <= 6);
+            Equal(false, _editor.CanUndo);
+            Equal(true, _editor.ReplaceSelections("X"));
+            _editor.Undo();
+            Equal("alpha beta\r\ngamma delta", _editor.Document.Text);
+            Equal(true, _editor.MoveSelections(EditorKey.Left, byWord: true));
+            Equal(true, _editor.Selections.All(item => item.Range.IsEmpty));
+            return Task.CompletedTask;
+        });
+
         await Test("presentation revisions do not change source or saved state", "class C { }", async () =>
         {
             var before = _editor.Document.CurrentSnapshot;

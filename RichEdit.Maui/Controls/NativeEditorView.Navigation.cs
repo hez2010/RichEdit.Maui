@@ -6,18 +6,20 @@ public partial class NativeEditorView
 {
     /// <summary>Moves every selection using native caret navigation. Supports Left, Right, Up, Down, Home, and End.</summary>
     /// <returns>False while composing or when native layout is unavailable.</returns>
-    public bool MoveSelections(EditorKey direction, bool extend = false)
+    public bool MoveSelections(EditorKey direction, bool extend = false, bool byWord = false)
     {
         VerifyAccess();
         if (direction is not (EditorKey.Left or EditorKey.Right or EditorKey.Up or EditorKey.Down or EditorKey.Home or EditorKey.End))
             throw new ArgumentOutOfRangeException(nameof(direction));
-        if (StructuredSession is not null && _structuredSurfaces.Count != 0) return MoveStructuredSelections(direction, extend);
+        if (byWord && direction is not (EditorKey.Left or EditorKey.Right))
+            throw new ArgumentException("Word navigation requires Left or Right.", nameof(direction));
+        if (StructuredSession is not null && _structuredSurfaces.Count != 0) return MoveStructuredSelections(direction, extend, byWord);
         if (Composition.IsActive || Handler is not RichEditorHandler handler || !handler.HasTextLayout)
             return false;
         var moved = new List<TextSelection>();
         foreach (var selection in Selections)
         {
-            if (handler.NavigateSelection(selection, direction, extend) is not { } result)
+            if (handler.NavigateSelection(selection, direction, extend, byWord) is not { } result)
                 return false;
             moved.Add(result);
         }
@@ -72,6 +74,9 @@ public partial class NativeEditorView
             return key == EditorKey.Up ? AddCaretAbove() : AddCaretBelow();
         if (Selections.Count < 2)
             return false;
+        var wordModifier = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Alt : EditorKeyModifiers.Control;
+        if ((modifiers & ~EditorKeyModifiers.Shift) == wordModifier && key is EditorKey.Left or EditorKey.Right)
+            return MoveSelections(key, (modifiers & EditorKeyModifiers.Shift) != 0, byWord: true);
         if (key == EditorKey.Escape && modifiers == EditorKeyModifiers.None)
         {
             ClearSecondarySelections();

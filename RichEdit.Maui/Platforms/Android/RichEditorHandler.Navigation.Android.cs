@@ -3,7 +3,7 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private partial (TextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
-        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX)
+        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX, bool byWord)
     {
         if (PlatformView.Layout is not { } layout || PlatformView.EditableText is not { } text)
             return null;
@@ -16,7 +16,19 @@ public partial class RichEditorHandler
             global::Android.Text.Selection.SetSelection(text, selection.Anchor, selection.Active);
             var vertical = direction is EditorKey.Up or EditorKey.Down;
             var x = vertical ? preferredX ?? GetTextCaretBoundsCore(selection.Active, RichTextCaretAffinity.Downstream)?.X : null;
-            if (direction == EditorKey.Left)
+            if (byWord)
+            {
+                var position = selection.Active;
+                var left = direction == EditorKey.Left;
+                var adjacent = left ? layout.GetOffsetToLeftOf(position) : layout.GetOffsetToRightOf(position);
+                var backwards = adjacent == position ? left : adjacent < position;
+                using var words = Java.Text.BreakIterator.WordInstance!;
+                words.SetText(DisplaySourceSnapshot.Text);
+                var next = backwards ? words.Preceding(position) : words.Following(position);
+                if (next == Java.Text.BreakIterator.Done) next = backwards ? 0 : DisplaySourceSnapshot.Length;
+                global::Android.Text.Selection.SetSelection(text, extend ? selection.Anchor : next, next);
+            }
+            else if (direction == EditorKey.Left)
             {
                 if (extend) global::Android.Text.Selection.ExtendLeft(text, layout);
                 else global::Android.Text.Selection.MoveLeft(text, layout);

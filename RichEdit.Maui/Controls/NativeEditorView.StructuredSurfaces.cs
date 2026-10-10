@@ -83,7 +83,7 @@ public partial class NativeEditorView
         foreach (var surface in StructuredSurfaces().Where(surface => surface.IsFocused)) surface.Unfocus();
     }
 
-    private bool MoveStructuredSelections(EditorKey direction, bool extend)
+    private bool MoveStructuredSelections(EditorKey direction, bool extend, bool byWord)
     {
         if (Composition.IsActive || StructuredSession?.Selection is not (RichEdit.Core.RichTextSelection or RichTextSelectionSet)) return false;
         var rootProjection = Document.StructuredProjection!;
@@ -95,7 +95,7 @@ public partial class NativeEditorView
             if (surface?.Handler is not RichEditorHandler handler || surface.Document.StructuredProjection is not { } scoped ||
                 !scoped.ContainsParagraph(anchor.Paragraph)) return false;
             var local = selection with { Anchor = scoped.GetOffset(anchor), Active = scoped.GetOffset(active) };
-            if (handler.NavigateSelection(local, direction, extend) is not { } result || scoped.GetPoint(result.Anchor) is not { } nextAnchor ||
+            if (handler.NavigateSelection(local, direction, extend, byWord) is not { } result || scoped.GetPoint(result.Anchor) is not { } nextAnchor ||
                 scoped.GetPoint(result.Active) is not { } nextActive) return false;
             moved.Add(result with { Anchor = rootProjection.GetOffset(nextAnchor), Active = rootProjection.GetOffset(nextActive) });
         }

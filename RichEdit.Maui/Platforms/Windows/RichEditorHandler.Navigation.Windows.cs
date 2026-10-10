@@ -5,7 +5,7 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private partial (TextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
-        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX)
+        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX, bool byWord)
     {
         var native = PlatformView.Document.Selection;
         var start = native.StartPosition;
@@ -21,8 +21,8 @@ public partial class RichEditorHandler
             var x = vertical ? preferredX ?? GetTextCaretBoundsCore(selection.Active, RichTextCaretAffinity.Downstream)?.X : null;
             switch (direction)
             {
-                case EditorKey.Left: native.MoveLeft(TextRangeUnit.Character, 1, extend); break;
-                case EditorKey.Right: native.MoveRight(TextRangeUnit.Character, 1, extend); break;
+                case EditorKey.Left: native.MoveLeft(byWord ? TextRangeUnit.Word : TextRangeUnit.Character, 1, extend); break;
+                case EditorKey.Right: native.MoveRight(byWord ? TextRangeUnit.Word : TextRangeUnit.Character, 1, extend); break;
                 case EditorKey.Up: native.MoveUp(TextRangeUnit.Line, 1, extend); break;
                 case EditorKey.Down: native.MoveDown(TextRangeUnit.Line, 1, extend); break;
                 case EditorKey.Home: native.HomeKey(TextRangeUnit.Line, extend); break;

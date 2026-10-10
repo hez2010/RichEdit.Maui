@@ -53,6 +53,12 @@ namespace RichEdit.Maui.Platforms.Apple
             return base.GetPosition(from, direction, offset);
         }
 
+        internal UITextPosition? GetDisplayWordBoundary(UITextPosition from, UITextLayoutDirection direction)
+        {
+            using var scope = new DisplayInputScope(this);
+            return Tokenizer.GetPosition(from, UITextGranularity.Word, (UITextDirection)(long)direction);
+        }
+
         internal UITextRange? GetDisplayRange(UITextPosition from, UITextPosition to)
         {
             using var scope = new DisplayInputScope(this);

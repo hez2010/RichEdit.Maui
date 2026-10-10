@@ -4,7 +4,7 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    internal TextSelection? NavigateSelection(TextSelection selection, EditorKey direction, bool extend)
+    internal TextSelection? NavigateSelection(TextSelection selection, EditorKey direction, bool extend, bool byWord = false)
     {
         var display = NativeProjection.ToDisplay(new TextSelectionState(selection.Anchor, selection.Active));
         var preferred = direction is EditorKey.Up or EditorKey.Down ? selection.PreferredVisualX : null;
@@ -12,7 +12,7 @@ public partial class RichEditorHandler
         // exposing that display position as a document caret.
         for (var attempt = 0; attempt <= NativeProjection.Reservations.Length + 1; attempt++)
         {
-            if (NavigateDisplaySelectionCore(display, direction, extend, preferred) is not { } result)
+            if (NavigateDisplaySelectionCore(display, direction, extend, preferred, byWord) is not { } result)
                 return null;
             var source = NativeProjection.ToSource(result.Selection);
             if (source.Active != selection.Active || source.Anchor != selection.Anchor || result.Selection == display)
@@ -28,5 +28,5 @@ public partial class RichEditorHandler
     }
 
     private partial (TextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
-        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX);
+        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX, bool byWord);
 }
