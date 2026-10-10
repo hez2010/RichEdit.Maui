@@ -1,6 +1,8 @@
 <Solution>
   <Project Path="TextEdit.Core/TextEdit.Core.csproj" />
   <Project Path="TextEdit.Core.Tests/TextEdit.Core.Tests.csproj" />
+  <Project Path="RichEdit.Core/RichEdit.Core.csproj" />
+  <Project Path="RichEdit.Core.Tests/RichEdit.Core.Tests.csproj" />
   <Project Path="CodeEdit.Maui/CodeEdit.Maui.csproj" />
   <Project Path="RichEdit.Maui.TestApp/RichEdit.Maui.TestApp.csproj" />
   <Project Path="RichEdit.Maui.Tests/RichEdit.Maui.Tests.csproj" />
