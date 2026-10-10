@@ -6,6 +6,47 @@ namespace RichEdit.Maui.Tests;
 public class EditorPrimitiveTests
 {
     [Fact]
+    public Task DecorationRequestsRejectOlderSettingsAgainstUnchangedSource() => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("same source") };
+        using var layer = editor.Decorations.CreateLayer();
+        using var other = editor.Decorations.CreateLayer();
+        RichTextDecoration[] items = [new(new(0, 4), new() { ForegroundColor = Colors.Red })];
+        var older = layer.BeginUpdate();
+        var current = layer.BeginUpdate();
+        Assert.Equal(older.Revision, current.Revision);
+        Assert.False(layer.TryPublish(older, items));
+        Assert.False(other.TryPublish(current, items));
+        Assert.True(layer.TryPublish(current, items));
+        Assert.False(editor.CanUndo);
+        layer.Clear();
+        Assert.False(layer.TryPublish(current, items));
+        var replaced = layer.BeginUpdate();
+        editor.Document = RichTextDocument.FromPlainText("same source");
+        Assert.False(layer.TryPublish(replaced, items));
+        var disposed = layer.BeginUpdate();
+        layer.Dispose();
+        Assert.False(layer.TryPublish(disposed, items));
+    });
+
+    [Fact]
+    public Task DecorationPrioritiesComposeSpecifiedPropertiesIndependently() => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("text") };
+        using var high = editor.Decorations.CreateLayer(priority: 10);
+        using var low = editor.Decorations.CreateLayer(priority: -10);
+        Assert.True(high.TrySet(editor.Document.Revision, new[] { new RichTextDecoration(new(0, 4), new() { ForegroundColor = Colors.Red }) }));
+        Assert.True(low.TrySet(editor.Document.Revision, new[] { new RichTextDecoration(new(0, 4), new() { ForegroundColor = Colors.Blue, Italic = true }) }));
+        var run = Assert.Single(editor.PresentationSnapshot.Runs);
+        Assert.Equal(Colors.Red, run.Format.ForegroundColor);
+        Assert.True(run.Format.Italic);
+        Assert.Null(editor.Document.CurrentSnapshot.Runs[0].Format.ForegroundColor);
+        Assert.False(editor.Document.IsModified);
+        high.Dispose();
+        Assert.Equal(Colors.Blue, Assert.Single(editor.PresentationSnapshot.Runs).Format.ForegroundColor);
+    });
+
+    [Fact]
     public void RevisionsCarryIdentityAcrossSnapshotsAndHistory()
     {
         var first = RichTextDocument.FromPlainText("abc");

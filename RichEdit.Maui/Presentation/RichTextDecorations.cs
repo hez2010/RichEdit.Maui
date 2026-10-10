@@ -43,8 +43,20 @@ public sealed record RichTextDecorationStyle
 /// <param name="Style">The appearance overrides.</param>
 public sealed record RichTextDecoration(TextSpan Range, RichTextDecorationStyle Style);
 
+/// <summary>Captures one layer's source revision and producer generation before asynchronous work starts.</summary>
+public readonly struct DecorationRequest
+{
+    internal DecorationRequest(RichTextDecorationLayer layer, DocumentRevision revision, long generation)
+    { Layer = layer; Revision = revision; Generation = generation; }
+    internal RichTextDecorationLayer? Layer { get; }
+    /// <summary>Gets the source revision used by this request.</summary>
+    public DocumentRevision Revision { get; }
+    /// <summary>Gets the layer's request generation.</summary>
+    public long Generation { get; }
+}
+
 /// <summary>Owns one independently replaceable set of decorations for an editor.</summary>
-/// <remarks>Layers compose in creation order. Later layers override earlier layers only for properties they specify.</remarks>
+/// <remarks>Higher-priority layers override lower-priority layers. Equal priorities compose in creation order. Only specified properties override the preceding appearance.</remarks>
 public sealed partial class RichTextDecorationLayer : IDisposable
 {
     private RichTextDecorations? _owner;
@@ -55,7 +67,37 @@ public sealed partial class RichTextDecorationLayer : IDisposable
     internal DocumentRevision PendingRevision { get; set; }
     internal bool RemovalPending { get; set; }
 
-    internal RichTextDecorationLayer(RichTextDecorations owner) => _owner = owner;
+    internal RichTextDecorationLayer(RichTextDecorations owner, int priority) { _owner = owner; Priority = priority; }
+
+    /// <summary>Gets this layer's explicit composition priority.</summary>
+    public int Priority { get; }
+
+    /// <summary>Gets the current request generation, including invalidation by clear, disposal, and document replacement.</summary>
+    public long RequestGeneration { get; private set; }
+
+    /// <summary>Captures source identity and advances this producer's generation, invalidating earlier requests even if source is unchanged.</summary>
+    public DecorationRequest BeginUpdate()
+    {
+        ObjectDisposedException.ThrowIf(_owner is null, this);
+        _owner.VerifyAccess();
+        InvalidateRequests();
+        return new(this, _owner.Revision, RequestGeneration);
+    }
+
+    internal void InvalidateRequests() => RequestGeneration = checked(RequestGeneration + 1);
+
+    /// <summary>Publishes only if both this producer request and its source revision are still current.</summary>
+    /// <returns>False for a stale, foreign, invalid, or disposed request.</returns>
+    public bool TryPublish(DecorationRequest request, IEnumerable<RichTextDecoration> decorations)
+    {
+        ArgumentNullException.ThrowIfNull(decorations);
+        if (_owner is null) return false;
+        _owner.VerifyAccess();
+        if (!ReferenceEquals(request.Layer, this) || request.Generation != RequestGeneration) return false;
+        var items = decorations.ToImmutableArray();
+        if (_owner is null || request.Generation != RequestGeneration) return false;
+        return _owner.TrySet(this, request.Revision, items);
+    }
 
     /// <summary>Replaces the layer atomically with ordered, non-overlapping ranges in the current document.</summary>
     /// <param name="revision">The source revision used to calculate these decorations.</param>
@@ -65,13 +107,17 @@ public sealed partial class RichTextDecorationLayer : IDisposable
     {
         ObjectDisposedException.ThrowIf(_owner is null, this);
         ArgumentNullException.ThrowIfNull(decorations);
-        return _owner.TrySet(this, revision, [.. decorations]);
+        _owner.VerifyAccess();
+        if (revision != _owner.Revision) return false;
+        return TryPublish(BeginUpdate(), decorations);
     }
 
     /// <summary>Removes all decorations in this layer.</summary>
     public void Clear()
     {
         ObjectDisposedException.ThrowIf(_owner is null, this);
+        _owner.VerifyAccess();
+        InvalidateRequests();
         _owner.Set(this, []);
     }
 
@@ -81,6 +127,8 @@ public sealed partial class RichTextDecorationLayer : IDisposable
         if (_owner is not { } owner)
             return;
 
+        owner.VerifyAccess();
+        InvalidateRequests();
         owner.Remove(this);
         _owner = null;
     }
@@ -99,6 +147,8 @@ public sealed class RichTextDecorations
     private long _notifiedVersion;
 
     internal RichTextDecorations(NativeEditorView editor) => _editor = editor;
+    internal void VerifyAccess() => _editor.VerifyAccess();
+    internal DocumentRevision Revision => _editor.Document.Revision;
 
     /// <summary>Occurs when layers are changed, remapped by an edit, or cleared by document replacement.</summary>
     public event EventHandler? Changed;
@@ -106,12 +156,13 @@ public sealed class RichTextDecorations
     /// <summary>Gets the presentation revision, independent of the document version.</summary>
     public long Version { get; private set; }
 
-    /// <summary>Creates an empty layer above the existing layers.</summary>
+    /// <summary>Creates an empty layer with explicit priority; equal priorities compose in creation order.</summary>
+    /// <param name="priority">Higher values take precedence over lower values.</param>
     /// <returns>A layer that can be replaced, cleared, or disposed independently.</returns>
-    public RichTextDecorationLayer CreateLayer()
+    public RichTextDecorationLayer CreateLayer(int priority = 0)
     {
         _editor.VerifyAccess();
-        var layer = new RichTextDecorationLayer(this);
+        var layer = new RichTextDecorationLayer(this, priority);
         _layers.Add(layer);
         return layer;
     }
@@ -191,7 +242,7 @@ public sealed class RichTextDecorations
             return _projection!;
 
         var projected = snapshot;
-        foreach (var layer in _layers)
+        foreach (var layer in _layers.OrderBy(static layer => layer.Priority))
         {
             var items = painted && !layer.PendingItems.IsDefault ? layer.PaintedItems : layer.Items;
             if (items.IsEmpty)
@@ -359,6 +410,7 @@ public sealed class RichTextDecorations
     {
         foreach (var layer in _layers)
         {
+            layer.InvalidateRequests();
             layer.Items = [];
             layer.PendingItems = default;
             layer.PaintedItems = default;

@@ -47,7 +47,7 @@ internal sealed partial class CodeColorizer : IDisposable
         {
             _palette = value;
             if (_revision == _editor.Document.Revision)
-                Publish(_revision, Tokens);
+                Publish(_layer.BeginUpdate(), Tokens);
         }
     }
 
@@ -71,6 +71,7 @@ internal sealed partial class CodeColorizer : IDisposable
         _pending = pending;
         var token = pending.Token;
         var snapshot = _editor.Document.CurrentSnapshot;
+        var request = _layer.BeginUpdate();
         var classify = ClassifyAsync;
         try
         {
@@ -89,7 +90,7 @@ internal sealed partial class CodeColorizer : IDisposable
             await Task.Yield();
             if (token.IsCancellationRequested || _disposed || snapshot.Revision != _editor.Document.Revision)
                 return;
-            if (Publish(snapshot.Revision, tokens))
+            if (Publish(request, tokens))
             {
                 Tokens = tokens;
                 _revision = snapshot.Revision;
@@ -103,7 +104,7 @@ internal sealed partial class CodeColorizer : IDisposable
         }
     }
 
-    private bool Publish(DocumentRevision revision, IReadOnlyList<CodeToken> tokens)
+    private bool Publish(DecorationRequest request, IReadOnlyList<CodeToken> tokens)
     {
         var palette = Palette;
         var decorations = tokens.Select(token => (Token: token, Color: palette?.Invoke(token)))
@@ -112,7 +113,7 @@ internal sealed partial class CodeColorizer : IDisposable
         if (_disposed || !ReferenceEquals(Palette, palette))
             return false;
 
-        return _layer.TrySet(revision, decorations);
+        return _layer.TryPublish(request, decorations);
     }
 
     private async void Schedule()
