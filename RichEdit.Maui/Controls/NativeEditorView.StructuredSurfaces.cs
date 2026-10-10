@@ -12,7 +12,8 @@ public partial class NativeEditorView
 
     internal IEnumerable<NativeEditorView> StructuredSurfaces()
     {
-        _structuredSurfaces.RemoveAll(reference => !reference.TryGetTarget(out var surface) || !ReferenceEquals(surface.StructuredInputCoordinator, this));
+        _structuredSurfaces.RemoveAll(reference => !reference.TryGetTarget(out var surface) || !ReferenceEquals(surface.StructuredInputCoordinator, this) ||
+            !surface.HasCurrentStructuredCoordinator);
         return _structuredSurfaces.Select(reference => reference.TryGetTarget(out var surface) ? surface : null).OfType<NativeEditorView>();
     }
     private void RegisterStructuredSurface(NativeEditorView surface)

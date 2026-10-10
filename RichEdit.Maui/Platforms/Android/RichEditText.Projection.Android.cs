@@ -109,7 +109,7 @@ public partial class RichEditText
             return TextFormatted ?? new Java.Lang.String("");
 
         var native = TextFormatted;
-        if (native is not ISpanned styled || native.Length() != handler.VirtualView.InputSnapshot.Length + handler.NativeProjection.Reservations.Sum(static item => item.Text.Length))
+        if (native is not ISpanned styled || !handler.NativeProjection.IsStructured && native.Length() != handler.VirtualView.InputSnapshot.Length + handler.NativeProjection.Reservations.Sum(static item => item.Text.Length))
             return new Java.Lang.String(handler.VirtualView.InputSnapshot.Text);
 
         var source = new SpannableString(handler.VirtualView.InputSnapshot.Text);
@@ -127,6 +127,11 @@ public partial class RichEditText
                     source.SetSpan(span, start, end, styled.GetSpanFlags(span));
             }
         }
+
+        if (handler.VirtualView.ScopedInputProjection is { } projection)
+            foreach (var item in projection.Objects)
+                if (projection.Snapshot.Get<RichEdit.Core.RichInline>(item.Object) is RichEdit.Core.RichField field)
+                    source.SetSpan(new global::Android.Text.Style.TtsSpan.TextBuilder(field.Result).Build(), item.Position, item.Position + 1, SpanTypes.ExclusiveExclusive);
 
         return source;
     }

@@ -8,7 +8,7 @@ public partial class NativeEditorView
     private RichTextViewScope? _coordinatedCompositionScope;
     private RichTextViewScope? StructuredInputScope => _coordinatedCompositionScope ?? Document.StructuredScope;
 
-    private RichTextProjection ProjectStructuredInput(RichDocumentSnapshot snapshot) => StructuredInputScope is { } scope
+    internal RichTextProjection ProjectStructuredInput(RichDocumentSnapshot snapshot) => StructuredInputScope is { } scope
         ? scope.Project(snapshot) ?? throw new InvalidOperationException("The native input scope was removed.") : snapshot.ProjectText();
     internal RichTextProjection? ScopedInputProjection => Composition.IsActive && StructuredSession?.Composition is { } composition
         ? ProjectStructuredInput(composition.Snapshot) : Document.StructuredProjection;

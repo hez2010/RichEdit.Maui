@@ -62,6 +62,8 @@ namespace RichEdit.Maui
         {
             if (_applyingDocument)
                 return;
+            if (_structuredNativeMap is not null && TryReadStructuredNativeChange(PlatformView.Text ?? "",
+                new(Math.Max(0, PlatformView.SelectionStart), Math.Max(0, PlatformView.SelectionEnd)))) return;
             if (PlatformView.Text != DisplaySourceSnapshot.Text)
             {
                 var snapshot = ReadDocumentFromPlatform(PlatformView.Text ?? string.Empty);

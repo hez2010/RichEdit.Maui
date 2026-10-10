@@ -11,7 +11,7 @@ namespace RichEdit.Maui;
 internal sealed class StructuredRichNativeMap
 {
     internal sealed record Marker(RichNodeId Node, bool End, string Text);
-    internal sealed record Segment(RichNodeId Paragraph, int LocalStart, int LocalLength, int NativeStart, int NativeLength, bool Atom)
+    internal sealed record Segment(RichNodeId Paragraph, int LocalStart, int LocalLength, int NativeStart, int NativeLength, bool Atom, RichNodeId? Inline = null)
     {
         internal int NativeEnd => NativeStart + NativeLength;
         internal int LocalEnd => LocalStart + LocalLength;
@@ -60,7 +60,7 @@ internal sealed class StructuredRichNativeMap
                     var length = inline is RichText run ? run.Content.Length : 1;
                     if (end < start || inline is RichText && end - start != length || inline is RichSoftBreak && end - start != 1)
                         throw new InvalidOperationException($"The native RTF engine changed authored text during projection (node {id.Value}, expected {length}, observed {end - start}).");
-                    segments.Add(new(node.Id, local, length, start, end - start, inline is RichImage or RichField));
+                    segments.Add(new(node.Id, local, length, start, end - start, inline is RichImage or RichField, inline.Id));
                     local += length;
                 }
                 paragraphs.Add(new(node.Id, offsets[(node.Id, false)], offsets[(node.Id, true)], segments.ToImmutable()));
@@ -75,8 +75,12 @@ internal sealed class StructuredRichNativeMap
     private readonly ImmutableArray<Paragraph> _ordered;
     private readonly RichTextProjection _text;
     private readonly ImmutableDictionary<RichNodeId, int> _boundaries;
-    private StructuredRichNativeMap(RichDocumentSnapshot snapshot, string nativeText, ImmutableArray<Paragraph> paragraphs, ImmutableDictionary<RichNodeId, int> boundaries)
-    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = snapshot.ProjectText(); _boundaries = boundaries; }
+    private StructuredRichNativeMap(RichDocumentSnapshot snapshot, string nativeText, ImmutableArray<Paragraph> paragraphs, ImmutableDictionary<RichNodeId, int> boundaries,
+        RichTextProjection? projection = null, RichTextDocumentSnapshot? display = null)
+    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = projection ?? snapshot.ProjectText(); _boundaries = boundaries; Display = display; }
+    internal RichTextDocumentSnapshot? Display { get; }
+    internal static StructuredRichNativeMap FromDisplay(RichTextProjection projection, RichTextDocumentSnapshot display, ImmutableArray<Paragraph> paragraphs) =>
+        new(projection.Snapshot, display.Text, paragraphs, ImmutableDictionary<RichNodeId, int>.Empty, projection, display);
     internal RichDocumentSnapshot Snapshot { get; }
     internal string NativeText { get; }
     internal ImmutableArray<Paragraph> Paragraphs => _ordered;
@@ -105,13 +109,28 @@ internal sealed class StructuredRichNativeMap
     {
         selection.Range.Validate(NativeText.Length);
         if (selection.Range.IsEmpty)
+        {
+            var atom = _ordered.SelectMany(paragraph => paragraph.Segments).FirstOrDefault(segment => segment.Atom &&
+                selection.Active > segment.NativeStart && selection.Active < segment.NativeEnd);
+            if (atom?.Inline is { } selected) return new RichObjectSelection(selected);
+        }
+        if (selection.Range.IsEmpty)
             foreach (var boundary in _boundaries)
                 if (boundary.Value == selection.Active) return new RichBoundarySelection(Snapshot.Body, boundary.Key, RichBlockEdge.After);
         var anchor = ToRich(selection.Anchor);
         var active = ToRich(selection.Active);
         var body = Snapshot.Get<RichStory>(Snapshot.Body);
-        if (!selection.Range.IsEmpty && selection.Range.Start == 0 && selection.Range.End >= NativeText.Length - 1)
+        if (!selection.Range.IsEmpty)
+        {
+            var atom = _ordered.SelectMany(paragraph => paragraph.Segments).FirstOrDefault(segment => segment.Atom &&
+                selection.Range.Start >= segment.NativeStart && selection.Range.End <= segment.NativeEnd);
+            if (atom?.Inline is { } selected) return new RichObjectSelection(selected);
+        }
+        if (Display is null && !selection.Range.IsEmpty && selection.Range.Start == 0 && selection.Range.End >= NativeText.Length - 1)
             return new RichBlockSelection(body.Id, body.Blocks[0], body.Blocks[^1]);
+        if (Display is not null && !selection.Range.IsEmpty && selection.Range.Start == 0 && selection.Range.End == NativeText.Length &&
+            Snapshot.Get<RichNode>(_text.Root) is RichStory or RichTableCell or RichListItem && !_text.Blocks.IsEmpty)
+            return new RichBlockSelection(_text.Root, _text.Blocks[0], _text.Blocks[^1]);
         if (selection.Range.IsEmpty && active is null)
         {
             if (selection.Active >= _ordered[^1].End && Snapshot.Get<RichBlock>(body.Blocks[^1]) is RichTable)

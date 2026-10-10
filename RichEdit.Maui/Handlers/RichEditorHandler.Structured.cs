@@ -16,6 +16,8 @@ public partial class RichEditorHandler
 #if WINDOWS || IOS || MACCATALYST
             return VirtualView?.Document.StructuredRoot is null &&
                 VirtualView?.StructuredSession?.Document.CurrentSnapshot.Nodes.Values.Any(node => node is RichTable or RichList or RichField) == true;
+#elif ANDROID
+            return VirtualView?.ScopedInputProjection is { } projection && projection.Objects.Any(item => projection.Snapshot.Get<RichInline>(item.Object) is RichField);
 #else
             return false;
 #endif
@@ -58,10 +60,10 @@ public partial class RichEditorHandler
         _paintedSnapshot = snapshot;
     }
 
-    private void SetStructuredNativeMap(StructuredRichNativeMap map)
+    private void SetStructuredNativeMap(StructuredRichNativeMap map, bool captureFormats = true)
     {
         _structuredNativeMap = map;
-        _structuredFormats = CaptureStructuredFormatsCore(map);
+        if (captureFormats) _structuredFormats = CaptureStructuredFormatsCore(map);
         var projection = RichTextDisplayProjection.FromStructured(map);
         var display = RichTextDisplayProjection.NativeDescription(map);
         _displayState = new(projection, display, display);
@@ -101,7 +103,7 @@ public partial class RichEditorHandler
     {
         if (_structuredNativeMap is not { } map || VirtualView.StructuredSession is not { } session || VirtualView.Composition.IsActive) return false;
         if (native.Range.End > map.NativeText.Length) return false;
-        if (session.Selection is RichCellSelection or RichBoundarySelection or RichBlockSelection && _structuredSelection == native) return true;
+        if (session.Selection is RichCellSelection or RichBoundarySelection or RichBlockSelection or RichObjectSelection && _structuredSelection == native) return true;
         var selection = map.SelectionFromNative(native);
         // Preserve stable multi-caret identities when the primary text range is
         // unchanged. A native structural selection deliberately replaces the set.
@@ -116,7 +118,7 @@ public partial class RichEditorHandler
         if (VirtualView.IsReadOnly || session.IsReadOnly) { TryApplyStructuredNativeDocument(); return true; }
         if (text == map.NativeText)
         {
-            TryUpdateStructuredSelection(selection);
+            if (VirtualView.StructuredInputCoordinator is null) TryUpdateStructuredSelection(selection);
             if (!VirtualView.Composition.IsActive) ReadStructuredFormatting(map);
             return true;
         }
@@ -150,7 +152,7 @@ public partial class RichEditorHandler
             return true;
         }
         finally { builder.Close(); }
-        var projection = candidate.ProjectText();
+        var projection = VirtualView.ProjectStructuredInput(candidate);
         var caret = ((RichEdit.Core.RichTextSelection)after).Active;
         var resulting = new TextSelectionState(projection.GetOffset(caret), projection.GetOffset(caret));
         var candidateMap = CreateStructuredNativeDocumentCore(candidate, apply: false);
@@ -224,10 +226,4 @@ public partial class RichEditorHandler
         return (background, luminance > 0.179 ? new(0, 0, 0) : new(255, 255, 255));
     }
 
-#if ANDROID
-    private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply) =>
-        throw new NotSupportedException("Android table projections use native cell hosts.");
-    private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map) =>
-        throw new NotSupportedException("Android table projections use native cell hosts.");
-#endif
 }

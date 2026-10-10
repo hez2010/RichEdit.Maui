@@ -49,16 +49,20 @@ public sealed partial class RichTextDocument
     private void PublishStructured(RichDocumentChangedEventArgs change)
     {
         var before = _snapshot;
+        var previousProjection = StructuredProjection;
         StructuredProjection = ProjectStructuredSnapshot(change.After);
         _snapshot = StructuredProjection is { } projection ? RichTextDocumentSnapshot.CreateStructuredProjection(projection) :
             new RichTextDocumentSnapshot("").WithVersion(change.After.Revision.Version, change.After.Revision.Identity);
         var structural = StructuredRoot is null && (change.Before.Nodes.Values.Any(node => node is RichTable or RichList or RichField) ||
             change.After.Nodes.Values.Any(node => node is RichTable or RichList or RichField));
         var changes = CreateDelta(before, _snapshot).ToArray();
+        var fieldChanged = (previousProjection?.Objects.Select(item => item.Object) ?? []).Concat(StructuredProjection?.Objects.Select(item => item.Object) ?? [])
+            .Distinct().Any(id => (change.Before.Nodes.GetValueOrDefault(id) is RichField || change.After.Nodes.GetValueOrDefault(id) is RichField) &&
+                change.Before.Nodes.GetValueOrDefault(id) != change.After.Nodes.GetValueOrDefault(id));
         _lastStructuredChange = new(before.Version, _snapshot.Version, (RichTextChangeOrigin)change.Options.Origin,
             [.. changes],
             change.Options.Tag, _structuredOrigin, before, _snapshot, undoDescription: change.Options.Description)
-        { NativeCorrections = _structuredCorrections, RequiresStructuredProjection = structural || StructuredRoot is not null && changes.Length != 0 };
+        { NativeCorrections = _structuredCorrections, RequiresStructuredProjection = structural || fieldChanged || StructuredRoot is not null && changes.Length != 0 };
         InvalidateRtfCache();
         RaiseChanged(_lastStructuredChange, before, undoStateChanged: true);
     }

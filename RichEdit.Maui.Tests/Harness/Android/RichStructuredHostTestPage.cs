@@ -72,6 +72,52 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             grid = NativeViews<NativeGrid>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Single();
             Equal(4, grid.ChildCount); Equal(cells, _editor.Selection, "after undo");
         });
+        await Test("retained fields use native wrapped text and atomic rich addresses", async () =>
+        {
+            var cell = Cell(0, 1);
+            var paragraph = _editor.Document.CurrentSnapshot.Get<RichTableCell>(cell).Blocks[0];
+            RichNodeId field = default;
+            _editor.Edit(edit => field = edit.InsertField(new(edit.Body, paragraph, 2), "DATE", "October 11"));
+            await Task.Delay(80);
+            var surface = Surface(cell);
+            var native = ((RichEditorHandler)surface.Handler!).PlatformView;
+            Equal("bbOctober 11", native.Text);
+            Equal("bb\uFFFC", _editor.Document.CurrentSnapshot.ProjectText(cell).Text.ToString());
+            native.SetSelection(5);
+            Equal(new RichObjectSelection(field), _editor.Selection);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(new(_editor.Document.CurrentSnapshot.Body, paragraph, 3), new(_editor.Document.CurrentSnapshot.Body, paragraph, 3));
+            Equal(12, native.SelectionStart, $"field selection before focus; local {surface.SelectionState}; mapped {((RichEditorHandler)surface.Handler!).NativeProjection.ToDisplay(3)}");
+            _editor.Focus(); await Task.Delay(30);
+            Equal(12, native.SelectionStart, $"field selection after focus; local {surface.SelectionState}; core {_editor.Selection}");
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var value = new Java.Lang.String("!");
+            connection.CommitText(value, 1);
+            Equal("bb\uFFFC!", _editor.Document.CurrentSnapshot.ProjectText(cell).Text.ToString());
+            Equal("October 11", _editor.Document.CurrentSnapshot.Get<RichField>(field).Result);
+            _editor.Undo();
+            _editor.Selection = new RichObjectSelection(field);
+            surface.Selection.ReplaceText("");
+            Equal("bb", _editor.Document.CurrentSnapshot.ProjectText(cell).Text.ToString());
+            _editor.Undo(); Equal("bbOctober 11", native.Text);
+            var retained = "A retained field result that wraps across several native lines.";
+            _editor.Edit(edit => edit.SetFieldResult(field, retained));
+            await Task.Delay(80);
+            Equal("bb" + retained, native.Text);
+            Equal(true, native.Layout!.LineCount > 1);
+            using var accessibility = native.CreateAccessibilityNodeInfo()!;
+            var spoken = (Android.Text.ISpanned)accessibility.TextFormatted!;
+            var descriptions = spoken.GetSpans(2, 3, Java.Lang.Class.FromType(typeof(Android.Text.Style.TtsSpan)))!;
+            Equal(1, descriptions.Length);
+            using var italic = new Android.Text.Style.StyleSpan(Android.Graphics.TypefaceStyle.Italic);
+            native.EditableText!.SetSpan(italic, 0, 2, Android.Text.SpanTypes.ExclusiveExclusive);
+            await Task.Delay(60);
+            var firstRun = _editor.Document.CurrentSnapshot.Get<RichParagraph>(paragraph).Inlines[0];
+            Equal(true, _editor.Document.CurrentSnapshot.ResolveCharacter(firstRun).Italic);
+            Equal(new RichObjectSelection(field), _editor.Selection);
+            _editor.Undo();
+            Equal(false, _editor.Document.CurrentSnapshot.ResolveCharacter(firstRun).Italic);
+        });
         await Test("native cells share multiple carets and one IME history unit", async () =>
         {
             var snapshot = _editor.Document.CurrentSnapshot;

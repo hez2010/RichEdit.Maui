@@ -129,6 +129,8 @@ public partial class RichEditorHandler
 
         var previousDocument = DisplaySourceSnapshot;
         UpdateCompositionState();
+        if (_structuredNativeMap is not null && TryReadStructuredNativeChange(editable.ToString() ?? "",
+            new(Math.Max(0, PlatformView.SelectionStart), Math.Max(0, PlatformView.SelectionEnd)))) return;
         var previousText = previousDocument.Text;
         var removedStart = Math.Clamp(eventArgs.Start, 0, previousText.Length);
         var removedLength = Math.Clamp(
@@ -247,6 +249,8 @@ public partial class RichEditorHandler
             _nativeFormatReadbackQueued = false;
             if (_applyingDocument || _formatWatcher is null || !ReferenceEquals(VirtualView?.Document, _queuedDocument) || _queuedProjectionGeneration != _projectionGeneration)
                 return;
+            if (_structuredNativeMap is not null && TryReadStructuredNativeChange(PlatformView.Text ?? "",
+                new(Math.Max(0, PlatformView.SelectionStart), Math.Max(0, PlatformView.SelectionEnd)))) return;
 
             var snapshot = ReadDocumentFromPlatform(PlatformView.Text ?? string.Empty);
             var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, snapshot.Length);
@@ -287,6 +291,7 @@ public partial class RichEditorHandler
         {
             return;
         }
+        if (TryUpdateStructuredSelection(new(Math.Max(0, eventArgs.Start), Math.Max(0, eventArgs.End)))) return;
 
         var start = Math.Clamp(
             Math.Min(eventArgs.Start, eventArgs.End),
