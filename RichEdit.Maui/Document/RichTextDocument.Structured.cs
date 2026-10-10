@@ -181,7 +181,7 @@ public sealed partial class RichTextDocument
         Outline = value.Outline, Shadow = value.Shadow, Hidden = value.Hidden, Language = value.LanguageTag,
         Direction = Direction(value.Direction),
     };
-    private static RichParagraphStyle ParagraphOverrides(RichTextParagraphFormat before, RichTextParagraphFormat after)
+    internal static RichParagraphStyle ParagraphOverrides(RichTextParagraphFormat before, RichTextParagraphFormat after)
     {
         var value = ToStructured(after);
         return new()

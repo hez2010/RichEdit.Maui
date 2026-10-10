@@ -7,6 +7,28 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map)
+    {
+        var runs = new List<RichTextRun>();
+        var paragraphs = new Dictionary<RichNodeId, RichTextParagraphFormat>();
+        var text = PlatformView.TextStorage;
+        foreach (var paragraph in map.Paragraphs)
+        {
+            var prior = RichTextDocumentSnapshot.ToNative(map.Snapshot.ResolveParagraph(paragraph.Id));
+            if (paragraph.Start < text.Length)
+                paragraphs.Add(paragraph.Id, ReadParagraphFormat(text.GetAttributes(paragraph.Start, out _) ?? new NSDictionary(), prior));
+            else paragraphs.Add(paragraph.Id, prior);
+            for (var offset = paragraph.Start; offset < paragraph.End;)
+            {
+                var attributes = text.GetAttributes(offset, out var effective) ?? new NSDictionary();
+                var end = Math.Clamp(checked((int)(effective.Location + effective.Length)), offset + 1, paragraph.End);
+                runs.Add(new(offset, end - offset, ReadCharacterFormat(attributes, RichTextCharacterFormat.Default)));
+                offset = end;
+            }
+        }
+        return new(runs, paragraphs);
+    }
+
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply)
     {
         var font = ResolveFont(RichTextCharacterFormat.Default);
@@ -14,7 +36,7 @@ public partial class RichEditorHandler
         var selectionColors = StructuredSelectionColors();
         var prepared = StructuredRichNativeMap.PrepareAsync(snapshot, fallbackFont: font.Name, fallbackSize: RichFontSize.FromPoints(font.PointSize),
             fallbackColor: new((byte)Math.Round(color.Red * 255), (byte)Math.Round(color.Green * 255), (byte)Math.Round(color.Blue * 255)),
-            selectedCells: VirtualView.StructuredSession!.Selection as RichCellSelection,
+            selectedCells: (VirtualView.StructuredSession!.Composition?.Selection ?? VirtualView.StructuredSession.Selection) as RichCellSelection,
             selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground).GetAwaiter().GetResult();
         using var data = NSData.FromArray(System.Text.Encoding.ASCII.GetBytes(prepared.Rtf));
         using var imported = NSAttributedString.Create(data,

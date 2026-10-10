@@ -46,6 +46,21 @@ public sealed class StructuredBindingTests
             Assert.Equal(2, rtf.Split(@"\trowd", StringSplitOptions.None).Length - 1);
             view.Undo();
             Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+            view.StructuredSession.Selection = new RichCellSelection(table, 0, 0, 2, 1);
+            view.Selection.ToggleBold();
+            Assert.True(view.Selection.CharacterFormat.Bold);
+            Assert.IsType<RichCellSelection>(view.StructuredSession.Selection);
+            foreach (var run in document.CurrentSnapshot.Nodes.Values.OfType<RichText>())
+                Assert.Equal(run.Content.ToString() is "alpha" or "gamma", document.CurrentSnapshot.ResolveCharacter(run.Id).Bold);
+            view.Undo();
+            view.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(new(document.CurrentSnapshot.Body, paragraph, 1), new(document.CurrentSnapshot.Body, paragraph, 3));
+            handler.PlatformView.Document.Selection.CharacterFormat.Italic = FormatEffect.On;
+            await Task.Delay(30);
+            var italic = document.CurrentSnapshot.Nodes.Values.OfType<RichText>().Where(run => document.CurrentSnapshot.ResolveCharacter(run.Id).Italic).ToArray();
+            Assert.Single(italic);
+            Assert.Equal("et", italic[0].Content.ToString());
+            view.Undo();
+            Assert.All(document.CurrentSnapshot.Nodes.Values.OfType<RichText>(), run => Assert.False(document.CurrentSnapshot.ResolveCharacter(run.Id).Italic));
             handler.PlatformView.Document.Selection.EndKey(TextRangeUnit.Story, false);
             await Task.Delay(30);
             Assert.True(view.StructuredSession.Selection is RichBoundarySelection,
@@ -102,6 +117,21 @@ public sealed class StructuredBindingTests
                 observe.Invoke(handler, null);
                 Assert.Equal("alpha\tbe仮ta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
                 view.Undo();
+                Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+                var cells = new RichCellSelection(table, 0, 0, 1, 2);
+                view.StructuredSession.Selection = cells;
+                var before = document.CurrentSnapshot;
+                composing.SetValue(handler, true);
+                observe.Invoke(handler, null);
+                handler.PlatformView.Document.Selection.TypeText("仮");
+                await Task.Delay(30);
+                Assert.Same(before, document.CurrentSnapshot);
+                Assert.Equal("仮\t\ngamma\tdelta", view.StructuredSession.Composition!.Snapshot.ProjectText().Text.ToString());
+                composing.SetValue(handler, false);
+                observe.Invoke(handler, null);
+                Assert.Equal("仮\t\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
+                view.Undo();
+                Assert.Equal(cells, view.StructuredSession.Selection);
                 Assert.Equal("alpha\tbeta\ngamma\tdelta", document.CurrentSnapshot.ProjectText().Text.ToString());
             }
             finally { composing.SetValue(handler, false); view.DiscardComposition(); }

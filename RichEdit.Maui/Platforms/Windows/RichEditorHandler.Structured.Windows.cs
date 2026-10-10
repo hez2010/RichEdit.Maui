@@ -8,6 +8,28 @@ public partial class RichEditorHandler
 {
     private RichEditBox? _structuredScratch;
 
+    private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map)
+    {
+        var runs = new List<RichTextRun>();
+        var paragraphs = new Dictionary<RichNodeId, RichTextParagraphFormat>();
+        var range = PlatformView.Document.GetRange(0, 0);
+        foreach (var paragraph in map.Paragraphs)
+        {
+            range.SetRange(paragraph.Start, paragraph.Start);
+            paragraphs.Add(paragraph.Id, ReadParagraphFormat(range.ParagraphFormat, null));
+            for (var offset = paragraph.Start; offset < paragraph.End;)
+            {
+                range.SetRange(offset, offset + 1);
+                var format = ReadCharacterFormat(range.CharacterFormat);
+                range.Expand(TextRangeUnit.CharacterFormat);
+                var end = Math.Clamp(range.EndPosition, offset + 1, paragraph.End);
+                runs.Add(new(offset, end - offset, format));
+                offset = end;
+            }
+        }
+        return new(runs, paragraphs);
+    }
+
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply)
     {
         // The writer uses an owned MemoryStream, so preparation has no pending
@@ -18,7 +40,7 @@ public partial class RichEditorHandler
         var prepared = StructuredRichNativeMap.PrepareAsync(snapshot, fallbackFont: VirtualView.FontFamily ?? defaults.Name,
             fallbackSize: RichFontSize.FromPoints(VirtualView.FontSize ?? defaults.Size),
             fallbackColor: color is null ? null : new((byte)Math.Round(color.Red * 255), (byte)Math.Round(color.Green * 255), (byte)Math.Round(color.Blue * 255)),
-            selectedCells: VirtualView.StructuredSession!.Selection as RichCellSelection,
+            selectedCells: (VirtualView.StructuredSession!.Composition?.Selection ?? VirtualView.StructuredSession.Selection) as RichCellSelection,
             selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground).GetAwaiter().GetResult();
         var scratch = (_structuredScratch ??= new RichEditBox()).Document;
         scratch.SetText(TextSetOptions.FormatRtf | TextSetOptions.ApplyRtfDocumentDefaults, prepared.Rtf);

@@ -25,7 +25,10 @@ public partial class RichEditorHandler
     {
         _compositionOperationDepth++;
         if (startsComposition || VirtualView.Composition.IsActive)
+        {
             VirtualView.SetCompositionState(new(true, null));
+            PrepareStructuredComposition();
+        }
     }
 
     private void EndCompositionOperation()
@@ -63,6 +66,7 @@ public partial class RichEditorHandler
             state = new(state.IsActive, null);
 
         VirtualView.SetCompositionState(state);
+        if (state.IsActive) PrepareStructuredComposition();
         if (!state.IsActive)
             QueueAdornmentLayout();
     }

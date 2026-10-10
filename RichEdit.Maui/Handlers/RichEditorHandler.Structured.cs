@@ -7,6 +7,8 @@ public partial class RichEditorHandler
     private StructuredRichNativeMap? _structuredNativeMap;
     private RichCellSelection? _paintedCellSelection;
     private TextSelectionState? _structuredSelection;
+    private sealed record StructuredNativeFormats(IReadOnlyList<RichTextRun> Characters, IReadOnlyDictionary<RichNodeId, RichTextParagraphFormat> Paragraphs);
+    private StructuredNativeFormats? _structuredFormats;
     private bool UsesStructuredNativeDocument
     {
         get
@@ -23,7 +25,7 @@ public partial class RichEditorHandler
     {
         if (!UsesStructuredNativeDocument)
         {
-            if (_structuredNativeMap is not null) { _structuredNativeMap = null; _displayState = null; _projectionSource = null; }
+            if (_structuredNativeMap is not null) { _structuredNativeMap = null; _structuredFormats = null; _displayState = null; _projectionSource = null; }
             return false;
         }
         var snapshot = VirtualView.StructuredSession!.Document.CurrentSnapshot;
@@ -35,9 +37,20 @@ public partial class RichEditorHandler
         return true;
     }
 
+    private void PrepareStructuredComposition()
+    {
+        if (_structuredNativeMap is null || !VirtualView.PrepareStructuredComposition()) return;
+        var composition = VirtualView.StructuredSession!.Composition!;
+        SetStructuredNativeMap(CreateStructuredNativeDocumentCore(composition.Snapshot, apply: true));
+        var selection = (RichEdit.Core.RichTextSelection)composition.Selection;
+        SetNativeSelectionCore(new(_structuredNativeMap!.ToNative(selection.Anchor), _structuredNativeMap.ToNative(selection.Active)));
+        _paintedCellSelection = null;
+    }
+
     private void SetStructuredNativeMap(StructuredRichNativeMap map)
     {
         _structuredNativeMap = map;
+        _structuredFormats = CaptureStructuredFormatsCore(map);
         var projection = RichTextDisplayProjection.FromStructured(map);
         var display = RichTextDisplayProjection.NativeDescription(map);
         _displayState = new(projection, display, display);
@@ -93,13 +106,14 @@ public partial class RichEditorHandler
         if (text == map.NativeText)
         {
             TryUpdateStructuredSelection(selection);
+            if (!VirtualView.Composition.IsActive) ReadStructuredFormatting(map);
             return true;
         }
         var prefix = map.NativeText.AsSpan().CommonPrefixLength(text);
         var suffix = 0;
         while (suffix < Math.Min(map.NativeText.Length, text.Length) - prefix && map.NativeText[^(suffix + 1)] == text[^(suffix + 1)]) suffix++;
         var nativeRange = new TextSelectionState(prefix, map.NativeText.Length - suffix);
-        var selected = session.Selection is RichCellSelection cells ? cells : map.SelectionFromNative(nativeRange);
+        var selected = (session.Composition?.Selection ?? session.Selection) is RichCellSelection cells ? cells : map.SelectionFromNative(nativeRange);
         var replacement = text.Substring(prefix, text.Length - prefix - suffix).Replace('\r', '\n').Replace('\v', '\u2028');
         if (selected is RichBoundarySelection or RichCellSelection)
         {
@@ -141,6 +155,49 @@ public partial class RichEditorHandler
     }
 
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply);
+    private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map);
+
+    private void ReadStructuredFormatting(StructuredRichNativeMap map)
+    {
+        if (_structuredFormats is not { } previous) return;
+        var current = CaptureStructuredFormatsCore(map);
+        var changes = new List<(RichTextPoint Start, int Length, RichCharacterStyle Format)>();
+        var priorIndex = 0;
+        foreach (var run in current.Characters)
+        {
+            while (priorIndex < previous.Characters.Count && previous.Characters[priorIndex].End <= run.Start) priorIndex++;
+            for (var index = priorIndex; index < previous.Characters.Count && previous.Characters[index].Start < run.End; index++)
+            {
+                var prior = previous.Characters[index];
+                if (prior.Format == run.Format) continue;
+                var start = Math.Max(prior.Start, run.Start);
+                var end = Math.Min(prior.End, run.End);
+                var format = RichTextDocument.CharacterOverrides(prior.Format, run.Format);
+                if (format == new RichCharacterStyle()) continue;
+                // Native format runs may include table markers and field instructions.
+                // Only authored inline spans can receive the changed properties.
+                foreach (var paragraph in map.Paragraphs.Where(paragraph => paragraph.End > start && paragraph.Start < end))
+                    foreach (var segment in paragraph.Segments.Where(segment => segment.NativeEnd > start && segment.NativeStart < end))
+                    {
+                        var first = segment.Atom ? segment.LocalStart : segment.LocalStart + Math.Max(start, segment.NativeStart) - segment.NativeStart;
+                        var last = segment.Atom ? segment.LocalEnd : segment.LocalStart + Math.Min(end, segment.NativeEnd) - segment.NativeStart;
+                        changes.Add((new(map.Snapshot.Body, paragraph.Id, first), last - first, format));
+                    }
+            }
+        }
+        var paragraphs = current.Paragraphs.Where(pair => previous.Paragraphs.TryGetValue(pair.Key, out var prior) && prior != pair.Value)
+            .Select(pair => (Id: pair.Key, Format: RichTextDocument.ParagraphOverrides(previous.Paragraphs[pair.Key], pair.Value)))
+            .Where(pair => pair.Format != new RichParagraphStyle()).ToArray();
+        _structuredFormats = current;
+        if (changes.Count == 0 && paragraphs.Length == 0) return;
+        VirtualView.StructuredSession!.Edit(edit =>
+        {
+            foreach (var change in changes)
+                edit.ApplyCharacterFormat(new RichEdit.Core.RichTextSelection(change.Start, change.Start with { Offset = change.Start.Offset + change.Length }), change.Format);
+            foreach (var change in paragraphs)
+                edit.SetParagraphFormat(change.Id, map.Snapshot.Get<RichParagraph>(change.Id).Format.Overlay(change.Format));
+        }, new(Origin: TextChangeOrigin.User));
+    }
 
     internal void RefreshStructuredSelection()
     {
@@ -159,6 +216,8 @@ public partial class RichEditorHandler
 
 #if ANDROID
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply) =>
+        throw new NotSupportedException("Android table projections use native cell hosts.");
+    private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map) =>
         throw new NotSupportedException("Android table projections use native cell hosts.");
 #endif
 }

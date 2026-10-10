@@ -3,7 +3,7 @@ using TextEdit.Core;
 namespace RichEdit.Core;
 
 /// <summary>An independent typed selection and edit origin over a shared rich document.</summary>
-public sealed class RichEditorSession : IDisposable
+public sealed partial class RichEditorSession : IDisposable
 {
     private bool _disposed;
     private bool _readOnly;

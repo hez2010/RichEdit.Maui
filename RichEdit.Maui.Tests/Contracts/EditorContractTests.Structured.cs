@@ -35,6 +35,13 @@ internal static partial class EditorContractTests
                 Equal(2, model.CurrentSnapshot.GetTableGrid(table).Rows);
                 editor.Undo();
                 Equal("alpha\tbeta\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.StructuredSession.Selection = new RichCellSelection(table, 0, 0, 2, 1);
+                editor.Selection.ToggleBold();
+                Equal(true, editor.Selection.CharacterFormat.Bold);
+                Equal(true, editor.StructuredSession.Selection is RichCellSelection);
+                foreach (var run in model.CurrentSnapshot.Nodes.Values.OfType<RichText>())
+                    Equal(run.Content.ToString() is "alpha" or "gamma", model.CurrentSnapshot.ResolveCharacter(run.Id).Bold);
+                editor.Undo();
                 var before = model.CurrentSnapshot;
                 editor.StructuredSession.Selection = new RichCellSelection(table, 0, 0, 1, 2);
                 Equal(true, ReferenceEquals(before, model.CurrentSnapshot));
@@ -61,6 +68,18 @@ internal static partial class EditorContractTests
                 native.UnmarkText();
                 Equal("alpha\tbe仮名ta\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
                 editor.Undo();
+                Equal("alpha\tbeta\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+                var cells = new RichCellSelection(table, 0, 0, 1, 2);
+                editor.StructuredSession.Selection = cells;
+                committed = model.CurrentSnapshot;
+                native.SetMarkedText("仮名", new Foundation.NSRange(1, 0));
+                Equal(true, ReferenceEquals(committed, model.CurrentSnapshot));
+                Equal("仮名\t\ngamma\tdelta", editor.StructuredSession.Composition!.Snapshot.ProjectText().Text.ToString());
+                Equal(1, ((RichEdit.Core.RichTextSelection)editor.StructuredSession.Composition.Selection).Active.Offset);
+                native.UnmarkText();
+                Equal("仮名\t\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.Undo();
+                Equal(cells, editor.StructuredSession.Selection);
                 Equal("alpha\tbeta\ngamma\tdelta", model.CurrentSnapshot.ProjectText().Text.ToString());
 #endif
                 await Task.Delay(30);

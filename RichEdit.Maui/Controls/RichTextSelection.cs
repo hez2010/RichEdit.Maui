@@ -135,6 +135,12 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
+        if (_editor.StructuredSession is not null)
+        {
+            UpdateStructuredCharacterFormat(update);
+            return;
+        }
+
         if (Range.IsEmpty)
         {
             _editor.SetTypingCharacterFormat(
@@ -157,7 +163,8 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
-        _editor.EditDocument(edit => edit.UpdateParagraphFormat(Range, update));
+        if (_editor.StructuredSession is not null) UpdateStructuredParagraphFormat(update);
+        else _editor.EditDocument(edit => edit.UpdateParagraphFormat(Range, update));
     }
 
     /// <summary>Toggles bold formatting across the selection.</summary>
@@ -419,6 +426,14 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
 
     internal IReadOnlyList<RichTextCharacterFormat> GetCharacterFormats()
     {
+        if (_editor.StructuredSession is { } session)
+        {
+            var snapshot = session.Document.CurrentSnapshot;
+            var ranges = snapshot.GetSelectedText(session.Selection);
+            return ranges.Length == 0 || ranges.All(range => range.Length == 0 && !range.IncludesParagraphEnd)
+                ? [RichTextDocumentSnapshot.ToNative(session.ResolveTypingCharacterFormat())]
+                : snapshot.GetSelectedCharacterFormats(session.Selection).Select(RichTextDocumentSnapshot.ToNative).ToArray();
+        }
         EnsureFormatCache();
         if (_cachedCharacterFormats is not null)
         {
@@ -433,6 +448,12 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
 
     internal IReadOnlyList<RichTextParagraphFormat> GetParagraphFormats()
     {
+        if (_editor.StructuredSession is { } session)
+        {
+            var snapshot = session.Document.CurrentSnapshot;
+            return snapshot.GetSelectedText(session.Selection).Select(range => range.Start.Paragraph).Distinct()
+                .Select(id => RichTextDocumentSnapshot.ToNative(snapshot.ResolveParagraph(id))).ToArray();
+        }
         EnsureFormatCache();
         return _cachedParagraphFormats ??=
             [.. _editor.Document.GetParagraphFormat(Range).Formats];
