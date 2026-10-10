@@ -13,6 +13,12 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnPostResume()
     {
         base.OnPostResume();
+        if (!_testsStarted && Intent?.GetStringExtra("rtf-clipboard-action") is { } action)
+        {
+            _testsStarted = true;
+            Microsoft.Maui.Controls.Application.Current!.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500),
+                async () => await Tests.RtfClipboardExchangeTests.RunAsync(action));
+        }
         if (!_testsStarted && Intent?.GetBooleanExtra("run-code-editor-tests", false) == true)
         {
             _testsStarted = true;

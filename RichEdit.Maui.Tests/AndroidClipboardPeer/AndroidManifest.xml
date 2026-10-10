@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.richedit.clipboardpeer">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+  <application android:label="RTF Clipboard Test" android:debuggable="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <activity android:name=".ClipboardPeer" android:exported="true" />
+    <provider android:name=".PeerProvider" android:authorities="com.richedit.clipboardpeer" android:exported="false" android:grantUriPermissions="true" />
+  </application>
+</manifest>

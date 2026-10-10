@@ -16,6 +16,13 @@ internal static class AndroidEditorTests
         var clipboard = (Android.Content.ClipboardManager)Android.App.Application.Context
             .GetSystemService(Android.Content.Context.ClipboardService)!;
         var previousClip = clipboard.PrimaryClip;
+        string? previousRtf = null;
+        var previousText = previousClip is { ItemCount: > 0 } ? previousClip.GetItemAt(0)?.Text : null;
+        if (previousClip is { ItemCount: > 0 } && previousClip.GetItemAt(0)?.Uri is { } previousUri)
+        {
+            try { previousRtf = await RtfClipboardProvider.ReadAsync(native.Context!.ContentResolver!, previousUri); }
+            catch (Exception error) when (error is IOException or Java.Lang.SecurityException or Java.IO.FileNotFoundException) { }
+        }
         var output = Path.Combine(FileSystem.CacheDirectory, "editor-tests.txt");
         void Save() => File.WriteAllText(output,
             $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; Android {Android.OS.Build.VERSION.Release} API {Android.OS.Build.VERSION.SdkInt}\n" +
@@ -51,6 +58,31 @@ internal static class AndroidEditorTests
             action();
             return Task.CompletedTask;
         }
+
+        await Test("RTF clipboard URI works without the process fragment cache", async () =>
+        {
+            var fragment = RichTextDocumentFragment.FromRtf(@"{\rtf1\ansi plain {\b bold}\par second}");
+            await RichTextClipboard.SetAsync(fragment);
+            var clip = clipboard.PrimaryClip!;
+            var item = clip.GetItemAt(0)!;
+            Equal(true, item.Uri is not null);
+            Equal("application/rtf", native.Context!.ContentResolver!.GetType(item.Uri!));
+            var rtf = await RtfClipboardProvider.ReadAsync(native.Context.ContentResolver, item.Uri!);
+            Equal(fragment.Text, RichTextDocumentFragment.FromRtf(rtf!).Text);
+            // A second application returns a URI and plain text without our
+            // private in-process token. Exercise that same transport here.
+            using var plain = new Java.Lang.String(fragment.Text);
+            using var externalItem = new Android.Content.ClipData.Item(plain, null, null, item.Uri);
+            using var description = new Android.Content.ClipDescription("External RTF", ["application/rtf", "text/plain"]);
+            clipboard.PrimaryClip = new Android.Content.ClipData(description, externalItem);
+            var imported = await RichTextClipboard.GetAsync();
+            Equal(fragment.Text, imported!.Text);
+            Equal(true, imported.Snapshot.Runs.Any(run => run.Format.Bold));
+            var denied = false;
+            try { using var writable = native.Context.ContentResolver.OpenFileDescriptor(item.Uri!, "w"); }
+            catch (Java.Lang.SecurityException) { denied = true; }
+            Equal(true, denied);
+        });
 
         await Test("text, selection, undo and redo", () => Sync(() =>
         {
@@ -449,9 +481,19 @@ internal static class AndroidEditorTests
             await Test(test.Name, () => test.Run(editor));
         }
 
-        if (previousClip is not null)
+        if (previousRtf is not null)
         {
-            clipboard.PrimaryClip = previousClip;
+            // Replacing a clip revokes its foreign URI grants. Restore an owned
+            // copy of the captured RTF bytes instead of re-granting a stale URI.
+            using var restored = await RtfClipboardProvider.StoreAsync(previousRtf);
+            using var item = new Android.Content.ClipData.Item(previousText, null, null, restored);
+            using var description = new Android.Content.ClipDescription("Restored RTF", ["application/rtf", "text/plain"]);
+            clipboard.PrimaryClip = new Android.Content.ClipData(description, item);
+        }
+        else if (previousClip is not null)
+        {
+            try { clipboard.PrimaryClip = previousClip; }
+            catch (Java.Lang.SecurityException) { clipboard.PrimaryClip = Android.Content.ClipData.NewPlainText("Restored text", previousText); }
         }
         else if (OperatingSystem.IsAndroidVersionAtLeast(28))
         {

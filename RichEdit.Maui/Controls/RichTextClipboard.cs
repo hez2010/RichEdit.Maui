@@ -34,6 +34,10 @@ internal static class RichTextClipboard
 #elif IOS || MACCATALYST
             return UIKit.UIPasteboard.General.Contains(["public.rtf"]) ||
                 UIKit.UIPasteboard.General.HasStrings;
+#elif ANDROID
+            var clipboard = (Android.Content.ClipboardManager?)Android.App.Application.Context.GetSystemService(Android.Content.Context.ClipboardService);
+            return clipboard?.PrimaryClipDescription is { } description &&
+                (description.HasMimeType(Platforms.Android.RtfClipboardProvider.MimeType) || description.HasMimeType("text/rtf") || description.HasMimeType("text/plain"));
 #else
             return Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default.HasText;
 #endif
@@ -70,11 +74,12 @@ internal static class RichTextClipboard
         using var intent = new Android.Content.Intent();
         intent.PutExtra(RichFragmentTokenFormat, token);
         using var text = new Java.Lang.String(fragment.Text);
-        using var item = new Android.Content.ClipData.Item(text, null, intent, null);
+        using var uri = await Platforms.Android.RtfClipboardProvider.StoreAsync(fragment.RtfText);
+        using var item = new Android.Content.ClipData.Item(text, null, intent, uri);
         using var label = new Java.Lang.String("RichEdit.Maui");
         using var description = new Android.Content.ClipDescription(
             label,
-            [Android.Content.ClipDescription.MimetypeTextPlain]);
+            [Platforms.Android.RtfClipboardProvider.MimeType, Android.Content.ClipDescription.MimetypeTextPlain]);
         using var clip = new Android.Content.ClipData(description, item);
         clipboard.PrimaryClip = clip;
         await Task.CompletedTask;
@@ -171,6 +176,19 @@ internal static class RichTextClipboard
             string.Equals(cached.Text, text, StringComparison.Ordinal))
         {
             return asPlainText ? _plainProcessFragment : cached;
+        }
+        if (!asPlainText && item?.Uri is { } uri)
+        {
+            try
+            {
+                var rtf = await Platforms.Android.RtfClipboardProvider.ReadAsync(context.ContentResolver!, uri);
+                if (rtf is not null) return RichTextDocumentFragment.FromRtf(rtf);
+            }
+            catch (Exception exception) when (exception is FormatException or ArgumentException or IOException or Java.Lang.SecurityException or Java.IO.FileNotFoundException)
+            {
+                // Clipboard owners can disappear or revoke grants. Preserve the
+                // same ordinary text fallback used for an unsupported payload.
+            }
         }
 #else
         var clipboard = Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default;
