@@ -9,6 +9,7 @@ public sealed class RichEditorSession : IDisposable
     private bool _readOnly;
     private RichSelection _selection;
     private RichComposition? _composition;
+    private RichCharacterStyle _typingFormat = new();
     internal RichEditorSession(RichDocument document)
     {
         Document = document;
@@ -21,6 +22,37 @@ public sealed class RichEditorSession : IDisposable
     public RichComposition? Composition => _composition;
     /// <summary>Gets the generation of this session's selection.</summary>
     public long SelectionGeneration { get; private set; }
+    /// <summary>Gets or sets view-owned character overrides for newly typed text. Moving the selection clears these overrides.</summary>
+    public RichCharacterStyle TypingCharacterFormat
+    {
+        get => _typingFormat;
+        set
+        {
+            VerifyIdle(); VerifyNoComposition(); ArgumentNullException.ThrowIfNull(value); RichStyleSheet.Validate(value);
+            if (_typingFormat == value) return;
+            _typingFormat = value;
+            Document.Plan(() => { TypingFormatChanged?.Invoke(this, EventArgs.Empty); return 0; });
+        }
+    }
+    /// <summary>Resolves the current caret's authored cascade and view-owned typing overrides.</summary>
+    public ResolvedCharacterStyle ResolveTypingCharacterFormat()
+    {
+        var snapshot = Composition?.Snapshot ?? Document.CurrentSnapshot;
+        var selection = Composition?.Selection ?? Selection;
+        var point = selection switch { RichTextSelection text => text.Active, RichTextSelectionSet set => set.Primary.Selection.Active, _ => (RichTextPoint?)null };
+        if (point is null) return TypingCharacterFormat.Apply(snapshot.DefaultCharacter.Apply(new()));
+        var paragraph = snapshot.Get<RichParagraph>(point.Value.Paragraph);
+        RichInline? inline = null;
+        var offset = 0;
+        foreach (var id in paragraph.Inlines)
+        {
+            inline = snapshot.Get<RichInline>(id);
+            offset += RichDocumentSnapshot.InlineLength(inline);
+            if (offset >= point.Value.Offset) break;
+        }
+        return snapshot.Styles.ResolveCharacter(paragraph.Style, inline?.Style,
+            (inline?.Format ?? new()).Overlay(TypingCharacterFormat), snapshot.DefaultCharacter, paragraph.Character);
+    }
     /// <summary>Gets or sets whether this view accepts authored edits.</summary>
     public bool IsReadOnly { get => _readOnly; set { VerifyIdle(); VerifyNoComposition(); _readOnly = value; } }
     /// <summary>Gets or sets the typed selection. Cell rectangles expand to whole merged cells.</summary>
@@ -34,6 +66,7 @@ public sealed class RichEditorSession : IDisposable
             value = Document.CurrentSnapshot.NormalizeSelection(value);
             if (_selection == value) return;
             _selection = value;
+            _typingFormat = new();
             SelectionGeneration++;
             Document.Plan(() => { NotifySelection(); return 0; });
         }
@@ -44,6 +77,8 @@ public sealed class RichEditorSession : IDisposable
     public event EventHandler<RichDocumentChangedEventArgs>? Changed;
     /// <summary>Occurs when provisional marked input starts, changes, commits, or cancels.</summary>
     public event EventHandler? CompositionChanged;
+    /// <summary>Occurs when view-owned typing overrides are explicitly changed.</summary>
+    public event EventHandler? TypingFormatChanged;
 
     /// <summary>Acquires the document's composition lease while keeping committed content and history unchanged.</summary>
     public RichComposition BeginComposition()
@@ -87,7 +122,7 @@ public sealed class RichEditorSession : IDisposable
     }
     /// <summary>Replaces the current typed selection or every rich text caret in one transaction.</summary>
     public RichEditResult ReplaceSelection(string text, RichEditOptions options = default) =>
-        Edit(edit => edit.SetSelection(edit.ReplaceSelection(Selection, text)), options);
+        Edit(edit => edit.SetSelection(edit.ReplaceSelection(Selection, text, TypingCharacterFormat)), options);
     /// <summary>Undoes one global document unit and restores its recorded selection in this invoking view.</summary>
     public void Undo() { VerifyIdle(); if (!IsReadOnly) Document.RestoreHistory(false, this); }
     /// <summary>Redoes one global document unit and restores its recorded selection in this invoking view.</summary>

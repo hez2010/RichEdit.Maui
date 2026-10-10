@@ -5,6 +5,26 @@ namespace RichEdit.Core.Tests;
 public sealed class RichSelectionEditingTests
 {
     [Fact]
+    public void TypingOverridesAreViewOwnedAndOnlyAuthorExplicitPropertiesOnInsertion()
+    {
+        var document = RichDocument.FromPlainText("abc");
+        using var view = document.CreateSession();
+        using var peer = document.CreateSession();
+        view.TypingCharacterFormat = new() { Bold = true };
+        Assert.False(document.CanUndo);
+        Assert.False(document.IsModified);
+        Assert.True(view.ResolveTypingCharacterFormat().Bold);
+        Assert.False(peer.ResolveTypingCharacterFormat().Bold);
+        view.ReplaceSelection("X\nY");
+        var inserted = document.CurrentSnapshot.Nodes.Values.OfType<RichText>().Where(run => run.Content.ToString() is "X" or "Y").ToArray();
+        Assert.Equal(2, inserted.Length);
+        Assert.All(inserted, run => Assert.Equal(new RichCharacterStyle { Bold = true }, run.Format));
+        view.Selection = document.CurrentSnapshot.FirstSelection();
+        Assert.Equal(new RichCharacterStyle(), view.TypingCharacterFormat);
+        Assert.Equal("Inherit", StyleValue<bool>.Inherit.ToString());
+    }
+
+    [Fact]
     public void MultipleCaretsInsertSemanticParagraphsInOnePublicationAndUndo()
     {
         var document = RichDocument.FromPlainText("abcd");

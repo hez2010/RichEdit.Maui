@@ -91,4 +91,6 @@ public readonly record struct StyleValue<T>
     };
     /// <summary>Converts a typed value to an explicit cascade value.</summary>
     public static implicit operator StyleValue<T>(T value) => FromValue(value);
+    /// <summary>Describes the cascade operation without accessing a nonexistent inherited value.</summary>
+    public override string ToString() => Kind == StyleValueKind.Value ? $"Value({_value})" : Kind.ToString();
 }

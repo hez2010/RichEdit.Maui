@@ -6,17 +6,18 @@ public sealed partial class RichDocumentEdit
 {
     /// <summary>Replaces a typed selection with semantic paragraphs and soft breaks, returning the resulting caret.</summary>
     /// <remarks>Text replacement across table cells or list items is rejected. Cell selections clear cell contents while retaining the grid.</remarks>
-    public RichSelection ReplaceSelection(RichSelection selection, string text)
+    public RichSelection ReplaceSelection(RichSelection selection, string text, RichCharacterStyle? typingFormat = null)
     {
         VerifyOpen();
         ArgumentNullException.ThrowIfNull(text);
+        if (typingFormat is not null) RichStyleSheet.Validate(typingFormat);
         var snapshot = Candidate(validate: false);
         selection = snapshot.NormalizeSelection(selection);
         RichTextPoint start;
         switch (selection)
         {
             case RichTextSelectionSet set:
-                return ReplaceSelections(set, Enumerable.Repeat(text, set.Count).ToArray());
+                return ReplaceSelections(set, Enumerable.Repeat(text, set.Count).ToArray(), typingFormat);
             case RichBoundarySelection boundary:
                 start = new(boundary.Story, InsertParagraph(boundary), 0);
                 break;
@@ -40,12 +41,12 @@ public sealed partial class RichDocumentEdit
                 break;
             default: throw new ArgumentException("Unsupported selection kind.", nameof(selection));
         }
-        var caret = InsertPlainText(start, text);
+        var caret = InsertPlainText(start, text, typingFormat);
         return new RichTextSelection(caret, caret);
     }
 
     /// <summary>Plans one replacement per normalized selection against the same candidate and retains stable selection identities.</summary>
-    public RichTextSelectionSet ReplaceSelections(RichTextSelectionSet selections, IReadOnlyList<string> text)
+    public RichTextSelectionSet ReplaceSelections(RichTextSelectionSet selections, IReadOnlyList<string> text, RichCharacterStyle? typingFormat = null)
     {
         VerifyOpen();
         ArgumentNullException.ThrowIfNull(selections);
@@ -57,7 +58,7 @@ public sealed partial class RichDocumentEdit
         for (var index = normalized.Count - 1; index >= 0; index--)
         {
             var before = _maps.Count;
-            var caret = (RichTextSelection)ReplaceSelection(normalized[index].Selection, text[index]);
+            var caret = (RichTextSelection)ReplaceSelection(normalized[index].Selection, text[index], typingFormat);
             var map = new RichAddressMap(_maps.Skip(before));
             for (var mapped = index + 1; mapped < result.Length; mapped++)
             {
@@ -86,7 +87,7 @@ public sealed partial class RichDocumentEdit
         JoinParagraphs(start.Paragraph, end.Paragraph);
     }
 
-    private RichTextPoint InsertPlainText(RichTextPoint point, string text)
+    private RichTextPoint InsertPlainText(RichTextPoint point, string text, RichCharacterStyle? typingFormat)
     {
         text = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         var start = 0;
@@ -95,10 +96,17 @@ public sealed partial class RichDocumentEdit
             if (index != text.Length && text[index] is not ('\n' or '\u2028')) continue;
             var value = text[start..index];
             ReplaceText(point, 0, value);
+            if (typingFormat is not null && value.Length > 0)
+                ChangeInlines(point, value.Length, inline => inline with { Format = inline.Format.Overlay(typingFormat) });
             point = point with { Offset = checked(point.Offset + value.Length) };
             if (index == text.Length) break;
             if (text[index] == '\n') point = new(point.Story, SplitParagraph(point), 0);
-            else { InsertSoftBreak(point); point = point with { Offset = point.Offset + 1 }; }
+            else
+            {
+                InsertSoftBreak(point);
+                if (typingFormat is not null) ChangeInlines(point, 1, inline => inline with { Format = inline.Format.Overlay(typingFormat) });
+                point = point with { Offset = point.Offset + 1 };
+            }
             start = index + 1;
         }
         return point;
