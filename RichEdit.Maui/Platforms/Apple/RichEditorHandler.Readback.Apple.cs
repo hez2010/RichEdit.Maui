@@ -738,8 +738,10 @@ public partial class RichEditorHandler
             {
                 // Projection/selection updates are not a proposed user edit.
                 // UIKit may call this delegate while synchronizing its input
-                // context; that range must not become the next edit's hint.
-                return !target._updatingDisplayProjection;
+                // context; that range must not become the next edit's hint. A caret
+                // or typing-attribute assignment must not accept smart insertions
+                // into the source while the requested selection is being applied.
+                return !target._updatingDisplayProjection && !target._applyingSelection && !target._applyingTypingFormat;
             }
 
             if (!target.ShouldAllowNativeChange(range, text))

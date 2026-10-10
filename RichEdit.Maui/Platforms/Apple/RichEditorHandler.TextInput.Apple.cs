@@ -77,6 +77,12 @@ namespace RichEdit.Maui.Platforms.Apple
             return base.GetClosestPositionToPoint(point);
         }
 
+        internal UITextPosition? GetDisplayFarthestPosition(UITextRange range, UITextLayoutDirection direction)
+        {
+            using var scope = new DisplayInputScope(this);
+            return base.GetPositionWithinRange(range, direction);
+        }
+
         internal UITextRange? GetDisplayCharacterRange(CGPoint point)
         {
             using var scope = new DisplayInputScope(this);

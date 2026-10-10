@@ -21,7 +21,7 @@ public sealed partial class RichEditor
         if (args.Handled)
             return true;
         if (KeyBindings.Find(key, modifiers) is not { } binding || !binding.Command.CanExecute(binding.CommandParameter))
-            return false;
+            return HandleSelectionKey(key, modifiers);
 
         binding.Command.Execute(binding.CommandParameter);
         return true;

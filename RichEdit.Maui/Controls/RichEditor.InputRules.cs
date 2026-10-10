@@ -31,7 +31,7 @@ public sealed partial class RichEditor
             return expanded;
 
         var selections = expanded?.Selections ?? new TextSelectionSet((TextSelection[])
-            [Selections.Primary with { Anchor = selection.Anchor, Active = selection.Active }]);
+            [Selections.Primary with { Anchor = selection.Anchor, Active = selection.Active, PreferredVisualX = null }]);
         try
         {
             _planningInput = true;

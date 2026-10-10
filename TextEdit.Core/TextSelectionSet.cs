@@ -37,6 +37,9 @@ public sealed record TextSelection
     /// <summary>Gets the preferred native visual edge.</summary>
     public CaretAffinity Affinity { get; init; } = CaretAffinity.Downstream;
 
+    /// <summary>Gets the preferred device-independent X coordinate for native vertical navigation, or null after other movement.</summary>
+    public double? PreferredVisualX { get; init; }
+
     /// <summary>Gets the normalized source range.</summary>
     public TextSpan Range => new(Math.Min(Anchor, Active), Math.Abs(Active - Anchor));
 }
@@ -64,6 +67,8 @@ public sealed class TextSelectionSet : IReadOnlyList<TextSelection>
                 throw new ArgumentException("Each selection must have a unique, nonempty identity.", nameof(selections));
             if (!Enum.IsDefined(item.Affinity))
                 throw new ArgumentException("A selection has an invalid caret affinity.", nameof(selections));
+            if (item.PreferredVisualX is { } x && !double.IsFinite(x))
+                throw new ArgumentException("Preferred visual coordinates must be finite.", nameof(selections));
         }
 
         var primaryId = items[primaryIndex].Id;

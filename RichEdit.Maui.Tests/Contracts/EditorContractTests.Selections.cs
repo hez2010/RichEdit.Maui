@@ -10,6 +10,103 @@ internal static partial class EditorContractTests
 
     private static IEnumerable<Case> MultipleSelectionCases()
     {
+        yield return new("selections native navigation preserves graphemes and moves all carets", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("A😀e\u0301 Z😀e\u0301");
+            editor.Selections = new((TextSelection[])[new(1, 1), new(7, 7)]);
+            await Task.Delay(100);
+            var revision = editor.Document.Revision;
+            Equal(true, editor.MoveSelections(EditorKey.Right));
+            Equal("3,9", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal(true, editor.MoveSelections(EditorKey.Right, extend: true));
+            Equal("3:5,9:11", string.Join(",", editor.Selections.Select(item => $"{item.Anchor}:{item.Active}")));
+            Equal(true, editor.MoveSelections(EditorKey.Left));
+            Equal("3,9", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal(revision, editor.Document.Revision);
+            Equal(false, editor.CanUndo);
+            await Verify(editor);
+        });
+
+        yield return new("selections adjacent native lines retain preferred horizontal positions", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("aaaa\nx\naaaa");
+            Equal(editor.Document.Text, NativeText(editor), "initial native navigation text");
+            editor.SelectedRange = new(3, 0);
+            Equal(editor.Document.Text, NativeText(editor), "after assigning the initial navigation caret");
+            await Task.Delay(100);
+            Equal(editor.Document.Text, NativeText(editor), "after the initial navigation caret settles");
+            Equal(true, editor.AddCaretBelow());
+            Equal(editor.Document.Text, NativeText(editor), "after adding the second caret");
+            Equal(6, editor.Selections.Primary.Active);
+            var preferred = editor.Selections.Primary.PreferredVisualX!.Value;
+            var navigationLayout = editor.TextLayout.Capture()!;
+            var targetLine = navigationLayout.Lines.Last();
+            var expected = editor.TextLayout.HitTest(navigationLayout, new(preferred, targetLine.Bounds.Y + targetLine.Bounds.Height / 2))!.Position;
+            Equal(true, editor.AddCaretBelow());
+            Equal(editor.Document.Text, NativeText(editor), "after adding the third caret");
+            Equal(expected, editor.Selections.Primary.Active, "vertical movement follows native geometry rather than character columns");
+            Equal(preferred, editor.Selections.Primary.PreferredVisualX!.Value);
+            Equal(3, editor.Selections.Count);
+            Equal(true, editor.MoveSelections(EditorKey.Home));
+            Equal("0,5,7", string.Join(",", editor.Selections.Select(item => item.Active)), $"native=[{NativeText(editor)}], source=[{editor.Document.Text}]");
+            Equal(true, editor.MoveSelections(EditorKey.End));
+            Equal("4,6,11", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal(false, editor.CanUndo);
+            await Verify(editor);
+        });
+
+        yield return new("selections horizontal navigation follows native RTL order", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("אבגד אבגד");
+            editor.Selections = new((TextSelection[])[new(1, 1), new(6, 6)]);
+            await Task.Delay(100);
+            Equal(true, editor.MoveSelections(EditorKey.Left));
+#if WINDOWS
+            // TOM follows Windows' native logical movement convention for this run.
+            Equal("0,5", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal(true, editor.MoveSelections(EditorKey.Right, extend: true));
+            Equal("0:1,5:6", string.Join(",", editor.Selections.Select(item => $"{item.Anchor}:{item.Active}")));
+            Equal(true, editor.MoveSelections(EditorKey.Left));
+            Equal("0,5", string.Join(",", editor.Selections.Select(item => item.Active)));
+#else
+            Equal("2,7", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal(true, editor.MoveSelections(EditorKey.Right, extend: true));
+            Equal("2:1,7:6", string.Join(",", editor.Selections.Select(item => $"{item.Anchor}:{item.Active}")));
+            Equal(true, editor.MoveSelections(EditorKey.Left));
+            Equal("2,7", string.Join(",", editor.Selections.Select(item => item.Active)));
+#endif
+            await Verify(editor);
+        });
+
+        yield return new("selections native line ends include authored trailing spaces", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("a  \nb  ");
+            editor.Selections = new((TextSelection[])[new(0, 0), new(4, 4)]);
+            await Task.Delay(100);
+            Equal(true, editor.MoveSelections(EditorKey.End));
+            Equal("3,7", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal(true, editor.MoveSelections(EditorKey.Home));
+            Equal("0,4", string.Join(",", editor.Selections.Select(item => item.Active)));
+            await Verify(editor);
+        });
+
+        yield return new("selections navigation skips private inline reservations", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("ab\ncd");
+            using var hint = editor.Adornments.Add(1, new Label { Text = "hint", WidthRequest = 30, HeightRequest = 20 },
+                new() { Placement = RichTextAdornmentPlacement.Inline });
+            editor.Selections = new((TextSelection[])[new(0, 0), new(3, 3)]);
+            await Task.Delay(150);
+            Equal(true, editor.MoveSelections(EditorKey.Right));
+            Equal("1,4", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal(true, editor.MoveSelections(EditorKey.Right));
+            Equal("2,5", string.Join(",", editor.Selections.Select(item => item.Active)));
+            Equal("ab\ncd", editor.Document.Text);
+            Equal(false, editor.CanUndo);
+            hint.Dispose();
+            await Task.Delay(100);
+        });
+
 #if ANDROID || IOS || MACCATALYST
         yield return new("composition multiple selections commit once and keep other views unchanged while marked", async editor =>
         {

@@ -77,7 +77,7 @@ public sealed partial class RichEditor
         if (_updatingSelections)
             return;
         var before = Selections;
-        var primary = before.Primary with { Anchor = selection.Anchor, Active = selection.Active };
+        var primary = before.Primary with { Anchor = selection.Anchor, Active = selection.Active, PreferredVisualX = null };
         var items = _synchronizingSelection || _deferNotifications
             ? before.Select(item => item.Id == primary.Id ? primary : item).ToArray()
             : (TextSelection[])[primary];
@@ -107,7 +107,7 @@ public sealed partial class RichEditor
             var mapped = new RichTextSelectionState(item.Anchor, item.Active).Map(changeArray, length);
             if (item.Id == current.Primary.Id)
                 mapped = GetSelectionAfterEdit(changeArray, length);
-            return item with { Anchor = mapped.Anchor, Active = mapped.Active };
+            return item with { Anchor = mapped.Anchor, Active = mapped.Active, PreferredVisualX = null };
         }).ToArray();
         return new(items, current.PrimaryIndex);
     }
@@ -158,7 +158,7 @@ public sealed partial class RichEditor
         {
             var item = before[i];
             var end = item.Range.Start + shift + fragments[i].Text.Length;
-            positions[i] = item with { Anchor = end, Active = end };
+            positions[i] = item with { Anchor = end, Active = end, PreferredVisualX = null };
             shift += fragments[i].Text.Length - item.Range.Length;
         }
         var pending = _pendingSelections;

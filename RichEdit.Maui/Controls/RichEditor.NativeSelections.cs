@@ -100,7 +100,7 @@ public sealed partial class RichEditor
         foreach (var item in ordered)
         {
             var end = item.Range.Start + shift + caretOffset;
-            afterSelections.Add(item.Selection with { Anchor = end, Active = end });
+            afterSelections.Add(item.Selection with { Anchor = end, Active = end, PreferredVisualX = null });
             shift += item.Text.Length - item.Range.Length;
         }
 
