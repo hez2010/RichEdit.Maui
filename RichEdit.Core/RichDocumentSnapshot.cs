@@ -141,11 +141,34 @@ public sealed partial class RichDocumentSnapshot
         if (node.Id != point.Story) throw new ArgumentException("The point's paragraph does not belong to its story.", nameof(point));
     }
 
+    /// <summary>Compares structural text points in document order without materializing a plain-text projection.</summary>
+    public int ComparePoints(RichTextPoint first, RichTextPoint second)
+    {
+        ValidatePoint(first);
+        ValidatePoint(second);
+        if (first.Story != second.Story) throw new ArgumentException("Points in different stories have no shared text order.");
+        if (first.Paragraph == second.Paragraph) return first.Offset.CompareTo(second.Offset);
+        var left = Path(first.Paragraph);
+        var right = Path(second.Paragraph);
+        for (var index = 0; index < Math.Min(left.Count, right.Count); index++)
+            if (left[index] != right[index]) return left[index].CompareTo(right[index]);
+        throw new InvalidOperationException("Distinct paragraphs cannot share one structural path.");
+        List<int> Path(RichNodeId id)
+        {
+            var result = new List<int>();
+            for (var node = Get<RichNode>(id); node.Parent is { } parent; node = Get<RichNode>(parent))
+                result.Add(Children(Get<RichNode>(parent)).TakeWhile(child => child != node.Id).Count());
+            result.Reverse();
+            return result;
+        }
+    }
+
     internal RichSelection NormalizeSelection(RichSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
         switch (selection)
         {
+            case RichTextSelectionSet set: return new RichTextSelectionSet(this, set, set.PrimaryIndex);
             case RichTextSelection text:
                 ValidatePoint(text.Anchor);
                 ValidatePoint(text.Active);

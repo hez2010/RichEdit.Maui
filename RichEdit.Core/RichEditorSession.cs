@@ -85,6 +85,9 @@ public sealed class RichEditorSession : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         return Document.Execute(edit, options, this, expectedRevision, expectedSelectionGeneration);
     }
+    /// <summary>Replaces the current typed selection or every rich text caret in one transaction.</summary>
+    public RichEditResult ReplaceSelection(string text, RichEditOptions options = default) =>
+        Edit(edit => edit.SetSelection(edit.ReplaceSelection(Selection, text)), options);
     /// <summary>Undoes one global document unit and restores its recorded selection in this invoking view.</summary>
     public void Undo() { VerifyIdle(); if (!IsReadOnly) Document.RestoreHistory(false, this); }
     /// <summary>Redoes one global document unit and restores its recorded selection in this invoking view.</summary>
