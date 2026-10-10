@@ -9,6 +9,7 @@ internal sealed partial class CodeEditorNativeAdapter : IDisposable
     private readonly CodeEditor Owner;
     private readonly RichEditorHandler _handler;
     private bool _disposed;
+    private (int Size, string Font, double Points, bool Wrap, int Width)? _tabConfiguration;
 
     internal CodeEditorNativeAdapter(CodeEditor owner, RichEditorHandler handler)
     {
@@ -35,6 +36,15 @@ internal sealed partial class CodeEditorNativeAdapter : IDisposable
 
     internal partial bool Post(Action action);
 
-    internal partial void UpdateConfiguration();
+    internal void UpdateConfiguration()
+    {
+        UpdateConfigurationCore();
+        Owner.TextView.SourceWordWrap = Owner.WordWrap;
+        var requested = (Owner.TabSize, Owner.FontFamily, Owner.FontSize, Owner.WordWrap,
+            Owner.WordWrap ? (int)Math.Ceiling(Math.Max(0, Owner.TextView.Width)) : 0);
+        if (_tabConfiguration != requested && _handler.UpdateSourceTabSize(Owner.TabSize)) _tabConfiguration = requested;
+    }
+
+    private partial void UpdateConfigurationCore();
 
 }

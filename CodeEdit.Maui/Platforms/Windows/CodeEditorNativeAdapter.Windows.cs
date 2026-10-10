@@ -19,7 +19,7 @@ internal sealed partial class CodeEditorNativeAdapter
 
     private partial void Disconnect() { }
 
-    internal partial void UpdateConfiguration()
+    private partial void UpdateConfigurationCore()
     {
         PlatformView.TextWrapping = Owner.WordWrap ? TextWrapping.Wrap : TextWrapping.NoWrap;
         ScrollViewer.SetHorizontalScrollBarVisibility(PlatformView, Owner.WordWrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);

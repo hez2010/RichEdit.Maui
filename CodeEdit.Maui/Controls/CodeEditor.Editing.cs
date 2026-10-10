@@ -33,7 +33,7 @@ public sealed partial class CodeEditor
                 var column = 0;
                 foreach (var chunk in Document.CurrentSnapshot.TextBuffer.GetChunks(new(line.Start, range.Start - line.Start)))
                     foreach (var character in chunk.Span)
-                        column += character == '\t' ? IndentSize - column % IndentSize : 1;
+                        column += character == '\t' ? TabSize - column % TabSize : 1;
 
                 edits.Add(new(range, UseTabs ? "\t" : new string(' ', IndentSize - column % IndentSize)));
             }

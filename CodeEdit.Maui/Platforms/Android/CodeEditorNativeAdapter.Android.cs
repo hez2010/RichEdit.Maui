@@ -15,5 +15,5 @@ internal sealed partial class CodeEditorNativeAdapter
 
     private partial void Disconnect() { }
 
-    internal partial void UpdateConfiguration() => PlatformView.SetHorizontallyScrolling(!Owner.WordWrap);
+    private partial void UpdateConfigurationCore() => PlatformView.SetHorizontallyScrolling(!Owner.WordWrap);
 }

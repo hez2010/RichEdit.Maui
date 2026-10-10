@@ -235,6 +235,14 @@ public partial class RichEditorHandler
                 .ToArray();
         }
 
+        if (VirtualView.SourceSession is not null)
+        {
+            using var space = new NSString(" ");
+            var width = space.GetSizeUsingAttributes(new UIStringAttributes { Font = ResolveFont(RichTextCharacterFormat.Default) }).Width;
+            style.TabStops = [];
+            style.DefaultTabInterval = width * VirtualView.SourceTabSize;
+        }
+
         if (format.NativeList is not null)
         {
             if (OperatingSystem.IsIOSVersionAtLeast(16) ||

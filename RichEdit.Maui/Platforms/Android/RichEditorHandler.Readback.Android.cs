@@ -198,6 +198,12 @@ public partial class RichEditorHandler
             }
         }
 
+        if (VirtualView.SourceSession is not null)
+        {
+            _applyingDocument = true;
+            try { RefreshSourceTabStops(editable, document, new(insertedStart, insertedLength)); }
+            finally { _applyingDocument = false; }
+        }
         var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Text.Length);
         var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Text.Length);
         UpdateDocumentFromDisplay(document, start, end - start, _sourceToken, selectionState: new TextSelectionState(

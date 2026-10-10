@@ -63,6 +63,9 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 _editor.IsEnabled = true;
                 _editor.MaxLength = -1;
                 _editor.UseTabs = false;
+                _editor.TabSize = 4;
+                _editor.IndentSize = 4;
+                _editor.FontSize = 14;
                 _editor.AutoIndent = true;
                 _editor.NewLine = "\n";
                 _editor.WordWrap = false;
@@ -102,6 +105,56 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(2, NativeLineCount(), "initial visual lines");
             return Task.CompletedTask;
         }, replaceDocument: false);
+
+        await Test("layout tab display width is native and independent of indentation", "\tX\n    X", async () =>
+        {
+            var before = _editor.Document.CurrentSnapshot;
+            double X(int offset)
+            {
+                var layout = _editor.TextLayout.Capture() ?? throw new InvalidOperationException("Missing native tab layout.");
+                return _editor.TextLayout.GetCaretBounds(layout, offset)?.Left ?? throw new InvalidOperationException("Missing native tab caret.");
+            }
+            var fourSpaces = X(7) - X(3);
+            Equal(true, Math.Abs((X(1) - X(0)) - fourSpaces) <= 1, "four-column native tab");
+            _editor.SelectedRange = new(1, 0);
+            _editor.TabSize = 8;
+            await Task.Delay(40);
+            Equal(true, Math.Abs((X(1) - X(0)) - fourSpaces * 2) <= 1, "eight-column native tab");
+            _editor.IndentSize = 2;
+            Equal(8, _editor.TabSize);
+            Equal(true, ReferenceEquals(before, _editor.Document.CurrentSnapshot));
+            Equal(false, _editor.CanUndo);
+            Equal(false, _editor.Document.IsModified);
+            Equal(new TextSpan(1, 0), _editor.SelectedRange);
+            _editor.WordWrap = true;
+            _editor.FontSize = 20;
+            await Task.Delay(60);
+            Equal(true, Math.Abs((X(1) - X(0)) - (X(7) - X(3)) * 2) <= 1, "tab follows native font scaling with wrapping");
+            _editor.WordWrap = false;
+            using (var widget = _editor.Adornments.Add(0, new Label { Text = "hint", WidthRequest = 110, HeightRequest = 20 },
+                new() { Placement = RichTextAdornmentPlacement.Inline }))
+            {
+                await Task.Delay(200);
+                var interval = (X(7) - X(3)) * 2;
+                var leading = X(0) - X(3);
+                var expected = (Math.Floor((leading + 0.01) / interval) + 1) * interval;
+                Equal(true, Math.Abs((X(1) - X(3)) - expected) <= 2, "native tabs include inline reservation widths");
+            }
+            await Task.Delay(60);
+            _editor.SelectedRange = new(0, 0);
+#if ANDROID
+            var native = ((RichEditorHandler)_textView.Handler!).PlatformView;
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var prefix = new Java.Lang.String("WWWWWWWWW");
+            connection.CommitText(prefix, 1);
+#else
+            ((RichEditorHandler)_textView.Handler!).PlatformView.InsertText("WWWWWWWWW");
+#endif
+            await Task.Delay(60);
+            Equal("WWWWWWWWW\tX\n    X", _editor.Document.Text);
+            Equal(true, Math.Abs((X(10) - X(0)) - (X(16) - X(12)) * 4) <= 2, "native typing advances the following tab to its next stop");
+        });
 
         await Test("presentation revisions do not change source or saved state", "class C { }", async () =>
         {
@@ -442,6 +495,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             using var composing = new Java.Lang.String("int");
             using var committed = new Java.Lang.String("int ");
             connection.SetComposingText(composing, 1);
+            _editor.TabSize = 8;
+            Equal(4, _textView.SourceTabSize, "tab display changes wait for composition");
             await _editor.Coloring().RefreshAsync();
             Equal(0, Android.Views.InputMethods.BaseInputConnection.GetComposingSpanStart(native.EditableText!), "composition start");
             Equal(3, Android.Views.InputMethods.BaseInputConnection.GetComposingSpanEnd(native.EditableText!), "composition end");
@@ -450,6 +505,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 #else
             var native = (UIKit.UITextView)_textView.Handler!.PlatformView!;
             native.SetMarkedText("int", new Foundation.NSRange(3, 0));
+            _editor.TabSize = 8;
+            Equal(4, _textView.SourceTabSize, "tab display changes wait for composition");
             await _editor.Coloring().RefreshAsync();
             Equal(true, native.MarkedTextRange is not null, "marked range");
             native.UnmarkText();
@@ -457,6 +514,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 #endif
             await Task.Delay(300);
             Equal("int ", _editor.Document.Text);
+            Equal(8, _textView.SourceTabSize, "tab display changes apply after composition");
             ColorAt(0, TokenColor("keyword"));
             var count = 0;
             while (_editor.CanUndo && count++ < 8)

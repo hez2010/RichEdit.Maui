@@ -34,7 +34,7 @@ internal sealed partial class CodeEditorNativeAdapter
 
     private void OnTextLayoutChanged(object? sender, EventArgs args) => UpdateTextContainer();
 
-    internal partial void UpdateConfiguration()
+    private partial void UpdateConfigurationCore()
     {
         PlatformView.AllowsEditingTextAttributes = false;
         PlatformView.AutocapitalizationType = UITextAutocapitalizationType.None;

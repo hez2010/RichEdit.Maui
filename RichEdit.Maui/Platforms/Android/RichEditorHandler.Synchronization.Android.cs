@@ -107,6 +107,7 @@ public partial class RichEditorHandler
             {
                 ApplyImage(builder, image);
             }
+            RefreshSourceTabStops(builder, document, new(0, document.Length));
 
             PlatformView.JustificationMode = allJustified
                 ? JustificationMode.InterWord
@@ -238,6 +239,7 @@ public partial class RichEditorHandler
                 }
             }
 
+            RefreshSourceTabStops(editable, snapshot, paragraphRange);
             SetSelectionCore(selection.Start, selection.Length);
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
             PlatformView.RequestLayout();

@@ -4,6 +4,8 @@ public partial class NativeEditorView
 {
     internal TextEditorSession? SourceSession { get; private set; }
     internal string SourceNewLine { get; set; } = "\n";
+    internal int SourceTabSize { get; set; } = 4;
+    internal bool SourceWordWrap { get; set; } = true;
     internal event EventHandler<TextPastingEventArgs>? SourcePasting;
 
     private Task CopySourceAsync() => Selections.All(selection => selection.Range.IsEmpty) ? Task.CompletedTask :
