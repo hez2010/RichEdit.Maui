@@ -230,4 +230,19 @@ public sealed class TextDocumentTests
         Assert.Equal("aaaa", original.GetText(new(0, 4)));
         Assert.Equal(document.Length, second.Selections.Primary.Active);
     }
+    [Fact]
+    public void ExplicitGroupRestoringItsStartingContentRestoresSavedIdentity()
+    {
+        var document = new TextDocument("a\r\nb");
+        using (document.BeginUndoGroup())
+        {
+            document.Edit(edit => edit.Insert(1, "new"));
+            document.Edit(edit => edit.Delete(new(1, 3)));
+        }
+        Assert.Equal("a\r\nb", document.Text);
+        Assert.Equal(2, document.Revision.Version);
+        Assert.False(document.CanUndo);
+        Assert.False(document.IsModified);
+    }
+
 }

@@ -222,6 +222,28 @@ public sealed class TextSnapshot
         return text;
     }
 
+    internal bool ContentEquals(TextSnapshot other)
+    {
+        if (ReferenceEquals(_root, other._root)) return true;
+        if (Length != other.Length) return false;
+        using var left = GetChunks(new(0, Length)).GetEnumerator();
+        using var right = other.GetChunks(new(0, Length)).GetEnumerator();
+        var hasLeft = left.MoveNext();
+        var hasRight = right.MoveNext();
+        var leftOffset = 0;
+        var rightOffset = 0;
+        while (hasLeft && hasRight)
+        {
+            var count = Math.Min(left.Current.Length - leftOffset, right.Current.Length - rightOffset);
+            if (!left.Current.Span.Slice(leftOffset, count).SequenceEqual(right.Current.Span.Slice(rightOffset, count))) return false;
+            leftOffset += count;
+            rightOffset += count;
+            if (leftOffset == left.Current.Length) { hasLeft = left.MoveNext(); leftOffset = 0; }
+            if (rightOffset == right.Current.Length) { hasRight = right.MoveNext(); rightOffset = 0; }
+        }
+        return !hasLeft && !hasRight;
+    }
+
     private bool EqualsText(TextSpan range, string text)
     {
         var offset = 0;

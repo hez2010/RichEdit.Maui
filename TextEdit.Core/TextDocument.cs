@@ -307,8 +307,13 @@ public sealed class TextDocument
         scope.Closed = true;
         if (!IsUndoGroupOpen && _groupEntry is { } entry)
         {
-            _undo.AddLast(entry with { Description = _groupDescription ?? entry.Description });
-            _historyBytes += entry.EstimatedBytes;
+            if (entry.Before.ContentEquals(entry.After))
+                _state = entry.BeforeState;
+            else
+            {
+                _undo.AddLast(entry with { Description = _groupDescription ?? entry.Description });
+                _historyBytes += entry.EstimatedBytes;
+            }
             _groupEntry = null;
             _groupDescription = null;
             TrimHistory();
