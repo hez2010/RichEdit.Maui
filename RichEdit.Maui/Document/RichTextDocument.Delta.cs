@@ -32,7 +32,7 @@ public sealed partial class RichTextDocument
                 after.Length - prefixLength - suffixLength);
             textChange = new RichTextTextChange(
                 textOldRange,
-                after.Text.Substring(textNewRange.Start, textNewRange.Length));
+                after.GetText(textNewRange));
             changes.Add(textChange);
         }
 

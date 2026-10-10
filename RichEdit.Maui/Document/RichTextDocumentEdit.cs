@@ -900,7 +900,7 @@ public sealed class RichTextDocumentEdit
         result = NormalizeText(result);
         var range = original.Range;
         if (string.Equals(
-            Snapshot.Text.Substring(range.Start, range.Length),
+            Snapshot.GetText(range),
             result,
             StringComparison.Ordinal))
         {

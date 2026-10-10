@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace RichEdit.Maui;
 
 internal readonly record struct RichTextReplacement(RichTextRange Range, string Text, RichTextCharacterFormat Format);
@@ -11,8 +9,10 @@ public sealed partial class RichTextDocumentSnapshot
     internal RichTextDocumentSnapshot ReplaceTextBatch(IReadOnlyList<RichTextReplacement> replacements)
     {
         var ordered = replacements.Reverse().ToArray();
-        var length = checked((int)(Length + ordered.Sum(static edit => (long)edit.Text.Length - edit.Range.Length)));
-        var text = new StringBuilder(length);
+        _ = checked((int)(Length + ordered.Sum(static edit => (long)edit.Text.Length - edit.Range.Length)));
+        var text = _text;
+        foreach (var edit in replacements)
+            text = text.Replace(new(edit.Range.Start, edit.Range.Length), edit.Text);
         var runs = new List<RichTextRun>(_runs.Length + ordered.Length * 2);
         var newStarts = new int[ordered.Length];
         var newEnds = new int[ordered.Length];
@@ -23,10 +23,8 @@ public sealed partial class RichTextDocumentSnapshot
         for (var index = 0; index < ordered.Length; index++)
         {
             var edit = ordered[index];
-            text.Append(Text, oldPosition, edit.Range.Start - oldPosition);
             CopyRuns(oldPosition, edit.Range.Start, shift);
             newStarts[index] = edit.Range.Start + shift;
-            text.Append(edit.Text);
             if (edit.Text.Length != 0)
                 AddRun(runs, new(newStarts[index], edit.Text.Length, edit.Format));
 
@@ -36,7 +34,6 @@ public sealed partial class RichTextDocumentSnapshot
             oldPosition = edit.Range.End;
         }
 
-        text.Append(Text, oldPosition, Length - oldPosition);
         CopyRuns(oldPosition, Length, shift);
         var resultText = text.ToString();
         var paragraphs = new List<RichTextParagraph>();
@@ -57,7 +54,7 @@ public sealed partial class RichTextDocumentSnapshot
                 var edit = ordered[editIndex];
                 if (start == newStarts[editIndex])
                     format = GetParagraphFormat(edit.Range.Start);
-                else if (start < newEnds[editIndex] || edit.Range.IsEmpty || edit.Range.End == 0 || Text[edit.Range.End - 1] != '\n')
+                else if (start < newEnds[editIndex] || edit.Range.IsEmpty || edit.Range.End == 0 || _text[edit.Range.End - 1] != '\n')
                 {
                     format = GetParagraphFormat(edit.Range.Start);
                     if (format.List is { } item)
@@ -88,7 +85,7 @@ public sealed partial class RichTextDocumentSnapshot
         }
 
         return new(resultText, runs, paragraphs, links, fields, images, DefaultCharacterFormat,
-            DefaultParagraphFormat, _metadata, _listPictures.Values, _lists);
+            DefaultParagraphFormat, _metadata, _listPictures.Values, _lists, textBuffer: text);
 
         void CopyRuns(int start, int end, int delta)
         {

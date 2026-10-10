@@ -91,7 +91,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     /// <summary>
     /// Gets the number of UTF-16 code units in the logical text.
     /// </summary>
-    public int Length => _snapshot.Text.Length;
+    public int Length => _snapshot.Length;
 
     /// <summary>
     /// Gets the plain-text projection of the document.
@@ -287,7 +287,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     public string GetText(RichTextRange range)
     {
         range.Validate(Length, nameof(range));
-        return Text.Substring(range.Start, range.Length);
+        return _snapshot.GetText(range);
     }
 
     /// <summary>

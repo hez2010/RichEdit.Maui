@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using TextEdit.Core;
 
 namespace RichEdit.Maui;
 
@@ -12,6 +13,7 @@ public sealed partial class RichTextDocumentSnapshot
     internal const char SoftLineBreakCharacter = RichTextDocument.SoftLineBreakCharacter;
 
     private readonly ImmutableArray<RichTextRun> _runs;
+    private readonly TextSnapshot _text;
     private readonly ImmutableArray<RichTextParagraph> _paragraphs;
     private readonly ImmutableArray<RichTextLink> _links;
     private readonly ImmutableArray<RichTextField> _fields;
@@ -34,22 +36,23 @@ public sealed partial class RichTextDocumentSnapshot
         IEnumerable<RichTextListPicture>? listPictures = null,
         IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>>? lists = null,
         long version = 0,
-        bool nativeListsAuthoritative = false)
+        bool nativeListsAuthoritative = false,
+        TextSnapshot? textBuffer = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(version);
         Version = version;
-        Text = NormalizeText(text);
+        _text = textBuffer ?? TextSnapshot.FromText(NormalizeText(text));
         DefaultCharacterFormat = Validate(defaultCharacterFormat ?? RichTextCharacterFormat.Default);
         DefaultParagraphFormat = Validate(defaultParagraphFormat ?? RichTextParagraphFormat.Default);
-        _runs = NormalizeRuns(Text.Length, runs, DefaultCharacterFormat);
+        _runs = NormalizeRuns(Length, runs, DefaultCharacterFormat);
         _listPictures = NormalizeListPictures(listPictures);
         var normalizedParagraphs = NormalizeParagraphs(Text, paragraphs, DefaultParagraphFormat);
         _lists = NormalizeLists(lists, normalizedParagraphs, nativeListsAuthoritative);
         _paragraphs = BindParagraphLists(normalizedParagraphs, _lists);
         ValidateRtfListCapacity(_paragraphs);
         ValidateListPictureReferences(_lists, _listPictures, nameof(listPictures));
-        _links = NormalizeLinks(Text.Length, links);
-        _fields = NormalizeFields(Text.Length, fields);
+        _links = NormalizeLinks(Length, links);
+        _fields = NormalizeFields(Length, fields);
         _images = NormalizeImages(Text, images);
         _metadata = metadata?.ToImmutableDictionary(StringComparer.Ordinal) ??
             ImmutableDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
@@ -62,10 +65,16 @@ public sealed partial class RichTextDocumentSnapshot
     public RichTextRevision Revision { get; private init; }
 
     /// <summary>Gets the logical UTF-16 text length.</summary>
-    public int Length => Text.Length;
+    public int Length => _text.Length;
 
     /// <summary>Gets the complete normalized plain text.</summary>
-    public string Text { get; }
+    public string Text => _text.ToString();
+
+    /// <summary>Gets the immutable, chunked plain text represented by this rich snapshot.</summary>
+    public TextSnapshot TextBuffer => _text;
+
+    /// <summary>Reads a bounded UTF-16 range without materializing the whole document.</summary>
+    public string GetText(RichTextRange range) => _text.GetText(new(range.Start, range.Length));
 
     /// <summary>Gets the canonical RTF representation of this snapshot.</summary>
     public string RtfText => _cachedRtf ??= RtfCodec.Serialize(this);
@@ -108,29 +117,29 @@ public sealed partial class RichTextDocumentSnapshot
 
     internal RichTextCharacterFormat GetCharacterFormat(int position)
     {
-        if (Text.Length == 0)
+        if (Length == 0)
         {
             return CreateInheritedCharacterFormat(DefaultCharacterFormat);
         }
 
-        var index = Math.Clamp(position, 0, Text.Length - 1);
+        var index = Math.Clamp(position, 0, Length - 1);
         return _runs[FindRunIndex(index)].Format;
     }
 
     internal RichTextCharacterFormat GetCaretFormat(int position)
     {
-        if (Text.Length == 0)
+        if (Length == 0)
         {
             return CreateInheritedCharacterFormat(DefaultCharacterFormat);
         }
 
-        var index = position == 0 ? 0 : Math.Clamp(position - 1, 0, Text.Length - 1);
+        var index = position == 0 ? 0 : Math.Clamp(position - 1, 0, Length - 1);
         return GetCharacterFormat(index);
     }
 
     internal RichTextCharacterFormat? GetUniformCharacterFormat(Range range)
     {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
+        var (start, length) = range.GetOffsetAndLength(Length);
         if (length == 0)
         {
             return GetCaretFormat(start);
@@ -184,16 +193,15 @@ public sealed partial class RichTextDocumentSnapshot
 
     internal RichTextParagraphFormat GetParagraphFormat(int position)
     {
-        var lineStart = GetParagraphStart(Text, Math.Clamp(position, 0, Text.Length));
-        return _paragraphs[FindParagraphIndex(lineStart)].Format;
+        return _paragraphs[FindParagraphIndex(Math.Clamp(position, 0, Length))].Format;
     }
 
     internal RichTextParagraphFormat? GetUniformParagraphFormat(Range range)
     {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
+        var (start, length) = range.GetOffsetAndLength(Length);
         var lastPosition = length == 0 ? start : start + length - 1;
-        var firstParagraph = GetParagraphStart(Text, start);
-        var lastParagraph = GetParagraphStart(Text, lastPosition);
+        var firstParagraph = _paragraphs[FindParagraphIndex(start)].Start;
+        var lastParagraph = _paragraphs[FindParagraphIndex(lastPosition)].Start;
         RichTextParagraphFormat? result = null;
         for (var paragraphIndex = FindParagraphIndex(firstParagraph);
              paragraphIndex < _paragraphs.Length;
@@ -273,7 +281,7 @@ public sealed partial class RichTextDocumentSnapshot
         Func<RichTextCharacterFormat, RichTextCharacterFormat> transform)
     {
         ArgumentNullException.ThrowIfNull(transform);
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
+        var (start, length) = range.GetOffsetAndLength(Length);
         if (length == 0)
         {
             return this;
@@ -315,10 +323,10 @@ public sealed partial class RichTextDocumentSnapshot
         Func<RichTextParagraphFormat, RichTextParagraphFormat> transform)
     {
         ArgumentNullException.ThrowIfNull(transform);
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
+        var (start, length) = range.GetOffsetAndLength(Length);
         var lastPosition = length == 0 ? start : start + length - 1;
-        var firstParagraph = GetParagraphStart(Text, start);
-        var lastParagraph = GetParagraphStart(Text, lastPosition);
+        var firstParagraph = _paragraphs[FindParagraphIndex(start)].Start;
+        var lastParagraph = _paragraphs[FindParagraphIndex(lastPosition)].Start;
         var paragraphs = _paragraphs
             .Select(paragraph => paragraph.Start >= firstParagraph && paragraph.Start <= lastParagraph
                 ? paragraph with
@@ -338,11 +346,12 @@ public sealed partial class RichTextDocumentSnapshot
         string? replacement,
         RichTextCharacterFormat? replacementFormat = null)
     {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
+        var (start, length) = range.GetOffsetAndLength(Length);
         replacement = NormalizeText(replacement);
         var oldEnd = start + length;
         var delta = replacement.Length - length;
-        var text = string.Concat(Text.AsSpan(0, start), replacement, Text.AsSpan(oldEnd));
+        var buffer = _text.Replace(new(start, length), replacement);
+        var text = buffer.ToString();
         var insertionFormat = Validate(replacementFormat ?? GetCaretFormat(start));
         var runs = new List<RichTextRun>(_runs.Length + 2);
 
@@ -388,7 +397,7 @@ public sealed partial class RichTextDocumentSnapshot
             }
             else if (paragraphStart < start + replacement.Length ||
                 paragraphStart == start + replacement.Length &&
-                (oldEnd == start || oldEnd == 0 || Text[oldEnd - 1] != '\n'))
+                (oldEnd == start || oldEnd == 0 || _text[oldEnd - 1] != '\n'))
             {
                 // A new list item continues its predecessor's counter. A restart
                 // belongs to the original item, not every paragraph split from it.
@@ -398,7 +407,7 @@ public sealed partial class RichTextDocumentSnapshot
             }
             else
             {
-                format = GetParagraphFormat(Math.Clamp(paragraphStart - delta, 0, Text.Length));
+                format = GetParagraphFormat(Math.Clamp(paragraphStart - delta, 0, Length));
             }
 
             return new RichTextParagraph(paragraphStart, format);
@@ -419,13 +428,14 @@ public sealed partial class RichTextDocumentSnapshot
             DefaultParagraphFormat,
             _metadata,
             _listPictures.Values,
-            _lists);
+            _lists,
+            textBuffer: buffer);
     }
 
     internal RichTextDocumentSnapshot SetLink(Range range, string target, string? toolTip = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(target);
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
+        var (start, length) = range.GetOffsetAndLength(Length);
         if (length == 0)
         {
             throw new ArgumentException("A hyperlink must cover at least one character.", nameof(range));
@@ -440,7 +450,7 @@ public sealed partial class RichTextDocumentSnapshot
 
     internal RichTextDocumentSnapshot RemoveLinks(Range range)
     {
-        var (start, length) = range.GetOffsetAndLength(Text.Length);
+        var (start, length) = range.GetOffsetAndLength(Length);
         var end = start + length;
         return With(links: _links.Where(link => link.End <= start || link.Start >= end));
     }
@@ -448,7 +458,7 @@ public sealed partial class RichTextDocumentSnapshot
     internal RichTextDocumentSnapshot InsertImage(int position, RichTextImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
-        if ((uint)position > (uint)Text.Length)
+        if ((uint)position > (uint)Length)
         {
             throw new ArgumentOutOfRangeException(nameof(position));
         }
@@ -496,14 +506,15 @@ public sealed partial class RichTextDocumentSnapshot
             defaultParagraphFormat ?? DefaultParagraphFormat,
             metadata ?? _metadata,
             listPictures ?? _listPictures.Values,
-            lists ?? _lists);
+            lists ?? _lists,
+            textBuffer: text is null ? _text : null);
     }
 
     private RichTextDocumentSnapshot(RichTextDocumentSnapshot source, IEnumerable<RichTextRun>? runs) : this(source, 0, null)
     {
         Revision = default;
         _cachedRtf = null;
-        _runs = runs is null ? source._runs : NormalizeRuns(Text.Length, runs, DefaultCharacterFormat);
+        _runs = runs is null ? source._runs : NormalizeRuns(Length, runs, DefaultCharacterFormat);
     }
 
     private RichTextDocumentSnapshot(RichTextDocumentSnapshot source, long version, object? identity)
@@ -511,7 +522,7 @@ public sealed partial class RichTextDocumentSnapshot
         ArgumentOutOfRangeException.ThrowIfNegative(version);
         Version = version;
         Revision = new(identity ?? source.Revision.Identity, version);
-        Text = source.Text;
+        _text = source._text;
         DefaultCharacterFormat = source.DefaultCharacterFormat;
         DefaultParagraphFormat = source.DefaultParagraphFormat;
         _runs = source._runs;
@@ -547,7 +558,7 @@ public sealed partial class RichTextDocumentSnapshot
     internal bool ContentEquals(RichTextDocumentSnapshot other)
     {
         ArgumentNullException.ThrowIfNull(other);
-        return string.Equals(Text, other.Text, StringComparison.Ordinal) &&
+        return (ReferenceEquals(_text, other._text) || string.Equals(Text, other.Text, StringComparison.Ordinal)) &&
             DefaultCharacterFormat == other.DefaultCharacterFormat &&
             DefaultParagraphFormat == other.DefaultParagraphFormat &&
             _runs.AsSpan().SequenceEqual(other._runs.AsSpan()) &&
@@ -575,14 +586,14 @@ public sealed partial class RichTextDocumentSnapshot
 
         var prefixLength = Text.AsSpan().CommonPrefixLength(text);
         var suffixLength = 0;
-        var maximumSuffixLength = Math.Min(Text.Length, text.Length) - prefixLength;
+        var maximumSuffixLength = Math.Min(Length, text.Length) - prefixLength;
         while (suffixLength < maximumSuffixLength &&
                Text[^(suffixLength + 1)] == text[^(suffixLength + 1)])
         {
             suffixLength++;
         }
 
-        var oldEnd = Text.Length - suffixLength;
+        var oldEnd = Length - suffixLength;
         var newEnd = text.Length - suffixLength;
         return Replace(prefixLength..oldEnd, text[prefixLength..newEnd]);
     }
@@ -676,7 +687,8 @@ public sealed partial class RichTextDocumentSnapshot
             _metadata,
             remapped._listPictures.Values,
             remapped._lists,
-            nativeListsAuthoritative: true);
+            nativeListsAuthoritative: true,
+            textBuffer: remapped._text);
     }
 
     private static ImmutableArray<RichTextRun> MergeCharacterFormats(
@@ -727,9 +739,6 @@ public sealed partial class RichTextDocumentSnapshot
         (text ?? string.Empty)
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n');
-
-    private static int GetParagraphStart(string text, int position) =>
-        position == 0 ? 0 : text.LastIndexOf('\n', position - 1) + 1;
 
     private static IEnumerable<int> EnumerateParagraphStarts(string text)
     {
