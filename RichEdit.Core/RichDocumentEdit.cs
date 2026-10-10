@@ -117,7 +117,7 @@ public sealed partial class RichDocumentEdit
         var paragraph = Get<RichParagraph>(start.Paragraph);
         new TextSpan(start.Offset, length).Validate(Length(paragraph));
         if (IsPlainTextRange(paragraph, new(start.Offset, length)) && ReadText(paragraph, new(start.Offset, length)) == text) return;
-        var inherited = InlineAt(paragraph, start.Offset);
+        var inherited = InlineAt(paragraph, start.Offset, following: length > 0);
         var (left, remainder) = Partition(paragraph, start.Offset, paragraph.Id);
         var (removed, right) = Partition(paragraph with { Inlines = remainder }, length, paragraph.Id);
         foreach (var id in removed) _nodes.Remove(id);
@@ -303,7 +303,7 @@ public sealed partial class RichDocumentEdit
         return result.ToImmutable();
     }
     private int Length(RichParagraph paragraph) => checked(paragraph.Inlines.Sum(id => RichDocumentSnapshot.InlineLength(Get<RichInline>(id))));
-    private RichInline? InlineAt(RichParagraph paragraph, int offset)
+    private RichInline? InlineAt(RichParagraph paragraph, int offset, bool following = false)
     {
         RichInline? previous = null;
         var position = 0;
@@ -311,7 +311,7 @@ public sealed partial class RichDocumentEdit
         {
             var inline = Get<RichInline>(id);
             var end = position + RichDocumentSnapshot.InlineLength(inline);
-            if (offset > position && offset <= end || position == 0 && offset == 0) return inline;
+            if (following ? offset >= position && offset < end : offset > position && offset <= end || position == 0 && offset == 0) return inline;
             position = end;
             previous = inline;
         }

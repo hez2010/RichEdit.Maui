@@ -14,6 +14,7 @@ public sealed partial class RichDocumentEdit
         var snapshot = Candidate(validate: false);
         selection = snapshot.NormalizeSelection(selection);
         RichTextPoint start;
+        RichInline? seed = null;
         switch (selection)
         {
             case RichTextSelectionSet set:
@@ -28,6 +29,7 @@ public sealed partial class RichDocumentEdit
                 break;
             case RichObjectSelection selected:
                 var inline = Get<RichInline>(selected.Object);
+                seed = inline;
                 var paragraph = Get<RichParagraph>(inline.Parent!.Value);
                 var offset = paragraph.Inlines.TakeWhile(id => id != inline.Id).Sum(id => RichDocumentSnapshot.InlineLength(Get<RichInline>(id)));
                 start = new(_body, paragraph.Id, offset);
@@ -37,11 +39,20 @@ public sealed partial class RichDocumentEdit
                 var reverse = snapshot.ComparePoints(range.Anchor, range.Active) > 0;
                 start = reverse ? range.Active : range.Anchor;
                 var end = reverse ? range.Anchor : range.Active;
+                seed = InlineAt(Get<RichParagraph>(start.Paragraph), start.Offset, following: start != end);
+                if (start.Paragraph == end.Paragraph && !text.AsSpan().ContainsAny('\r', '\n', '\u2028'))
+                {
+                    ReplaceText(start, end.Offset - start.Offset, text);
+                    if (typingFormat is not null && typingFormat != new RichCharacterStyle() && text.Length > 0)
+                        ChangeInlines(start, text.Length, inline => inline with { Format = inline.Format.Overlay(typingFormat) });
+                    var resulting = start with { Offset = start.Offset + text.Length };
+                    return new RichTextSelection(resulting, resulting);
+                }
                 RemoveTextSelection(start, end);
                 break;
             default: throw new ArgumentException("Unsupported selection kind.", nameof(selection));
         }
-        var caret = InsertPlainText(start, text, typingFormat);
+        var caret = InsertPlainText(start, text, typingFormat, seed);
         return new RichTextSelection(caret, caret);
     }
 
@@ -87,7 +98,7 @@ public sealed partial class RichDocumentEdit
         JoinParagraphs(start.Paragraph, end.Paragraph);
     }
 
-    private RichTextPoint InsertPlainText(RichTextPoint point, string text, RichCharacterStyle? typingFormat)
+    private RichTextPoint InsertPlainText(RichTextPoint point, string text, RichCharacterStyle? typingFormat, RichInline? seed)
     {
         text = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         var start = 0;
@@ -96,19 +107,24 @@ public sealed partial class RichDocumentEdit
             if (index != text.Length && text[index] is not ('\n' or '\u2028')) continue;
             var value = text[start..index];
             ReplaceText(point, 0, value);
-            if (typingFormat is not null && value.Length > 0)
-                ChangeInlines(point, value.Length, inline => inline with { Format = inline.Format.Overlay(typingFormat) });
+            if (value.Length > 0 && (typingFormat is not null || seed is not null)) ChangeInlines(point, value.Length, ApplyTyping);
             point = point with { Offset = checked(point.Offset + value.Length) };
             if (index == text.Length) break;
             if (text[index] == '\n') point = new(point.Story, SplitParagraph(point), 0);
             else
             {
                 InsertSoftBreak(point);
-                if (typingFormat is not null) ChangeInlines(point, 1, inline => inline with { Format = inline.Format.Overlay(typingFormat) });
+                if (typingFormat is not null || seed is not null) ChangeInlines(point, 1, ApplyTyping);
                 point = point with { Offset = point.Offset + 1 };
             }
             start = index + 1;
         }
         return point;
+        RichInline ApplyTyping(RichInline inline) => inline with
+        {
+            Style = seed is null ? inline.Style : seed.Style,
+            Link = seed is null ? inline.Link : seed.Link,
+            Format = (seed?.Format ?? inline.Format).Overlay(typingFormat ?? new()),
+        };
     }
 }

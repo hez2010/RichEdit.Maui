@@ -5,6 +5,37 @@ namespace RichEdit.Core.Tests;
 public sealed class RichSelectionEditingTests
 {
     [Fact]
+    public void IdenticalTextReplacementOnlyCollapsesTheViewSelection()
+    {
+        var document = RichDocument.FromPlainText("abc");
+        using var view = document.CreateSession();
+        view.Selection = new RichTextSelection(new(new(1), new(2), 1), new(new(1), new(2), 2));
+        var before = document.CurrentSnapshot;
+        view.ReplaceSelection("b");
+        Assert.Same(before, document.CurrentSnapshot);
+        Assert.False(document.IsModified);
+        Assert.False(document.CanUndo);
+        Assert.Equal(new RichTextSelection(new(new(1), new(2), 2), new(new(1), new(2), 2)), view.Selection);
+    }
+
+    [Fact]
+    public void ReplacingAWholeStyledRunRetainsItsFormattingAndDoesNotInheritAnAdjacentLink()
+    {
+        var document = RichDocument.FromPlainText("ab");
+        document.Edit(edit =>
+        {
+            edit.SetHyperlink(new(edit.Body, new(2), 0), 1, new("#target"));
+            edit.SetCharacterFormat(new(edit.Body, new(2), 1), 1, new() { Bold = true });
+        });
+        using var view = document.CreateSession();
+        view.Selection = new RichTextSelection(new(new(1), new(2), 1), new(new(1), new(2), 2));
+        view.ReplaceSelection("X\nY");
+        var runs = document.CurrentSnapshot.Nodes.Values.OfType<RichText>().Where(run => run.Content.ToString() is "X" or "Y").ToArray();
+        Assert.Equal(2, runs.Length);
+        Assert.All(runs, run => { Assert.Equal(new RichCharacterStyle { Bold = true }, run.Format); Assert.Null(run.Link); });
+    }
+
+    [Fact]
     public void TypingOverridesAreViewOwnedAndOnlyAuthorExplicitPropertiesOnInsertion()
     {
         var document = RichDocument.FromPlainText("abc");
