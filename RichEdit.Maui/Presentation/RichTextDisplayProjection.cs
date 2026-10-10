@@ -154,7 +154,7 @@ internal sealed partial class RichTextDisplayProjection
     {
         var lineEndings = editor.SourceSession is null ? null : ReferenceEquals(editor.InputSnapshot.TextBuffer, editor.Document.SourceLineEndings?.Source)
             ? editor.Document.SourceLineEndings : new LfTextProjection(editor.InputSnapshot.TextBuffer);
-        var source = lineEndings?.Display.ToString() ?? editor.Document.Text;
+        var source = lineEndings?.Display ?? editor.Document.CurrentSnapshot.TextBuffer;
         var candidates = new List<(RichTextAdornment Item, int Position, string Text, int Order)>();
         foreach (var item in editor.Adornments)
         {
@@ -170,13 +170,12 @@ internal sealed partial class RichTextDisplayProjection
             switch (item.Options.Placement)
             {
                 case RichTextAdornmentPlacement.AboveLine:
-                    position = position == 0 ? 0 : source.LastIndexOf('\n', position - 1) + 1;
+                    position = source.GetLine(source.GetPosition(position).Line).Span.Start;
                     text = "\uFFFC\n";
                     order = 0;
                     break;
                 case RichTextAdornmentPlacement.BelowLine:
-                    var newline = source.IndexOf('\n', position);
-                    position = newline < 0 ? source.Length : newline;
+                    position = source.GetLine(source.GetPosition(position).Line).Span.End;
                     text = "\n\uFFFC";
                     order = 2;
                     break;
@@ -202,7 +201,7 @@ internal sealed partial class RichTextDisplayProjection
         return lineEndings is null ? new(entries) : new RichTextDisplayProjection(entries).WithLineEndings(lineEndings);
     }
 
-    internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot, double viewportWidth)
+    internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot, double viewportWidth, TextSnapshot? projectedBuffer = null)
     {
         if (_structured is { } rich) return NativeDescription(rich);
         if (_lineEndings is not null)
@@ -213,22 +212,12 @@ internal sealed partial class RichTextDisplayProjection
                     var range = _lineEndings.ToDisplay(new TextSpan(run.Start, run.Length));
                     return new RichTextRun(range.Start, range.Length, run.Format);
                 }).Where(run => run.Length > 0)).WithVersion(snapshot.Version);
-            return WithoutLineEndings().Project(normalized, viewportWidth);
+            return WithoutLineEndings().Project(normalized, viewportWidth, projectedBuffer);
         }
         if (IsEmpty)
             return snapshot;
 
-        var text = new StringBuilder(snapshot.Length + Reservations.Sum(static item => item.Text.Length));
-        var previous = 0;
-        foreach (var item in Reservations)
-        {
-            text.Append(snapshot.Text, previous, item.SourcePosition - previous);
-            text.Append(item.Text);
-            previous = item.SourcePosition;
-        }
-
-        text.Append(snapshot.Text, previous, snapshot.Length - previous);
-        var projectedText = text.ToString();
+        projectedBuffer ??= ProjectText(snapshot.TextBuffer);
         var runs = new List<RichTextRun>();
         foreach (var run in snapshot.Runs)
         {
@@ -254,18 +243,16 @@ internal sealed partial class RichTextDisplayProjection
         }
 
         var paragraphs = new List<RichTextParagraph>();
-        for (var start = 0; start <= projectedText.Length;)
+        // Source paragraphs all use the same defaults, including reserved rows.
+        // Keep their line index in the rope instead of materializing a full array.
+        if (!snapshot.IsSourceProjection)
+        foreach (var line in projectedBuffer.GetLines())
         {
-            var end = projectedText.IndexOf('\n', start);
-            if (end < 0)
-                end = projectedText.Length;
-
+            var span = line.Span;
+            var start = span.Start;
+            var end = span.End;
             var isReservationRow = end > start && ToSource(start) == ToSource(end);
             paragraphs.Add(new(start, isReservationRow ? RichTextParagraphFormat.Default : snapshot.GetParagraphFormat(ToSource(start))));
-            if (end == projectedText.Length)
-                break;
-
-            start = end + 1;
         }
 
         var images = snapshot.Images.Select(image => image with { Position = ToDisplay(image.Position) }).ToList();
@@ -281,7 +268,9 @@ internal sealed partial class RichTextDisplayProjection
                 Data = TransparentPixel,
             });
 
-        return snapshot.With(text: projectedText, runs: runs, paragraphs: paragraphs,
+        if (snapshot.IsSourceProjection)
+            return RichTextDocumentSnapshot.CreateSourceDisplay(projectedBuffer, runs, images).WithVersion(snapshot.Version);
+        return snapshot.With(textBuffer: projectedBuffer, runs: runs, paragraphs: paragraphs,
             images: images, links: snapshot.Links.Select(link => link with
         {
             Start = ToDisplay(link.Start),
@@ -369,7 +358,9 @@ internal sealed partial class RichTextDisplayProjection
             if (start < 0 || start >= text.Length || length != 1 || text[start] != item.Character)
                 continue;
 
-            entries.Add(new(item.Adornment, start - shift, start, item.Character.ToString()));
+            if (entries.Count != 0 && ReferenceEquals(entries[^1].Adornment, item.Adornment) && entries[^1].DisplayEnd == start)
+                entries[^1] = entries[^1] with { Text = entries[^1].Text + item.Character };
+            else entries.Add(new(item.Adornment, start - shift, start, item.Character.ToString()));
             shift += length;
         }
 

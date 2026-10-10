@@ -7,6 +7,7 @@ public sealed partial class RichTextDocument
         RichTextDocumentSnapshot after)
     {
         var sourceOnly = before.IsSourceProjection && after.IsSourceProjection &&
+            before.Images.IsEmpty && after.Images.IsEmpty &&
             before.Runs.All(run => run.Format == before.DefaultCharacterFormat) &&
             after.Runs.All(run => run.Format == after.DefaultCharacterFormat);
         if (ReferenceEquals(before, after) || sourceOnly && ReferenceEquals(before.TextBuffer, after.TextBuffer) ||
@@ -17,26 +18,11 @@ public sealed partial class RichTextDocument
 
         var changes = new List<RichTextChange>();
         RichTextTextChange? textChange = null;
-        if (!string.Equals(before.Text, after.Text, StringComparison.Ordinal))
+        if (before.TextBuffer.FindDifference(after.TextBuffer, out _) is { } difference)
         {
-            var prefixLength = before.Text.AsSpan().CommonPrefixLength(after.Text);
-            var suffixLength = 0;
-            var maximumSuffixLength = Math.Min(before.Length, after.Length) - prefixLength;
-            while (suffixLength < maximumSuffixLength &&
-                   before.Text[^(suffixLength + 1)] == after.Text[^(suffixLength + 1)])
-            {
-                suffixLength++;
-            }
-
-            var textOldRange = new TextSpan(
-                prefixLength,
-                before.Length - prefixLength - suffixLength);
-            var textNewRange = new TextSpan(
-                prefixLength,
-                after.Length - prefixLength - suffixLength);
             textChange = new RichTextTextChange(
-                textOldRange,
-                after.GetText(textNewRange));
+                difference.Before,
+                after.GetText(difference.After));
             changes.Add(textChange);
         }
 
@@ -52,8 +38,8 @@ public sealed partial class RichTextDocument
 
         if (FindParagraphDifference(after, before, textChange) is { } paragraphRange)
         {
-            var newRange = ExpandToParagraphs(after.Text, paragraphRange);
-            var oldRange = ExpandToParagraphs(before.Text, MapAffectedRangeToBefore(newRange, textChange));
+            var newRange = ExpandToParagraphs(after.TextBuffer, paragraphRange);
+            var oldRange = ExpandToParagraphs(before.TextBuffer, MapAffectedRangeToBefore(newRange, textChange));
             changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.ParagraphFormat,
                 oldRange,
@@ -153,6 +139,7 @@ public sealed partial class RichTextDocument
         RichTextTextChange? textChange)
     {
         TextSpan? affected = textChange?.NewRange;
+        if (first.IsSourceProjection && second.IsSourceProjection && first.DefaultParagraphFormat == second.DefaultParagraphFormat) return affected;
         foreach (var paragraph in first.Paragraphs)
         {
             var oldPosition = paragraph.Start;
@@ -186,12 +173,11 @@ public sealed partial class RichTextDocument
             ? range
             : new TextSpan(range.Start, range.Length + textChange.OldRange.Length - textChange.NewRange.Length);
 
-    private static TextSpan ExpandToParagraphs(string text, TextSpan range)
+    private static TextSpan ExpandToParagraphs(TextSnapshot text, TextSpan range)
     {
-        var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
-        var inspectedEnd = Math.Clamp(range.End, 0, text.Length);
-        var newline = text.IndexOf('\n', inspectedEnd);
-        var end = newline < 0 ? text.Length : newline + 1;
+        var start = text.GetLine(text.GetPosition(range.Start).Line).Span.Start;
+        var last = text.GetLine(text.GetPosition(Math.Clamp(range.End, 0, text.Length)).Line);
+        var end = last.Span.End + last.LineBreakLength;
         return new TextSpan(start, end - start);
     }
 

@@ -63,6 +63,9 @@ public partial class IncrementalCharacterFormattingTests
             FontFamily = "Consolas",
             FontSize = 14,
             ForegroundColor = Colors.Navy,
+            // Compare authored formatting, not independently inferred proofing
+            // languages inherited from the process's previously focused editor.
+            LanguageTag = "en-US",
         }));
         var document = fixture.Editor.Document;
         var range = new TextSpan(7, 6);

@@ -9,6 +9,17 @@ public sealed partial class RichTextDocumentSnapshot
     // materialized if a platform renderer actually enumerates them.
     internal static RichTextDocumentSnapshot CreateSourceProjection(TextSnapshot text) => new(text);
 
+    internal static RichTextDocumentSnapshot CreateSourceDisplay(TextSnapshot text, IEnumerable<RichTextRun> runs, IEnumerable<RichTextImage> reservations) =>
+        new(text, runs, reservations);
+
+    private RichTextDocumentSnapshot(TextSnapshot text, IEnumerable<RichTextRun> runs, IEnumerable<RichTextImage> reservations) : this(text)
+    {
+        // Inputs are validated authored runs and private reservation descriptions
+        // built by the projection. No imported/user object bypasses validation.
+        _runs = NormalizeRuns(text.Length, runs, DefaultCharacterFormat);
+        _images = reservations.OrderBy(image => image.Position).ToImmutableArray();
+    }
+
     private RichTextDocumentSnapshot(TextSnapshot text)
     {
         _text = text;
@@ -17,8 +28,8 @@ public sealed partial class RichTextDocumentSnapshot
         DefaultCharacterFormat = RichTextCharacterFormat.Default;
         DefaultParagraphFormat = RichTextParagraphFormat.Default;
         _runs = text.Length == 0 ? [] : [new(0, text.Length, DefaultCharacterFormat)];
-        _plainParagraphs = new(() => Enumerable.Range(0, text.LineCount)
-            .Select(index => new RichTextParagraph(text.GetLine(index).Span.Start, DefaultParagraphFormat)).ToImmutableArray());
+        _plainParagraphs = new(() => text.GetLines()
+            .Select(line => new RichTextParagraph(line.Span.Start, DefaultParagraphFormat)).ToImmutableArray());
         _links = [];
         _fields = [];
         _images = [];

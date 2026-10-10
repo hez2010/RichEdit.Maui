@@ -352,7 +352,7 @@ public sealed partial class RichTextDocumentSnapshot
         RichTextCharacterFormat? replacementFormat = null)
     {
         var (start, length) = range.GetOffsetAndLength(Length);
-        if (IsSourceProjection)
+        if (IsSourceProjection && _images.IsEmpty)
             return CreateSourceProjection(_text.Replace(new(start, length), replacement ?? ""));
         replacement = NormalizeText(replacement);
         var oldEnd = start + length;
@@ -493,17 +493,18 @@ public sealed partial class RichTextDocumentSnapshot
         RichTextParagraphFormat? defaultParagraphFormat = null,
         IEnumerable<KeyValuePair<string, string>>? metadata = null,
         IEnumerable<RichTextListPicture>? listPictures = null,
-        IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>>? lists = null)
+        IEnumerable<KeyValuePair<RichTextListId, RichTextListDefinition>>? lists = null,
+        TextSnapshot? textBuffer = null)
     {
         // Character presentation changes reuse the immutable source structure. Revalidating
         // every paragraph and semantic object here made dense decoration updates allocate
         // complete document indexes repeatedly, even though only character runs changed.
-        if (text is null && paragraphs is null && links is null && fields is null && images is null &&
+        if (text is null && textBuffer is null && paragraphs is null && links is null && fields is null && images is null &&
             defaultCharacterFormat is null && defaultParagraphFormat is null && metadata is null && listPictures is null && lists is null)
             return new(this, runs);
 
         return new(
-            text ?? Text,
+            textBuffer is null ? text ?? Text : null,
             runs ?? _runs,
             paragraphs ?? _paragraphs,
             links ?? _links,
@@ -514,7 +515,7 @@ public sealed partial class RichTextDocumentSnapshot
             metadata ?? _metadata,
             listPictures ?? _listPictures.Values,
             lists ?? _lists,
-            textBuffer: text is null ? _text : null);
+            textBuffer: textBuffer ?? (text is null ? _text : null));
     }
 
     private RichTextDocumentSnapshot(RichTextDocumentSnapshot source, IEnumerable<RichTextRun>? runs) : this(source, 0, null)
@@ -566,7 +567,7 @@ public sealed partial class RichTextDocumentSnapshot
     internal bool ContentEquals(RichTextDocumentSnapshot other)
     {
         ArgumentNullException.ThrowIfNull(other);
-        return (ReferenceEquals(_text, other._text) || string.Equals(Text, other.Text, StringComparison.Ordinal)) &&
+        return _text.ContentEquals(other._text) &&
             DefaultCharacterFormat == other.DefaultCharacterFormat &&
             DefaultParagraphFormat == other.DefaultParagraphFormat &&
             _runs.AsSpan().SequenceEqual(other._runs.AsSpan()) &&

@@ -117,8 +117,10 @@ public partial class RichEditorHandler
         var reuseSource = ReferenceEquals(_projectionSource, VirtualView.Document.CurrentSnapshot) &&
             NativeProjection.Reservations.AsSpan().SequenceEqual(projection.Reservations.AsSpan()) && !widthChanged && !measured;
         var input = VirtualView.Document.CurrentSnapshot;
-        var source = reuseSource ? _displayState!.Source : projection.Project(input, _displayWidth);
-        var presentation = projection.Project(VirtualView.PresentationSnapshot, _displayWidth);
+        var projectedText = reuseSource ? _displayState!.Source.TextBuffer : projection.ProjectText(input.TextBuffer, NativeProjection,
+            _projectionSource?.TextBuffer, _displayState?.Source.TextBuffer);
+        var source = reuseSource ? _displayState!.Source : projection.Project(input, _displayWidth, projectedText);
+        var presentation = projection.Project(VirtualView.PresentationSnapshot, _displayWidth, projectedText);
         _displayState = new(projection, source, presentation);
         _projectionSource = input;
         return true;
@@ -292,7 +294,8 @@ public partial class RichEditorHandler
         // The source commit has moved/inactivated document-owned anchors. Reconcile any removed
         // reservation after native editing finishes, never in the middle of an IME callback.
         _projectionSource = VirtualView.InputSnapshot;
-        _displayState = _displayState with { Source = NativeProjection.Project(_projectionSource, _displayWidth) };
+        var projected = NativeProjection.ProjectText(_projectionSource.TextBuffer, map, source.TextBuffer, snapshot.TextBuffer);
+        _displayState = _displayState with { Source = NativeProjection.Project(_projectionSource, _displayWidth, projected) };
         QueueAdornmentLayout();
     }
 

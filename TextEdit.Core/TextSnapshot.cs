@@ -10,7 +10,7 @@ public readonly record struct TextLine(TextSpan Span, int LineBreakLength);
 
 /// <summary>An immutable text snapshot backed by a persistent balanced tree of bounded chunks.</summary>
 /// <remarks>CRLF, CR, LF, and all other UTF-16 data are preserved exactly. Ordinary replacement shares unchanged tree nodes.</remarks>
-public sealed class TextSnapshot
+public sealed partial class TextSnapshot
 {
     private const int ChunkSize = 2048;
     private readonly Node? _root;
@@ -32,6 +32,7 @@ public sealed class TextSnapshot
     internal int ToLfOffset(int offset, bool afterCrLf = true)
     {
         new TextSpan(offset, 0).Validate(Length);
+        if ((_root?.CrLfPairs ?? 0) == 0) return offset;
         var prefix = Prefix(_root, offset);
         var result = offset - prefix.CrLfPairs;
         if (!afterCrLf && offset > 0 && offset < Length && prefix.EndsCr && this[offset] == '\n')
@@ -42,6 +43,7 @@ public sealed class TextSnapshot
     internal int FromLfOffset(int offset)
     {
         new TextSpan(offset, 0).Validate(LfLength);
+        if ((_root?.CrLfPairs ?? 0) == 0) return offset;
         return _root is null ? 0 : SourceOffset(_root, offset);
     }
 
@@ -172,6 +174,49 @@ public sealed class TextSnapshot
         return Chunks(_root, range.Start, range.Length);
     }
 
+    /// <summary>Enumerates logical lines in one forward pass without materializing the complete text.</summary>
+    public IEnumerable<TextLine> GetLines()
+    {
+        var lineStart = 0;
+        var chunkStart = 0;
+        int? pendingCr = null;
+        foreach (var chunk in GetChunks(new(0, Length)))
+        {
+            var offset = 0;
+            while (offset < chunk.Length)
+            {
+                if (pendingCr is { } previous)
+                {
+                    var paired = chunk.Span[offset] == '\n';
+                    if (paired) offset++;
+                    var size = paired ? 2 : 1;
+                    yield return new(new(lineStart, previous - lineStart), size);
+                    lineStart = previous + size;
+                    pendingCr = null;
+                    continue;
+                }
+                var next = chunk.Span[offset..].IndexOfAny('\r', '\n');
+                if (next < 0) break;
+                offset += next;
+                var position = chunkStart + offset;
+                var character = chunk.Span[offset++];
+                if (character == '\r') pendingCr = position;
+                else
+                {
+                    yield return new(new(lineStart, position - lineStart), 1);
+                    lineStart = position + 1;
+                }
+            }
+            chunkStart += chunk.Length;
+        }
+        if (pendingCr is { } last)
+        {
+            yield return new(new(lineStart, last - lineStart), 1);
+            lineStart = last + 1;
+        }
+        yield return new(new(lineStart, Length - lineStart), 0);
+    }
+
     /// <summary>Gets a zero-based line and its original line terminator length.</summary>
     public TextLine GetLine(int line)
     {
@@ -234,22 +279,7 @@ public sealed class TextSnapshot
     {
         if (ReferenceEquals(_root, other._root)) return true;
         if (Length != other.Length) return false;
-        using var left = GetChunks(new(0, Length)).GetEnumerator();
-        using var right = other.GetChunks(new(0, Length)).GetEnumerator();
-        var hasLeft = left.MoveNext();
-        var hasRight = right.MoveNext();
-        var leftOffset = 0;
-        var rightOffset = 0;
-        while (hasLeft && hasRight)
-        {
-            var count = Math.Min(left.Current.Length - leftOffset, right.Current.Length - rightOffset);
-            if (!left.Current.Span.Slice(leftOffset, count).SequenceEqual(right.Current.Span.Slice(rightOffset, count))) return false;
-            leftOffset += count;
-            rightOffset += count;
-            if (leftOffset == left.Current.Length) { hasLeft = left.MoveNext(); leftOffset = 0; }
-            if (rightOffset == right.Current.Length) { hasRight = right.MoveNext(); rightOffset = 0; }
-        }
-        return !hasLeft && !hasRight;
+        return CommonEdge(other, Length, reverse: false, out _) == Length;
     }
 
     private bool EqualsText(TextSpan range, string text)
