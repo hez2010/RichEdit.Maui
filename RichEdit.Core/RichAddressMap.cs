@@ -8,6 +8,15 @@ public sealed class RichAddressMap
 {
     private readonly ImmutableArray<Step> _steps;
     internal RichAddressMap(IEnumerable<Step> steps) => _steps = [.. steps];
+    internal RichAddressMap Invert() => new(_steps.Reverse().Select(step => step switch
+    {
+        Text text => (Step)new Text(text.Paragraph, text.Start, text.Inserted, text.Removed),
+        Split split => new Join(split.After, split.Before, split.Offset),
+        Join join => new Split(join.Target, join.Removed, join.Offset),
+        TableAxis axis => new TableAxis(axis.Table, axis.Rows, axis.Index, axis.Inserted, axis.Removed),
+        _ => new Remove([]),
+    }));
+    internal RichAddressMap Then(RichAddressMap next) => new(_steps.AddRange(next._steps));
 
     /// <summary>Maps a point, returning null when its paragraph was removed without a replacement address.</summary>
     public RichTextPoint? Map(RichTextPoint point)
@@ -19,6 +28,30 @@ public sealed class RichAddressMap
             result = step.Map(current);
         }
         return result;
+    }
+
+    internal RichCellSelection MapCells(RichCellSelection selection)
+    {
+        foreach (var change in _steps.OfType<TableAxis>())
+        {
+            if (change.Table != selection.Table) continue;
+            var start = change.Rows ? selection.Row : selection.Column;
+            var end = start + (change.Rows ? selection.RowCount : selection.ColumnCount);
+            var mappedStart = Endpoint(start, true);
+            var mappedEnd = Endpoint(end, false);
+            var count = Math.Max(1, mappedEnd - mappedStart);
+            selection = change.Rows ? selection with { Row = mappedStart, RowCount = count } :
+                selection with { Column = mappedStart, ColumnCount = count };
+
+            int Endpoint(int value, bool after)
+            {
+                if (value < change.Index) return value;
+                if (value > change.Index + change.Removed || change.Removed != 0 && value == change.Index + change.Removed)
+                    return value + change.Inserted - change.Removed;
+                return change.Index + (after ? change.Inserted : 0);
+            }
+        }
+        return selection;
     }
 
     internal abstract record Step
@@ -50,5 +83,9 @@ public sealed class RichAddressMap
     internal sealed record Remove(ImmutableHashSet<RichNodeId> Nodes) : Step
     {
         internal override RichTextPoint? Map(RichTextPoint point) => Nodes.Contains(point.Paragraph) ? null : point;
+    }
+    internal sealed record TableAxis(RichNodeId Table, bool Rows, int Index, int Removed, int Inserted) : Step
+    {
+        internal override RichTextPoint? Map(RichTextPoint point) => point;
     }
 }

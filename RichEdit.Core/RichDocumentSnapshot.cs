@@ -73,6 +73,7 @@ public sealed class RichDocumentSnapshot
     public RichStyleSheet Styles { get; }
     /// <summary>Gets the document revision, or an invalid revision for a standalone builder snapshot.</summary>
     public DocumentRevision Revision { get; }
+    internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false);
 
     /// <summary>Gets a typed node or rejects a missing node or mismatched structural kind.</summary>
     public T Get<T>(RichNodeId id) where T : RichNode => Nodes.TryGetValue(id, out var node) && node is T value ? value :
@@ -103,6 +104,38 @@ public sealed class RichDocumentSnapshot
         RichNode node = paragraph;
         while (node.Parent is { } parent) node = Get<RichNode>(parent);
         if (node.Id != point.Story) throw new ArgumentException("The point's paragraph does not belong to its story.", nameof(point));
+    }
+
+    internal RichSelection NormalizeSelection(RichSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        switch (selection)
+        {
+            case RichTextSelection text:
+                ValidatePoint(text.Anchor);
+                ValidatePoint(text.Active);
+                if (text.Anchor.Story != text.Active.Story) throw new ArgumentException("A text selection must belong to one story.", nameof(selection));
+                return text;
+            case RichCellSelection cells: return GetTableGrid(cells.Table).Expand(cells);
+            default: throw new ArgumentException("This selection does not address a supported authored object.", nameof(selection));
+        }
+    }
+
+    internal RichTextSelection FirstSelection()
+    {
+        var pending = new Stack<RichNodeId>();
+        pending.Push(Body);
+        while (pending.TryPop(out var id))
+        {
+            var node = Get<RichNode>(id);
+            if (node is RichParagraph paragraph)
+            {
+                var point = new RichTextPoint(Body, paragraph.Id, 0);
+                return new(point, point);
+            }
+            foreach (var child in Children(node).Reverse()) pending.Push(child);
+        }
+        throw new InvalidOperationException("A valid rich document must contain a paragraph.");
     }
 
     /// <summary>Explicitly projects a story to text with snapshot-bound mappings for its paragraphs and structural separators.</summary>

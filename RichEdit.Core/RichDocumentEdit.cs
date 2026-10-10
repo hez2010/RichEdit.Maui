@@ -12,6 +12,7 @@ public sealed partial class RichDocumentEdit
     private long _nextId;
     private bool _open = true;
     private readonly List<RichAddressMap.Step> _maps = [];
+    internal RichSelection? SelectionAfter { get; private set; }
 
     internal RichDocumentEdit(RichDocumentSnapshot before, long nextId)
     {
@@ -26,6 +27,9 @@ public sealed partial class RichDocumentEdit
     public RichDocumentSnapshot Snapshot { get { VerifyOpen(); return new(_body, _nodes.ToImmutable(), _styles); } }
     /// <summary>Replaces document-owned styles without rewriting referenced content.</summary>
     public void SetStyles(RichStyleSheet styles) { VerifyOpen(); _styles = styles ?? throw new ArgumentNullException(nameof(styles)); }
+
+    /// <summary>Sets the invoking view's selection in final candidate coordinates.</summary>
+    public void SetSelection(RichSelection selection) { VerifyOpen(); SelectionAfter = selection ?? throw new ArgumentNullException(nameof(selection)); }
 
     /// <summary>Inserts a paragraph into a story, list item, or cell at a zero-based block index.</summary>
     public RichNodeId InsertParagraph(RichNodeId parent, int index, string text = "", RichStyleId? style = null)
@@ -326,6 +330,7 @@ public sealed partial class RichDocumentEdit
     {
         VerifyOpen();
         var result = new RichDocumentSnapshot(_body, _nodes.ToImmutable(), _styles);
+        if (SelectionAfter is { } selection) SelectionAfter = result.NormalizeSelection(selection);
         _open = false;
         return (result, new(_maps), _nextId);
     }

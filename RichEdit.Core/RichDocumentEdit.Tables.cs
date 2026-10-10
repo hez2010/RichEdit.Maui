@@ -113,6 +113,7 @@ public sealed partial class RichDocumentEdit
             added.Add(id);
         }
         _nodes[tableId] = table with { Rows = table.Rows.InsertRange(index, added) };
+        _maps.Add(new RichAddressMap.TableAxis(tableId, true, index, 0, count));
     }
 
     /// <summary>Deletes rows, shrinking intersected spans and retaining the content of cells that still span surviving rows.</summary>
@@ -141,6 +142,7 @@ public sealed partial class RichDocumentEdit
         }
         for (var row = index; row < index + count; row++) _nodes.Remove(table.Rows[row]);
         _nodes[tableId] = table with { Rows = table.Rows.RemoveRange(index, count) };
+        _maps.Add(new RichAddressMap.TableAxis(tableId, true, index, count, 0));
     }
 
     /// <summary>Inserts columns, extending merged cells that cross the insertion boundary.</summary>
@@ -174,6 +176,7 @@ public sealed partial class RichDocumentEdit
             _nodes[row.Id] = row with { Cells = SortCells(cells) };
         }
         _nodes[tableId] = table with { Columns = table.Columns.InsertRange(index, widths) };
+        _maps.Add(new RichAddressMap.TableAxis(tableId, false, index, 0, widths.Length));
     }
 
     /// <summary>Deletes columns, shrinking intersected spans and retaining any surviving part of a merged cell.</summary>
@@ -205,6 +208,7 @@ public sealed partial class RichDocumentEdit
             _nodes[rowId] = row with { Cells = cells };
         }
         _nodes[tableId] = table with { Columns = table.Columns.RemoveRange(index, count) };
+        _maps.Add(new RichAddressMap.TableAxis(tableId, false, index, count, 0));
     }
 
     private RichNodeId CreateCell(RichNodeId row, int column)

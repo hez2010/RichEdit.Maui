@@ -79,8 +79,7 @@ public sealed class TextDocument
 {
     private readonly object _identity = new();
     private TextSnapshot _snapshot;
-    private int _ownerThread;
-    private bool _busy;
+    private readonly DocumentAccess _access = new();
     private long _nextState;
     private long _state;
     private long _savedState;
@@ -193,7 +192,7 @@ public sealed class TextDocument
             return new(TextEditRejection.CompositionActive);
         if (options.Origin is not (TextChangeOrigin.Programmatic or TextChangeOrigin.User))
             throw new ArgumentOutOfRangeException(nameof(options));
-        _busy = true;
+        _access.IsBusy = true;
         var builder = new TextDocumentEdit(CurrentSnapshot);
         (TextSnapshot Snapshot, ImmutableArray<TextChange> Changes, TextSelectionSet? Selections) plan;
         try
@@ -204,7 +203,7 @@ public sealed class TextDocument
         finally
         {
             builder.Close();
-            _busy = false;
+            _access.IsBusy = false;
         }
         if (plan.Selections is not null && session is null)
             throw new InvalidOperationException("Resulting selections require an invoking view session.");
@@ -385,26 +384,9 @@ public sealed class TextDocument
         NotifyState();
     }
 
-    internal void VerifyAccess()
-    {
-        var thread = Environment.CurrentManagedThreadId;
-        var owner = Interlocked.CompareExchange(ref _ownerThread, thread, 0);
-        if (owner != 0 && owner != thread)
-            throw new InvalidOperationException("Live document mutations belong to the owning thread. Share immutable snapshots for background reads.");
-    }
-    internal void VerifyIdle()
-    {
-        VerifyAccess();
-        if (_busy)
-            throw new InvalidOperationException("A live document cannot be mutated from an edit callback or change notification.");
-    }
-    internal T Plan<T>(Func<T> action)
-    {
-        VerifyIdle();
-        _busy = true;
-        try { return action(); }
-        finally { _busy = false; }
-    }
+    internal void VerifyAccess() => _access.VerifyAccess();
+    internal void VerifyIdle() => _access.VerifyIdle();
+    internal T Plan<T>(Func<T> action) => _access.Plan(action);
     internal void Attach(TextEditorSession session)
     {
         VerifyIdle();
@@ -438,7 +420,7 @@ public sealed class TextDocument
 
     private void Publish(TextDocumentChangedEventArgs change, TextEditorSession? invokingSession, TextSelectionSet? selection)
     {
-        _busy = true;
+        _access.IsBusy = true;
         _sessions.RemoveAll(reference => !reference.TryGetTarget(out _));
         var sessions = _sessions.Select(reference => reference.TryGetTarget(out var session) ? session : null).OfType<TextEditorSession>().ToArray();
         _projections.RemoveAll(reference => !reference.TryGetTarget(out _));
@@ -458,7 +440,7 @@ public sealed class TextDocument
                 foreach (EventHandler<TextDocumentChangedEventArgs> observer in observers.GetInvocationList())
                     Notify(() => observer(this, change));
         }
-        finally { _busy = false; }
+        finally { _access.IsBusy = false; }
         if (errors is not null)
             throw new AggregateException("The source committed, but one or more observers failed.", errors);
     }
@@ -492,7 +474,7 @@ public sealed class TextDocument
     }
     private void NotifyState()
     {
-        _busy = true;
+        _access.IsBusy = true;
         List<Exception>? errors = null;
         try
         {
@@ -500,7 +482,7 @@ public sealed class TextDocument
                 foreach (EventHandler observer in observers.GetInvocationList())
                     try { observer(this, EventArgs.Empty); } catch (Exception error) { (errors ??= []).Add(error); }
         }
-        finally { _busy = false; }
+        finally { _access.IsBusy = false; }
         if (errors is not null)
             throw new AggregateException("The document state changed, but one or more observers failed.", errors);
     }
