@@ -75,3 +75,16 @@ public sealed record RichObjectSelection(RichNodeId Object) : RichSelection;
 
 /// <summary>A table rectangle in zero-based grid coordinates. Commands expand it to whole merged cells.</summary>
 public sealed record RichCellSelection(RichNodeId Table, int Row, int Column, int RowCount, int ColumnCount) : RichSelection;
+
+/// <summary>A side of a structural block in its parent text container.</summary>
+public enum RichBlockEdge
+{
+    /// <summary>Immediately before the block.</summary>
+    Before,
+    /// <summary>Immediately after the block.</summary>
+    After,
+}
+
+/// <summary>A caret at a structural block boundary, such as the native final paragraph after a table.</summary>
+/// <remarks>The boundary does not manufacture authored text. Inserting a paragraph is an explicit transaction.</remarks>
+public sealed record RichBoundarySelection(RichNodeId Story, RichNodeId Block, RichBlockEdge Edge) : RichSelection;

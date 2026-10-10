@@ -6,6 +6,36 @@ namespace RichEdit.Core.Tests;
 public class RichDocumentTests
 {
     [Fact]
+    public void NativeTableEndCanAddressABoundaryWithoutCreatingContentUntilTyping()
+    {
+        RichNodeId table = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            table = edit.InsertTable(edit.Body, 1, 2, [new(1000), new(1000)]);
+            edit.DeleteBlock(new(2));
+        }));
+        using var view = document.CreateSession();
+        var before = document.CurrentSnapshot;
+        var boundary = new RichBoundarySelection(before.Body, table, RichBlockEdge.After);
+        view.Selection = boundary;
+        Assert.Same(before, document.CurrentSnapshot);
+        Assert.False(document.IsModified);
+        RichNodeId paragraph = default;
+        view.Edit(edit =>
+        {
+            paragraph = edit.InsertParagraph(boundary, "tail");
+            var point = new RichTextPoint(edit.Body, paragraph, 4);
+            edit.SetSelection(new RichTextSelection(point, point));
+        });
+        Assert.Equal(paragraph, document.CurrentSnapshot.Get<RichStory>(before.Body).Blocks[^1]);
+        Assert.Equal(2, document.CurrentSnapshot.GetTableGrid(table).Rows);
+        view.Undo();
+        Assert.Equal(boundary, view.Selection);
+        Assert.Single(document.CurrentSnapshot.Get<RichStory>(before.Body).Blocks);
+        Assert.False(document.IsModified);
+    }
+
+    [Fact]
     public void DocumentDefaultsResolveWithoutRewritingContentAndParticipateInHistory()
     {
         var document = RichDocument.FromPlainText("text");

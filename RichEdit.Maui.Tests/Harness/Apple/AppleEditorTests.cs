@@ -68,6 +68,51 @@ internal static class AppleEditorTests
             Console.WriteLine(results[index]);
         }
 
+        await Test("native RTF tables retain editable cells and row geometry", async () =>
+        {
+            const string tableRtf = @"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}\fs24
+\trowd\trgaph108\trleft0\trautofit0\trftsWidth3\trwWidth2880\clftsWidth3\clwWidth1440\cellx1440\clftsWidth3\clwWidth1440\cellx2880\intbl alpha\cell beta\cell\row
+\trowd\trgaph108\trleft0\trautofit0\trftsWidth3\trwWidth2880\clftsWidth3\clwWidth1440\cellx1440\clftsWidth3\clwWidth1440\cellx2880\intbl gamma\cell delta\cell\row\pard\par}";
+            using var data = NSData.FromArray(System.Text.Encoding.ASCII.GetBytes(tableRtf));
+            var options = new NSAttributedStringDocumentAttributes { DocumentType = NSDocumentType.RTF };
+            using var imported = NSAttributedString.Create(data, options, out var importError);
+            if (imported is null || importError is not null) throw new InvalidOperationException(importError?.Description ?? "Native RTF import returned no content.");
+            using var view = new UITextView(new CoreGraphics.CGRect(0, 0, 500, 260));
+            native.Superview!.AddSubview(view);
+            try
+            {
+                view.AttributedText = imported;
+                view.LayoutManager.EnsureLayoutForTextContainer(view.TextContainer);
+                view.LayoutIfNeeded();
+                var text = view.Text ?? "";
+                var alpha = text.IndexOf("alpha", StringComparison.Ordinal);
+                var beta = text.IndexOf("beta", StringComparison.Ordinal);
+                var gamma = text.IndexOf("gamma", StringComparison.Ordinal);
+                if (Math.Min(alpha, Math.Min(beta, gamma)) < 0) throw new InvalidOperationException("Native RTF import lost cell text.");
+                using var a = view.GetPosition(view.BeginningOfDocument, alpha)!;
+                using var b = view.GetPosition(view.BeginningOfDocument, beta)!;
+                using var g = view.GetPosition(view.BeginningOfDocument, gamma)!;
+                var alphaRect = view.GetCaretRectForPosition(a);
+                var betaRect = view.GetCaretRectForPosition(b);
+                var gammaRect = view.GetCaretRectForPosition(g);
+                view.BecomeFirstResponder();
+                view.SelectedRange = new(beta, 4);
+                view.InsertText("BETA");
+                using var exported = view.AttributedText!.GetData(new(0, view.AttributedText.Length), options, out var exportError);
+                if (exportError is not null) throw new InvalidOperationException(exportError.Description);
+                var rtf = System.Text.Encoding.UTF8.GetString(exported!.ToArray());
+                File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "native-table-probe.txt"),
+                    $"text={text.Replace("\n", "\\n")}\nalpha={alphaRect}; beta={betaRect}; gamma={gammaRect}\nattributes={imported.Description}\nrtf={rtf}");
+                EditorContractTests.Equal(2, rtf.Split(@"\trowd", StringSplitOptions.None).Length - 1, "native RTF retains both table rows");
+                EditorContractTests.Equal(true, Math.Abs(betaRect.X - alphaRect.X - 72) < 1, "preferred RTF cell widths use typographic points");
+                EditorContractTests.Equal(true, Math.Abs(alphaRect.Y - betaRect.Y) < 1 && betaRect.X > alphaRect.X + 30 && gammaRect.Y > alphaRect.Y,
+                    "native text engine lays out a two-column, two-row grid");
+                Equal(text.Replace("beta", "BETA", StringComparison.Ordinal), view.Text);
+                await Drain();
+            }
+            finally { view.ResignFirstResponder(); view.RemoveFromSuperview(); native.BecomeFirstResponder(); }
+        });
+
         await Test("native smart selection transformations remain tracked", async () =>
         {
             editor.Selection.ReplaceText("one\nsecond");

@@ -152,6 +152,12 @@ public sealed class RichDocumentSnapshot
                 return text;
             case RichCellSelection cells: return GetTableGrid(cells.Table).Expand(cells);
             case RichObjectSelection selected when Nodes.GetValueOrDefault(selected.Object) is RichImage: return selected;
+            case RichBoundarySelection boundary:
+                Get<RichStory>(boundary.Story);
+                RichNode node = Get<RichBlock>(boundary.Block);
+                while (node.Parent is { } parent) node = Get<RichNode>(parent);
+                if (node.Id != boundary.Story || !Enum.IsDefined(boundary.Edge)) throw new ArgumentException("The boundary must belong to this story.", nameof(selection));
+                return boundary;
             default: throw new ArgumentException("This selection does not address a supported authored object.", nameof(selection));
         }
     }

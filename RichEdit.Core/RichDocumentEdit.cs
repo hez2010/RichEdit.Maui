@@ -79,6 +79,17 @@ public sealed partial class RichDocumentEdit
         return id;
     }
 
+    /// <summary>Materializes an authored paragraph at a structural caret boundary, without changing the adjacent block.</summary>
+    public RichNodeId InsertParagraph(RichBoundarySelection boundary, string text = "", RichStyleId? style = null)
+    {
+        VerifyOpen();
+        Candidate(validate: false).NormalizeSelection(boundary);
+        var block = Get<RichBlock>(boundary.Block);
+        var parent = block.Parent!.Value;
+        var index = Blocks(Get<RichNode>(parent)).IndexOf(block.Id) + (boundary.Edge == RichBlockEdge.After ? 1 : 0);
+        return InsertParagraph(parent, index, text, style);
+    }
+
     /// <summary>Changes direct paragraph properties without changing its identity or text.</summary>
     public void SetParagraphFormat(RichNodeId paragraph, RichParagraphStyle format)
     {
