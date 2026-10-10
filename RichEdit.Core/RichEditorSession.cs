@@ -123,6 +123,9 @@ public sealed partial class RichEditorSession : IDisposable
     /// <summary>Replaces the current typed selection or every rich text caret in one transaction.</summary>
     public RichEditResult ReplaceSelection(string text, RichEditOptions options = default) =>
         Edit(edit => edit.SetSelection(edit.ReplaceSelection(Selection, text, TypingCharacterFormat)), options);
+    /// <summary>Pastes a rich fragment at the current typed selection or every text caret in one transaction.</summary>
+    public RichEditResult ReplaceSelection(RichDocumentFragment fragment, RichEditOptions options = default) =>
+        Edit(edit => edit.SetSelection(edit.ReplaceSelection(Selection, fragment)), options);
     /// <summary>Undoes one global document unit and restores its recorded selection in this invoking view.</summary>
     public void Undo() { VerifyIdle(); if (!IsReadOnly) Document.RestoreHistory(false, this); }
     /// <summary>Redoes one global document unit and restores its recorded selection in this invoking view.</summary>

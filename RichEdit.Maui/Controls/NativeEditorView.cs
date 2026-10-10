@@ -522,6 +522,7 @@ public partial class NativeEditorView : View
     {
         VerifyAccess();
         if (SourceSession is not null) { await CutSourceAsync(); return; }
+        if (StructuredSession is not null) { await CutStructuredAsync(); return; }
         var document = Document;
         var snapshot = document.CurrentSnapshot;
         var selections = Selections;
@@ -549,6 +550,7 @@ public partial class NativeEditorView : View
     {
         VerifyAccess();
         if (SourceSession is not null) return CopySourceAsync();
+        if (StructuredSession is not null) return CopyStructuredAsync();
         var snapshot = Document.CurrentSnapshot;
         var selections = Selections;
         if (selections.All(item => item.Range.IsEmpty))
@@ -565,6 +567,7 @@ public partial class NativeEditorView : View
     {
         VerifyAccess();
         if (SourceSession is not null) { await PasteSourceAsync(); return; }
+        if (StructuredSession is not null) { await PasteStructuredAsync(asPlainText); return; }
         var document = Document;
         var version = document.Version;
         var range = SelectedRange;

@@ -25,12 +25,14 @@ public sealed partial class RichDocumentEdit
             usedStyles.Add(nextStyle);
             return new(nextStyle++);
         }
-        var defaults = AllocateStyle();
-        definitions.Add(new(defaults, "Imported defaults", RichStyleKind.Paragraph)
+        var baseStyle = new RichStyleDefinition(default, "Imported defaults", RichStyleKind.Paragraph)
         {
             Character = Rtf.RtfStyleState.Restore(content.DefaultCharacter.Apply(new()), 0, 0, 0),
             Paragraph = Rtf.RtfStyleState.Restore(content.DefaultParagraph.Apply(new()), 0, 0, 0),
-        });
+        };
+        var matching = definitions.FirstOrDefault(style => style with { Id = default } == baseStyle);
+        var defaults = matching?.Id ?? AllocateStyle();
+        if (matching is null) definitions.Add(baseStyle with { Id = defaults });
         var styles = content.Styles.Definitions.Keys.ToDictionary(id => id, _ => AllocateStyle());
         foreach (var style in content.Styles.Definitions.Values)
             definitions.Add(style with

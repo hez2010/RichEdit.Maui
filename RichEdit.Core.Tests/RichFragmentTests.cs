@@ -4,6 +4,95 @@ namespace RichEdit.Core.Tests;
 
 public sealed class RichFragmentTests
 {
+    [Fact]
+    public void InlinePasteKeepsCopiedAppearanceAndDestinationSuffixWithoutAddingParagraphs()
+    {
+        var source = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.SetDefaultCharacterFormat(new() { Bold = true, Italic = false });
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "paste");
+            edit.AddBookmark("Inside", new(new(edit.Body, new(2), 1), new(edit.Body, new(2), 4)));
+        });
+        var document = RichDocument.FromPlainText("abcd");
+        document.Edit(edit => edit.SetDefaultCharacterFormat(new() { Bold = false, Italic = true }));
+        using var session = document.CreateSession();
+        session.Selection = new RichTextSelection(new(new(1), new(2), 1), new(new(1), new(2), 3));
+        session.ReplaceSelection(new RichDocumentFragment(source));
+        var snapshot = document.CurrentSnapshot;
+        Assert.Equal("apasted", snapshot.ProjectText().Text.ToString());
+        Assert.Single(snapshot.Get<RichStory>(snapshot.Body).Blocks);
+        var pasted = Assert.Single(snapshot.Nodes.Values.OfType<RichText>(), run => run.Content.ToString() == "paste");
+        Assert.True(snapshot.ResolveCharacter(pasted.Id).Bold);
+        Assert.False(snapshot.ResolveCharacter(pasted.Id).Italic);
+        Assert.Equal(new RichCharacterStyle(), pasted.Format);
+        Assert.All(snapshot.Nodes.Values.OfType<RichText>().Where(run => run != pasted), run => Assert.True(snapshot.ResolveCharacter(run.Id).Italic));
+        Assert.Equal(6, Assert.IsType<RichTextSelection>(session.Selection).Active.Offset);
+        var bookmark = Assert.Single(snapshot.Bookmarks.Values);
+        Assert.Equal(2, bookmark.Range!.Anchor.Offset);
+        Assert.Equal(5, bookmark.Range.Active.Offset);
+        session.Undo();
+        Assert.Equal("abcd", document.CurrentSnapshot.ProjectText().Text.ToString());
+        Assert.Empty(document.CurrentSnapshot.Bookmarks);
+    }
+
+    [Fact]
+    public void MultilinePastePreservesParagraphStylesAndUnchangedSuffixAppearance()
+    {
+        var source = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "one");
+            var last = edit.InsertParagraph(edit.Body, 1, "two");
+            edit.SetParagraphFormat(last, new() { Alignment = RichAlignment.Center });
+            edit.SetParagraphCharacterFormat(last, new() { Bold = true });
+        });
+        var document = RichDocument.FromPlainText("ab");
+        using var session = document.CreateSession();
+        session.Selection = new RichTextSelection(new(new(1), new(2), 1), new(new(1), new(2), 1));
+        session.ReplaceSelection(new RichDocumentFragment(source));
+        Assert.Equal("aone\ntwob", document.CurrentSnapshot.ProjectText().Text.ToString());
+        var lastParagraph = document.CurrentSnapshot.Get<RichStory>(new(1)).Blocks[^1];
+        Assert.Equal(RichAlignment.Center, document.CurrentSnapshot.ResolveParagraph(lastParagraph).Alignment);
+        Assert.Equal(3, Assert.IsType<RichTextSelection>(session.Selection).Active.Offset);
+        var suffix = Assert.Single(document.CurrentSnapshot.Nodes.Values.OfType<RichText>(), run => run.Content.ToString() == "b");
+        Assert.False(document.CurrentSnapshot.ResolveCharacter(suffix.Id).Bold);
+    }
+
+    [Fact]
+    public void PastingATableIntoAnEmptyDocumentRetainsOnlyTheTableAndABoundaryCaret()
+    {
+        var table = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.InsertTable(edit.Body, 1, 2, [new(1000), new(1000)]);
+            edit.DeleteBlock(new(2));
+        });
+        var document = new RichDocument();
+        using var session = document.CreateSession();
+        session.ReplaceSelection(new RichDocumentFragment(table));
+        var block = Assert.Single(document.CurrentSnapshot.Get<RichStory>(new(1)).Blocks);
+        Assert.IsType<RichTable>(document.CurrentSnapshot.Get<RichBlock>(block));
+        Assert.Equal(new RichBoundarySelection(new(1), block, RichBlockEdge.After), session.Selection);
+        session.Undo();
+        Assert.Equal("", document.CurrentSnapshot.ProjectText().Text.ToString());
+    }
+
+    [Fact]
+    public void RichPasteAtSeveralCaretsIsOneUndoUnitWithStableSelectionIdentities()
+    {
+        var document = RichDocument.FromPlainText("abcd");
+        using var session = document.CreateSession();
+        RichTextSelectionItem Caret(int offset) => new(new(new(new(1), new(2), offset), new(new(1), new(2), offset)));
+        var selected = new RichTextSelectionSet(document.CurrentSnapshot, [Caret(1), Caret(3)], 1);
+        session.Selection = selected;
+        session.ReplaceSelection(RichDocumentFragment.FromPlainText("X\nY"));
+        Assert.Equal("aX\nYbcX\nYd", document.CurrentSnapshot.ProjectText().Text.ToString());
+        var after = Assert.IsType<RichTextSelectionSet>(session.Selection);
+        Assert.Equal(selected.Primary.Id, after.Primary.Id);
+        session.Undo();
+        Assert.Equal("abcd", document.CurrentSnapshot.ProjectText().Text.ToString());
+        Assert.Equal(selected, session.Selection);
+        Assert.False(document.CanUndo);
+    }
+
     [Theory]
     [InlineData(" REF Target \\h ", " REF \"Target_2\" \\h ")]
     [InlineData("PAGEREF \"Target\"", "PAGEREF \"Target_2\"")]

@@ -6,6 +6,44 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured clipboard retains table cells through RTF copy paste and cut", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId table = default;
+            var source = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                table = edit.InsertTable(edit.Body, 1, 2, (RichLength[])[new(1440), new(1440)]);
+                var paragraph = edit.Snapshot.Get<RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+                edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "copy 日本語");
+                edit.ApplyCharacterFormat(new RichCellSelection(table, 0, 0, 2, 2), new() { Bold = true });
+                edit.DeleteBlock(new(2));
+            }));
+            try
+            {
+                editor.BindStructuredDocument(source);
+                var cells = new RichCellSelection(table, 0, 0, 2, 2);
+                editor.StructuredSession!.Selection = cells;
+                await editor.CopyAsync();
+                var destination = new RichDocument();
+                editor.BindStructuredDocument(destination);
+                await editor.PasteAsync();
+                var copiedTable = destination.CurrentSnapshot.Nodes.Values.OfType<RichTable>().Single();
+                Equal(2, destination.CurrentSnapshot.GetTableGrid(copiedTable.Id).Rows);
+                Equal(1, destination.CurrentSnapshot.Get<RichStory>(destination.CurrentSnapshot.Body).Blocks.Count);
+                var copied = destination.CurrentSnapshot.Nodes.Values.OfType<RichText>().Single();
+                Equal("copy 日本語", copied.Content.ToString());
+                Equal(true, destination.CurrentSnapshot.ResolveCharacter(copied.Id).Bold);
+                editor.Undo();
+                Equal(false, destination.CanUndo);
+                editor.BindStructuredDocument(source);
+                editor.StructuredSession!.Selection = cells;
+                await editor.CutAsync();
+                Equal("\t\n\t", source.CurrentSnapshot.ProjectText().Text.ToString());
+                editor.Undo();
+                Equal(cells, editor.StructuredSession.Selection);
+            }
+            finally { editor.Document = previous; }
+        });
 #if WINDOWS || IOS || MACCATALYST
         yield return new("structured native table editing retains rows and cell selections", async editor =>
         {
@@ -56,6 +94,15 @@ internal static partial class EditorContractTests
                 editor.Undo();
                 Equal(1, model.CurrentSnapshot.Get<RichStory>(model.CurrentSnapshot.Body).Blocks.Count);
 #if IOS || MACCATALYST
+                editor.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(new(model.CurrentSnapshot.Body, beta, 1), new(model.CurrentSnapshot.Body, beta, 3));
+                var formattingNative = ((RichEditorHandler)editor.Handler!).PlatformView;
+                formattingNative.TextStorage.AddAttribute(UIKit.UIStringAttributeKey.Font,
+                    UIKit.UIFont.ItalicSystemFontOfSize(formattingNative.Font?.PointSize ?? 18)!, formattingNative.SelectedRange);
+                await Task.Delay(30);
+                var italic = model.CurrentSnapshot.Nodes.Values.OfType<RichText>().Where(run => model.CurrentSnapshot.ResolveCharacter(run.Id).Italic).ToArray();
+                Equal(1, italic.Length);
+                Equal("et", italic[0].Content.ToString());
+                editor.Undo();
                 editor.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(new(model.CurrentSnapshot.Body, beta, 2), new(model.CurrentSnapshot.Body, beta, 2));
                 editor.Focus();
                 await Task.Delay(100);

@@ -85,7 +85,18 @@ public sealed class RichDocumentFragment
             .ToImmutableDictionary(item => item.Value.Id, item => item.Value with { Range = item.Range });
         var comments = snapshot.Comments.Values.Select(value => (Value: value, Range: Map(value.Range))).Where(item => item.Range is not null)
             .ToImmutableDictionary(item => item.Value.Id, item => item.Value with { Range = item.Range });
-        return new(new(body, nodes.ToImmutable(), snapshot.Styles, assets: resources, bookmarks: bookmarks, comments: comments,
+        var usedStyles = new HashSet<RichStyleId>();
+        var pendingStyles = new Stack<RichStyleId>(nodes.Values.Select(node => node switch
+        { RichParagraph paragraph => paragraph.Style, RichInline inline => inline.Style, _ => null }).OfType<RichStyleId>());
+        while (pendingStyles.TryPop(out var styleId))
+        {
+            if (!usedStyles.Add(styleId)) continue;
+            var style = snapshot.Styles.Definitions[styleId];
+            if (style.BasedOn is { } based) pendingStyles.Push(based);
+            if (style.NextStyle is { } next) pendingStyles.Push(next);
+        }
+        var styles = new RichStyleSheet(usedStyles.Select(id => snapshot.Styles.Definitions[id]));
+        return new(new(body, nodes.ToImmutable(), styles, assets: resources, bookmarks: bookmarks, comments: comments,
             defaultCharacter: snapshot.DefaultCharacter, defaultParagraph: snapshot.DefaultParagraph));
 
         void Copy(RichNodeId id)
