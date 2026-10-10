@@ -9,4 +9,7 @@
     <Description>Platform-independent document and selection primitives for native text editors.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="TextEdit.Core.Tests" />
+  </ItemGroup>
 </Project>

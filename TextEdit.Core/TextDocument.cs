@@ -107,12 +107,15 @@ public sealed class TextDocument
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         _snapshot = snapshot.WithRevision(new(_identity, 0));
+        Tracking = new(this);
     }
 
     /// <summary>Gets an immutable snapshot suitable for background reads.</summary>
     public TextSnapshot CurrentSnapshot => Volatile.Read(ref _snapshot);
     /// <summary>Gets the current document identity and monotonically increasing version.</summary>
     public DocumentRevision Revision => CurrentSnapshot.Revision;
+    /// <summary>Gets indexed positions and ranges owned by this document.</summary>
+    public TextTracking Tracking { get; }
     /// <summary>Gets source length in UTF-16 code units.</summary>
     public int Length => CurrentSnapshot.Length;
     /// <summary>Materializes the complete source text.</summary>
@@ -417,6 +420,7 @@ public sealed class TextDocument
         void Notify(Action action) { try { action(); } catch (Exception error) { (errors ??= []).Add(error); } }
         try
         {
+            Tracking.MapThrough(change.Map);
             foreach (var session in sessions)
                 session.Synchronize(change, ReferenceEquals(session, invokingSession) ? selection : null);
             foreach (var session in sessions)
