@@ -124,26 +124,36 @@ public sealed partial class RichDocument
             try { edit(builder); return builder.Finish(); }
             finally { builder.Close(); }
         });
-        if (builder.SelectionAfter is not null && session is null) throw new InvalidOperationException("Resulting selections require an invoking session.");
-        if (ReferenceEquals(plan.Snapshot.Nodes, before.Nodes) && ReferenceEquals(plan.Snapshot.Styles, before.Styles) && ReferenceEquals(plan.Snapshot.Assets, before.Assets) &&
-            ReferenceEquals(plan.Snapshot.Bookmarks, before.Bookmarks) && ReferenceEquals(plan.Snapshot.Comments, before.Comments) &&
-            plan.Snapshot.DefaultCharacter == before.DefaultCharacter && plan.Snapshot.DefaultParagraph == before.DefaultParagraph)
+        return CommitPrepared(before, plan.Snapshot, plan.Map, plan.NextId, builder.SelectionAfter, options, session);
+    }
+
+    internal long NextNodeId => _nextNode;
+
+    internal RichEditResult CommitPrepared(RichDocumentSnapshot before, RichDocumentSnapshot candidate, RichAddressMap map,
+        long nextId, RichSelection? requestedSelection, RichEditOptions options, RichEditorSession? session, bool checkContentEquality = false)
+    {
+        VerifyIdle();
+        if (!ReferenceEquals(before, CurrentSnapshot)) return new(TextEditRejection.StaleRevision);
+        if (requestedSelection is not null && session is null) throw new InvalidOperationException("Resulting selections require an invoking session.");
+        if (checkContentEquality && candidate.ContentEquals(before) || ReferenceEquals(candidate.Nodes, before.Nodes) && ReferenceEquals(candidate.Styles, before.Styles) && ReferenceEquals(candidate.Assets, before.Assets) &&
+            ReferenceEquals(candidate.Bookmarks, before.Bookmarks) && ReferenceEquals(candidate.Comments, before.Comments) &&
+            candidate.DefaultCharacter == before.DefaultCharacter && candidate.DefaultParagraph == before.DefaultParagraph)
         {
-            if (builder.SelectionAfter is { } selection) session!.Selection = selection;
+            if (requestedSelection is { } selection) session!.Selection = selection;
             return new(TextEditRejection.None);
         }
-        var after = plan.Snapshot.WithRevision(new(_identity, checked(Revision.Version + 1)));
+        var after = candidate.WithRevision(new(_identity, checked(Revision.Version + 1)));
         var beforeState = _state;
-        var afterSelection = session is null ? null : builder.SelectionAfter ?? MapSelection(session.Selection, plan.Map, after);
+        var afterSelection = session is null ? null : requestedSelection ?? MapSelection(session.Selection, map, after);
         _state = checked(++_nextState);
-        _nextNode = plan.NextId;
+        _nextNode = nextId;
         var estimate = EstimateChange(before, after);
-        StoreHistory(new HistoryEntry(before, after, plan.Map, beforeState, _state, session?.Selection, afterSelection, options with { Tag = null }, estimate));
+        StoreHistory(new HistoryEntry(before, after, map, beforeState, _state, session?.Selection, afterSelection, options with { Tag = null }, estimate));
         _historyBytes -= _redo.Sum(entry => entry.EstimatedBytes);
         _redo.Clear();
         TrimHistory();
         Volatile.Write(ref _snapshot, after);
-        var change = new RichDocumentChangedEventArgs(before, after, plan.Map, options);
+        var change = new RichDocumentChangedEventArgs(before, after, map, options);
         Publish(change, session, afterSelection);
         return new(TextEditRejection.None, change);
     }
