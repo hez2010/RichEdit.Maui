@@ -27,6 +27,58 @@ public sealed class TextSnapshot
 
     internal TextSnapshot WithRevision(DocumentRevision revision) => new(_root, revision) { _materialized = _materialized };
 
+    internal int LfLength => Length - (_root?.CrLfPairs ?? 0);
+
+    internal int ToLfOffset(int offset, bool afterCrLf = true)
+    {
+        new TextSpan(offset, 0).Validate(Length);
+        var prefix = Prefix(_root, offset);
+        var result = offset - prefix.CrLfPairs;
+        if (!afterCrLf && offset > 0 && offset < Length && prefix.EndsCr && this[offset] == '\n')
+            result--;
+        return result;
+    }
+
+    internal int FromLfOffset(int offset)
+    {
+        new TextSpan(offset, 0).Validate(LfLength);
+        return _root is null ? 0 : SourceOffset(_root, offset);
+    }
+
+    internal TextSnapshot NormalizeToLf() => new(NormalizeLf(_root, false));
+
+    private static Node? NormalizeLf(Node? node, bool skipLeadingLf)
+    {
+        if (node is null) return null;
+        if (skipLeadingLf && node.StartsLf)
+            (_, node) = Split(node, 1);
+        if (node is null || !node.HasCr) return node;
+        if (node is Leaf leaf)
+            return new Leaf(leaf.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n'));
+        var branch = (Branch)node;
+        return Join(NormalizeLf(branch.Left, false), NormalizeLf(branch.Right, branch.Left.EndsCr && branch.Right.StartsLf));
+    }
+
+    private static int SourceOffset(Node node, int normalized)
+    {
+        if (node is Leaf leaf)
+        {
+            var offset = 0;
+            for (var i = 0; i < normalized; i++, offset++)
+                if (leaf.Text[offset] == '\r' && offset + 1 < leaf.Length && leaf.Text[offset + 1] == '\n')
+                    offset++;
+            return offset;
+        }
+        var branch = (Branch)node;
+        var leftLength = branch.Left.Length - branch.Left.CrLfPairs;
+        var pair = branch.Left.EndsCr && branch.Right.StartsLf;
+        if (normalized < leftLength)
+            return SourceOffset(branch.Left, normalized);
+        if (normalized == leftLength)
+            return branch.Left.Length + (pair ? 1 : 0);
+        return branch.Left.Length + SourceOffset(branch.Right, normalized - leftLength + (pair ? 1 : 0));
+    }
+
     /// <summary>Gets an empty snapshot with one empty line.</summary>
     public static TextSnapshot Empty { get; } = new(null);
 
@@ -311,10 +363,11 @@ public sealed class TextSnapshot
         return branch.Left.Length + BreakEnd(branch.Right, ordinal - branch.Left.Breaks + (pair ? 1 : 0));
     }
 
-    private readonly record struct Stats(int Length, int Breaks, bool StartsLf, bool EndsCr)
+    private readonly record struct Stats(int Length, int Breaks, bool StartsLf, bool EndsCr, int CrLfPairs)
     {
         internal static Stats Combine(Stats left, Stats right) => left.Length == 0 ? right : right.Length == 0 ? left :
-            new(left.Length + right.Length, left.Breaks + right.Breaks - (left.EndsCr && right.StartsLf ? 1 : 0), left.StartsLf, right.EndsCr);
+            new(left.Length + right.Length, left.Breaks + right.Breaks - (left.EndsCr && right.StartsLf ? 1 : 0), left.StartsLf, right.EndsCr,
+                left.CrLfPairs + right.CrLfPairs + (left.EndsCr && right.StartsLf ? 1 : 0));
     }
 
     private static Stats Prefix(Node? node, int length)
@@ -322,11 +375,11 @@ public sealed class TextSnapshot
         if (node is null || length == 0)
             return default;
         if (node.Length == length)
-            return new(node.Length, node.Breaks, node.StartsLf, node.EndsCr);
+            return new(node.Length, node.Breaks, node.StartsLf, node.EndsCr, node.CrLfPairs);
         if (node is Leaf leaf)
         {
             var text = leaf.Text.AsSpan(0, length);
-            return new(length, CountBreaks(text), text[0] == '\n', text[^1] == '\r');
+            return new(length, CountBreaks(text), text[0] == '\n', text[^1] == '\r', CountPairs(text));
         }
         var branch = (Branch)node;
         return length <= branch.Left.Length ? Prefix(branch.Left, length) :
@@ -346,22 +399,33 @@ public sealed class TextSnapshot
         return count;
     }
 
-    private abstract class Node(int length, int height, int breaks, bool startsLf, bool endsCr)
+    private static int CountPairs(ReadOnlySpan<char> text)
+    {
+        var count = 0;
+        for (var i = 1; i < text.Length; i++)
+            if (text[i - 1] == '\r' && text[i] == '\n') count++;
+        return count;
+    }
+
+    private abstract class Node(int length, int height, int breaks, bool startsLf, bool endsCr, int pairs, bool hasCr)
     {
         internal int Length { get; } = length;
         internal int Height { get; } = height;
         internal int Breaks { get; } = breaks;
         internal bool StartsLf { get; } = startsLf;
         internal bool EndsCr { get; } = endsCr;
+        internal int CrLfPairs { get; } = pairs;
+        internal bool HasCr { get; } = hasCr;
     }
 
-    private sealed class Leaf(string text) : Node(text.Length, 1, CountBreaks(text), text[0] == '\n', text[^1] == '\r')
+    private sealed class Leaf(string text) : Node(text.Length, 1, CountBreaks(text), text[0] == '\n', text[^1] == '\r', CountPairs(text), text.Contains('\r'))
     {
         internal string Text { get; } = text;
     }
 
     private sealed class Branch(Node left, Node right) : Node(checked(left.Length + right.Length), Math.Max(left.Height, right.Height) + 1,
-        left.Breaks + right.Breaks - (left.EndsCr && right.StartsLf ? 1 : 0), left.StartsLf, right.EndsCr)
+        left.Breaks + right.Breaks - (left.EndsCr && right.StartsLf ? 1 : 0), left.StartsLf, right.EndsCr,
+        left.CrLfPairs + right.CrLfPairs + (left.EndsCr && right.StartsLf ? 1 : 0), left.HasCr || right.HasCr)
     {
         internal Node Left { get; } = left;
         internal Node Right { get; } = right;
