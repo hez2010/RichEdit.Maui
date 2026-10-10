@@ -16,7 +16,8 @@ public sealed record RtfReadOptions
     public int MaximumAssetBytes { get; init; } = 64 * 1024 * 1024;
     /// <summary>Maximum authored UTF-16 text length, including annotation text.</summary>
     public int MaximumTextLength { get; init; } = 64 * 1024 * 1024;
-    /// <summary>Maximum structural nodes and resources.</summary>
+    /// <summary>Maximum allocation records for structural nodes, resource definitions, pending anchors, table descriptors and distinct diagnostics.</summary>
+    /// <remarks>Buffered parser records count in addition to their resulting model nodes. Repeated resource definitions also consume this budget.</remarks>
     public int MaximumNodes { get; init; } = 1_000_000;
     /// <summary>Rejects input when an unsupported feature would be omitted or approximated.</summary>
     public bool RequireLossless { get; init; }

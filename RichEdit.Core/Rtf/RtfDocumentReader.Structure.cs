@@ -58,6 +58,7 @@ internal sealed partial class RtfDocumentReader
             return;
         }
         _paragraph = null;
+        ChargeResource();
         var row = new Row();
         frame.Row = row;
         frame.Table.Rows.Add(row);
@@ -72,7 +73,7 @@ internal sealed partial class RtfDocumentReader
         var frame = _tables[^1];
         if (boundary <= 0 || row.Definitions.Count > 0 && boundary <= row.Definitions[^1].Boundary)
             throw Error("Table cell boundaries must increase");
-        if (row.Definitions.Count >= options.MaximumNodes) throw Error("Table column limit exceeded");
+        ChargeResource();
         row.Definitions.Add(new(boundary, frame.HorizontalContinue, frame.VerticalContinue));
         frame.HorizontalContinue = frame.VerticalContinue = false;
     }
@@ -178,7 +179,7 @@ internal sealed partial class RtfDocumentReader
     private void MaterializeTable(Table table, RichNodeId parent, ImmutableDictionary<RichNodeId, RichNode>.Builder nodes)
     {
         var boundaries = table.Rows.SelectMany(row => row.Definitions).Select(cell => cell.Boundary).Distinct().Order().ToArray();
-        if ((long)boundaries.Length * table.Rows.Count > 1_000_000) throw Error("Table grid limit exceeded");
+        if ((long)boundaries.Length * table.Rows.Count > Math.Min(options.MaximumNodes, 1_000_000)) throw Error("Table grid limit exceeded");
         var widths = boundaries.Select((value, index) => new RichLength(value - (index == 0 ? 0 : boundaries[index - 1]))).ToImmutableArray();
         var grid = new RichNodeId[table.Rows.Count, boundaries.Length];
         var rows = ImmutableList.CreateBuilder<RichNodeId>();

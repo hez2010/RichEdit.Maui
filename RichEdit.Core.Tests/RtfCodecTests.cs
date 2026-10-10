@@ -166,6 +166,30 @@ public sealed class RtfCodecTests
     }
 
     [Fact]
+    public async Task ResourceBudgetIncludesUnreferencedDefinitionsPendingAnchorsAndDiagnostics()
+    {
+        var entries = Enumerable.Range(1, 20);
+        string Join(Func<int, string> entry) => string.Concat(entries.Select(entry));
+        var payloads = new[]
+        {
+            @"{\fonttbl" + Join(index => $@"{{\f{index} Font{index};}}") + "}",
+            @"{\colortbl;" + Join(index => $@"\red{index};") + "}",
+            @"{\stylesheet" + Join(index => $@"{{\s{index} Style{index};}}") + "}",
+            @"{\*\listtable" + Join(index => $@"{{\list\listid{index}}}") + "}",
+            @"{\*\listoverridetable" + Join(index => $@"{{\listoverride\listid{index}\ls{index}}}") + "}",
+            Join(index => $@"{{\*\bkmkstart bookmark{index}}}"),
+            Join(index => $@"\unknown{(char)('a' + index)} "),
+        };
+        foreach (var payload in payloads)
+        {
+            using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1" + payload + " x}"));
+            var error = await Assert.ThrowsAsync<FormatException>(() => RtfCodec.ReadAsync(input, new() { MaximumNodes = 8 }, TestContext.Current.CancellationToken));
+            Assert.Contains("node/resource limit", error.Message);
+            Assert.True(input.CanRead);
+        }
+    }
+
+    [Fact]
     public async Task StreamingDecoderRetainsDbcsPairsAcrossBufferBoundaries()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);

@@ -31,6 +31,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     private readonly List<RichBookmark> _bookmarks = [];
     private readonly List<RichComment> _comments = [];
     private long _nextId = 1;
+    private int _resourceCount = 1; // The body story is always present.
     private int _textLength;
     private int _fallback;
     private bool _rtf;
@@ -227,13 +228,21 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     private RichTextPoint Point() { var p = EnsureParagraph(); return new(new(1), p.Id, p.Length); }
     private RichNodeId Allocate()
     {
-        _cancellation.ThrowIfCancellationRequested();
-        if (_nextId >= options.MaximumNodes) throw Error("RTF node/resource limit exceeded");
+        ChargeResource();
         return new(++_nextId);
+    }
+    private void ChargeResource()
+    {
+        _cancellation.ThrowIfCancellationRequested();
+        if (_resourceCount >= options.MaximumNodes) throw Error("RTF node/resource limit exceeded");
+        _resourceCount++;
     }
     private void Report(string feature, string message)
     {
-        if (_reported.Add(feature)) _diagnostics.Add(new(feature, message, _offset));
+        if (_reported.Contains(feature)) return;
+        ChargeResource();
+        _reported.Add(feature);
+        _diagnostics.Add(new(feature, message, _offset));
     }
     private FormatException Error(string text) => new($"{text} at byte {_offset}.");
 

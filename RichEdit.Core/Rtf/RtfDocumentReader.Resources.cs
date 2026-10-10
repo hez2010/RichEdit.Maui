@@ -80,6 +80,7 @@ internal sealed partial class RtfDocumentReader
             catch (ArgumentException) { Report("bookmark-name", "A bookmark with an unsupported name was omitted."); return; }
             if (child.Orphan) { _bookmarks.Add(new(new(Allocate().Value), name, null)); return; }
         }
+        ChargeResource();
         anchors.Add(name, new(child.Orphan ? null : Point(), child.Reverse, child.AnchorAffinity, child.ActiveAffinity));
     }
 

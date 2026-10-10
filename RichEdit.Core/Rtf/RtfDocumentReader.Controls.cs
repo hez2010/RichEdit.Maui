@@ -95,7 +95,7 @@ internal sealed partial class RtfDocumentReader
             case "nestrow": EndRow(Math.Max(2, _state.TableLevel)); return;
             case "listid":
                 _state.ListId = n;
-                if (_state.Destination == "listtable" && _state.List is { } list) _listDefinitions[n] = list;
+                if (_state.Destination == "listtable" && _state.List is { } list) { ChargeResource(); _listDefinitions[n] = list; }
                 return;
             case "ls": _state.ListOverride = n; return;
             case "ilvl": _state.ListLevel = n; return;
@@ -193,9 +193,11 @@ internal sealed partial class RtfDocumentReader
                 if (_state.Font < 0) return;
                 var name = _state.Capture?.ToString().Trim();
                 if (string.IsNullOrWhiteSpace(name)) throw Error("Empty font family");
+                ChargeResource();
                 _fonts[_state.Font] = (name, _state.FontCodePage);
                 _state.Capture = new(); _state.Font = -1; return;
             case "colortbl":
+                ChargeResource();
                 _colors.Add(_state.ColorSpecified ? new((byte)_state.Red, (byte)_state.Green, (byte)_state.Blue) : null);
                 _state.Red = _state.Green = _state.Blue = 0; _state.ColorSpecified = false; return;
             case "stylesheet":
@@ -203,6 +205,7 @@ internal sealed partial class RtfDocumentReader
                 var id = _state.StyleId == 0 ? short.MaxValue : _state.StyleId;
                 var styleName = _state.Capture?.ToString().Trim();
                 if (string.IsNullOrWhiteSpace(styleName)) throw Error("Empty style name");
+                ChargeResource();
                 _styles[_state.StyleId] = new(new(id), styleName, _state.CharacterDefinition ? RichStyleKind.Character : RichStyleKind.Paragraph)
                 {
                     BasedOn = _state.BasedOn is < 0 or 222 ? null : new(_state.BasedOn == 0 ? short.MaxValue : _state.BasedOn),
@@ -235,7 +238,7 @@ internal sealed partial class RtfDocumentReader
                 CloseTables(_state.InTable ? Math.Max(1, _state.TableLevel) : 0);
                 _structuralGap = true;
                 break;
-            case "listoverride": _listOverrides[child.ListOverride] = child.ListId; break;
+            case "listoverride": ChargeResource(); _listOverrides[child.ListOverride] = child.ListId; break;
             case "relistbegin": BeginList(child.ListOverride); break;
             case "relistitem": ListItem(); break;
             case "relistend": EndList(); break;
