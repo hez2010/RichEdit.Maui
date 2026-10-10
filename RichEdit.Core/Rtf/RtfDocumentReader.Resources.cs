@@ -20,6 +20,12 @@ internal sealed partial class RtfDocumentReader
         internal int? Date;
         internal bool Utc;
     }
+    private sealed class Field
+    {
+        internal string Instruction = "";
+        internal readonly StringBuilder Result = new();
+        internal bool Atom, IsLink;
+    }
 
     private void SetPictureKind(RichImageKind kind) { if (_state.Picture is { } picture) picture.Kind = kind; }
     private void AddPictureBytes(ReadOnlySpan<byte> bytes)
@@ -54,7 +60,7 @@ internal sealed partial class RtfDocumentReader
         if (picture.Width <= 0 || picture.Height <= 0) Report("picture-size", "Missing picture dimensions were inferred at 96 DPI, with a one-inch fallback.");
         var paragraph = EnsureParagraph();
         paragraph.Inlines.Add(new RichImage(Allocate(), paragraph.Id, asset, new(width), new(height))
-        { Format = child.Character, Style = child.CharacterStyle, AlternativeText = picture.Alt });
+        { Format = child.Character, Style = child.CharacterStyle, Link = child.Link, AlternativeText = picture.Alt });
         paragraph.Length++;
     }
 
@@ -95,5 +101,22 @@ internal sealed partial class RtfDocumentReader
         }
         _commentRanges.Remove(annotation.Name, out var range);
         _comments.Add(new(new(Allocate().Value), child.Orphan ? null : range, annotation.Text.ToString(), annotation.Author, created));
+    }
+
+    private void FinishField(State child)
+    {
+        var field = child.Field!;
+        if (field.IsLink) return;
+        if (string.IsNullOrWhiteSpace(field.Instruction))
+        { Report("field-instruction", "A field without an instruction was imported as its result text."); AddText(field.Result.ToString()); return; }
+        var instruction = field.Instruction;
+        var result = field.Result.ToString();
+        if (instruction.AsSpan().ContainsAny('\r', '\n', '\0'))
+        { Report("field-instruction", "Line breaks in a field instruction were replaced with spaces."); instruction = instruction.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' '); }
+        if (result.AsSpan().ContainsAny('\r', '\n', '\u2028'))
+        { Report("field-result", "A multi-line field result was imported as a single-line fallback."); result = result.Replace('\r', ' ').Replace('\n', ' ').Replace('\u2028', ' '); }
+        var paragraph = EnsureParagraph();
+        paragraph.Inlines.Add(new RichField(Allocate(), paragraph.Id, instruction, result) { Format = child.Character, Style = child.CharacterStyle, Link = child.Link });
+        paragraph.Length++;
     }
 }

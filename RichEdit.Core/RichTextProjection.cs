@@ -73,8 +73,8 @@ public sealed class RichTextProjection
                                 foreach (var chunk in run.Content.GetChunks(new(0, run.Content.Length))) text.Append(chunk.Span);
                                 break;
                             case RichSoftBreak: text.Append('\u2028'); break;
-                            case RichImage image:
-                                objects.Add(new(text.Length, image.Id));
+                            case RichInline atom when atom is RichImage or RichField:
+                                objects.Add(new(text.Length, atom.Id));
                                 text.Append('\uFFFC');
                                 break;
                         }

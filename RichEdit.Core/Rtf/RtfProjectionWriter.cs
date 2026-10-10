@@ -120,6 +120,12 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 if (inline.Style is { } style) await C("cs", style.Value);
                 await Masks("rec", RtfStyleState.Masks(inline.Format));
             }
+            if (inline.Link is { } link)
+            {
+                await S(@"{\field{\*\fldinst ");
+                await T(RtfFieldSyntax.HyperlinkInstruction(link));
+                await S(@"}{\fldrslt ");
+            }
             switch (inline)
             {
                 case RichText text:
@@ -132,7 +138,15 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 case RichImage image:
                     if (semantic) await Anchors(paragraph.Id, position);
                     await Image(image); break;
+                case RichField field:
+                    if (semantic) await Anchors(paragraph.Id, position);
+                    await S(@"{\field");
+                    if (semantic) await S(@"{\*\refieldatom}");
+                    await S(@"{\*\fldinst "); await T(field.Instruction);
+                    await S(@"}{\fldrslt "); await T(field.Result); await S("}}");
+                    break;
             }
+            if (inline.Link is not null) await S("}}");
             position += RichDocumentSnapshot.InlineLength(inline);
             await S("}");
         }

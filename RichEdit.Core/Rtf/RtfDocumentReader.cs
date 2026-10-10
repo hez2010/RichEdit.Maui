@@ -172,7 +172,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         _textLength = checked(_textLength + text.Length);
         if (_textLength > options.MaximumTextLength) throw Error("RTF text limit exceeded");
         if (_state.Capture is { } capture) { capture.Append(text); return; }
-        if (_state.Destination is not ("body" or "nesttableprops")) return;
+        if (_state.Destination is not ("body" or "nesttableprops" or "fldrslt")) return;
         _state.AtStart = false;
         var pieces = text.Split(['\r', '\n', '\u2028']);
         if (pieces.Length > 1)
@@ -197,9 +197,9 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         var paragraph = EnsureParagraph();
         var format = _state.Character;
         var style = _state.CharacterStyle;
-        if (paragraph.Inlines.LastOrDefault() is RichText run && run.Format == format && run.Style == style)
+        if (paragraph.Inlines.LastOrDefault() is RichText run && run.Format == format && run.Style == style && run.Link == _state.Link)
             paragraph.Inlines[^1] = run with { Content = run.Content.Concat(TextSnapshot.FromText(text)) };
-        else { var id = Allocate(); paragraph.Inlines.Add(new RichText(id, paragraph.Id, TextSnapshot.FromText(text)) { Format = format, Style = style }); }
+        else { var id = Allocate(); paragraph.Inlines.Add(new RichText(id, paragraph.Id, TextSnapshot.FromText(text)) { Format = format, Style = style, Link = _state.Link }); }
         paragraph.Length = checked(paragraph.Length + text.Length);
     }
 
@@ -218,7 +218,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     private void SoftBreak()
     {
         var paragraph = EnsureParagraph();
-        paragraph.Inlines.Add(new RichSoftBreak(Allocate(), paragraph.Id) { Style = _state.CharacterStyle, Format = _state.Character });
+        paragraph.Inlines.Add(new RichSoftBreak(Allocate(), paragraph.Id) { Style = _state.CharacterStyle, Format = _state.Character, Link = _state.Link });
         paragraph.Length++;
     }
     private RichTextPoint Point() { var p = EnsureParagraph(); return new(new(1), p.Id, p.Length); }
@@ -270,6 +270,8 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         internal bool Reverse;
         internal CaretAffinity AnchorAffinity = CaretAffinity.Downstream, ActiveAffinity = CaretAffinity.Downstream;
         internal Annotation? Annotation;
+        internal Field? Field;
+        internal RichHyperlink? Link;
         internal State Child()
         {
             var child = (State)MemberwiseClone();

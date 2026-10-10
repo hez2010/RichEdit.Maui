@@ -53,7 +53,16 @@ public abstract record RichInline(RichNodeId Id, RichNodeId? Parent) : RichNode(
     public RichStyleId? Style { get; init; }
     /// <summary>Gets direct character overrides.</summary>
     public RichCharacterStyle Format { get; init; } = new();
+    /// <summary>Gets an authored hyperlink. Activation is an application decision.</summary>
+    public RichHyperlink? Link { get; init; }
 }
+
+/// <summary>A hyperlink stored using an RTF HYPERLINK field.</summary>
+public sealed record RichHyperlink(string Target, string? ToolTip = null);
+
+/// <summary>An authored field atom with an instruction and a retained single-line display result.</summary>
+/// <remarks>The library does not execute instructions or fetch external resources. A host updates the result explicitly.</remarks>
+public sealed record RichField(RichNodeId Id, RichNodeId? Parent, string Instruction, string Result) : RichInline(Id, Parent);
 
 /// <summary>A persistent text run containing neither paragraph terminators nor soft-break characters.</summary>
 public sealed record RichText(RichNodeId Id, RichNodeId? Parent, TextSnapshot Content) : RichInline(Id, Parent);

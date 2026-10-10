@@ -125,6 +125,7 @@ public sealed partial class RichDocumentSnapshot
         RichText text => text.Content.Length,
         RichSoftBreak => 1,
         RichImage => 1,
+        RichField => 1,
         _ => throw new ArgumentException("Unsupported inline node."),
     };
 
@@ -151,7 +152,7 @@ public sealed partial class RichDocumentSnapshot
                 if (text.Anchor.Story != text.Active.Story) throw new ArgumentException("A text selection must belong to one story.", nameof(selection));
                 return text;
             case RichCellSelection cells: return GetTableGrid(cells.Table).Expand(cells);
-            case RichObjectSelection selected when Nodes.GetValueOrDefault(selected.Object) is RichImage: return selected;
+            case RichObjectSelection selected when Nodes.GetValueOrDefault(selected.Object) is RichImage or RichField: return selected;
             case RichBoundarySelection boundary:
                 Get<RichStory>(boundary.Story);
                 RichNode node = Get<RichBlock>(boundary.Block);
@@ -260,7 +261,7 @@ public sealed partial class RichDocumentSnapshot
 
     private void ValidateNode(RichNode node)
     {
-        if (node is not (RichStory or RichParagraph or RichList or RichListItem or RichTable or RichTableRow or RichTableCell or RichText or RichSoftBreak or RichImage))
+        if (node is not (RichStory or RichParagraph or RichList or RichListItem or RichTable or RichTableRow or RichTableCell or RichText or RichSoftBreak or RichImage or RichField))
             throw new ArgumentException("Unsupported authored node kind.");
         if (node is RichStory { Blocks: null } or RichParagraph { Inlines: null } or RichList { Items: null } or
             RichListItem { Blocks: null } or RichTable { Rows: null } or RichTableRow { Cells: null } or RichTableCell { Blocks: null })
@@ -269,11 +270,17 @@ public sealed partial class RichDocumentSnapshot
         {
             ArgumentNullException.ThrowIfNull(inline.Format);
             RichStyleSheet.Validate(inline.Format);
+            if (inline.Link is { } link && (string.IsNullOrWhiteSpace(link.Target) || link.Target.AsSpan().ContainsAny('\r', '\n', '\0') ||
+                link.ToolTip is { } tip && tip.AsSpan().ContainsAny('\r', '\n', '\0')))
+                throw new ArgumentException("Hyperlinks require a nonempty single-line target and a single-line tooltip.");
             if (inline.Style is { } id && (!Styles.Definitions.TryGetValue(id, out var style) || style.Kind != RichStyleKind.Character))
                 throw new ArgumentException("Inline styles must reference character definitions.");
         }
         switch (node)
         {
+            case RichField field when string.IsNullOrWhiteSpace(field.Instruction) || field.Instruction.AsSpan().ContainsAny('\r', '\n', '\0') ||
+                field.Result is null || field.Result.AsSpan().ContainsAny('\r', '\n', '\u2028'):
+                throw new ArgumentException("Fields require a single-line instruction and display result.");
             case RichStory { Blocks.Count: 0 } or RichListItem { Blocks.Count: 0 } or RichTableCell { Blocks.Count: 0 }:
                 throw new ArgumentException("Text containers require at least one block.");
             case RichList list when list.Items.Count == 0 || list.StartNumber < 0 || (long)list.StartNumber + list.Items.Count - 1 > int.MaxValue:

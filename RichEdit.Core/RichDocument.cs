@@ -215,7 +215,7 @@ public sealed partial class RichDocument
 
     internal static RichSelection MapSelection(RichSelection selection, RichAddressMap map, RichDocumentSnapshot after)
     {
-        if (selection is RichObjectSelection selected && after.Nodes.GetValueOrDefault(selected.Object) is RichImage) return selected;
+        if (selection is RichObjectSelection selected && after.Nodes.GetValueOrDefault(selected.Object) is RichImage or RichField) return selected;
         if (selection is RichBoundarySelection boundary && after.Nodes.GetValueOrDefault(boundary.Block) is RichBlock)
             return after.NormalizeSelection(boundary);
         if (selection is RichTextSelection text && map.Map(text.Anchor) is { } anchor && map.Map(text.Active) is { } active &&

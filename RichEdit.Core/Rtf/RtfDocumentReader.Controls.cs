@@ -10,7 +10,7 @@ internal sealed partial class RtfDocumentReader
         if (_state.Destination == "skip") return;
         var n = number ?? 1;
         if (Destination(word)) { _state.AtStart = false; return; }
-        if (_state.AtStart && _state.Ignorable && word != "remodel")
+        if (_state.AtStart && _state.Ignorable && word != "remodel" && !(word == "cs" && _state.Destination == "stylesheet"))
         {
             Report(word, $"The unsupported ignorable destination '{word}' was omitted.");
             _state.Destination = "skip";
@@ -29,7 +29,7 @@ internal sealed partial class RtfDocumentReader
             case "uc": if (n is < 0 or > 255) throw Error("Invalid Unicode fallback count"); _state.UnicodeSkip = n; return;
             case "u": if (n is < short.MinValue or > ushort.MaxValue) throw Error("Invalid Unicode code unit"); Text(((char)(ushort)n).ToString()); _fallback = _state.UnicodeSkip; return;
             case "tab": if (_fallback > 0) _fallback--; else Text("\t"); return;
-            case "line": SoftBreak(); return;
+            case "line": if (_state.Capture is not null) Text("\u2028"); else SoftBreak(); return;
             case "par": if (_state.Capture is not null) Text("\n"); else EndParagraph(); return;
             case "emdash": Text("—"); return;
             case "endash": Text("–"); return;
@@ -153,6 +153,16 @@ internal sealed partial class RtfDocumentReader
             case "annotation": SetDestination(word); _state.Annotation = new(); _state.Capture = _state.Annotation.Text; return true;
             case "atnid": case "atnauthor": SetDestination(word); _state.Capture = new(); return true;
             case "reutc": if (_state.Annotation is { } annotation) annotation.Utc = true; SetDestination(word); _state.Capture = null; return true;
+            case "field": SetDestination(word); _state.Field = new(); _state.Capture = null; return true;
+            case "fldinst": SetDestination(word); _state.Capture = new(); return true;
+            case "fldrslt":
+                SetDestination(word);
+                if (_state.Field is not { } field) throw Error("A field result has no field");
+                if (!field.Atom && RtfFieldSyntax.TryHyperlink(field.Instruction, out var link))
+                { field.IsLink = true; _state.Link = link; _state.Capture = null; }
+                else _state.Capture = field.Result;
+                return true;
+            case "refieldatom": if (_state.Field is { } atom) atom.Atom = true; SetDestination(word); return true;
             case "leveltext": case "levelnumbers": case "listtext": case "pntext":
             case "generator": case "rsidtbl": case "filetbl": case "latentstyles":
                 SetDestination("skip"); return true;
@@ -226,6 +236,8 @@ internal sealed partial class RtfDocumentReader
             case "atnid": if (child.Annotation is { } name) name.Name = child.Capture?.ToString() ?? ""; break;
             case "atnauthor": if (child.Annotation is { } author) author.Author = child.Capture?.ToString() ?? ""; break;
             case "annotation": FinishAnnotation(child); break;
+            case "fldinst": if (child.Field is { } field) field.Instruction = child.Capture?.ToString() ?? ""; break;
+            case "field": FinishField(child); break;
         }
     }
 }

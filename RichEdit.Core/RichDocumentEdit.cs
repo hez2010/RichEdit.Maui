@@ -125,7 +125,7 @@ public sealed partial class RichDocumentEdit
         {
             var id = Allocate();
             _nodes[id] = new RichText(id, paragraph.Id, TextSnapshot.FromText(text))
-            { Style = inherited?.Style, Format = inherited?.Format ?? new() };
+            { Style = inherited?.Style, Format = inherited?.Format ?? new(), Link = inherited?.Link };
             left = left.Add(id);
         }
         _nodes[paragraph.Id] = paragraph with { Inlines = Coalesce(left.AddRange(right)) };
@@ -141,7 +141,7 @@ public sealed partial class RichDocumentEdit
         var inherited = InlineAt(paragraph, point.Offset);
         var (left, right) = Partition(paragraph, point.Offset, paragraph.Id);
         var id = Allocate();
-        _nodes.Add(id, new RichSoftBreak(id, paragraph.Id) { Style = inherited?.Style, Format = inherited?.Format ?? new() });
+        _nodes.Add(id, new RichSoftBreak(id, paragraph.Id) { Style = inherited?.Style, Format = inherited?.Format ?? new(), Link = inherited?.Link });
         _nodes[paragraph.Id] = paragraph with { Inlines = left.Add(id).AddRange(right) };
         Record(new RichAddressMap.Text(paragraph.Id, point.Offset, 0, 1));
         return id;
@@ -293,7 +293,7 @@ public sealed partial class RichDocumentEdit
         foreach (var id in inlines)
         {
             if (result.Count != 0 && Get<RichInline>(result[^1]) is RichText before && Get<RichInline>(id) is RichText after &&
-                before.Style == after.Style && before.Format == after.Format)
+                before.Style == after.Style && before.Format == after.Format && before.Link == after.Link)
             {
                 _nodes[before.Id] = before with { Content = before.Content.Concat(after.Content) };
                 _nodes.Remove(id);

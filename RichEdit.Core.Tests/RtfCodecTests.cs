@@ -152,6 +152,37 @@ public sealed class RtfCodecTests
     }
 
     [Fact]
+    public async Task LinksFieldsAndCharacterStylesRetainAuthoredSemantics()
+    {
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.SetStyles(new([new(new(5), "Link style", RichStyleKind.Character) { Character = new() { Underline = RichUnderline.Single } }]));
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "one two");
+            edit.SetHyperlink(new(edit.Body, new(2), 0), 3, new("https://example.test/a?x=\"q\"&y=\\", "Open \"page\""));
+            edit.SetCharacterStyle(new(edit.Body, new(2), 0), 3, new(5));
+            edit.SetParagraphCharacterFormat(new(2), new() { Italic = true });
+            var field = edit.InsertField(new(edit.Body, new(2), 7), " DATE \\@ \"yyyy-MM-dd\" ", "2026-10-11");
+            edit.SetFieldResult(field, "2026-10-12");
+            edit.SetHyperlink(new(edit.Body, new(2), 7), 1, null);
+            edit.InsertField(new(edit.Body, new(2), 8), "HYPERLINK \"#bookmark\"", "");
+        });
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal("one two\uFFFC\uFFFC", loaded.ProjectText().Text.ToString());
+        var link = Assert.Single(loaded.Nodes.Values.OfType<RichText>(), run => run.Link is not null);
+        Assert.Equal("one", link.Content.ToString());
+        Assert.Equal(new RichStyleId(5), link.Style);
+        Assert.Equal("https://example.test/a?x=\"q\"&y=\\", link.Link!.Target);
+        Assert.Equal("Open \"page\"", link.Link.ToolTip);
+        Assert.Equal(new RichCharacterStyle { Italic = true }, Assert.Single(loaded.Nodes.Values.OfType<RichParagraph>()).Character);
+        var fields = loaded.Nodes.Values.OfType<RichField>().OrderBy(field => field.Id.Value).ToArray();
+        Assert.Equal(2, fields.Length);
+        Assert.Equal(" DATE \\@ \"yyyy-MM-dd\" ", fields[0].Instruction);
+        Assert.Equal("2026-10-12", fields[0].Result);
+        Assert.Equal("HYPERLINK \"#bookmark\"", fields[1].Instruction);
+        Assert.Equal("", fields[1].Result);
+    }
+
+    [Fact]
     public async Task ExternalListsAndTablesImportAsStructure()
     {
         const string rtf = @"{\rtf1\ansi{\*\listtable{\list{\listlevel\levelnfc0\levelstartat3}\listid1}}{\*\listoverridetable{\listoverride\listid1\ls1}}
