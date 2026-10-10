@@ -327,6 +327,8 @@ public sealed class RichTextChangeSet
 
     internal RichTextSelectionState? SelectionAfter { get; set; }
 
+    internal object? SelectionOwnerToken { get; set; }
+
     internal object? SourceToken { get; }
 
     internal RichTextDocumentSnapshot? BeforeSnapshot { get; }

@@ -160,11 +160,11 @@ public partial class EditorApiTests
         editor.Selection.ReplaceText("X");
         Assert.Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
         editor.SelectionState = new(0, 0);
-        document.Undo();
+        editor.Undo();
         Assert.Equal("abcdef", document.Text);
         Assert.Equal(new RichTextSelectionState(4, 1), editor.SelectionState);
         editor.SelectionState = new(6, 6);
-        document.Redo();
+        editor.Redo();
         Assert.Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
         editor.Document = new CodeDocument("other");
         document.Undo();

@@ -235,7 +235,7 @@ public partial class RichEditorHandler
         return new(changes.VersionBefore, changes.VersionAfter, changes.Origin,
             [.. changes.Changes.Where(static change => change.Kind != RichTextChangeKind.Image)], changes.Tag,
             changes.SourceToken, changes.BeforeSnapshot, after, changes.UndoBehavior, changes.UndoDescription)
-        { SelectionAfter = changes.SelectionAfter };
+        { SelectionAfter = changes.SelectionAfter, SelectionOwnerToken = changes.SelectionOwnerToken };
     }
 
     private void UpdateDocumentFromDisplay(RichTextDocumentSnapshot snapshot, int selectionStart, int selectionLength,

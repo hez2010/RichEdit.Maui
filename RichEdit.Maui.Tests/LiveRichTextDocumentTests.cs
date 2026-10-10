@@ -352,18 +352,18 @@ public sealed class LiveRichTextDocumentTests
     }
 
     [Fact]
-    public void DocumentRejectsSimultaneousEditorOwnership()
+    public Task DocumentSupportsIndependentEditorAttachments() => WindowsTestHost.RunAsync(() =>
     {
         var document = new RichTextDocument();
-        var first = new object();
-        var second = new object();
-        document.AttachEditor(first);
-
-        Assert.Throws<InvalidOperationException>(() => document.AttachEditor(second));
-
-        document.DetachEditor(first);
-        document.AttachEditor(second);
-    }
+        var first = new RichEditor { Document = document };
+        var second = new RichEditor { Document = document };
+        first.Selection.ReplaceText("shared");
+        Assert.Equal("shared", second.Document.Text);
+        first.Document = new RichTextDocument();
+        second.Selection.ReplaceText(" text");
+        Assert.Equal("shared text", document.Text);
+        Assert.Empty(first.Document.Text);
+    });
 
     [Fact]
     public void ImagePayloadOnlyUndoPublishesAnImageDelta()

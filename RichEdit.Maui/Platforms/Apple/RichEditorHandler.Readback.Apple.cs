@@ -461,7 +461,7 @@ public partial class RichEditorHandler
 
     private void QueueNativeReadback()
     {
-        if (_applyingDocument && !_applyingTypingFormat || VirtualView is null)
+        if (_applyingDocument && !_applyingTypingFormat || ((IElementHandler)this).VirtualView is not RichEditor editor)
         {
             return;
         }
@@ -479,13 +479,17 @@ public partial class RichEditorHandler
             return;
 
         _nativeReadbackQueued = true;
+        var attachment = LayoutAttachment;
         PlatformView.BeginInvokeOnMainThread(() =>
         {
+            if (!ReferenceEquals(attachment, LayoutAttachment) || !ReferenceEquals(((IElementHandler)this).VirtualView, editor))
+                return;
+
             _nativeReadbackQueued = false;
             // UITextView's Changed callback normally commits synchronously.
             // Text services can edit storage without issuing that callback;
             // wait until their selection and smart-spacing edits are finished.
-            if (!_applyingDocument && ReferenceEquals(VirtualView?.Document, _queuedDocument) &&
+            if (!_applyingDocument && ReferenceEquals(editor.Document, _queuedDocument) &&
                 _queuedProjectionGeneration == _projectionGeneration && _observedTextStorage is not null &&
                 (_readNativeGeneration != _nativeEditGeneration || _observedTextStorage.Value != DisplaySourceSnapshot.Text))
             {

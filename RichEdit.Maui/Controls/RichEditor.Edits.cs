@@ -78,6 +78,6 @@ public partial class RichEditor
         }, selectionAfter ?? selection, options);
         return true;
 
-        bool CanApply() => revision == Document.Revision && !IsReadOnly && !Composition.IsActive && (Handler as IRichEditorHandler)?.IsComposing != true;
+        bool CanApply() => revision == Document.Revision && !IsReadOnly && !Document.HasActiveComposition;
     }
 }

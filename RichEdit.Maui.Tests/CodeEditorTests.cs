@@ -188,14 +188,18 @@ public partial class CodeEditorTests
     });
 
     [Fact]
-    public Task DocumentOwnershipValidationKeepsTheWrapperAndNativeEditorInSync() => WindowsTestHost.RunAsync(() =>
+    public Task CodeViewsShareTheDocumentAndKeepIndependentSelections() => WindowsTestHost.RunAsync(() =>
     {
         var first = new CodeEditor { Document = CodeDocument.FromPlainText("owned") };
         var second = new CodeEditor();
-        var original = second.Document;
         second.Document = first.Document;
-        Assert.Same(original, second.Document);
-        Assert.Same(original.Source, second.TextView.Document);
+        Assert.Same(first.Document, second.Document);
+        Assert.Same(first.Document.Source, second.TextView.Document);
+        first.SelectedRange = new(0, 1);
+        second.SelectedRange = new(4, 0);
+        first.Selection.ReplaceText("O");
+        Assert.Equal("Owned", second.Document.Text);
+        Assert.Equal(new RichTextRange(4, 0), second.SelectedRange);
         GC.KeepAlive(first);
     });
 

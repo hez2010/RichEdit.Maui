@@ -77,6 +77,8 @@ public partial class RichEditorHandler
     /// <inheritdoc />
     protected override void DisconnectHandler(RichTextView platformView)
     {
+        _nativeReadbackQueued = false;
+        _queuedDocument = null;
         VirtualView?.Commands.Disconnect();
         DisconnectAdornments();
         _pendingNativeChange = null;

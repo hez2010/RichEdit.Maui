@@ -132,7 +132,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
-        _editor.Document.Edit(edit => edit.UpdateCharacterFormat(Range, update));
+        _editor.EditDocument(edit => edit.UpdateCharacterFormat(Range, update));
     }
 
     /// <summary>Updates paragraph formatting across every intersecting paragraph.</summary>
@@ -146,7 +146,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
-        _editor.Document.Edit(edit => edit.UpdateParagraphFormat(Range, update));
+        _editor.EditDocument(edit => edit.UpdateParagraphFormat(Range, update));
     }
 
     /// <summary>Toggles bold formatting across the selection.</summary>
@@ -255,7 +255,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
         var existingId = FindEquivalentListId(
             _editor.Document.CurrentSnapshot,
             definition);
-        _editor.Document.Edit(edit =>
+        _editor.EditDocument(edit =>
         {
             var listId = existingId ?? edit.CreateList(definition);
             edit.ApplyList(Range, listId, level);
@@ -280,7 +280,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
-        _editor.Document.Edit(edit => edit.ApplyList(Range, listId, level));
+        _editor.EditDocument(edit => edit.ApplyList(Range, listId, level));
     }
 
     internal void SetList(RichTextListItemFormat item)
@@ -291,7 +291,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
-        _editor.Document.Edit(edit =>
+        _editor.EditDocument(edit =>
         {
             edit.ApplyList(Range, item.ListId, item.Level);
             if (item.RestartAt is { } startAt)
@@ -306,7 +306,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     {
         if (!_editor.IsReadOnly)
         {
-            _editor.Document.Edit(edit => edit.RemoveList(Range));
+            _editor.EditDocument(edit => edit.RemoveList(Range));
         }
     }
 
@@ -325,7 +325,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
 
         if (!_editor.IsReadOnly)
         {
-            _editor.Document.Edit(edit => edit.ChangeListLevel(Range, delta));
+            _editor.EditDocument(edit => edit.ChangeListLevel(Range, delta));
         }
     }
 
@@ -336,7 +336,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(startAt);
         if (!_editor.IsReadOnly)
         {
-            _editor.Document.Edit(edit => edit.RestartList(Range, startAt));
+            _editor.EditDocument(edit => edit.RestartList(Range, startAt));
         }
     }
 
@@ -350,7 +350,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
             return;
         }
 
-        _editor.Document.Edit(edit => edit.SetLink(Range, target, toolTip));
+        _editor.EditDocument(edit => edit.SetLink(Range, target, toolTip));
     }
 
     /// <summary>Removes hyperlinks intersecting the selection.</summary>
@@ -358,7 +358,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     {
         if (!_editor.IsReadOnly)
         {
-            _editor.Document.Edit(edit => edit.RemoveLinks(Range));
+            _editor.EditDocument(edit => edit.RemoveLinks(Range));
         }
     }
 

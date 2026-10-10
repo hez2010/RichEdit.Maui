@@ -7,6 +7,8 @@ namespace RichEdit.Maui;
 /// </summary>
 public sealed partial class RichEditor : View
 {
+    internal object EditSourceToken { get; } = new();
+
     /// <summary>Identifies the <see cref="Document"/> bindable property.</summary>
     public static readonly BindableProperty DocumentProperty = BindableProperty.Create(
         nameof(Document),
@@ -447,7 +449,7 @@ public sealed partial class RichEditor : View
     public void Undo()
     {
         VerifyAccess();
-        if (IsReadOnly)
+        if (IsReadOnly || Document.HasActiveComposition)
         {
             return;
         }
@@ -458,7 +460,7 @@ public sealed partial class RichEditor : View
         }
         else
         {
-            Document.Undo();
+            Document.Undo(this);
         }
     }
 
@@ -466,7 +468,7 @@ public sealed partial class RichEditor : View
     public void Redo()
     {
         VerifyAccess();
-        if (IsReadOnly)
+        if (IsReadOnly || Document.HasActiveComposition)
         {
             return;
         }
@@ -477,7 +479,7 @@ public sealed partial class RichEditor : View
         }
         else
         {
-            Document.Redo();
+            Document.Redo(this);
         }
     }
 
@@ -691,6 +693,9 @@ public sealed partial class RichEditor : View
         }
     }
 
+    internal RichTextChangeSet EditDocument(Action<RichTextDocumentEdit> edit, RichTextEditOptions options = default) =>
+        Document.Edit(edit, options, RichTextChangeOrigin.Programmatic, EditSourceToken);
+
     internal RichTextChangeSet EditDocument(
         Action<RichTextDocumentEdit> edit,
         RichTextRange resultingSelection) => EditDocument(edit, RichTextSelectionState.FromRange(resultingSelection));
@@ -707,7 +712,7 @@ public sealed partial class RichEditor : View
         RichTextChangeSet changes;
         try
         {
-            changes = Document.Edit(edit, options);
+            changes = Document.Edit(edit, options, RichTextChangeOrigin.Programmatic, EditSourceToken);
         }
         finally
         {
@@ -895,7 +900,8 @@ public sealed partial class RichEditor : View
         Decorations.MapThrough(changeSet);
         var foldingChanged = Folding.MapThrough(changeSet);
         Adornments.MapThrough(changeSet);
-        var selection = changeSet.SelectionAfter ?? GetSelectionAfterEdit(changeSet.Changes, Document.Length);
+        var selection = ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionAfter is { } requested
+            ? requested : GetSelectionAfterEdit(changeSet.Changes, Document.Length);
         SetSelectionCore(selection, fromPlatform: true);
         var handler = Handler as IRichEditorHandler;
         if (handler is not null && !ReferenceEquals(changeSet.SourceToken, handler.SourceToken))

@@ -99,10 +99,10 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     /// <returns>The source in that range.</returns>
     public string GetText(RichTextRange range) => Source.GetText(range);
 
-    /// <summary>Undoes the preceding edit, including its editor selection.</summary>
+    /// <summary>Undoes the preceding edit and maps each attached view's selection.</summary>
     public void Undo() => Source.Undo();
 
-    /// <summary>Reapplies the next edit, including its editor selection.</summary>
+    /// <summary>Reapplies the next edit and maps each attached view's selection.</summary>
     public void Redo() => Source.Redo();
 
     /// <summary>Clears history without changing source or its saved state.</summary>

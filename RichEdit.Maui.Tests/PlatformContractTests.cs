@@ -9,11 +9,21 @@ public class PlatformContractTests
 {
     private static Microsoft.UI.Xaml.Window? _window;
 
-    public static IEnumerable<object[]> Scenarios => EditorContractTests.Cases.Select(test => new object[] { test.Name });
+    public static IEnumerable<object[]> Scenarios => EditorContractTests.Cases
+        .Where(test => !test.Name.StartsWith("sharing", StringComparison.Ordinal)).Select(test => new object[] { test.Name });
+
+    public static IEnumerable<object[]> SharedScenarios => EditorContractTests.Cases
+        .Where(test => test.Name.StartsWith("sharing", StringComparison.Ordinal)).Select(test => new object[] { test.Name });
+
+    [Theory]
+    [MemberData(nameof(SharedScenarios), DisableDiscoveryEnumeration = true)]
+    public Task NativeSharedDocumentContract(string name) => RunContract(name);
 
     [Theory]
     [MemberData(nameof(Scenarios), DisableDiscoveryEnumeration = true)]
-    public Task NativeEditorContract(string name) => WindowsTestHost.RunClipboardAsync(async () =>
+    public Task NativeEditorContract(string name) => RunContract(name);
+
+    private static Task RunContract(string name) => WindowsTestHost.RunClipboardAsync(async () =>
     {
         var editor = new RichEditor();
         var handler = new RichEditorHandler();
