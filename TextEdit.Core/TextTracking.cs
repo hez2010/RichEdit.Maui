@@ -12,12 +12,16 @@ public enum TrackingDeletionBehavior
 /// <summary>Creates disposable source anchors in a balanced interval index with lazy suffix shifts.</summary>
 public sealed class TextTracking
 {
-    private readonly TextDocument _document;
+    private readonly Func<int> _getLength;
+    private readonly Action _verifyAccess;
     private Node? _root;
     private long _nextId;
-    internal TextTracking(TextDocument document) => _document = document;
+    private readonly Queue<Node> _cleanup = [];
+    internal TextTracking(TextDocument document) : this(() => document.Length, document.VerifyAccess) { }
+    internal TextTracking(Func<int> getLength, Action verifyAccess) { _getLength = getLength; _verifyAccess = verifyAccess; }
     internal long LastChangeVisitCount { get; private set; }
-    internal void VerifyAccess() => _document.VerifyAccess();
+    internal int Count { get; private set; }
+    internal void VerifyAccess() => _verifyAccess();
 
     /// <summary>Tracks one UTF-16 boundary. Deleted interior positions invalidate by default.</summary>
     public TextTrackedPosition TrackPosition(int position, PositionAffinity affinity = PositionAffinity.AfterInsertion,
@@ -39,14 +43,23 @@ public sealed class TextTracking
     private void Validate(TextSpan range, PositionAffinity start, PositionAffinity end, TrackingDeletionBehavior deletion)
     {
         VerifyAccess();
-        range.Validate(_document.Length);
-        if (!Enum.IsDefined(start) || !Enum.IsDefined(end) || !Enum.IsDefined(deletion))
-            throw new ArgumentOutOfRangeException(nameof(start));
+        range.Validate(_getLength());
+        Validate(start, deletion);
+        Validate(end, deletion);
     }
+    internal static void Validate(PositionAffinity affinity, TrackingDeletionBehavior deletion)
+    {
+        if (!Enum.IsDefined(affinity) || !Enum.IsDefined(deletion))
+            throw new ArgumentOutOfRangeException(nameof(affinity));
+    }
+    internal TextTrackedRange TrackWeakRange(TextSpan range) => TrackRange(range, deletion: TrackingDeletionBehavior.Preserve);
     private Node Add(TextSpan range, PositionAffinity start, PositionAffinity end, TrackingDeletionBehavior deletion, bool point)
     {
+        Sweep(8);
         var node = new Node(++_nextId, range, start, end, deletion, point);
         SetRoot(Insert(_root, node));
+        _cleanup.Enqueue(node);
+        Count++;
         return node;
     }
     internal void Remove(Node node)
@@ -56,12 +69,46 @@ public sealed class TextTracking
             return;
         var position = node.CurrentRange.Start;
         SetRoot(Delete(_root, position, node.Id));
-        node.Alive = false;
+        node.Invalidate();
+        Count--;
+    }
+
+    private void Sweep(int budget)
+    {
+        var count = Math.Min(budget, _cleanup.Count);
+        while (count-- > 0)
+        {
+            var node = _cleanup.Dequeue();
+            if (!node.Alive)
+                continue;
+            if (node.Handle?.TryGetTarget(out _) == true)
+                _cleanup.Enqueue(node);
+            else
+                Remove(node);
+        }
+    }
+
+    internal void InvalidateAll()
+    {
+        VerifyAccess();
+        var pending = new Stack<Node>();
+        if (_root is not null) pending.Push(_root);
+        while (pending.TryPop(out var node))
+        {
+            if (node.Left is not null) pending.Push(node.Left);
+            if (node.Right is not null) pending.Push(node.Right);
+            node.Left = node.Right = node.Parent = null;
+            node.Invalidate();
+        }
+        _root = null;
+        _cleanup.Clear();
+        Count = 0;
     }
 
     internal void MapThrough(PositionMap map)
     {
         LastChangeVisitCount = 0;
+        Sweep(64);
         var length = map.OldLength;
         foreach (var change in map.Changes)
         {
@@ -83,7 +130,8 @@ public sealed class TextTracking
                     : single.Map(item.Range, node.StartAffinity, node.EndAffinity, node.Deletion == TrackingDeletionBehavior.Invalidate);
                 if (mapped is not { } range)
                 {
-                    node.Alive = false;
+                    node.Invalidate();
+                    Count--;
                     continue;
                 }
                 node.Start = range.Start;
@@ -250,6 +298,13 @@ public sealed class TextTracking
         internal bool Alive = true;
         internal int Start, End, MaxEnd, Lazy;
         internal Node? Left, Right, Parent;
+        internal WeakReference<TextTrackingHandle>? Handle;
+        internal void Invalidate()
+        {
+            Alive = false;
+            if (Handle?.TryGetTarget(out var handle) == true)
+                handle.ReleaseOwner();
+        }
         internal TextSpan CurrentRange
         {
             get
@@ -268,7 +323,13 @@ public abstract class TextTrackingHandle : IDisposable
 {
     private TextTracking? _owner;
     private readonly TextTracking.Node _node;
-    private protected TextTrackingHandle(TextTracking owner, TextTracking.Node node) { _owner = owner; _node = node; }
+    private protected TextTrackingHandle(TextTracking owner, TextTracking.Node node)
+    {
+        _owner = owner;
+        _node = node;
+        node.Handle = new(this);
+    }
+    internal void ReleaseOwner() => _owner = null;
     private protected TextSpan? CurrentRange
     {
         get

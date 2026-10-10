@@ -82,7 +82,7 @@ public partial class RichEditorHandler
             1, (layout.GetLineBottom(index) - layout.GetLineTop(index)) / LayoutDensity);
     }
 
-    private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(RichTextRange range)
+    private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(TextSpan range)
     {
         if (PlatformView.Layout is not { } layout)
             return Array.Empty<Rect>();

@@ -33,7 +33,7 @@ public sealed record RichTextDecorationStyle
 /// <summary>A nonempty UTF-16 range with presentation-only appearance.</summary>
 /// <param name="Range">The range to decorate.</param>
 /// <param name="Style">The appearance overrides.</param>
-public sealed record RichTextDecoration(RichTextRange Range, RichTextDecorationStyle Style);
+public sealed record RichTextDecoration(TextSpan Range, RichTextDecorationStyle Style);
 
 /// <summary>Owns one independently replaceable set of decorations for an editor.</summary>
 /// <remarks>Layers compose in creation order. Later layers override earlier layers only for properties they specify.</remarks>
@@ -44,7 +44,7 @@ public sealed partial class RichTextDecorationLayer : IDisposable
     internal ImmutableArray<RichTextDecoration> Items { get; set; } = [];
     internal ImmutableArray<RichTextDecoration> PendingItems { get; set; }
     internal ImmutableArray<RichTextDecoration> PaintedItems { get; set; }
-    internal RichTextRevision PendingRevision { get; set; }
+    internal DocumentRevision PendingRevision { get; set; }
     internal bool RemovalPending { get; set; }
 
     internal RichTextDecorationLayer(RichTextDecorations owner) => _owner = owner;
@@ -53,7 +53,7 @@ public sealed partial class RichTextDecorationLayer : IDisposable
     /// <param name="revision">The source revision used to calculate these decorations.</param>
     /// <param name="decorations">The new decorations. Ranges are validated before any appearance changes.</param>
     /// <returns>False when the revision is stale, foreign, or invalid.</returns>
-    public bool TrySet(RichTextRevision revision, IEnumerable<RichTextDecoration> decorations)
+    public bool TrySet(DocumentRevision revision, IEnumerable<RichTextDecoration> decorations)
     {
         ObjectDisposedException.ThrowIf(_owner is null, this);
         ArgumentNullException.ThrowIfNull(decorations);
@@ -86,7 +86,7 @@ public sealed class RichTextDecorations
     private readonly List<RichTextDecorationLayer> _layers = [];
     private RichTextDocumentSnapshot? _projectionSource;
     private RichTextDocumentSnapshot? _projection;
-    private RichTextRange? _dirtyRange;
+    private TextSpan? _dirtyRange;
     private bool _refreshQueued;
     private long _notifiedVersion;
 
@@ -151,7 +151,7 @@ public sealed class RichTextDecorations
         NotifyChanged();
     }
 
-    internal bool TrySet(RichTextDecorationLayer layer, RichTextRevision revision, ImmutableArray<RichTextDecoration> items)
+    internal bool TrySet(RichTextDecorationLayer layer, DocumentRevision revision, ImmutableArray<RichTextDecoration> items)
     {
         _editor.VerifyAccess();
         if (revision != _editor.Document.Revision)
@@ -226,7 +226,7 @@ public sealed class RichTextDecorations
         return _projection = projected;
     }
 
-    internal RichTextDocumentSnapshot RestoreAuthoredSnapshot(RichTextDocumentSnapshot observed, RichTextRange replacement)
+    internal RichTextDocumentSnapshot RestoreAuthoredSnapshot(RichTextDocumentSnapshot observed, TextSpan replacement)
     {
         var source = _editor.Document.CurrentSnapshot;
         var projected = ProjectPainted(source);
@@ -310,7 +310,7 @@ public sealed class RichTextDecorations
         ImmutableArray<RichTextDecoration> Map(ImmutableArray<RichTextDecoration> items) =>
             [.. items.Select(item => item with
             {
-                Range = RichTextSelectionState.FromRange(item.Range).Map(changes.Changes, _editor.Document.Length).Range,
+                Range = TextSelectionState.FromRange(item.Range).Map(changes.Changes, _editor.Document.Length).Range,
             }).Where(static item => !item.Range.IsEmpty)];
         foreach (var layer in _layers)
         {
@@ -332,9 +332,9 @@ public sealed class RichTextDecorations
             var affected = changes.GetAffectedRange(_editor.Document.Length);
             if (_dirtyRange is { } previous)
             {
-                previous = RichTextSelectionState.FromRange(previous).Map(changes.Changes, _editor.Document.Length).Range;
+                previous = TextSelectionState.FromRange(previous).Map(changes.Changes, _editor.Document.Length).Range;
                 var start = Math.Min(previous.Start, affected.Start);
-                affected = new RichTextRange(start, Math.Max(previous.End, affected.End) - start);
+                affected = new TextSpan(start, Math.Max(previous.End, affected.End) - start);
             }
 
             _dirtyRange = affected;

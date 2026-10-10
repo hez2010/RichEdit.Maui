@@ -257,7 +257,7 @@ public partial class RichEditorPage : ContentPage
 
     private void OnNewDocumentClicked(object? sender, EventArgs e) =>
         Editor.Document.Edit(edit =>
-            edit.DeleteText(new RichTextRange(0, Editor.Document.Length)));
+            edit.DeleteText(new TextSpan(0, Editor.Document.Length)));
 
     private void OnBoldClicked(object? sender, EventArgs e)
     {

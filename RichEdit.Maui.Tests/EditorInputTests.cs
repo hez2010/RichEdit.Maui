@@ -16,7 +16,7 @@ public sealed class EditorInputTests
         Assert.Equal("text!", editor.Document.Text);
         editor.Undo();
         Assert.Equal("text", editor.Document.Text);
-        Assert.Equal(new RichTextRange(4, 0), editor.SelectedRange);
+        Assert.Equal(new TextSpan(4, 0), editor.SelectedRange);
         editor.KeyBindings.RemoveAt(editor.KeyBindings.Count - 1);
         Assert.True(editor.TextView.SendKeyDown(EditorKey.Tab, EditorKeyModifiers.None));
         Assert.Equal("text    ", editor.Document.Text);

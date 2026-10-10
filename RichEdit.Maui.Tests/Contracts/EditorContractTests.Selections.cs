@@ -383,10 +383,10 @@ internal static partial class EditorContractTests
             NativeMultiInsert(editor, "X");
             await Verify(editor);
             Equal("X middle X", editor.Document.Text);
-            Equal(new RichTextRange(2, 6), untouched.Range!.Value);
+            Equal(new TextSpan(2, 6), untouched.Range!.Value);
             editor.Undo();
             await Verify(editor);
-            Equal(new RichTextRange(4, 6), untouched.Range!.Value);
+            Equal(new TextSpan(4, 6), untouched.Range!.Value);
         });
 
         yield return new("selections input limit rejects the complete native batch", async editor =>

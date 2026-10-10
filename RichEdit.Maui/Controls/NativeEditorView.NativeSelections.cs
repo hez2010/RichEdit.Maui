@@ -12,7 +12,7 @@ public partial class NativeEditorView
         IReadOnlyList<RichTextChange> NativeCorrections,
         TextSelectionSet Selections);
 
-    private NativeSelectionEdit? ExpandNativeSelectionEdit(RichTextDocumentSnapshot native, RichTextSelectionState nativeSelection)
+    private NativeSelectionEdit? ExpandNativeSelectionEdit(RichTextDocumentSnapshot native, TextSelectionState nativeSelection)
     {
         if (Selections.Count < 2 || Composition.IsActive || (Handler as IRichEditorHandler)?.IsComposing == true)
             return null;
@@ -20,7 +20,7 @@ public partial class NativeEditorView
         var before = Document.CurrentSnapshot;
         var selections = Selections;
         var primary = selections.Primary;
-        var primaryRange = new RichTextRange(primary.Range.Start, primary.Range.Length);
+        var primaryRange = new TextSpan(primary.Range.Start, primary.Range.Length);
         RichTextTextChange? primaryChange = null;
         if (RichTextDocumentSnapshot.TryGetReplacement(before.Text, native.Text, primaryRange, out var inserted) &&
             (before.Text != native.Text || !primaryRange.IsEmpty && nativeSelection.IsEmpty &&
@@ -28,9 +28,9 @@ public partial class NativeEditorView
             primaryChange = new(primaryRange, inserted);
         else if (primaryRange.IsEmpty && before.Length > native.Length)
         {
-            var backward = new RichTextRange(PreviousTextElement(before.Text, primary.Active),
+            var backward = new TextSpan(PreviousTextElement(before.Text, primary.Active),
                 primary.Active - PreviousTextElement(before.Text, primary.Active));
-            var forward = new RichTextRange(primary.Active, primary.Active == before.Length ? 0 :
+            var forward = new TextSpan(primary.Active, primary.Active == before.Length ? 0 :
                 StringInfo.GetNextTextElementLength(before.Text.AsSpan(primary.Active)));
             if (RichTextDocumentSnapshot.TryGetReplacement(before.Text, native.Text, backward, out var backwardText) && backwardText.Length == 0)
                 primaryChange = new(backward, "");
@@ -54,10 +54,10 @@ public partial class NativeEditorView
         if (!replacesSelection && !deletesBackward && !deletesForward)
             return null;
 
-        var replacements = new List<(TextSelection Selection, RichTextRange Range, string Text)>();
+        var replacements = new List<(TextSelection Selection, TextSpan Range, string Text)>();
         foreach (var item in selections)
         {
-            var range = new RichTextRange(item.Range.Start, item.Range.Length);
+            var range = new TextSpan(item.Range.Start, item.Range.Length);
             if (item.Id == primary.Id)
                 range = primaryChange.OldRange;
             else if (range.IsEmpty && deletesBackward)
@@ -87,7 +87,7 @@ public partial class NativeEditorView
         {
             if (item.Selection.Id == primary.Id)
                 continue;
-            var mappedStart = RichTextSelectionState.MapOffset(item.Range.Start, primaryChange);
+            var mappedStart = TextSelectionStateExtensions.MapOffset(item.Range.Start, primaryChange);
             // Disjoint ranges retain their lengths through the primary replacement.
             transaction.ReplaceText(new(mappedStart, item.Range.Length), item.Text, before.GetCaretFormat(item.Range.Start));
         }

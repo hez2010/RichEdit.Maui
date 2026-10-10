@@ -27,13 +27,13 @@ internal interface IRichEditorHandler
     bool CanRedo { get; }
 
     void ApplyDocument(
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat);
 
     void ApplyChanges(
         RichTextChangeSet changes,
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat);
 
@@ -43,9 +43,9 @@ internal interface IRichEditorHandler
 
     void ApplyFolding();
 
-    void SetSelection(RichTextSelectionState selection);
+    void SetSelection(TextSelectionState selection);
 
-    void ScrollIntoView(RichTextRange range);
+    void ScrollIntoView(TextSpan range);
 
     void ApplyTypingFormat(
         RichTextCharacterFormat characterFormat,

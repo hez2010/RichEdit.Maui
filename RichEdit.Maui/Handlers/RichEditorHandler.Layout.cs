@@ -15,7 +15,7 @@ public partial class RichEditorHandler
     internal Rect? GetTextCaretBounds(int position, RichTextCaretAffinity affinity) => HasTextLayout ?
         GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(position, affinity == RichTextCaretAffinity.Downstream), affinity) : null;
 
-    internal IReadOnlyList<Rect> GetTextRangeBounds(RichTextRange range)
+    internal IReadOnlyList<Rect> GetTextRangeBounds(TextSpan range)
     {
         if (!HasTextLayout)
             return Array.Empty<Rect>();
@@ -31,11 +31,11 @@ public partial class RichEditorHandler
             if (item.SourcePosition >= range.End)
                 break;
 
-            result.AddRange(GetTextRangeBoundsCore(NativeProjection.ToDisplay(new RichTextRange(start, item.SourcePosition - start))));
+            result.AddRange(GetTextRangeBoundsCore(NativeProjection.ToDisplay(new TextSpan(start, item.SourcePosition - start))));
             start = item.SourcePosition;
         }
         if (start < range.End)
-            result.AddRange(GetTextRangeBoundsCore(NativeProjection.ToDisplay(new RichTextRange(start, range.End - start))));
+            result.AddRange(GetTextRangeBoundsCore(NativeProjection.ToDisplay(new TextSpan(start, range.End - start))));
 
         return result;
     }
@@ -46,11 +46,11 @@ public partial class RichEditorHandler
 
     private partial Rect? GetTextCaretBoundsCore(int position, RichTextCaretAffinity affinity);
 
-    private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(RichTextRange range);
+    private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(TextSpan range);
 
     private partial RichTextHit? HitTestTextCore(Point point);
 
-    private ImmutableArray<RichTextRange> VisibleSourceRanges(int start, int end)
+    private ImmutableArray<TextSpan> VisibleSourceRanges(int start, int end)
     {
         if (start < end && NativeProjection.ToSource(start) == NativeProjection.ToSource(end))
             return [];
@@ -59,7 +59,7 @@ public partial class RichEditorHandler
         end = NativeProjection.ToSource(end);
         start = Math.Clamp(start, 0, VirtualView.InputSnapshot.Length);
         end = Math.Clamp(end, start, VirtualView.InputSnapshot.Length);
-        var result = new List<RichTextRange>();
+        var result = new List<TextSpan>();
         var folds = VirtualView.InputFoldRanges;
         if (start == end && !folds.Any(range => start >= range.Start && start < range.End))
             result.Add(new(start, 0));

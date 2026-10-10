@@ -117,8 +117,8 @@ public abstract record RichTextChange
 {
     private protected RichTextChange(
         RichTextChangeKind kind,
-        RichTextRange oldRange,
-        RichTextRange newRange)
+        TextSpan oldRange,
+        TextSpan newRange)
     {
         Kind = kind;
         OldRange = oldRange;
@@ -129,10 +129,10 @@ public abstract record RichTextChange
     public RichTextChangeKind Kind { get; }
 
     /// <summary>Gets the affected range before the change.</summary>
-    public RichTextRange OldRange { get; }
+    public TextSpan OldRange { get; }
 
     /// <summary>Gets the affected range after the change.</summary>
-    public RichTextRange NewRange { get; }
+    public TextSpan NewRange { get; }
 }
 
 /// <summary>
@@ -145,11 +145,11 @@ public sealed record RichTextTextChange : RichTextChange
     /// </summary>
     /// <param name="oldRange">The replaced range in the preceding document version.</param>
     /// <param name="insertedText">The normalized text inserted in its place.</param>
-    public RichTextTextChange(RichTextRange oldRange, string insertedText)
+    public RichTextTextChange(TextSpan oldRange, string insertedText)
         : base(
             RichTextChangeKind.Text,
             oldRange,
-            new RichTextRange(oldRange.Start, (insertedText ?? throw new ArgumentNullException(nameof(insertedText))).Length))
+            new TextSpan(oldRange.Start, (insertedText ?? throw new ArgumentNullException(nameof(insertedText))).Length))
     {
         InsertedText = insertedText;
     }
@@ -177,8 +177,8 @@ public sealed record RichTextRangeChange : RichTextChange
     /// </exception>
     public RichTextRangeChange(
         RichTextChangeKind kind,
-        RichTextRange oldRange,
-        RichTextRange newRange)
+        TextSpan oldRange,
+        TextSpan newRange)
         : base(kind, oldRange, newRange)
     {
         if (kind == RichTextChangeKind.Text)
@@ -240,9 +240,9 @@ public sealed class RichTextChangeSet
     /// <summary>Gets a value indicating whether logical text changed.</summary>
     public bool IsTextChanged => Changes.Any(static change => change.Kind == RichTextChangeKind.Text);
 
-    internal RichTextRange GetAffectedRange(int documentLength)
+    internal TextSpan GetAffectedRange(int documentLength)
     {
-        RichTextRange? affected = null;
+        TextSpan? affected = null;
         var hasNonemptyAffectedChange = Changes.Any(static change =>
             change.Kind != RichTextChangeKind.Metadata &&
             (!change.NewRange.IsEmpty || IsSemanticKind(change.Kind) && !change.OldRange.IsEmpty));
@@ -275,14 +275,14 @@ public sealed class RichTextChangeSet
 
         if (affected is not { } result)
         {
-            return RichTextRange.Empty;
+            return TextSpan.Empty;
         }
 
         result = result.Clamp(documentLength);
         if (result.IsEmpty && documentLength > 0)
         {
             var start = Math.Min(result.Start, documentLength - 1);
-            return new RichTextRange(start, 1);
+            return new TextSpan(start, 1);
         }
 
         return result;
@@ -294,13 +294,13 @@ public sealed class RichTextChangeSet
             RichTextChangeKind.Image or
             RichTextChangeKind.List;
 
-    private static RichTextRange MapRange(
-        RichTextRange range,
+    private static TextSpan MapRange(
+        TextSpan range,
         RichTextTextChange change)
     {
         var start = MapPosition(range.Start, change);
         var end = MapPosition(range.End, change);
-        return new RichTextRange(Math.Min(start, end), Math.Abs(end - start));
+        return new TextSpan(Math.Min(start, end), Math.Abs(end - start));
     }
 
     private static int MapPosition(int position, RichTextTextChange change)
@@ -318,14 +318,14 @@ public sealed class RichTextChangeSet
         return change.NewRange.End;
     }
 
-    private static RichTextRange Union(RichTextRange first, RichTextRange second)
+    private static TextSpan Union(TextSpan first, TextSpan second)
     {
         var start = Math.Min(first.Start, second.Start);
         var end = Math.Max(first.End, second.End);
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
-    internal RichTextSelectionState? SelectionAfter { get; set; }
+    internal TextSelectionState? SelectionAfter { get; set; }
 
     internal object? SelectionOwnerToken { get; set; }
 

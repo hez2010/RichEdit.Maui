@@ -207,14 +207,14 @@ public partial class RichEditorHandler
 
     private partial void ApplyDisplayChangesCore(
         RichTextChangeSet changes,
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
         => ApplyDisplayChangesCore(changes, selection, typingCharacterFormat, typingParagraphFormat, GetPreviousFormattingSnapshot(changes));
 
     private void ApplyDisplayChangesCore(
         RichTextChangeSet changes,
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat,
         RichTextDocumentSnapshot? previousSnapshot)
@@ -259,7 +259,7 @@ public partial class RichEditorHandler
             nativeDocument.BatchDisplayUpdates();
             displayUpdatesBatched = true;
             var loadedImages = new HashSet<int>();
-            var loadedRanges = new List<RichTextRange>();
+            var loadedRanges = new List<TextSpan>();
             var textChanges = changes.Changes.OfType<RichTextTextChange>().ToArray();
             foreach (var textChange in textChanges)
             {

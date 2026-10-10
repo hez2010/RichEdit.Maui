@@ -4,7 +4,8 @@ namespace TextEdit.Core;
 public readonly struct DocumentRevision : IEquatable<DocumentRevision>
 {
     private readonly object? _identity;
-    internal DocumentRevision(object identity, long version) { _identity = identity; Version = version; }
+    internal DocumentRevision(object? identity, long version) { _identity = identity; Version = version; }
+    internal object? Identity => _identity;
 
     /// <summary>Gets whether this revision belongs to a live document.</summary>
     public bool IsValid => _identity is not null;

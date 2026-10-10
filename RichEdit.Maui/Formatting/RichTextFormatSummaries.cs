@@ -108,7 +108,7 @@ public sealed class RichTextCharacterFormatSummary
 
     internal static RichTextCharacterFormatSummary Create(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange range)
+        TextSpan range)
     {
         if (range.IsEmpty)
         {
@@ -200,7 +200,7 @@ public sealed class RichTextParagraphFormatSummary
 
     internal static RichTextParagraphFormatSummary Create(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange range)
+        TextSpan range)
     {
         var lastPosition = range.IsEmpty ? range.Start : range.End - 1;
         var firstParagraphStart = GetParagraphStart(snapshot.Text, range.Start);

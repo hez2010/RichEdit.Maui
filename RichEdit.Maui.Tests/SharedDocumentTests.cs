@@ -39,7 +39,7 @@ public class SharedDocumentTests
 
         Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => first.Selection.ReplaceText("X")));
         Assert.Equal("aXbc", document.Text);
-        Assert.Equal(new RichTextRange(4, 0), second.SelectedRange);
+        Assert.Equal(new TextSpan(4, 0), second.SelectedRange);
         Assert.True(notified);
         Assert.True(document.CanUndo);
         second.Document = new RichTextDocument();

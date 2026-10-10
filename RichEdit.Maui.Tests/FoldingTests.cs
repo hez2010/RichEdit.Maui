@@ -26,10 +26,10 @@ public class FoldingTests
         var editor = new CodeEditor { Document = new("head\none\ntwo\ntail"), SelectedRange = new(5, 8) };
         var actions = new CodeEditorActions(editor);
         actions.CollapseSelection();
-        Assert.Equal(new RichTextRange(8, 4), Assert.Single(editor.Folding.CollapsedRanges));
-        Assert.Equal(new RichTextRange(8, 0), editor.SelectedRange);
+        Assert.Equal(new TextSpan(8, 4), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(8, 0), editor.SelectedRange);
         editor.SelectedRange = new(5, 0); // The entire visible header can be used with Expand at caret.
-        Assert.Equal(new RichTextRange(8, 4), actions.GetFoldAtCaret());
+        Assert.Equal(new TextSpan(8, 4), actions.GetFoldAtCaret());
         actions.ExpandAtCaret();
         Assert.Empty(editor.Folding.CollapsedRanges);
         Assert.Equal("head\none\ntwo\ntail", editor.Document.Text);
@@ -40,8 +40,8 @@ public class FoldingTests
     public Task NestedRangesExpandIndependentlyAndNavigationIsExplicit() => WindowsTestHost.RunAsync(() =>
     {
         var editor = new CodeEditor { Document = new("head\none\ntwo\ntail") };
-        var outer = new RichTextRange(5, 8);
-        var inner = new RichTextRange(9, 4);
+        var outer = new TextSpan(5, 8);
+        var inner = new TextSpan(9, 4);
         editor.Folding.Collapse(inner);
         editor.Folding.Collapse(outer);
         Assert.Equal(new[] { outer, inner }, editor.Folding.CollapsedRanges);
@@ -69,7 +69,7 @@ public class FoldingTests
         Assert.Null(actions.GetCollapseRange());
         actions.CollapseSelection();
         Assert.Empty(editor.Folding.CollapsedRanges);
-        Assert.Equal(new RichTextRange(start, length), editor.SelectedRange);
+        Assert.Equal(new TextSpan(start, length), editor.SelectedRange);
         Assert.False(editor.CanUndo);
     });
 
@@ -94,7 +94,7 @@ public class FoldingTests
         editor.Folding.Collapse(new(1, 5));
         Assert.Same(snapshot, editor.Document.CurrentSnapshot);
         Assert.Equal(rtf, editor.Document.RtfText);
-        Assert.Equal(new RichTextSelectionState(5, 1), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(5, 1), editor.SelectionState);
         Assert.False(editor.Document.IsModified);
         Assert.True(editor.CanUndo);
         Assert.True(editor.CanRedo);
@@ -113,17 +113,17 @@ public class FoldingTests
         var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abCDEFgh") };
         editor.Folding.Collapse(new(2, 4));
         editor.Document.Edit(edit => edit.InsertText(0, "!"));
-        Assert.Equal(new RichTextRange(3, 4), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(3, 4), Assert.Single(editor.Folding.CollapsedRanges));
         editor.Document.Edit(edit => edit.InsertText(3, "<"));
-        Assert.Equal(new RichTextRange(4, 4), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(4, 4), Assert.Single(editor.Folding.CollapsedRanges));
         editor.Document.Edit(edit => edit.InsertText(8, ">"));
-        Assert.Equal(new RichTextRange(4, 4), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(4, 4), Assert.Single(editor.Folding.CollapsedRanges));
         editor.Document.Edit(edit => edit.InsertText(6, "inside"));
-        Assert.Equal(new RichTextRange(4, 10), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(4, 10), Assert.Single(editor.Folding.CollapsedRanges));
         editor.Document.Edit(edit => edit.ReplaceText(new(3, 3), "start"));
-        Assert.Equal(new RichTextRange(8, 8), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(8, 8), Assert.Single(editor.Folding.CollapsedRanges));
         editor.Document.Edit(edit => edit.DeleteText(new(14, 3)));
-        Assert.Equal(new RichTextRange(8, 6), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(8, 6), Assert.Single(editor.Folding.CollapsedRanges));
         editor.Document.Edit(edit => edit.ReplaceText(new(7, 8), "replacement"));
         Assert.Empty(editor.Folding.CollapsedRanges);
     });
@@ -132,10 +132,10 @@ public class FoldingTests
     public Task InvalidUpdatesAreAtomicAndDocumentReplacementClearsFolds() => WindowsTestHost.RunAsync(() =>
     {
         var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcdefgh") };
-        var range = new RichTextRange(2, 4);
+        var range = new TextSpan(2, 4);
         editor.Folding.Collapse(range);
-        Assert.Throws<ArgumentException>(() => editor.Folding.SetCollapsedRanges((RichTextRange[])[new(1, 2), new(5, 0)]));
-        Assert.Throws<ArgumentOutOfRangeException>(() => editor.Folding.SetCollapsedRanges((RichTextRange[])[new(1, 2), new(6, 3)]));
+        Assert.Throws<ArgumentException>(() => editor.Folding.SetCollapsedRanges((TextSpan[])[new(1, 2), new(5, 0)]));
+        Assert.Throws<ArgumentOutOfRangeException>(() => editor.Folding.SetCollapsedRanges((TextSpan[])[new(1, 2), new(6, 3)]));
         Assert.Equal(range, Assert.Single(editor.Folding.CollapsedRanges));
         var notifications = 0;
         editor.Folding.Changed += (_, _) => notifications++;
@@ -186,7 +186,7 @@ public class FoldingTests
         handler.PlatformView.Document.GetRange(source.Length, source.Length).SetText(TextSetOptions.None, "!");
         await Task.Delay(100);
         Assert.Equal(source + "!", editor.Document.Text);
-        Assert.Equal(new RichTextRange(5, 8), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(5, 8), Assert.Single(editor.Folding.CollapsedRanges));
         Assert.All(editor.Document.CurrentSnapshot.Runs, run => Assert.False(run.Format.Hidden));
         editor.Undo();
         await Task.Delay(80);
@@ -214,7 +214,7 @@ public class FoldingTests
         handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "!");
         await Task.Delay(100);
         Assert.Equal(source + "!", editor.Document.Text);
-        Assert.Equal(new RichTextRange(5, 4), Assert.Single(editor.Document.CurrentSnapshot.Links).Range);
+        Assert.Equal(new TextSpan(5, 4), Assert.Single(editor.Document.CurrentSnapshot.Links).Range);
         editor.Folding.ExpandAll();
         await Task.Delay(50);
         Assert.Equal(source + "!", editor.Document.Text);
@@ -235,7 +235,7 @@ public class FoldingTests
         try
         {
             await Task.Delay(60);
-            Assert.Equal(new RichTextRange(5, 8), Assert.Single(editor.Folding.CollapsedRanges));
+            Assert.Equal(new TextSpan(5, 8), Assert.Single(editor.Folding.CollapsedRanges));
             var collapsed = GetRect(replacement, 13).Y;
             editor.Folding.ExpandAll();
             await Task.Delay(60);

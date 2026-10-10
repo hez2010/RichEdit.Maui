@@ -56,7 +56,7 @@ internal static class AndroidEditorTests
         {
             editor.Selection.ReplaceText("one\nsecond");
             Equal(editor.Document.Text, native.Text);
-            Equal(new RichTextRange(10, 0), editor.SelectedRange);
+            Equal(new TextSpan(10, 0), editor.SelectedRange);
             editor.Undo();
             Equal("", native.Text);
             editor.Redo();
@@ -68,7 +68,7 @@ internal static class AndroidEditorTests
             editor.Selection.ToggleBold();
             native.EditableText!.Insert(0, "a");
             Equal("a", editor.Document.Text);
-            Equal(true, editor.Document.GetCharacterFormat(new RichTextRange(0, 1)).RepresentativeFormat.Bold);
+            Equal(true, editor.Document.GetCharacterFormat(new TextSpan(0, 1)).RepresentativeFormat.Bold);
         }));
 
         await Test("hardware Tab respects AcceptsTab and MaxLength", () => Sync(() =>
@@ -104,7 +104,7 @@ internal static class AndroidEditorTests
                 $"soft-line indents: first={native.Layout.GetPrimaryHorizontal(0)}, next={native.Layout.GetPrimaryHorizontal(4)}, expected difference={indent}; spans=" +
                 string.Join(";", native.EditableText!.GetSpans(0, 7, Java.Lang.Class.FromType(typeof(LeadingMarginSpanStandard)))!.OfType<LeadingMarginSpanStandard>()
                     .Select(span => $"{native.EditableText.GetSpanStart(span)}..{native.EditableText.GetSpanEnd(span)}={span.GetLeadingMargin(true)}/{span.GetLeadingMargin(false)}")));
-            editor.SelectedRange = new RichTextRange(4, 3);
+            editor.SelectedRange = new TextSpan(4, 3);
             EditorContractTests.NativeReplace(editor, "next");
             await EditorContractTests.Verify(editor);
             Equal("one\u2028next", editor.Document.Text);
@@ -145,7 +145,7 @@ internal static class AndroidEditorTests
             {
                 edit.SetDefaultCharacterFormat(RichTextCharacterFormat.Default with { FontSize = 16.5, ForegroundColor = Colors.Red });
                 edit.InsertText(0, "first\nsecond");
-                edit.UpdateParagraphFormat(new RichTextRange(0, 12), format => format with
+                edit.UpdateParagraphFormat(new TextSpan(0, 12), format => format with
                 {
                     Alignment = RichTextAlignment.Distributed,
                     LeadingIndent = 18.5,
@@ -183,7 +183,7 @@ internal static class AndroidEditorTests
             Equal("", editor.Document.Text);
             native.OnTextContextMenuItem(Android.Resource.Id.Undo);
             Equal(before, editor.Document.RtfText);
-            Equal(new RichTextRange(0, 5), editor.SelectedRange);
+            Equal(new TextSpan(0, 5), editor.SelectedRange);
             native.OnTextContextMenuItem(Android.Resource.Id.Redo);
             Equal("", editor.Document.Text);
         });
@@ -221,12 +221,12 @@ internal static class AndroidEditorTests
             editor.Selection.ReplaceText("abcd");
             editor.IsReadOnly = true;
             editor.IsReadOnly = false;
-            editor.SelectedRange = new RichTextRange(2, 0);
+            editor.SelectedRange = new TextSpan(2, 0);
             Equal(true, native.RequestFocus());
             await EditorContractTests.Verify(editor);
             using var key = new Android.Views.KeyEvent(Android.Views.KeyEventActions.Down, Android.Views.Keycode.DpadLeft);
             native.DispatchKeyEvent(key);
-            Equal(new RichTextRange(1, 0), editor.SelectedRange);
+            Equal(new TextSpan(1, 0), editor.SelectedRange);
         });
 
         await Test("length limit constrains typing but allows document edits", () => Sync(() =>
@@ -266,7 +266,7 @@ internal static class AndroidEditorTests
                 await Test($"list marker survives native typing and composition: numbered={numbered}, text={originalText.Replace("\n", "\\n").Replace("\u2028", "\\u2028")}", async () =>
                 {
                     editor.Selection.ReplaceText(originalText);
-                    editor.SelectedRange = new RichTextRange(0, 0);
+                    editor.SelectedRange = new TextSpan(0, 0);
                     editor.Selection.SetList(new RichTextListDefinition([
                     new RichTextListLevelDefinition
                     {
@@ -281,7 +281,7 @@ internal static class AndroidEditorTests
                     connection.CommitText(first, 1);
                     await VerifyMarker();
 
-                    editor.SelectedRange = new RichTextRange(0, 1);
+                    editor.SelectedRange = new TextSpan(0, 1);
                     using var composing = new Java.Lang.String("te");
                     connection.SetComposingText(composing, 1);
                     await VerifyMarker();
@@ -292,7 +292,7 @@ internal static class AndroidEditorTests
 
                     var text = editor.Document.Text;
                     var firstLineEnd = text.IndexOfAny(['\n', '\u2028']);
-                    editor.SelectedRange = new RichTextRange(0, firstLineEnd < 0 ? text.Length : firstLineEnd);
+                    editor.SelectedRange = new TextSpan(0, firstLineEnd < 0 ? text.Length : firstLineEnd);
                     connection.CommitText(first, 1);
                     await VerifyMarker();
 
@@ -319,7 +319,7 @@ internal static class AndroidEditorTests
         await Test("paragraph spacing follows native span positions after typing", () => Sync(() =>
         {
             editor.Selection.ReplaceText("one\nsecond");
-            editor.Document.Edit(edit => edit.UpdateParagraphFormat(new RichTextRange(4, 6), format => format with { SpaceBefore = 10 }));
+            editor.Document.Edit(edit => edit.UpdateParagraphFormat(new TextSpan(4, 6), format => format with { SpaceBefore = 10 }));
             native.EditableText!.Insert(0, "x");
             var span = native.EditableText!.GetSpans(5, 11, Java.Lang.Class.FromType(typeof(Java.Lang.Object)))!
                 .OfType<ILineHeightSpan>().Single();
@@ -395,7 +395,7 @@ internal static class AndroidEditorTests
         {
             native.RequestFocus();
             editor.Selection.ReplaceText("abc");
-            editor.SelectedRange = new RichTextRange(1, 1);
+            editor.SelectedRange = new TextSpan(1, 1);
             editor.MaxLength = 4;
             using var info = new Android.Views.InputMethods.EditorInfo();
             using var connection = native.OnCreateInputConnection(info)!;

@@ -26,7 +26,7 @@ public sealed partial class CodeEditor
         var edits = new List<RichTextEdit>();
         foreach (var selection in Selections)
         {
-            var range = new RichTextRange(selection.Range.Start, selection.Range.Length);
+            var range = new TextSpan(selection.Range.Start, selection.Range.Length);
             if (range.IsEmpty)
             {
                 var line = Lines.GetRange(Lines.GetLineIndex(range.Start));
@@ -40,7 +40,7 @@ public sealed partial class CodeEditor
             {
                 var (first, last) = Lines.GetSelectedLines(range);
                 for (var line = first; line <= last; line++)
-                    edits.Add(new(new RichTextRange(Lines.GetRange(line).Start, 0), Indentation));
+                    edits.Add(new(new TextSpan(Lines.GetRange(line).Start, 0), Indentation));
             }
         }
         ApplyEdits(edits.DistinctBy(static edit => edit.Range).ToArray(), "Indent");
@@ -63,7 +63,7 @@ public sealed partial class CodeEditor
                 while (length < Math.Min(IndentSize, range.Length) && Document.Text[range.Start + length] == ' ')
                     length++;
             if (length > 0)
-                edits.Add(new(new RichTextRange(range.Start, length), string.Empty));
+                edits.Add(new(new TextSpan(range.Start, length), string.Empty));
         }
 
         ApplyEdits(edits, "Outdent lines");
@@ -86,7 +86,7 @@ public sealed partial class CodeEditor
             return;
 
         var selectedLines = SelectedSourceLines();
-        var targets = new List<RichTextRange>();
+        var targets = new List<TextSpan>();
         foreach (var line in selectedLines)
         {
             var range = Lines.GetRange(line);
@@ -95,7 +95,7 @@ public sealed partial class CodeEditor
                 start++;
             if (start != range.End || selectedLines.Count == 1 || Selections.Any(selection =>
                 selection.Range.IsEmpty && Lines.GetLineIndex(selection.Active) == line))
-                targets.Add(new RichTextRange(start, range.End - start));
+                targets.Add(new TextSpan(start, range.End - start));
         }
 
         var uncomment = targets.Count > 0 && targets.All(range =>
@@ -109,10 +109,10 @@ public sealed partial class CodeEditor
                 if (length < range.Length && Document.Text[range.Start + length] == ' ')
                     length++;
 
-                edits.Add(new(new RichTextRange(range.Start, length), string.Empty));
+                edits.Add(new(new TextSpan(range.Start, length), string.Empty));
             }
             else
-                edits.Add(new(new RichTextRange(range.Start, 0), LineCommentPrefix + " "));
+                edits.Add(new(new TextSpan(range.Start, 0), LineCommentPrefix + " "));
         }
 
         ApplyEdits(edits, uncomment ? "Uncomment lines" : "Comment lines");
@@ -121,7 +121,7 @@ public sealed partial class CodeEditor
     /// <summary>Gets the source range for a one-based logical line, excluding its line terminator.</summary>
     /// <param name="line">The one-based line number.</param>
     /// <returns>The line's UTF-16 source range.</returns>
-    public RichTextRange GetLineRange(int line) => Lines.GetRange(line - 1);
+    public TextSpan GetLineRange(int line) => Lines.GetRange(line - 1);
 
     /// <summary>Converts a bounded UTF-16 offset to a one-based line and column.</summary>
     /// <param name="offset">The source offset.</param>
@@ -178,7 +178,7 @@ public sealed partial class CodeEditor
 
         var document = Document;
         var version = document.Version;
-        var caret = new RichTextRange(change.NewRange.End, 0);
+        var caret = new TextSpan(change.NewRange.End, 0);
         handler.Post(() =>
         {
             if (ReferenceEquals(NativeAdapter, handler) && !Composition.IsActive && AutoIndent && !IsReadOnly && CanUndo &&
@@ -197,7 +197,7 @@ public sealed partial class CodeEditor
     /// <param name="selectionAfter">The resulting directional selection, or null to map the current selection.</param>
     /// <param name="options">Undo and application metadata.</param>
     /// <returns>Whether the current view accepted the revision and edits.</returns>
-    public bool TryApplyEdits(RichTextRevision revision, IReadOnlyList<RichTextEdit> edits,
-        RichTextSelectionState? selectionAfter = null, RichTextEditOptions options = default) =>
+    public bool TryApplyEdits(DocumentRevision revision, IReadOnlyList<RichTextEdit> edits,
+        TextSelectionState? selectionAfter = null, RichTextEditOptions options = default) =>
             TextView.TryApplyEdits(revision, edits, selectionAfter, options);
 }

@@ -8,7 +8,7 @@ public partial class NativeEditorView
 
     private RichTextDocument? _compositionDocument;
     private RichTextDocumentSnapshot? _compositionSnapshot;
-    private RichTextSelectionState? _compositionSelection;
+    private TextSelectionState? _compositionSelection;
     private object? _compositionSourceToken;
     private bool _committingComposition;
     private RichTextDocument? _compositionPreviewDocument;
@@ -28,7 +28,7 @@ public partial class NativeEditorView
     }
 
     /// <summary>Gets the native selection within the provisional snapshot, or null outside composition.</summary>
-    public RichTextSelectionState? CompositionSelection
+    public TextSelectionState? CompositionSelection
     {
         get
         {
@@ -41,7 +41,7 @@ public partial class NativeEditorView
 
     internal RichTextDocumentSnapshot InputSnapshot => InputDocument.CurrentSnapshot;
 
-    internal RichTextSelectionState InputSelection
+    internal TextSelectionState InputSelection
     {
         get => _compositionSelection ?? SelectionState;
         set
@@ -60,7 +60,7 @@ public partial class NativeEditorView
         }
     }
 
-    private void StageComposition(RichTextDocumentSnapshot snapshot, RichTextSelectionState selection, object sourceToken)
+    private void StageComposition(RichTextDocumentSnapshot snapshot, TextSelectionState selection, object sourceToken)
     {
         _compositionDocument ??= Document;
         _compositionPreviewDocument ??= new RichTextDocument(Document.CurrentSnapshot);
@@ -144,15 +144,15 @@ public partial class NativeEditorView
             recordedChanges: changes);
     }
 
-    internal IReadOnlyList<RichTextRange> InputFoldRanges => Composition.IsActive
+    internal IReadOnlyList<TextSpan> InputFoldRanges => Composition.IsActive
         ? Folding.EffectiveRanges.Select(MapRangeToInput).Where(range => !range.IsEmpty).ToArray()
         : Folding.EffectiveRanges;
 
-    internal RichTextRange MapRangeToInput(RichTextRange range)
+    internal TextSpan MapRangeToInput(TextSpan range)
     {
         foreach (var change in _compositionPositionChanges.OfType<RichTextTextChange>())
-            range = RichTextPositionMap.Map(range, change, RichTextTrackingAffinity.AfterInsertion,
-                RichTextTrackingAffinity.BeforeInsertion, RichTextTrackingDeletionBehavior.Preserve)!.Value;
+            range = RichTextPositionMap.Map(range, change, PositionAffinity.AfterInsertion,
+                PositionAffinity.BeforeInsertion, TrackingDeletionBehavior.Preserve)!.Value;
         return range.Clamp(InputSnapshot.Length);
     }
 

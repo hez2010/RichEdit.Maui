@@ -266,7 +266,7 @@ public partial class RichEditorHandler
         var length = end - start;
         UpdateCompositionState();
         UpdateDocumentFromDisplay(document, start, length, _sourceToken, selectionState:
-            (selection.Options & SelectionOptions.StartActive) != 0 ? new RichTextSelectionState(end, start) : new RichTextSelectionState(start, end));
+            (selection.Options & SelectionOptions.StartActive) != 0 ? new TextSelectionState(end, start) : new TextSelectionState(start, end));
         PlatformView.Document.ClearUndoRedoHistory();
         VirtualView.UpdateUndoStateFromPlatform();
         UpdateTypingFormatsFromPlatform();
@@ -312,11 +312,11 @@ public partial class RichEditorHandler
         // A content callback with unchanged text can represent a native formatting
         // command. In that case inspect only the current selection (or its caret
         // neighbor), never the complete story.
-        var characterRange = new RichTextRange(prefixLength, insertedText.Length);
+        var characterRange = new TextSpan(prefixLength, insertedText.Length);
         if (characterRange.IsEmpty)
         {
             characterRange = selectionEnd > selectionStart
-                ? new RichTextRange(selectionStart, selectionEnd - selectionStart)
+                ? new TextSpan(selectionStart, selectionEnd - selectionStart)
                 : GetCaretInspectionRange(selectionStart, text.Length);
         }
 
@@ -328,10 +328,10 @@ public partial class RichEditorHandler
         var paragraphSeed = insertedText.Length != 0
             ? characterRange
             : textChanged
-                ? new RichTextRange(Math.Min(prefixLength, text.Length), 0)
+                ? new TextSpan(Math.Min(prefixLength, text.Length), 0)
                 : selectionEnd > selectionStart
-                    ? new RichTextRange(selectionStart, selectionEnd - selectionStart)
-                    : new RichTextRange(selectionStart, 0);
+                    ? new TextSpan(selectionStart, selectionEnd - selectionStart)
+                    : new TextSpan(selectionStart, 0);
         var paragraphRange = GetAffectedParagraphRange(paragraphSeed, text);
         return TryOverlayNativeParagraphFormats(document, paragraphRange, out document);
     }
@@ -369,7 +369,7 @@ public partial class RichEditorHandler
 
     private bool TryOverlayNativeCharacterFormats(
         RichTextDocumentSnapshot source,
-        RichTextRange range,
+        TextSpan range,
         out RichTextDocumentSnapshot result)
     {
         result = source;
@@ -410,7 +410,7 @@ public partial class RichEditorHandler
 
     private bool TryOverlayNativeParagraphFormats(
         RichTextDocumentSnapshot source,
-        RichTextRange range,
+        TextSpan range,
         out RichTextDocumentSnapshot result)
     {
         result = source;
@@ -478,15 +478,15 @@ public partial class RichEditorHandler
         return true;
     }
 
-    private static RichTextRange GetCaretInspectionRange(int position, int textLength)
+    private static TextSpan GetCaretInspectionRange(int position, int textLength)
     {
         if (textLength == 0)
         {
-            return RichTextRange.Empty;
+            return TextSpan.Empty;
         }
 
         var start = position == textLength ? textLength - 1 : position;
-        return new RichTextRange(start, 1);
+        return new TextSpan(start, 1);
     }
 
     private void OnNativeSelectionChanged(object sender, RoutedEventArgs eventArgs)
@@ -512,7 +512,7 @@ public partial class RichEditorHandler
         end = Math.Clamp(end, start, DisplaySourceSnapshot.Text.Length);
         var length = end - start;
         UpdateSelectionFromDisplay((selection.Options & SelectionOptions.StartActive) != 0 ?
-            new RichTextSelectionState(end, start) : new RichTextSelectionState(start, end));
+            new TextSelectionState(end, start) : new TextSelectionState(start, end));
         UpdateTypingFormatsFromPlatform();
     }
 

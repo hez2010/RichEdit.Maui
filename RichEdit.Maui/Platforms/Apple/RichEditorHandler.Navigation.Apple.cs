@@ -6,8 +6,8 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private partial (RichTextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
-        RichTextSelectionState selection, EditorKey direction, bool extend, double? preferredX)
+    private partial (TextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
+        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX)
     {
         var vertical = direction is EditorKey.Up or EditorKey.Down;
         var position = selection.Active;

@@ -154,7 +154,7 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void SetNativeSelectionCore(RichTextSelectionState selection)
+    private partial void SetNativeSelectionCore(TextSelectionState selection)
     {
         if (PlatformView is null)
             return;
@@ -176,7 +176,7 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void ScrollIntoViewCore(RichTextRange range)
+    private partial void ScrollIntoViewCore(TextSpan range)
     {
         _adornmentScrollAnchor = null;
         _viewportAfterLayout = null;
@@ -241,7 +241,7 @@ public partial class RichEditorHandler
             PlatformView.TextStorage.BeginEditing();
             try
             {
-                ApplyCharacterFormatsIncrementally(snapshot, new RichTextRange(0, snapshot.Length));
+                ApplyCharacterFormatsIncrementally(snapshot, new TextSpan(0, snapshot.Length));
             }
             finally
             {

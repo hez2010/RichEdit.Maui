@@ -289,7 +289,7 @@ public sealed class RichTextDocumentTests
 
         Assert.Equal($"ab{RichTextDocument.ObjectReplacementCharacter}cXYZf", replaced.Text);
         Assert.Equal(
-            new RichTextField(new RichTextFieldId(1), new RichTextRange(0, 2), "DATE"),
+            new RichTextField(new RichTextFieldId(1), new TextSpan(0, 2), "DATE"),
             Assert.Single(replaced.Fields));
         Assert.Equal(2, Assert.Single(replaced.Images).Position);
         Assert.Equal(new RichTextLink(3, 5, "https://example.test", "tip"), Assert.Single(replaced.Links));

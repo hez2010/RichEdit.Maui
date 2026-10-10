@@ -63,7 +63,7 @@ public partial class CodeEditorTests
         await dispatched.Task;
 
         Assert.True(features.NextPlaceholder(previous: true));
-        Assert.Equal(new RichTextRange(4, 0), editor.SelectedRange);
+        Assert.Equal(new TextSpan(4, 0), editor.SelectedRange);
         Assert.True(editor.TryApplyEdits(editor.Document.Revision, (RichTextEdit[])[new(editor.SelectedRange, "answer")]));
         Assert.True(features.NextPlaceholder());
         Assert.Equal("value", editor.Selection.Text);

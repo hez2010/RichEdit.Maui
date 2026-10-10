@@ -42,37 +42,37 @@ public sealed partial class CodeEditor : ContentView
 
     /// <summary>Identifies the directional <see cref="SelectionState"/>.</summary>
     public static readonly BindableProperty SelectionStateProperty = BindableProperty.Create(
-        nameof(SelectionState), typeof(RichTextSelectionState), typeof(CodeEditor), default(RichTextSelectionState), BindingMode.TwoWay,
+        nameof(SelectionState), typeof(TextSelectionState), typeof(CodeEditor), default(TextSelectionState), BindingMode.TwoWay,
         coerceValue: static (view, value) =>
         {
             var editor = (CodeEditor)view;
             editor.VerifyAccess();
-            var selection = (RichTextSelectionState)value;
-            return new RichTextSelectionState(Math.Min(selection.Anchor, editor.Document.Length), Math.Min(selection.Active, editor.Document.Length));
+            var selection = (TextSelectionState)value;
+            return new TextSelectionState(Math.Min(selection.Anchor, editor.Document.Length), Math.Min(selection.Active, editor.Document.Length));
         },
         propertyChanged: static (view, _, value) =>
         {
             var editor = (CodeEditor)view;
             if (!editor._synchronizingSelection)
-                editor.TextView.SelectionState = (RichTextSelectionState)value;
+                editor.TextView.SelectionState = (TextSelectionState)value;
         });
 
     /// <summary>Identifies <see cref="SelectedRange"/>.</summary>
     public static readonly BindableProperty SelectedRangeProperty = BindableProperty.Create(
-        nameof(SelectedRange), typeof(RichTextRange), typeof(CodeEditor), RichTextRange.Empty, BindingMode.TwoWay,
+        nameof(SelectedRange), typeof(TextSpan), typeof(CodeEditor), TextSpan.Empty, BindingMode.TwoWay,
         coerceValue: static (view, value) =>
         {
             ((CodeEditor)view).VerifyAccess();
-            var range = (RichTextRange)value;
+            var range = (TextSpan)value;
             var length = ((CodeEditor)view).Document.Length;
             var start = Math.Min(range.Start, length);
-            return new RichTextRange(start, Math.Min(range.Length, length - start));
+            return new TextSpan(start, Math.Min(range.Length, length - start));
         },
         propertyChanged: static (view, _, value) =>
         {
             var editor = (CodeEditor)view;
             if (!editor._synchronizingSelection)
-                editor.TextView.SelectedRange = (RichTextRange)value;
+                editor.TextView.SelectedRange = (TextSpan)value;
         });
 
     /// <summary>Identifies <see cref="TextColor"/>.</summary>
@@ -259,10 +259,10 @@ public sealed partial class CodeEditor : ContentView
     }
 
     /// <summary>Gets or sets the selected UTF-16 range, clamped to the source length.</summary>
-    public RichTextRange SelectedRange { get => TextView.SelectedRange; set => TextView.SelectedRange = value; }
+    public TextSpan SelectedRange { get => TextView.SelectedRange; set => TextView.SelectedRange = value; }
 
     /// <summary>Gets or sets the anchor and active offsets.</summary>
-    public RichTextSelectionState SelectionState { get => TextView.SelectionState; set => TextView.SelectionState = value; }
+    public TextSelectionState SelectionState { get => TextView.SelectionState; set => TextView.SelectionState = value; }
 
     /// <summary>Gets the source-only live selection facade.</summary>
     public CodeTextSelection Selection { get; }
@@ -369,7 +369,7 @@ public sealed partial class CodeEditor : ContentView
 
     /// <summary>Reveals source without changing the selection.</summary>
     /// <param name="range">The source range to reveal.</param>
-    public void ScrollIntoView(RichTextRange range) => TextView.ScrollIntoView(range);
+    public void ScrollIntoView(TextSpan range) => TextView.ScrollIntoView(range);
 
     /// <summary>Copies the selection through the native clipboard.</summary>
     /// <returns>The clipboard operation.</returns>

@@ -26,7 +26,7 @@ public enum RichTextHitKind
 /// <param name="SourceRanges">The visible source intervals, in source order.</param>
 /// <param name="Bounds">The fragment bounds in the exposing control's coordinates.</param>
 /// <param name="Baseline">The baseline's vertical coordinate.</param>
-public sealed record RichTextVisualLine(IReadOnlyList<RichTextRange> SourceRanges, Rect Bounds, double Baseline);
+public sealed record RichTextVisualLine(IReadOnlyList<TextSpan> SourceRanges, Rect Bounds, double Baseline);
 
 /// <summary>A source-position hit without changing selection, scrolling, or folding.</summary>
 /// <param name="Position">The nearest UTF-16 source boundary.</param>
@@ -44,7 +44,7 @@ public sealed class RichTextLayoutSnapshot
     internal object SourceIdentity { get; }
     internal bool IncludesInput { get; }
 
-    internal RichTextLayoutSnapshot(object owner, object attachment, RichTextRevision revision, long version,
+    internal RichTextLayoutSnapshot(object owner, object attachment, DocumentRevision revision, long version,
         Rect viewport, Rect textViewport, IEnumerable<RichTextVisualLine> lines, Point origin,
         RichTextDocumentSnapshot source, bool includesInput, bool isProvisional)
     {
@@ -63,7 +63,7 @@ public sealed class RichTextLayoutSnapshot
     }
 
     /// <summary>Gets the captured source-document revision.</summary>
-    public RichTextRevision DocumentRevision { get; }
+    public DocumentRevision DocumentRevision { get; }
 
     /// <summary>Gets the layout generation, independent of source history.</summary>
     public long LayoutVersion { get; }
@@ -166,7 +166,7 @@ public sealed class RichTextLayout
         if (!IsCurrent(layout))
             return null;
 
-        new RichTextRange(position, 0).Validate(layout.SourceLength, nameof(position));
+        new TextSpan(position, 0).Validate(layout.SourceLength, nameof(position));
         if (!Enum.IsDefined(affinity))
             throw new ArgumentOutOfRangeException(nameof(affinity));
         if (_editor.InputFoldRanges.Any(range => position >= range.Start && position < range.End))
@@ -182,7 +182,7 @@ public sealed class RichTextLayout
     /// <param name="layout">A current capture from this service.</param>
     /// <param name="range">The bounded source range. Empty ranges use downstream caret geometry.</param>
     /// <returns>Visible rectangles, or an empty collection.</returns>
-    public IReadOnlyList<Rect> GetRangeBounds(RichTextLayoutSnapshot layout, RichTextRange range)
+    public IReadOnlyList<Rect> GetRangeBounds(RichTextLayoutSnapshot layout, TextSpan range)
     {
         if (!IsCurrent(layout))
             return Array.Empty<Rect>();

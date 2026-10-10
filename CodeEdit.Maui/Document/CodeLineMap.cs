@@ -34,12 +34,12 @@ internal sealed class CodeLineMap
         return result >= 0 ? result : ~result - 1;
     }
 
-    internal RichTextRange GetRange(int index)
+    internal TextSpan GetRange(int index)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(index);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Count);
         var end = index + 1 < Count ? _starts[index + 1] - 1 : Text.Length;
-        return new RichTextRange(_starts[index], end - _starts[index]);
+        return new TextSpan(_starts[index], end - _starts[index]);
     }
 
     internal CodePosition GetPosition(int offset)
@@ -48,7 +48,7 @@ internal sealed class CodeLineMap
         return new CodePosition(index + 1, offset - _starts[index] + 1);
     }
 
-    internal (int First, int Last) GetSelectedLines(RichTextRange selection)
+    internal (int First, int Last) GetSelectedLines(TextSpan selection)
     {
         var last = GetLineIndex(selection.End);
         if (!selection.IsEmpty && last > 0 && selection.End == _starts[last])

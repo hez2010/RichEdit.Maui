@@ -11,5 +11,6 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TextEdit.Core.Tests" />
+    <InternalsVisibleTo Include="RichEdit.Maui" />
   </ItemGroup>
 </Project>

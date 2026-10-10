@@ -33,7 +33,7 @@ public sealed partial class CodeEditor
     private CodeDocumentSnapshot? _compositionSnapshot;
 
     /// <summary>Gets the native provisional selection, or null outside composition.</summary>
-    public RichTextSelectionState? CompositionSelection => TextView.CompositionSelection;
+    public TextSelectionState? CompositionSelection => TextView.CompositionSelection;
 
     /// <summary>Occurs when native marked text starts, changes, or ends.</summary>
     public event EventHandler<RichTextCompositionChangedEventArgs>? CompositionChanged;

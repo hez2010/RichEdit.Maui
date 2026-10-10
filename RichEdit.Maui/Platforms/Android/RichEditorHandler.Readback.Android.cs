@@ -6,7 +6,7 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private RichTextDocumentSnapshot ReadDocumentFromPlatform(string text, RichTextRange? replacedRange = null)
+    private RichTextDocumentSnapshot ReadDocumentFromPlatform(string text, TextSpan? replacedRange = null)
     {
         if (PlatformView.EditableText is not { } editable)
         {
@@ -157,7 +157,7 @@ public partial class RichEditorHandler
         RichTextDocumentSnapshot document;
         if (requiresNativeSnapshot)
         {
-            document = ReadDocumentFromPlatform(editable.ToString() ?? string.Empty, new RichTextRange(removedStart, removedLength));
+            document = ReadDocumentFromPlatform(editable.ToString() ?? string.Empty, new TextSpan(removedStart, removedLength));
         }
         else
         {
@@ -178,7 +178,7 @@ public partial class RichEditorHandler
             ApplyInsertedTypingFormat(
                 editable,
                 presentation,
-                new RichTextRange(insertedStart, insertedLength));
+                new TextSpan(insertedStart, insertedLength));
         }
 
         if (paragraphStructureChanged)
@@ -189,7 +189,7 @@ public partial class RichEditorHandler
                 // EditText moves Paragraph spans but does not split our custom
                 // list markers, spacing, and borders into new paragraph objects.
                 ApplyParagraphFormatsIncrementally(editable, document,
-                    GetAffectedParagraphRange(new RichTextRange(insertedStart, insertedLength), document.Text));
+                    GetAffectedParagraphRange(new TextSpan(insertedStart, insertedLength), document.Text));
                 UpdateGlobalParagraphProjection(document);
             }
             finally
@@ -200,7 +200,7 @@ public partial class RichEditorHandler
 
         var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Text.Length);
         var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Text.Length);
-        UpdateDocumentFromDisplay(document, start, end - start, _sourceToken, selectionState: new RichTextSelectionState(
+        UpdateDocumentFromDisplay(document, start, end - start, _sourceToken, selectionState: new TextSelectionState(
             Math.Clamp(PlatformView.SelectionStart, 0, document.Length), Math.Clamp(PlatformView.SelectionEnd, 0, document.Length)), presentation: presentation);
         WatchNativeFormats();
         UpdateTypingFormatsFromPlatform();
@@ -290,7 +290,7 @@ public partial class RichEditorHandler
             Math.Max(eventArgs.Start, eventArgs.End),
             start,
             DisplaySourceSnapshot.Text.Length);
-        UpdateSelectionFromDisplay(new RichTextSelectionState(
+        UpdateSelectionFromDisplay(new TextSelectionState(
             Math.Clamp(eventArgs.Start, 0, DisplaySourceSnapshot.Length), Math.Clamp(eventArgs.End, 0, DisplaySourceSnapshot.Length)));
         UpdateTypingFormatsFromPlatform();
     }
@@ -377,7 +377,7 @@ public partial class RichEditorHandler
     private void ApplyInsertedTypingFormat(
         ISpannable text,
         RichTextDocumentSnapshot document,
-        RichTextRange range)
+        TextSpan range)
     {
         _applyingDocument = true;
         try

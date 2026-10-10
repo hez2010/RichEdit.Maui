@@ -220,7 +220,7 @@ namespace RichEdit.Maui.Platforms.Apple
 
             var start = map.ToSource((int)GetDisplayOffset(BeginningOfDocument, range.Start));
             var end = map.ToSource((int)GetDisplayOffset(BeginningOfDocument, range.End));
-            var display = map.ToDisplay(new RichTextRange(start, Math.Max(0, end - start)));
+            var display = map.ToDisplay(new TextSpan(start, Math.Max(0, end - start)));
             using var first = GetDisplayPosition(BeginningOfDocument, display.Start);
             using var last = GetDisplayPosition(BeginningOfDocument, display.End);
             return GetDisplayRange(first!, last!)!;

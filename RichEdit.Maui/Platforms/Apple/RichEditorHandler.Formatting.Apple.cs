@@ -14,7 +14,7 @@ public partial class RichEditorHandler
 {
     private void ApplyCharacterFormatsIncrementally(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange range,
+        TextSpan range,
         RichTextDocumentSnapshot? previousSnapshot = null)
     {
         if (range.IsEmpty || snapshot.Length == 0)

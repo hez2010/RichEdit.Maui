@@ -41,7 +41,7 @@ public sealed class PositionMap
     /// <summary>Gets sequential replacement geometry.</summary>
     public ImmutableArray<PositionChange> Changes { get; }
 
-    /// <summary>Maps an endpoint. Replaced interior positions collapse according to affinity, or return null when invalidation is requested.</summary>
+    /// <summary>Maps an endpoint. Positions in replaced source collapse according to affinity, or return null when invalidation is requested.</summary>
     public int? Map(int position, PositionAffinity affinity = PositionAffinity.AfterInsertion, bool invalidateOnDeletion = false)
     {
         new TextSpan(position, 0).Validate(OldLength);
@@ -50,7 +50,7 @@ public sealed class PositionMap
         foreach (var change in Changes)
         {
             var range = change.OldSpan;
-            if (invalidateOnDeletion && position > range.Start && position < range.End)
+            if (invalidateOnDeletion && !range.IsEmpty && position >= range.Start && position < range.End)
                 return null;
             position = MapEndpoint(position, change, affinity);
         }
@@ -66,7 +66,9 @@ public sealed class PositionMap
             throw new ArgumentOutOfRangeException(nameof(startAffinity));
         foreach (var change in Changes)
         {
-            if (invalidateOnDeletion && Math.Max(range.Start, change.OldSpan.Start) < Math.Min(range.End, change.OldSpan.End))
+            if (invalidateOnDeletion && !change.OldSpan.IsEmpty && (range.IsEmpty
+                ? range.Start >= change.OldSpan.Start && range.Start < change.OldSpan.End
+                : Math.Max(range.Start, change.OldSpan.Start) < Math.Min(range.End, change.OldSpan.End)))
                 return null;
             var start = MapEndpoint(range.Start, change, startAffinity);
             var end = MapEndpoint(range.End, change, endAffinity);

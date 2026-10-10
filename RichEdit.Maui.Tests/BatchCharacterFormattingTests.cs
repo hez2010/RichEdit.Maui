@@ -10,18 +10,18 @@ public class BatchCharacterFormattingTests
         var document = RichTextDocument.FromPlainText("abcdefghijkl\nmnopqrst");
         document.Edit(edit =>
         {
-            edit.SetCharacterFormat(new RichTextRange(3, 6), new() { Italic = true });
-            edit.SetParagraphFormat(new RichTextRange(0, 1), new() { Alignment = RichTextAlignment.Center });
-            edit.SetLink(new RichTextRange(15, 3), "https://example.com");
+            edit.SetCharacterFormat(new TextSpan(3, 6), new() { Italic = true });
+            edit.SetParagraphFormat(new TextSpan(0, 1), new() { Alignment = RichTextAlignment.Center });
+            edit.SetLink(new TextSpan(15, 3), "https://example.com");
             edit.SetMetadata("source", "test");
         });
         var before = document.CurrentSnapshot;
         RichTextRun[] replacements =
         [
-            new(new RichTextRange(1, 2), new() { ForegroundColor = Colors.Red }),
-            new(new RichTextRange(3, 4), new() { ForegroundColor = Colors.Red }),
-            new(new RichTextRange(8, 7), new() { FontWeight = 700 }),
-            new(new RichTextRange(18, 3), new() { BackgroundColor = Colors.Yellow }),
+            new(new TextSpan(1, 2), new() { ForegroundColor = Colors.Red }),
+            new(new TextSpan(3, 4), new() { ForegroundColor = Colors.Red }),
+            new(new TextSpan(8, 7), new() { FontWeight = 700 }),
+            new(new TextSpan(18, 3), new() { BackgroundColor = Colors.Yellow }),
         ];
         var expected = before;
         foreach (var replacement in replacements)
@@ -49,8 +49,8 @@ public class BatchCharacterFormattingTests
         document.Edit(edit =>
         {
             edit.InsertText(2, "cd");
-            edit.SetCharacterFormats((RichTextRun[])[new(new RichTextRange(1, 3), new() { Italic = true })]);
-            edit.UpdateCharacterFormat(new RichTextRange(2, 2), format => format with { FontWeight = 700 });
+            edit.SetCharacterFormats((RichTextRun[])[new(new TextSpan(1, 3), new() { Italic = true })]);
+            edit.UpdateCharacterFormat(new TextSpan(2, 2), format => format with { FontWeight = 700 });
         });
         Assert.False(document.CurrentSnapshot.GetCharacterFormat(0).Italic);
         Assert.True(document.CurrentSnapshot.GetCharacterFormat(1).Italic);
@@ -67,12 +67,12 @@ public class BatchCharacterFormattingTests
         var format = new RichTextCharacterFormat { Italic = true };
         RichTextRun[][] invalidBatches =
         [
-            [new(new RichTextRange(0, 2), format), new(new RichTextRange(1, 2), format)],
-            [new(new RichTextRange(3, 1), format), new(new RichTextRange(1, 1), format)],
-            [new(new RichTextRange(0, 1), format), new(new RichTextRange(4, 1), format)],
-            [new(new RichTextRange(0, 1), format), new(new RichTextRange(2, 0), format)],
-            [new(new RichTextRange(0, 1), format), new(new RichTextRange(2, 1), new() { FontSize = -1 })],
-            [new(new RichTextRange(0, 1), format), null!],
+            [new(new TextSpan(0, 2), format), new(new TextSpan(1, 2), format)],
+            [new(new TextSpan(3, 1), format), new(new TextSpan(1, 1), format)],
+            [new(new TextSpan(0, 1), format), new(new TextSpan(4, 1), format)],
+            [new(new TextSpan(0, 1), format), new(new TextSpan(2, 0), format)],
+            [new(new TextSpan(0, 1), format), new(new TextSpan(2, 1), new() { FontSize = -1 })],
+            [new(new TextSpan(0, 1), format), null!],
         ];
         foreach (var batch in invalidBatches)
         {
@@ -102,7 +102,7 @@ public class BatchCharacterFormattingTests
     {
         var document = RichTextDocument.FromPlainText(string.Concat(Enumerable.Repeat("return 42;\n", 2000)));
         var format = new RichTextCharacterFormat { ForegroundColor = Colors.Blue };
-        var runs = Enumerable.Range(0, 2000).Select(index => new RichTextRun(new RichTextRange(index * 11, 6), format)).ToArray();
+        var runs = Enumerable.Range(0, 2000).Select(index => new RichTextRun(new TextSpan(index * 11, 6), format)).ToArray();
         var before = GC.GetAllocatedBytesForCurrentThread();
 
         document.Edit(edit => edit.SetCharacterFormats(runs));

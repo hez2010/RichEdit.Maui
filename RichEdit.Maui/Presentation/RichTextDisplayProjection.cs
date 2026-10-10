@@ -86,7 +86,7 @@ internal sealed class RichTextDisplayProjection
         return result;
     }
 
-    internal RichTextSelectionState ToDisplay(RichTextSelectionState selection)
+    internal TextSelectionState ToDisplay(TextSelectionState selection)
     {
         if (selection.Range.IsEmpty)
         {
@@ -98,9 +98,9 @@ internal sealed class RichTextDisplayProjection
         return selection.IsReversed ? new(range.End, range.Start) : new(range.Start, range.End);
     }
 
-    internal RichTextSelectionState ToSource(RichTextSelectionState selection) => new(ToSource(selection.Anchor), ToSource(selection.Active));
+    internal TextSelectionState ToSource(TextSelectionState selection) => new(ToSource(selection.Anchor), ToSource(selection.Active));
 
-    internal RichTextRange ToDisplay(RichTextRange range)
+    internal TextSpan ToDisplay(TextSpan range)
     {
         if (range.IsEmpty)
             return new(ToDisplayCaret(range.Start), 0);

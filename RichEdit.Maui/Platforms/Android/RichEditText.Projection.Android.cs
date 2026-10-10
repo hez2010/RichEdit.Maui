@@ -4,6 +4,7 @@ using Android.Text;
 using System.Globalization;
 using Android.Views.Accessibility;
 using Android.Views.InputMethods;
+using TextSnapshot = Android.Views.InputMethods.TextSnapshot;
 using System.Runtime.Versioning;
 using AccessibilityAction = Android.Views.Accessibility.Action;
 using NativeAutofillValue = Android.Views.Autofill.AutofillValue;
@@ -223,7 +224,7 @@ public partial class RichEditText
 
         private int Display(int position) => owner.ProjectionHandler?.NativeProjection.ToDisplayCaret(position) ?? position;
 
-        private int DisplayCursorPosition(int cursor, RichTextRange? replacement = null)
+        private int DisplayCursorPosition(int cursor, TextSpan? replacement = null)
         {
             if (Projection is not { } handler || owner.EditableText is not { } text)
                 return cursor;
@@ -257,7 +258,7 @@ public partial class RichEditText
 
             start = Math.Min(start, handler.VirtualView.InputSnapshot.Length);
             end = Math.Min(end, handler.VirtualView.InputSnapshot.Length);
-            var range = handler.NativeProjection.ToDisplay(new RichTextRange(Math.Min(start, end), Math.Abs(end - start)));
+            var range = handler.NativeProjection.ToDisplay(new TextSpan(Math.Min(start, end), Math.Abs(end - start)));
             var cursor = DisplayCursorPosition(newCursorPosition, range);
             return base.ReplaceText(start <= end ? range.Start : range.End, start <= end ? range.End : range.Start, text, cursor, textAttribute);
         });

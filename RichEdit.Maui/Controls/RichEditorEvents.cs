@@ -71,33 +71,33 @@ public sealed class RichTextSelectionChangedEventArgs : EventArgs
     /// <param name="oldRange">The preceding selection range.</param>
     /// <param name="newRange">The current selection range.</param>
     public RichTextSelectionChangedEventArgs(
-        RichTextRange oldRange,
-        RichTextRange newRange)
+        TextSpan oldRange,
+        TextSpan newRange)
     {
-        OldSelection = RichTextSelectionState.FromRange(oldRange);
-        NewSelection = RichTextSelectionState.FromRange(newRange);
+        OldSelection = TextSelectionState.FromRange(oldRange);
+        NewSelection = TextSelectionState.FromRange(newRange);
     }
 
     /// <summary>Gets the preceding selection range.</summary>
-    public RichTextRange OldRange => OldSelection.Range;
+    public TextSpan OldRange => OldSelection.Range;
 
     /// <summary>Gets the preceding directional selection.</summary>
-    public RichTextSelectionState OldSelection { get; }
+    public TextSelectionState OldSelection { get; }
 
     /// <summary>Gets the current directional selection.</summary>
-    public RichTextSelectionState NewSelection { get; }
+    public TextSelectionState NewSelection { get; }
 
     /// <summary>Creates directional selection-change data.</summary>
     /// <param name="oldSelection">The preceding selection.</param>
     /// <param name="newSelection">The current selection.</param>
-    public RichTextSelectionChangedEventArgs(RichTextSelectionState oldSelection, RichTextSelectionState newSelection)
+    public RichTextSelectionChangedEventArgs(TextSelectionState oldSelection, TextSelectionState newSelection)
     {
         OldSelection = oldSelection;
         NewSelection = newSelection;
     }
 
     /// <summary>Gets the current selection range.</summary>
-    public RichTextRange NewRange => NewSelection.Range;
+    public TextSpan NewRange => NewSelection.Range;
 }
 
 /// <summary>
@@ -112,7 +112,7 @@ public sealed class RichTextLinkInvokedEventArgs : EventArgs
     /// <param name="target">The application-defined target.</param>
     /// <param name="toolTip">The optional hyperlink tooltip.</param>
     public RichTextLinkInvokedEventArgs(
-        RichTextRange range,
+        TextSpan range,
         string target,
         string? toolTip)
     {
@@ -123,7 +123,7 @@ public sealed class RichTextLinkInvokedEventArgs : EventArgs
     }
 
     /// <summary>Gets the hyperlink display range.</summary>
-    public RichTextRange Range { get; }
+    public TextSpan Range { get; }
 
     /// <summary>Gets the application-defined hyperlink target.</summary>
     public string Target { get; }
@@ -203,7 +203,7 @@ public sealed class RichTextDocumentFragment
 
     internal static RichTextDocumentFragment FromRange(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange range)
+        TextSpan range)
     {
         range.Validate(snapshot.Length, nameof(range));
         var fragment = snapshot;

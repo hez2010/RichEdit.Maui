@@ -24,10 +24,10 @@ public sealed partial class RichTextDocument
                 suffixLength++;
             }
 
-            var textOldRange = new RichTextRange(
+            var textOldRange = new TextSpan(
                 prefixLength,
                 before.Length - prefixLength - suffixLength);
-            var textNewRange = new RichTextRange(
+            var textNewRange = new TextSpan(
                 prefixLength,
                 after.Length - prefixLength - suffixLength);
             textChange = new RichTextTextChange(
@@ -59,8 +59,8 @@ public sealed partial class RichTextDocument
         {
             changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.DefaultFormat,
-                new RichTextRange(0, before.Length),
-                new RichTextRange(0, after.Length)));
+                new TextSpan(0, before.Length),
+                new TextSpan(0, after.Length)));
         }
 
         AddSemanticDelta(changes, RichTextChangeKind.Link, before.Links, after.Links,
@@ -68,34 +68,34 @@ public sealed partial class RichTextDocument
         AddSemanticDelta(changes, RichTextChangeKind.Field, before.Fields, after.Fields,
             static field => field.Range, before.Length, after.Length);
         AddSemanticDelta(changes, RichTextChangeKind.Image, before.Images, after.Images,
-            static image => new RichTextRange(image.Position, 1), before.Length, after.Length);
+            static image => new TextSpan(image.Position, 1), before.Length, after.Length);
 
         if (!DictionaryEqual(before.Lists, after.Lists) ||
             !DictionaryEqual(before.ListPictures, after.ListPictures))
         {
             changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.List,
-                new RichTextRange(0, before.Length),
-                new RichTextRange(0, after.Length)));
+                new TextSpan(0, before.Length),
+                new TextSpan(0, after.Length)));
         }
 
         if (!DictionaryEqual(before.Metadata, after.Metadata))
         {
             changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.Metadata,
-                new RichTextRange(0, before.Length),
-                new RichTextRange(0, after.Length)));
+                new TextSpan(0, before.Length),
+                new TextSpan(0, after.Length)));
         }
 
         return changes;
     }
 
-    private static RichTextRange? FindRunDifference(
+    private static TextSpan? FindRunDifference(
         RichTextDocumentSnapshot first,
         RichTextDocumentSnapshot second,
         RichTextTextChange? textChange)
     {
-        RichTextRange? affected = textChange?.NewRange;
+        TextSpan? affected = textChange?.NewRange;
         var firstIndex = 0;
         var secondIndex = 0;
         var position = 0;
@@ -132,7 +132,7 @@ public sealed partial class RichTextDocument
 
             if (firstRun.Format != secondRun.Format)
             {
-                affected = UnionRanges(affected, new RichTextRange(position, end - position));
+                affected = UnionRanges(affected, new TextSpan(position, end - position));
             }
 
             position = end;
@@ -141,12 +141,12 @@ public sealed partial class RichTextDocument
         return affected;
     }
 
-    private static RichTextRange? FindParagraphDifference(
+    private static TextSpan? FindParagraphDifference(
         RichTextDocumentSnapshot first,
         RichTextDocumentSnapshot second,
         RichTextTextChange? textChange)
     {
-        RichTextRange? affected = textChange?.NewRange;
+        TextSpan? affected = textChange?.NewRange;
         foreach (var paragraph in first.Paragraphs)
         {
             var oldPosition = paragraph.Start;
@@ -166,27 +166,27 @@ public sealed partial class RichTextDocument
         return affected;
     }
 
-    private static RichTextRange UnionRanges(RichTextRange? first, RichTextRange second)
+    private static TextSpan UnionRanges(TextSpan? first, TextSpan second)
     {
         var start = Math.Min(first?.Start ?? second.Start, second.Start);
         var end = Math.Max(first?.End ?? second.End, second.End);
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
     // Format ranges include the entire text replacement, so mapping them back
     // only needs to undo its length change.
-    private static RichTextRange MapAffectedRangeToBefore(RichTextRange range, RichTextTextChange? textChange) =>
+    private static TextSpan MapAffectedRangeToBefore(TextSpan range, RichTextTextChange? textChange) =>
         textChange is null
             ? range
-            : new RichTextRange(range.Start, range.Length + textChange.OldRange.Length - textChange.NewRange.Length);
+            : new TextSpan(range.Start, range.Length + textChange.OldRange.Length - textChange.NewRange.Length);
 
-    private static RichTextRange ExpandToParagraphs(string text, RichTextRange range)
+    private static TextSpan ExpandToParagraphs(string text, TextSpan range)
     {
         var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
         var inspectedEnd = Math.Clamp(range.End, 0, text.Length);
         var newline = text.IndexOf('\n', inspectedEnd);
         var end = newline < 0 ? text.Length : newline + 1;
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
     private static void AddSemanticDelta<T>(
@@ -194,7 +194,7 @@ public sealed partial class RichTextDocument
         RichTextChangeKind kind,
         IReadOnlyList<T> before,
         IReadOnlyList<T> after,
-        Func<T, RichTextRange> getRange,
+        Func<T, TextSpan> getRange,
         int beforeLength,
         int afterLength)
     {
@@ -209,19 +209,19 @@ public sealed partial class RichTextDocument
             UnionRanges(after, getRange, afterLength)));
     }
 
-    private static RichTextRange UnionRanges<T>(
+    private static TextSpan UnionRanges<T>(
         IReadOnlyList<T> values,
-        Func<T, RichTextRange> getRange,
+        Func<T, TextSpan> getRange,
         int documentLength)
     {
         if (values.Count == 0)
         {
-            return new RichTextRange(0, 0);
+            return new TextSpan(0, 0);
         }
 
         var start = values.Min(value => getRange(value).Start);
         var end = values.Max(value => getRange(value).End);
-        return new RichTextRange(start, Math.Min(end, documentLength) - start);
+        return new TextSpan(start, Math.Min(end, documentLength) - start);
     }
 
     private static bool DictionaryEqual<TKey, TValue>(

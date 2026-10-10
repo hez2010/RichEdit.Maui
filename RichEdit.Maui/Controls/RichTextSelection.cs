@@ -10,7 +10,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     private readonly NativeEditorView _editor;
     private RichTextCharacterFormat[]? _cachedCharacterFormats;
     private RichTextParagraphFormat[]? _cachedParagraphFormats;
-    private RichTextRange _cachedFormatRange;
+    private TextSpan _cachedFormatRange;
     private long _cachedFormatVersion = -1;
     private RichTextCharacterFormat? _cachedTypingCharacterFormat;
 
@@ -25,10 +25,10 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>Gets the current UTF-16 document range.</summary>
-    public RichTextRange Range => _editor.SelectedRange;
+    public TextSpan Range => _editor.SelectedRange;
 
     /// <summary>Gets the anchor and active endpoints.</summary>
-    public RichTextSelectionState State => _editor.SelectionState;
+    public TextSelectionState State => _editor.SelectionState;
 
     /// <summary>Gets the fixed endpoint.</summary>
     public int Anchor => State.Anchor;
@@ -55,17 +55,17 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
 
     /// <summary>Moves the selection to a validated document range.</summary>
     /// <param name="range">The new range.</param>
-    public void Select(RichTextRange range) => _editor.SelectedRange = range;
+    public void Select(TextSpan range) => _editor.SelectedRange = range;
 
     /// <summary>Sets a directional selection, clamped to the document.</summary>
     /// <param name="selection">The new selection.</param>
-    public void Select(RichTextSelectionState selection) => _editor.SelectionState = selection;
+    public void Select(TextSelectionState selection) => _editor.SelectionState = selection;
 
     /// <summary>Applies an atomic editor action with an explicit resulting selection.</summary>
     /// <param name="edit">The content edits.</param>
     /// <param name="selectionAfter">The selection in the resulting document.</param>
     /// <param name="options">History and application metadata.</param>
-    public void Edit(Action<RichTextDocumentEdit> edit, RichTextSelectionState selectionAfter, RichTextEditOptions options = default)
+    public void Edit(Action<RichTextDocumentEdit> edit, TextSelectionState selectionAfter, RichTextEditOptions options = default)
     {
         _editor.VerifyAccess();
         if (!_editor.IsReadOnly && !_editor.Document.HasActiveComposition)
@@ -93,7 +93,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
         var start = Range.Start;
         _editor.EditDocument(
             edit => edit.ReplaceText(Range, normalized, TypingCharacterFormat),
-            new RichTextRange(start + normalized.Length, 0));
+            new TextSpan(start + normalized.Length, 0));
     }
 
     /// <summary>Replaces selected content with a portable rich fragment.</summary>
@@ -121,7 +121,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
         var start = Range.Start;
         _editor.EditDocument(
             edit => edit.ReplaceFragment(Range, fragment),
-            new RichTextRange(start + fragment.Text.Length, 0));
+            new TextSpan(start + fragment.Text.Length, 0));
     }
 
     /// <summary>Updates character formatting across the selection.</summary>
@@ -390,7 +390,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
                 edit.DeleteText(Range);
                 edit.InsertImage(start, image);
             },
-            new RichTextRange(start + 1, 0));
+            new TextSpan(start + 1, 0));
     }
 
     /// <summary>Replaces selected content with a field result.</summary>
@@ -414,7 +414,7 @@ public sealed partial class RichTextSelection : INotifyPropertyChanged
                 edit.DeleteText(Range);
                 edit.InsertField(start, instruction, result, TypingCharacterFormat);
             },
-            new RichTextRange(start + insertedLength, 0));
+            new TextSpan(start + insertedLength, 0));
     }
 
     internal IReadOnlyList<RichTextCharacterFormat> GetCharacterFormats()

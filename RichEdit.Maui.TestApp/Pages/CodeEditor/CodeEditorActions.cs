@@ -19,7 +19,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
         editor.SelectedRange = new(range.Start, 0);
     }
 
-    public RichTextRange? GetCollapseRange()
+    public TextSpan? GetCollapseRange()
     {
         if (editor.SelectedRange.IsEmpty)
             return null;
@@ -29,13 +29,13 @@ internal sealed class CodeEditorActions(CodeEditor editor)
             return null;
         // Keep the first line as the fold header and the final newline as its line break.
         var start = editor.GetLineRange(first).End;
-        return new RichTextRange(start, editor.GetLineRange(last).End - start);
+        return new TextSpan(start, editor.GetLineRange(last).End - start);
     }
 
-    public RichTextRange? GetFoldAtCaret() => editor.Folding.CollapsedRanges
+    public TextSpan? GetFoldAtCaret() => editor.Folding.CollapsedRanges
         .Where(range => editor.GetLineRange(editor.GetPosition(range.Start).Line).Start <= editor.SelectionState.Active && editor.SelectionState.Active <= range.End)
         .OrderByDescending(static range => range.Length)
-        .Select(static range => (RichTextRange?)range)
+        .Select(static range => (TextSpan?)range)
         .FirstOrDefault();
 
     public void ExpandAtCaret()
@@ -64,7 +64,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
         var (first, last) = GetSelectedLines();
         var edits = new List<CodeTextEdit>();
         for (var line = first; line <= last; line++)
-            edits.Add(new(new RichTextRange(editor.GetLineRange(line).Start, 0), Indentation));
+            edits.Add(new(new TextSpan(editor.GetLineRange(line).Start, 0), Indentation));
 
         ApplyEdits(edits, "Indent lines");
     }
@@ -87,7 +87,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
                 while (length < Math.Min(editor.IndentSize, range.Length) && editor.Document.Text[range.Start + length] == ' ')
                     length++;
             if (length > 0)
-                edits.Add(new(new RichTextRange(range.Start, length), string.Empty));
+                edits.Add(new(new TextSpan(range.Start, length), string.Empty));
         }
 
         ApplyEdits(edits, "Outdent lines");
@@ -109,7 +109,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
             return;
 
         var (first, last) = GetSelectedLines();
-        var targets = new List<RichTextRange>();
+        var targets = new List<TextSpan>();
         for (var line = first; line <= last; line++)
         {
             var range = editor.GetLineRange(line);
@@ -117,7 +117,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
             while (start < range.End && editor.Document.Text[start] is ' ' or '\t')
                 start++;
             if (start != range.End || first == last)
-                targets.Add(new RichTextRange(start, range.End - start));
+                targets.Add(new TextSpan(start, range.End - start));
         }
 
         var uncomment = targets.Count > 0 && targets.All(range =>
@@ -131,10 +131,10 @@ internal sealed class CodeEditorActions(CodeEditor editor)
                 if (length < range.Length && editor.Document.Text[range.Start + length] == ' ')
                     length++;
 
-                edits.Add(new(new RichTextRange(range.Start, length), string.Empty));
+                edits.Add(new(new TextSpan(range.Start, length), string.Empty));
             }
             else
-                edits.Add(new(new RichTextRange(range.Start, 0), editor.LineCommentPrefix + " "));
+                edits.Add(new(new TextSpan(range.Start, 0), editor.LineCommentPrefix + " "));
         }
 
         ApplyEdits(edits, uncomment ? "Uncomment lines" : "Comment lines");
@@ -148,7 +148,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
         ArgumentOutOfRangeException.ThrowIfLessThan(line, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(column, 1);
         var range = editor.GetLineRange(Math.Min(line, editor.LineCount));
-        editor.SelectedRange = new RichTextRange(range.Start + Math.Min(column - 1, range.Length), 0);
+        editor.SelectedRange = new TextSpan(range.Start + Math.Min(column - 1, range.Length), 0);
         editor.ScrollIntoView(editor.SelectedRange);
     }
 
@@ -156,10 +156,10 @@ internal sealed class CodeEditorActions(CodeEditor editor)
     /// <param name="query">The literal text to find.</param>
     /// <param name="options">Case and identifier-boundary options.</param>
     /// <returns>Ordered UTF-16 source ranges.</returns>
-    public IReadOnlyList<RichTextRange> FindAll(string query, CodeSearchOptions options = default)
+    public IReadOnlyList<TextSpan> FindAll(string query, CodeSearchOptions options = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        var matches = new List<RichTextRange>();
+        var matches = new List<TextSpan>();
         if (query.Length == 0)
             return matches;
 
@@ -176,7 +176,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
             if (!options.WholeWord ||
                 (position == 0 || !IsIdentifierPart(text[position - 1])) &&
                 (end == text.Length || !IsIdentifierPart(text[end])))
-                matches.Add(new RichTextRange(position, query.Length));
+                matches.Add(new TextSpan(position, query.Length));
 
             position = end;
         }
@@ -189,7 +189,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
     /// <param name="options">Case and identifier-boundary options.</param>
     /// <param name="wrap">Whether to continue from the beginning.</param>
     /// <returns>The selected range, or null when no match is found.</returns>
-    public RichTextRange? FindNext(string query, CodeSearchOptions options = default, bool wrap = true)
+    public TextSpan? FindNext(string query, CodeSearchOptions options = default, bool wrap = true)
     {
         var matches = FindAll(query, options);
         foreach (var match in matches)
@@ -204,7 +204,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
     /// <param name="options">Case and identifier-boundary options.</param>
     /// <param name="wrap">Whether to continue from the end.</param>
     /// <returns>The selected range, or null when no match is found.</returns>
-    public RichTextRange? FindPrevious(string query, CodeSearchOptions options = default, bool wrap = true)
+    public TextSpan? FindPrevious(string query, CodeSearchOptions options = default, bool wrap = true)
     {
         var matches = FindAll(query, options);
         for (var i = matches.Count - 1; i >= 0; i--)
@@ -227,7 +227,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
         return ApplyEdits(matches.Select(range => new CodeTextEdit(range, normalized)).ToList(), "Replace all") ? matches.Count : 0;
     }
 
-    private RichTextRange SelectMatch(RichTextRange range)
+    private TextSpan SelectMatch(TextSpan range)
     {
         editor.SelectedRange = range;
         editor.ScrollIntoView(editor.SelectedRange);
@@ -281,5 +281,5 @@ internal sealed class CodeEditorActions(CodeEditor editor)
         char.GetUnicodeCategory(character) is System.Globalization.UnicodeCategory.NonSpacingMark or
             System.Globalization.UnicodeCategory.SpacingCombiningMark or System.Globalization.UnicodeCategory.ConnectorPunctuation;
 
-    private readonly record struct CodeTextEdit(RichTextRange Range, string Text);
+    private readonly record struct CodeTextEdit(TextSpan Range, string Text);
 }

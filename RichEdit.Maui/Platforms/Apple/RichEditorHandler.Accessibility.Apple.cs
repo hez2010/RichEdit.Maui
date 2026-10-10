@@ -51,7 +51,7 @@ namespace RichEdit.Maui.Platforms.Apple
             return editor.Document.CurrentSnapshot.Paragraphs.TakeWhile(paragraph => paragraph.Start <= hit.Position).Count() - 1;
         }
 
-        private RichTextRange? AccessibilityLine(nint line)
+        private TextSpan? AccessibilityLine(nint line)
         {
             if (ProjectionHandler is not { VirtualView.InputSnapshot: var source } || line < 0 || line >= source.Paragraphs.Length)
                 return null;

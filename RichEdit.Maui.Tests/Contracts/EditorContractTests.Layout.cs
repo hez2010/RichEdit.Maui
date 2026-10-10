@@ -108,7 +108,7 @@ internal static partial class EditorContractTests
             await Task.Delay(100);
             var empty = editor.TextLayout.Capture()!;
             Equal(1, empty.Lines.Count, "empty caret line");
-            Equal(new RichTextRange(0, 0), empty.Lines[0].SourceRanges.Single());
+            Equal(new TextSpan(0, 0), empty.Lines[0].SourceRanges.Single());
             Equal(true, editor.TextLayout.GetCaretBounds(empty, 0) is not null);
         });
 
@@ -194,9 +194,9 @@ internal static partial class EditorContractTests
                 Equal(0, textChanges);
                 Equal("ab", editor.Document.Text);
                 Equal("a仮名b", editor.CompositionSnapshot!.Text);
-                Equal(default(RichTextRevision), editor.CompositionSnapshot.Revision);
+                Equal(default(DocumentRevision), editor.CompositionSnapshot.Revision);
                 Equal(true, editor.Composition.IsActive);
-                Equal(new RichTextRange(1, 2), editor.Composition.Range);
+                Equal(new TextSpan(1, 2), editor.Composition.Range);
                 var snapshot = editor.Document.CurrentSnapshot;
                 var selection = editor.SelectionState;
                 Equal(false, editor.TryApplyEdits(snapshot.Revision, (RichTextEdit[])[new(new(0, 0), "wrong")]));

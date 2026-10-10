@@ -149,7 +149,7 @@ public sealed partial class CodeEditorPage : ContentPage
         ExpandAllButton.IsEnabled = Editor.Folding.CollapsedRanges.Count > 0;
     }
 
-    private void ShowMatch(RichTextRange? match)
+    private void ShowMatch(TextSpan? match)
     {
         SearchStatusLabel.Text = match is null ? "No match" : $"{_actions.FindAll(QueryEntry.Text ?? string.Empty).Count} matches";
         if (match is not null)

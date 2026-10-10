@@ -185,7 +185,7 @@ public partial class RichEditorHandler
         _nativeTypingParagraphFormat = paragraphFormat;
     }
 
-    private partial void SetNativeSelectionCore(RichTextSelectionState selection)
+    private partial void SetNativeSelectionCore(TextSelectionState selection)
     {
         if (PlatformView is null)
             return;
@@ -204,7 +204,7 @@ public partial class RichEditorHandler
         }
     }
 
-    private partial void ScrollIntoViewCore(RichTextRange range)
+    private partial void ScrollIntoViewCore(TextSpan range)
     {
         _adornmentScrollAnchor = null;
         PlatformView.BringPointIntoView(range.Start);
@@ -291,7 +291,7 @@ public partial class RichEditorHandler
                     ApplyCharacterFormatsIncrementally(
                         editable,
                         DisplayPresentationSnapshot,
-                        new RichTextRange(0, DisplayPresentationSnapshot.Length));
+                        new TextSpan(0, DisplayPresentationSnapshot.Length));
                 }
 
                 SetSelectionCore(editor.SelectedRange.Start, editor.SelectedRange.Length);

@@ -72,10 +72,10 @@ internal static partial class EditorContractTests
             Equal("bc\ntail", ReadAfter(int.MaxValue));
             Equal("b", ReadAfter(1));
             Equal("", ReadAfter(0));
-            Equal(new RichTextRange(4, 0), editor.SelectedRange);
+            Equal(new TextSpan(4, 0), editor.SelectedRange);
             connection.SetSelection(6, 4);
             Equal("\ntail", ReadAfter(int.MaxValue), "text follows the normalized selection end");
-            Equal(new RichTextRange(4, 2), editor.SelectedRange);
+            Equal(new TextSpan(4, 2), editor.SelectedRange);
             connection.SetSelection(editor.Document.Length, editor.Document.Length);
             Equal("", ReadAfter(int.MaxValue));
             Equal(true, ReferenceEquals(snapshot, editor.Document.CurrentSnapshot));
@@ -114,17 +114,17 @@ internal static partial class EditorContractTests
             using var insertion = new Java.Lang.String("!");
             Equal(true, connection.CommitText(insertion, 4));
             Equal("!abcd", editor.Document.Text);
-            Equal(new RichTextRange(4, 0), editor.SelectedRange);
+            Equal(new TextSpan(4, 0), editor.SelectedRange);
             await Task.Delay(150);
             using var composition = new Java.Lang.String("?");
             Equal(true, connection.SetComposingText(composition, -2));
             Equal("!abcd", editor.Document.Text);
             Equal("!abc?d", editor.CompositionSnapshot!.Text);
-            Equal(new RichTextRange(2, 0), editor.CompositionSelection!.Value.Range);
+            Equal(new TextSpan(2, 0), editor.CompositionSelection!.Value.Range);
             Equal(true, editor.Composition.IsActive);
             connection.FinishComposingText();
             Equal("!abc?d", editor.Document.Text);
-            Equal(new RichTextRange(2, 0), editor.SelectedRange);
+            Equal(new TextSpan(2, 0), editor.SelectedRange);
         });
 
         yield return new("projection Android baseline offsets raise text and images survive shifts", async editor =>
@@ -251,7 +251,7 @@ internal static partial class EditorContractTests
                 Require(nativePrefix!.Value.Width < layout.TextViewport.Width && nativePrefix.Value.Height < layout.TextViewport.Height,
                     "Native first-character geometry exceeds the test viewport.");
                 Require(layout.Lines.Count == 1 && layout.Lines[0].SourceRanges.Count == 1 &&
-                    layout.Lines[0].SourceRanges[0] == new RichTextRange(0, editor.Document.Length),
+                    layout.Lines[0].SourceRanges[0] == new TextSpan(0, editor.Document.Length),
                     "The capture does not contain the complete unwrapped source line.");
                 Require(editor.TextLayout.GetCaretBounds(layout, 0) is not null, "Missing first-caret geometry.");
                 Require(editor.TextLayout.GetRangeBounds(layout, new(0, 1)).Count > 0, "Missing first-character source geometry.");
@@ -380,7 +380,7 @@ internal static partial class EditorContractTests
             await Task.Delay(150);
             Equal("!" + original.Text, editor.Document.Text);
             Equal("authored pixel", editor.Document.CurrentSnapshot.Images.Single().AlternativeText);
-            Equal(new RichTextRange(11, 4), editor.Document.CurrentSnapshot.Links.Single().Range);
+            Equal(new TextSpan(11, 4), editor.Document.CurrentSnapshot.Links.Single().Range);
             editor.Undo();
             await Task.Delay(150);
             SameContent(original, editor.Document.CurrentSnapshot);
@@ -549,7 +549,7 @@ internal static partial class EditorContractTests
             Equal(4, extracted.SelectionStart);
             Equal("bc", connection.GetSelectedTextFormatted(global::Android.Views.InputMethods.GetTextFlags.None)!.ToString());
             connection.SetSelection(4, 4);
-            Equal(new RichTextRange(4, 0), editor.SelectedRange);
+            Equal(new TextSpan(4, 0), editor.SelectedRange);
             Equal("A😀 ", connection.GetTextBeforeCursorFormatted(20, global::Android.Views.InputMethods.GetTextFlags.None)!.ToString());
             Equal("bc\ntail", connection.GetTextAfterCursorFormatted(20, global::Android.Views.InputMethods.GetTextFlags.None)!.ToString());
             var sourceBeforeAccessibility = editor.Document.CurrentSnapshot;
@@ -573,7 +573,7 @@ internal static partial class EditorContractTests
             using var marked = new Java.Lang.String("仮名");
             connection.SetComposingText(marked, 1);
             Equal(true, editor.Composition.IsActive);
-            Equal(new RichTextRange(2, 2), editor.Composition.Range);
+            Equal(new TextSpan(2, 2), editor.Composition.Range);
             Equal("A bc\ntail", editor.Document.Text);
             Equal("A 仮名bc\ntail", editor.CompositionSnapshot!.Text);
             using var provisionalNode = native.CreateAccessibilityNodeInfo()!;
@@ -622,11 +622,11 @@ internal static partial class EditorContractTests
             Equal("c", native.TextInRange(character), "character ranges exclude inline labels");
             native.SelectedTextRange = sourceSelection;
             await Task.Delay(50);
-            Equal(new RichTextRange(1, 2), editor.SelectedRange, "UITextInput selection addresses source");
+            Equal(new TextSpan(1, 2), editor.SelectedRange, "UITextInput selection addresses source");
             editor.SelectedRange = new(0, 0);
             native.SetMarkedText("仮名", new Foundation.NSRange(2, 0));
             Equal(true, editor.Composition.IsActive);
-            Equal(new RichTextRange(0, 2), editor.Composition.Range);
+            Equal(new TextSpan(0, 2), editor.Composition.Range);
             Equal("abc\ntail", editor.Document.Text);
             Equal("仮名abc\ntail", editor.CompositionSnapshot!.Text);
             Equal(editor.CompositionSnapshot.Text, native.AccessibilityValue);

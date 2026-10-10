@@ -22,8 +22,8 @@ public partial class WindowsEditorTests
         editor.Document = RichTextDocument.FromPlainText("red blue");
         editor.Document.Edit(edit =>
         {
-            edit.UpdateCharacterFormat(new RichTextRange(0, 3), format => format with { ForegroundColor = Microsoft.Maui.Graphics.Colors.Red });
-            edit.UpdateCharacterFormat(new RichTextRange(4, 4), format => format with { ForegroundColor = Microsoft.Maui.Graphics.Colors.Blue });
+            edit.UpdateCharacterFormat(new TextSpan(0, 3), format => format with { ForegroundColor = Microsoft.Maui.Graphics.Colors.Red });
+            edit.UpdateCharacterFormat(new TextSpan(4, 4), format => format with { ForegroundColor = Microsoft.Maui.Graphics.Colors.Blue });
         });
         editor.ClearUndoHistory();
         var button = new Microsoft.UI.Xaml.Controls.Button { Content = "Focus target" };
@@ -166,7 +166,7 @@ public partial class WindowsEditorTests
         using var fixture = new EditorFixture();
         fixture.Editor.Selection.ReplaceText("a\uFFFCb");
         Assert.Equal(fixture.Editor.Document.Text, fixture.NativeText);
-        fixture.Editor.SelectedRange = new RichTextRange(3, 0);
+        fixture.Editor.SelectedRange = new TextSpan(3, 0);
         fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "c");
         Assert.Equal("a\uFFFCbc", fixture.Editor.Document.Text);
     });
@@ -222,7 +222,7 @@ public partial class WindowsEditorTests
                 LeadingIndent = 24, FirstLineIndent = -12, MarkerTab = 24,
             }]));
         Assert.Equal(editor.Document.Text, fixture.NativeText);
-        editor.SelectedRange = new RichTextRange(3, 0);
+        editor.SelectedRange = new TextSpan(3, 0);
         editor.Selection.InsertImage(RichTextImage.FromBytes(0, "image/png", [1, 2, 3], 12, 12));
         Assert.Equal('\uFFFC', fixture.Handler.PlatformView.Document.GetRange(3, 4).Character);
         Assert.Equal(editor.Document.Text, fixture.NativeText);
@@ -267,7 +267,7 @@ public partial class WindowsEditorTests
             fixture.Handler.PlatformView.Focus(FocusState.Programmatic);
             await Task.Delay(50);
             Assert.Equal(text, fixture.NativeText);
-            editor.SelectedRange = new RichTextRange(start + 1, 0);
+            editor.SelectedRange = new TextSpan(start + 1, 0);
             editor.ClearUndoHistory();
             editor.Selection.ChangeListLevel(1);
             AssertList(1);
@@ -291,7 +291,7 @@ public partial class WindowsEditorTests
             {
                 Assert.Equal(text, editor.Document.Text);
                 Assert.Equal(text, fixture.NativeText);
-                Assert.Equal(new RichTextRange(start + 1, 0), editor.SelectedRange);
+                Assert.Equal(new TextSpan(start + 1, 0), editor.SelectedRange);
                 Assert.Equal(level, editor.Document.CurrentSnapshot.GetParagraphFormat(start).List!.Level);
                 var native = fixture.Handler.PlatformView.Document.GetRange(start, start + 1).ParagraphFormat;
                 Assert.Equal(MarkerType.Bullet, native.ListType);
@@ -310,14 +310,14 @@ public partial class WindowsEditorTests
         using var fixture = new EditorFixture();
         var editor = fixture.Editor;
         editor.Selection.ReplaceText("before link after");
-        editor.SelectedRange = new RichTextRange(7, 4);
+        editor.SelectedRange = new TextSpan(7, 4);
         editor.Selection.SetLink("https://example.com", "tooltip");
         Assert.Equal("link", fixture.Handler.PlatformView.Document.Selection.Text);
-        editor.SelectedRange = new RichTextRange(17, 0);
+        editor.SelectedRange = new TextSpan(17, 0);
         fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "!");
         Assert.Equal("before link after!", editor.Document.Text);
         Assert.Equal("tooltip", Assert.Single(editor.Document.CurrentSnapshot.Links).ToolTip);
-        editor.SelectedRange = new RichTextRange(7, 4);
+        editor.SelectedRange = new TextSpan(7, 4);
         Assert.Equal("link", fixture.Handler.PlatformView.Document.Selection.Text);
     });
 
@@ -336,11 +336,11 @@ public partial class WindowsEditorTests
                 {
                     var start = random.Next(edit.Snapshot.Length + 1);
                     var length = random.Next(edit.Snapshot.Length - start + 1);
-                    edit.ReplaceText(new RichTextRange(start, length), insertions[random.Next(insertions.Length)]);
+                    edit.ReplaceText(new TextSpan(start, length), insertions[random.Next(insertions.Length)]);
                 }
                 if (edit.Snapshot.Length > 0)
                 {
-                    edit.UpdateCharacterFormat(new RichTextRange(0, edit.Snapshot.Length), format => format with { Italic = iteration % 2 == 0 });
+                    edit.UpdateCharacterFormat(new TextSpan(0, edit.Snapshot.Length), format => format with { Italic = iteration % 2 == 0 });
                 }
             });
             Assert.Equal(editor.Document.Text, fixture.NativeText);
@@ -366,19 +366,19 @@ public partial class WindowsEditorTests
         var editor = fixture.Editor;
         editor.Selection.InsertField("DATE", "today");
         editor.Document.Edit(edit => edit.SetMetadata("author", "test"));
-        editor.SelectedRange = new RichTextRange(1, 3);
+        editor.SelectedRange = new TextSpan(1, 3);
         editor.ClearUndoHistory();
         var before = editor.Document.CurrentSnapshot;
         editor.Selection.ReplaceText("X");
         var after = editor.Document.CurrentSnapshot;
 
-        editor.SelectedRange = new RichTextRange(0, 1);
+        editor.SelectedRange = new TextSpan(0, 1);
         editor.Undo();
         Assert.True(before.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextSelectionState(1, 4), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(1, 4), editor.SelectionState);
         editor.Redo();
         Assert.True(after.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(2, 2), editor.SelectionState);
         Assert.Equal(editor.Document.Text, fixture.NativeText);
     });
 
@@ -404,7 +404,7 @@ public partial class WindowsEditorTests
         using var fixture = new EditorFixture();
         var editor = fixture.Editor;
         editor.Selection.InsertField("DATE", "today");
-        editor.SelectedRange = new RichTextRange(0, 5);
+        editor.SelectedRange = new TextSpan(0, 5);
         editor.ClearUndoHistory();
         var before = editor.Document.CurrentSnapshot;
         fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "new");
@@ -496,9 +496,9 @@ public partial class WindowsEditorTests
         source.Edit(edit =>
         {
             edit.InsertField(0, "DATE", "today");
-            edit.UpdateCharacterFormat(new RichTextRange(0, 5), format => format with { FontWeight = 700 });
+            edit.UpdateCharacterFormat(new TextSpan(0, 5), format => format with { FontWeight = 700 });
         });
-        await RichTextClipboard.SetAsync(RichTextDocumentFragment.FromRange(source.CurrentSnapshot, new RichTextRange(0, 5)));
+        await RichTextClipboard.SetAsync(RichTextDocumentFragment.FromRange(source.CurrentSnapshot, new TextSpan(0, 5)));
         var editor = fixture.Editor;
         editor.Selection.ReplaceText("prefix ");
         editor.ClearUndoHistory();
@@ -509,13 +509,13 @@ public partial class WindowsEditorTests
         Assert.Equal("prefix ", fixture.NativeText);
         Assert.False(editor.CanUndo);
         editor.Redo();
-        editor.SelectedRange = new RichTextRange(7, 5);
+        editor.SelectedRange = new TextSpan(7, 5);
         var beforeCut = editor.Document.CurrentSnapshot;
         await editor.CutAsync();
         Assert.Equal("prefix ", fixture.NativeText);
         editor.Undo();
         Assert.True(beforeCut.ContentEquals(editor.Document.CurrentSnapshot));
-        Assert.Equal(new RichTextRange(7, 5), editor.SelectedRange);
+        Assert.Equal(new TextSpan(7, 5), editor.SelectedRange);
     });
 
     [Fact]
@@ -554,7 +554,7 @@ public partial class WindowsEditorTests
         using var fixture = new EditorFixture();
         fixture.Editor.Selection.ReplaceText("hello\nworld");
         Assert.Equal("hello\nworld", fixture.Editor.Document.Text);
-        Assert.Equal(new RichTextRange(11, 0), fixture.Editor.SelectedRange);
+        Assert.Equal(new TextSpan(11, 0), fixture.Editor.SelectedRange);
         Assert.Equal("hello\rworld\r", fixture.Handler.PlatformView.Document.GetRange(0, 12).Text);
     });
 

@@ -5,14 +5,14 @@ namespace RichEdit.Maui.Platforms.Android;
 
 public partial class RichEditText
 {
-    private RichTextRange? _sourceDragCandidate;
+    private TextSpan? _sourceDragCandidate;
     private SourceDragState? _sourceDrag;
 
-    private sealed class SourceDragState(RichTextDocument document, RichTextRange range) : Java.Lang.Object
+    private sealed class SourceDragState(RichTextDocument document, TextSpan range) : Java.Lang.Object
     {
         internal RichTextDocument Document { get; } = document;
-        internal RichTextRevision Revision { get; } = document.Revision;
-        internal RichTextRange Range { get; } = range;
+        internal DocumentRevision Revision { get; } = document.Revision;
+        internal TextSpan Range { get; } = range;
         internal RichTextDocumentFragment Fragment { get; } = RichTextDocumentFragment.FromRange(document.CurrentSnapshot, range);
     }
 
@@ -108,7 +108,7 @@ public partial class RichEditText
                 {
                     edit.DeleteText(state.Range);
                     edit.ReplaceFragment(new(insertion, 0), state.Fragment);
-                }, new RichTextRange(insertion + state.Fragment.Text.Length, 0));
+                }, new TextSpan(insertion + state.Fragment.Text.Length, 0));
                 return true;
             }
 

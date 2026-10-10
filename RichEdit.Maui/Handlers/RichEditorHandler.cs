@@ -70,7 +70,7 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
     bool IRichEditorHandler.CanRedo => CanRedoCore();
 
     void IRichEditorHandler.ApplyDocument(
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
     {
@@ -87,7 +87,7 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
 
     void IRichEditorHandler.ApplyChanges(
         RichTextChangeSet changes,
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat) =>
             ApplyChangesCore(
@@ -144,9 +144,9 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
         }
     }
 
-    void IRichEditorHandler.SetSelection(RichTextSelectionState selection) => SetNativeSelectionCore(NativeProjection.ToDisplay(selection));
+    void IRichEditorHandler.SetSelection(TextSelectionState selection) => SetNativeSelectionCore(NativeProjection.ToDisplay(selection));
 
-    void IRichEditorHandler.ScrollIntoView(RichTextRange range) => ScrollIntoViewCore(NativeProjection.ToDisplay(range));
+    void IRichEditorHandler.ScrollIntoView(TextSpan range) => ScrollIntoViewCore(NativeProjection.ToDisplay(range));
 
     void IRichEditorHandler.ApplyTypingFormat(
         RichTextCharacterFormat characterFormat,
@@ -161,7 +161,7 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
 
     private void ApplyChangesCore(
         RichTextChangeSet changes,
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
     {
@@ -199,8 +199,8 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
             RichTextChangeKind.Metadata or RichTextChangeKind.Field)
             ? ReferenceEquals(changes.AfterSnapshot, DisplayPresentationSnapshot) ? snapshot : VirtualView.Decorations.Project(snapshot) : null;
 
-    private static IEnumerable<(RichTextRange Range, RichTextCharacterFormat Format, RichTextCharacterFormat? PreviousFormat)>
-        GetCharacterFormatChanges(RichTextDocumentSnapshot snapshot, RichTextRange range, RichTextDocumentSnapshot? previousSnapshot)
+    private static IEnumerable<(TextSpan Range, RichTextCharacterFormat Format, RichTextCharacterFormat? PreviousFormat)>
+        GetCharacterFormatChanges(RichTextDocumentSnapshot snapshot, TextSpan range, RichTextDocumentSnapshot? previousSnapshot)
     {
         // A queued native repair can outlive a text edit that shortens the document.
         range = range.Clamp(snapshot.Length);
@@ -230,14 +230,14 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
 
     private void SetSelectionCore(int start, int length)
     {
-        var range = new RichTextRange(start, length).Clamp(VirtualView.InputSnapshot.Length);
+        var range = new TextSpan(start, length).Clamp(VirtualView.InputSnapshot.Length);
         var selection = VirtualView.SelectionState;
-        SetNativeSelectionCore(NativeProjection.ToDisplay(selection.Range == range ? selection : RichTextSelectionState.FromRange(range)));
+        SetNativeSelectionCore(NativeProjection.ToDisplay(selection.Range == range ? selection : TextSelectionState.FromRange(range)));
     }
 
-    private partial void SetNativeSelectionCore(RichTextSelectionState selection);
+    private partial void SetNativeSelectionCore(TextSelectionState selection);
 
-    private partial void ScrollIntoViewCore(RichTextRange range);
+    private partial void ScrollIntoViewCore(TextSpan range);
 
     private partial bool SupportsNativeUndoCore();
 

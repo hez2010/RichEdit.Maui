@@ -15,7 +15,7 @@ public partial class RichEditorHandler
     private void ApplyCharacterFormatsIncrementally(
         ISpannable editable,
         RichTextDocumentSnapshot snapshot,
-        RichTextRange range,
+        TextSpan range,
         RichTextDocumentSnapshot? previousSnapshot = null)
     {
         if (range.IsEmpty || snapshot.Length == 0)
@@ -23,7 +23,7 @@ public partial class RichEditorHandler
             return;
         }
 
-        var ranges = new List<RichTextRange>();
+        var ranges = new List<TextSpan>();
         if (previousSnapshot is null)
             ranges.Add(ExpandCharacterSpanRange(editable, range, snapshot.Length));
         else
@@ -46,7 +46,7 @@ public partial class RichEditorHandler
             }
         }
 
-        var metadataRanges = new List<RichTextRange>();
+        var metadataRanges = new List<TextSpan>();
         foreach (var affected in ranges)
         {
             // Rebuild whole intersecting spans so their ordering and unaffected tails survive.
@@ -90,7 +90,7 @@ public partial class RichEditorHandler
     private void ApplyParagraphFormatsIncrementally(
         ISpannable editable,
         RichTextDocumentSnapshot snapshot,
-        RichTextRange range)
+        TextSpan range)
     {
         // Marker text contains its counter value. Recompute subsequent items when
         // a paragraph is inserted, removed, restarted, or taken out of a list.
@@ -109,7 +109,7 @@ public partial class RichEditorHandler
             paragraph.Format.List is { } item && listIds.Contains(item.ListId.Value)))
         {
             var start = Math.Min(range.Start, paragraph.Range.Start);
-            range = new RichTextRange(start, Math.Max(range.End, paragraph.Range.End) - start);
+            range = new TextSpan(start, Math.Max(range.End, paragraph.Range.End) - start);
         }
 
         RemoveParagraphSpans(editable, range.Start, range.End);
@@ -218,30 +218,30 @@ public partial class RichEditorHandler
             PlatformView.TextDirection = direction;
     }
 
-    private static RichTextRange GetAffectedRange(
+    private static TextSpan GetAffectedRange(
         RichTextChangeSet changes,
         int documentLength) =>
             changes.GetAffectedRange(documentLength);
 
-    private static RichTextRange GetAffectedParagraphRange(
+    private static TextSpan GetAffectedParagraphRange(
         RichTextChangeSet changes,
         string text) =>
             GetAffectedParagraphRange(GetAffectedRange(changes, text.Length), text);
 
-    private static RichTextRange GetAffectedParagraphRange(
-        RichTextRange range,
+    private static TextSpan GetAffectedParagraphRange(
+        TextSpan range,
         string text)
     {
         range = range.Clamp(text.Length);
         var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
         var newline = text.IndexOf('\n', range.End);
         var end = newline < 0 ? text.Length : newline + 1;
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
-    private static RichTextRange ExpandCharacterSpanRange(
+    private static TextSpan ExpandCharacterSpanRange(
         ISpanned text,
-        RichTextRange range,
+        TextSpan range,
         int documentLength)
     {
         var start = range.Start;
@@ -270,7 +270,7 @@ public partial class RichEditorHandler
 
         start = Math.Clamp(start, 0, documentLength);
         end = Math.Clamp(end, start, documentLength);
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
     private static IEnumerable<Java.Lang.Object> EnumerateCharacterSpans(

@@ -57,7 +57,7 @@ internal static class CharacterFormattingTests
                 await Task.Delay(100);
                 Check(ReferenceEquals(source, editor.Document.CurrentSnapshot), "Decorations changed the source snapshot.");
                 Check(rtf == editor.Document.RtfText, "Decorations changed authored RTF.");
-                Check(editor.SelectionState == new RichTextSelectionState(12, 4), "Decorations changed the selection.");
+                Check(editor.SelectionState == new TextSelectionState(12, 4), "Decorations changed the selection.");
             });
 
             yield return new("formatting projection handles 2000 lines", async editor =>

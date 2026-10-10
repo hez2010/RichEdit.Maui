@@ -9,7 +9,7 @@ public partial class RichEditorHandler
     private void ApplyImagesIncrementally(
         RichTextDocumentSnapshot snapshot,
         RichTextChangeSet changes,
-        RichTextRange affectedRange,
+        TextSpan affectedRange,
         ISet<int>? loadedImages = null)
     {
         var imageChanges = changes.Changes

@@ -31,7 +31,7 @@ internal static partial class EditorContractTests
                 await Verify(editor);
                 Equal("Console.", editor.Document.Text);
                 Equal(1, observed.Count);
-                Equal(new RichTextRange(8, 0), editor.SelectedRange);
+                Equal(new TextSpan(8, 0), editor.SelectedRange);
             }
             finally { editor.Document.Changed -= Changed; }
             editor.Undo();
@@ -80,11 +80,11 @@ internal static partial class EditorContractTests
             NativeMultiInsert(editor, "foo");
             await Verify(editor);
             Equal("foo foo", editor.Document.Text);
-            Equal(new RichTextRange(3, 0), editor.SelectedRange);
+            Equal(new TextSpan(3, 0), editor.SelectedRange);
             editor.Undo();
             await Verify(editor);
             Equal("x x", editor.Document.Text);
-            Equal(new RichTextRange(0, 1), editor.SelectedRange);
+            Equal(new TextSpan(0, 1), editor.SelectedRange);
             Equal(false, editor.CanUndo);
         });
 

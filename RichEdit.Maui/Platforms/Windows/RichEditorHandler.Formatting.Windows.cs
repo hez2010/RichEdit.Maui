@@ -11,7 +11,7 @@ public partial class RichEditorHandler
 {
     private void ApplyCharacterFormatsIncrementally(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange affectedRange,
+        TextSpan affectedRange,
         RichTextDocumentSnapshot? previousSnapshot = null)
     {
         if (snapshot.Length == 0 || affectedRange.IsEmpty)
@@ -59,7 +59,7 @@ public partial class RichEditorHandler
 
     private void ApplyParagraphFormatsIncrementally(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange affectedRange)
+        TextSpan affectedRange)
     {
         var positions = _hasNativeLinks ? GetNativeTextSnapshot() : null;
         var nativeDocument = PlatformView.Document;
@@ -89,7 +89,7 @@ public partial class RichEditorHandler
         }
     }
 
-    private void ApplyLinksIncrementally(RichTextDocumentSnapshot snapshot, RichTextRange affectedRange)
+    private void ApplyLinksIncrementally(RichTextDocumentSnapshot snapshot, TextSpan affectedRange)
     {
         var nativeDocument = PlatformView.Document;
         foreach (var link in snapshot.Links.Where(link =>
@@ -116,7 +116,7 @@ public partial class RichEditorHandler
 
     private static bool RequiresRtfListProjection(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange affectedRange)
+        TextSpan affectedRange)
     {
         var paragraphRange = GetAffectedParagraphRange(affectedRange, snapshot.Text);
         return snapshot.Paragraphs.Any(paragraph =>
@@ -141,27 +141,27 @@ public partial class RichEditorHandler
             : list.Suffix is "." or ")" or "-" or "";
     }
 
-    private static RichTextRange GetAffectedRange(
+    private static TextSpan GetAffectedRange(
         RichTextChangeSet changes,
         int documentLength) =>
             changes.GetAffectedRange(documentLength);
 
-    private static RichTextRange GetAffectedParagraphRange(
+    private static TextSpan GetAffectedParagraphRange(
         RichTextChangeSet changes,
         string text)
     {
         return GetAffectedParagraphRange(GetAffectedRange(changes, text.Length), text);
     }
 
-    private static RichTextRange GetAffectedParagraphRange(
-        RichTextRange range,
+    private static TextSpan GetAffectedParagraphRange(
+        TextSpan range,
         string text)
     {
         range = range.Clamp(text.Length);
         var start = range.Start == 0 ? 0 : text.LastIndexOf('\n', range.Start - 1) + 1;
         var newline = text.IndexOf('\n', range.End);
         var end = newline < 0 ? text.Length : newline + 1;
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
     private partial void ApplyTypingFormatCore(

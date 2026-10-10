@@ -12,8 +12,8 @@ namespace RichEdit.Maui;
 public sealed class RichTextFolding
 {
     private readonly NativeEditorView _editor;
-    private ImmutableArray<RichTextRange> _ranges = [];
-    private ImmutableArray<RichTextRange> _effectiveRanges = [];
+    private ImmutableArray<TextSpan> _ranges = [];
+    private ImmutableArray<TextSpan> _effectiveRanges = [];
     private bool _changed;
 #if WINDOWS
     private readonly RichTextDecorationLayer _layer;
@@ -30,14 +30,14 @@ public sealed class RichTextFolding
 
     /// <summary>Gets the independently collapsed ranges, ordered by start and then decreasing length.</summary>
     /// <remarks>Overlapping and nested ranges retain their own state; their union is hidden.</remarks>
-    public IReadOnlyList<RichTextRange> CollapsedRanges => _ranges;
+    public IReadOnlyList<TextSpan> CollapsedRanges => _ranges;
 
     /// <summary>Occurs after explicit changes, edit remapping, or document replacement changes the fold state.</summary>
     public event EventHandler? Changed;
 
     /// <summary>Replaces all collapsed ranges. The application owns fold discovery and expansion policy.</summary>
     /// <param name="ranges">Nonempty UTF-16 source ranges. Duplicates are ignored.</param>
-    public void SetCollapsedRanges(IEnumerable<RichTextRange> ranges)
+    public void SetCollapsedRanges(IEnumerable<TextSpan> ranges)
     {
         _editor.VerifyAccess();
         ArgumentNullException.ThrowIfNull(ranges);
@@ -63,11 +63,11 @@ public sealed class RichTextFolding
 
     /// <summary>Collapses a source range without changing selection or other folds.</summary>
     /// <param name="range">The nonempty UTF-16 source range.</param>
-    public void Collapse(RichTextRange range) => SetCollapsedRanges(_ranges.Add(range));
+    public void Collapse(TextSpan range) => SetCollapsedRanges(_ranges.Add(range));
 
     /// <summary>Removes the exact range from the collapsed set, preserving independently collapsed nested ranges.</summary>
     /// <param name="range">A range from <see cref="CollapsedRanges"/>.</param>
-    public void Expand(RichTextRange range) => SetCollapsedRanges(_ranges.Remove(range));
+    public void Expand(TextSpan range) => SetCollapsedRanges(_ranges.Remove(range));
 
     /// <summary>Expands all ranges.</summary>
     public void ExpandAll() => SetCollapsedRanges([]);
@@ -75,16 +75,16 @@ public sealed class RichTextFolding
     /// <summary>Gets the union of collapsed ranges containing an offset, or null if that character is visible.</summary>
     /// <param name="offset">A UTF-16 source offset; the end of the document is allowed.</param>
     /// <returns>The containing collapsed interval. Its end is exclusive.</returns>
-    public RichTextRange? GetCollapsedRange(int offset)
+    public TextSpan? GetCollapsedRange(int offset)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(offset, _editor.Document.Length);
         return FindRange(offset);
     }
 
-    internal ImmutableArray<RichTextRange> EffectiveRanges => _effectiveRanges;
+    internal ImmutableArray<TextSpan> EffectiveRanges => _effectiveRanges;
 
-    internal RichTextRange? FindRange(int offset)
+    internal TextSpan? FindRange(int offset)
     {
         var low = 0;
         var high = _effectiveRanges.Length - 1;
@@ -140,13 +140,13 @@ public sealed class RichTextFolding
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private void SetRangesCore(ImmutableArray<RichTextRange> ranges)
+    private void SetRangesCore(ImmutableArray<TextSpan> ranges)
     {
         if (_ranges.AsSpan().SequenceEqual(ranges.AsSpan()))
             return;
 
         _ranges = ranges;
-        var effective = new List<RichTextRange>();
+        var effective = new List<TextSpan>();
         foreach (var range in ranges)
         {
             if (effective.Count > 0 && range.Start <= effective[^1].End)
@@ -167,16 +167,16 @@ public sealed class RichTextFolding
         _effectiveRanges.Select(static range => new RichTextDecoration(range, FoldStyle));
 #endif
 
-    private static ImmutableArray<RichTextRange> Normalize(IEnumerable<RichTextRange> ranges) =>
+    private static ImmutableArray<TextSpan> Normalize(IEnumerable<TextSpan> ranges) =>
         [.. ranges.Distinct().OrderBy(static range => range.Start).ThenByDescending(static range => range.Length)];
 
-    private static RichTextRange Map(RichTextRange range, RichTextTextChange change)
+    private static TextSpan Map(TextSpan range, RichTextTextChange change)
     {
         var old = change.OldRange;
         if (old.Start <= range.Start && old.End >= range.End)
             return default;
 
-        return RichTextPositionMap.Map(range, change, RichTextTrackingAffinity.AfterInsertion,
-            RichTextTrackingAffinity.BeforeInsertion, RichTextTrackingDeletionBehavior.Preserve)!.Value;
+        return RichTextPositionMap.Map(range, change, PositionAffinity.AfterInsertion,
+            PositionAffinity.BeforeInsertion, TrackingDeletionBehavior.Preserve)!.Value;
     }
 }

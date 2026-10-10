@@ -37,7 +37,7 @@ internal sealed partial class CodeEditorFoldIndicators : IDisposable
             indicator.Dispose();
 
         _indicators.Clear();
-        var rows = new List<(int Position, List<RichTextRange> Ranges)>();
+        var rows = new List<(int Position, List<TextSpan> Ranges)>();
         var coveredEnd = -1;
         foreach (var range in _editor.Folding.CollapsedRanges)
         {
@@ -73,7 +73,7 @@ internal sealed partial class CodeEditorFoldIndicators : IDisposable
 
     private bool IsLineEnd(int position) => _editor.GetLineRange(_editor.GetPosition(position).Line).End == position;
 
-    private Button CreateExpandButton(RichTextRange range, string text)
+    private Button CreateExpandButton(TextSpan range, string text)
     {
         var button = _template is not null ? (Button)_template.CreateContent() : new Button
         {

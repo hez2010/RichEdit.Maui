@@ -24,16 +24,16 @@ internal static partial class EditorContractTests
             other.SelectionState = new(5, 5);
             editor.Selection.ReplaceText("X");
             Equal("aXdef", document.Text);
-            Equal(new RichTextSelectionState(4, 4), other.SelectionState, "peer selection maps independently");
+            Equal(new TextSelectionState(4, 4), other.SelectionState, "peer selection maps independently");
 
             other.Undo();
             Equal("abcdef", document.Text);
-            Equal(new RichTextSelectionState(1, 3), other.SelectionState, "invoker restores history selection");
-            Equal(new RichTextSelectionState(3, 3), editor.SelectionState, "other pane maps current caret");
+            Equal(new TextSelectionState(1, 3), other.SelectionState, "invoker restores history selection");
+            Equal(new TextSelectionState(3, 3), editor.SelectionState, "other pane maps current caret");
 
             other.Redo();
             Equal("aXdef", document.Text);
-            Equal(new RichTextSelectionState(2, 2), other.SelectionState);
+            Equal(new TextSelectionState(2, 2), other.SelectionState);
             Equal(3, notifications, "one shared commit per operation");
             return Task.CompletedTask;
         });
@@ -46,7 +46,7 @@ internal static partial class EditorContractTests
             peer.Editor.SelectedRange = new(3, 0);
             NativeReplace(editor, "x");
             Equal("xabc", NativeText(peer.Editor));
-            Equal(new RichTextRange(4, 0), peer.Editor.SelectedRange);
+            Equal(new TextSpan(4, 0), peer.Editor.SelectedRange);
             NativeReplace(peer.Editor, "y");
             Equal("xabcy", NativeText(editor));
             editor.Undo();
@@ -67,7 +67,7 @@ internal static partial class EditorContractTests
             editor.Selection.ReplaceText("X");
             peer.Editor.SelectedRange = new(4, 0);
             shared.Undo();
-            Equal(new RichTextRange(3, 0), peer.Editor.SelectedRange, "document undo does not restore another view's selection");
+            Equal(new TextSpan(3, 0), peer.Editor.SelectedRange, "document undo does not restore another view's selection");
             editor.Document = RichTextDocument.FromPlainText("separate");
             peer.Editor.Redo();
             Equal("aXbc", shared.Text);

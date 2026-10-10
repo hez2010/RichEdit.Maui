@@ -6,7 +6,7 @@ public partial class RichEditorHandler
 {
     internal TextSelection? NavigateSelection(TextSelection selection, EditorKey direction, bool extend)
     {
-        var display = NativeProjection.ToDisplay(new RichTextSelectionState(selection.Anchor, selection.Active));
+        var display = NativeProjection.ToDisplay(new TextSelectionState(selection.Anchor, selection.Active));
         var preferred = direction is EditorKey.Up or EditorKey.Down ? selection.PreferredVisualX : null;
         // A native step can land in a private reservation. Continue through it without
         // exposing that display position as a document caret.
@@ -27,6 +27,6 @@ public partial class RichEditorHandler
         return selection;
     }
 
-    private partial (RichTextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
-        RichTextSelectionState selection, EditorKey direction, bool extend, double? preferredX);
+    private partial (TextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
+        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX);
 }

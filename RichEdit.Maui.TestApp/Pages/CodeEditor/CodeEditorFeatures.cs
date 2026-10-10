@@ -16,14 +16,14 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
     private DataTemplate? _actionTemplate;
     private readonly RichTextLayout _layout;
     private readonly RichTextDecorationLayer _placeholders;
-    private readonly List<RichTextTrackedRange> _snippet = [];
+    private readonly List<TextTrackedRange> _snippet = [];
     private readonly List<RichTextAdornment> _widgets = [];
     private CancellationTokenSource? _completionRequest;
     private CancellationTokenSource? _hoverRequest;
     private CancellationTokenSource? _widgetRequest;
-    private RichTextRevision _completionRevision;
-    private RichTextRange _completionRange;
-    private RichTextRange _hoverRange;
+    private DocumentRevision _completionRevision;
+    private TextSpan _completionRange;
+    private TextSpan _hoverRange;
     private string[] _suggestions = [];
     private int _suggestion;
     private int _placeholder;
@@ -160,7 +160,7 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
             {
                 foreach (var word in new[] { "name", "value" })
                     _snippet.Add(_editor.Document.Tracking.TrackRange(new(start + text.IndexOf(word, StringComparison.Ordinal), word.Length),
-                        RichTextTrackingAffinity.BeforeInsertion, RichTextTrackingAffinity.AfterInsertion, RichTextTrackingDeletionBehavior.Preserve));
+                        PositionAffinity.BeforeInsertion, PositionAffinity.AfterInsertion, TrackingDeletionBehavior.Preserve));
 
                 _placeholder = 0;
                 SelectPlaceholder();
@@ -200,7 +200,7 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
             ShowWordInfo(snapshot, range);
     }
 
-    private void ShowWordInfo(CodeDocumentSnapshot snapshot, RichTextRange range)
+    private void ShowWordInfo(CodeDocumentSnapshot snapshot, TextSpan range)
     {
         _hoverRange = range;
         InfoWord = snapshot.Text.Substring(range.Start, range.Length);
@@ -538,7 +538,7 @@ internal sealed partial class CodeEditorFeatures : BindableObject, IDisposable
         ClearWidgets();
     }
 
-    private static RichTextRange WordAt(string text, int position, bool prefixOnly)
+    private static TextSpan WordAt(string text, int position, bool prefixOnly)
     {
         var start = position;
         var end = position;

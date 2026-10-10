@@ -81,7 +81,7 @@ internal static partial class EditorContractTests
         {
             editor.Document = RichTextDocument.FromPlainText("head\none\ntwo\ntail");
             editor.Adornments.MarginWidth = 32;
-            var range = new RichTextRange(5, 8);
+            var range = new TextSpan(5, 8);
             var button = AdornmentButton(() => editor.Folding.Expand(range));
             using var item = editor.Adornments.Add(13, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });
             await Task.Delay(150);
@@ -136,7 +136,7 @@ internal static partial class EditorContractTests
         yield return new("adornments at document end remain usable when all source is folded", async editor =>
         {
             editor.Document = RichTextDocument.FromPlainText("one\ntwo\nthree");
-            var range = new RichTextRange(0, editor.Document.Length);
+            var range = new TextSpan(0, editor.Document.Length);
             editor.Adornments.MarginWidth = 32;
             var button = AdornmentButton(() => editor.Folding.Expand(range));
             using var item = editor.Adornments.Add(range.End, button, new() { Placement = RichTextAdornmentPlacement.LeftMargin });

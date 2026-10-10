@@ -88,7 +88,7 @@ public sealed partial class RichTextDocumentSnapshot
 
         return starts
             .Select((start, index) => new RichTextParagraph(
-                new RichTextRange(
+                new TextSpan(
                     start,
                     (index + 1 < starts.Length ? starts[index + 1] : text.Length) - start),
                 supplied.TryGetValue(start, out var paragraph)

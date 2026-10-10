@@ -1,6 +1,6 @@
 namespace RichEdit.Maui;
 
-internal readonly record struct RichTextReplacement(RichTextRange Range, string Text, RichTextCharacterFormat Format);
+internal readonly record struct RichTextReplacement(TextSpan Range, string Text, RichTextCharacterFormat Format);
 
 public sealed partial class RichTextDocumentSnapshot
 {

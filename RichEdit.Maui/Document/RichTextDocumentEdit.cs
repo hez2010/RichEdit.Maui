@@ -77,13 +77,13 @@ public sealed class RichTextDocumentEdit
         int position,
         string? text,
         RichTextCharacterFormat? format = null) =>
-            ReplaceText(new RichTextRange(position, 0), text, format);
+            ReplaceText(new TextSpan(position, 0), text, format);
 
     /// <summary>
     /// Deletes a range of logical text and any inline objects it contains.
     /// </summary>
     /// <param name="range">The range to delete.</param>
-    public void DeleteText(RichTextRange range) => ReplaceText(range, string.Empty);
+    public void DeleteText(TextSpan range) => ReplaceText(range, string.Empty);
 
     /// <summary>
     /// Replaces a range of logical text.
@@ -95,7 +95,7 @@ public sealed class RichTextDocumentEdit
     /// when omitted.
     /// </param>
     public void ReplaceText(
-        RichTextRange range,
+        TextSpan range,
         string? text,
         RichTextCharacterFormat? format = null)
     {
@@ -116,7 +116,7 @@ public sealed class RichTextDocumentEdit
     /// <summary>Replaces a range with an immutable rich document fragment.</summary>
     /// <param name="range">The range to replace.</param>
     /// <param name="fragment">The rich fragment to insert.</param>
-    public void ReplaceFragment(RichTextRange range, RichTextDocumentFragment fragment)
+    public void ReplaceFragment(TextSpan range, RichTextDocumentFragment fragment)
     {
         ArgumentNullException.ThrowIfNull(fragment);
         range.Validate(Snapshot.Length, nameof(range));
@@ -136,15 +136,15 @@ public sealed class RichTextDocumentEdit
             var importedFields = source.Fields.Select(field => field with
             {
                 Id = new RichTextFieldId(nextFieldId++),
-                Range = new RichTextRange(
+                Range = new TextSpan(
                     insertionStart + field.Range.Start,
                     field.Range.Length),
             });
             Snapshot = Snapshot.With(fields: Snapshot.Fields.Concat(importedFields));
             _changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.Field,
-                new RichTextRange(insertionStart, 0),
-                new RichTextRange(insertionStart, source.Length)));
+                new TextSpan(insertionStart, 0),
+                new TextSpan(insertionStart, source.Length)));
         }
 
         if (source.Length == 0)
@@ -201,7 +201,7 @@ public sealed class RichTextDocumentEdit
         if (listIds.Count != 0 || pictureIds.Count != 0)
         {
             Snapshot = Snapshot.With(lists: lists, listPictures: pictures.Values);
-            _changes.Add(new RichTextRangeChange(RichTextChangeKind.List, RichTextRange.Empty, RichTextRange.Empty));
+            _changes.Add(new RichTextRangeChange(RichTextChangeKind.List, TextSpan.Empty, TextSpan.Empty));
         }
 
         SetCharacterFormats(source.Runs.Select(run => new RichTextRun(
@@ -224,7 +224,7 @@ public sealed class RichTextDocumentEdit
             paragraphs[destination] = paragraphs[destination] with { Format = format };
         }
 
-        var insertedRange = new RichTextRange(insertionStart, source.Length);
+        var insertedRange = new TextSpan(insertionStart, source.Length);
         Snapshot = Snapshot.With(paragraphs: paragraphs);
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.ParagraphFormat, insertedRange, insertedRange));
 
@@ -250,7 +250,7 @@ public sealed class RichTextDocumentEdit
             }
 
             Snapshot = Snapshot.With(links: retained.Concat(imported));
-            var affected = new RichTextRange(affectedStart, affectedEnd - affectedStart);
+            var affected = new TextSpan(affectedStart, affectedEnd - affectedStart);
             _changes.Add(new RichTextRangeChange(RichTextChangeKind.Link, affected, affected));
         }
 
@@ -260,8 +260,8 @@ public sealed class RichTextDocumentEdit
                 image with { Position = insertionStart + image.Position })));
             _changes.Add(new RichTextRangeChange(
                 RichTextChangeKind.Image,
-                new RichTextRange(insertionStart, 0),
-                new RichTextRange(insertionStart, source.Length)));
+                new TextSpan(insertionStart, 0),
+                new TextSpan(insertionStart, source.Length)));
         }
     }
 
@@ -270,7 +270,7 @@ public sealed class RichTextDocumentEdit
     /// </summary>
     /// <param name="range">The nonempty text range to format.</param>
     /// <param name="format">The format to apply.</param>
-    public void SetCharacterFormat(RichTextRange range, RichTextCharacterFormat format)
+    public void SetCharacterFormat(TextSpan range, RichTextCharacterFormat format)
     {
         ArgumentNullException.ThrowIfNull(format);
         UpdateCharacterFormat(range, _ => format);
@@ -325,7 +325,7 @@ public sealed class RichTextDocumentEdit
             }
 
             if (position < run.End)
-                formattedRuns.Add(run with { Range = new RichTextRange(position, run.End - position) });
+                formattedRuns.Add(run with { Range = new TextSpan(position, run.End - position) });
         }
 
         Snapshot = Snapshot.With(runs: formattedRuns);
@@ -339,7 +339,7 @@ public sealed class RichTextDocumentEdit
     /// <param name="range">The nonempty text range to format.</param>
     /// <param name="update">A transformation applied to every intersecting run.</param>
     public void UpdateCharacterFormat(
-        RichTextRange range,
+        TextSpan range,
         Func<RichTextCharacterFormat, RichTextCharacterFormat> update)
     {
         ArgumentNullException.ThrowIfNull(update);
@@ -360,7 +360,7 @@ public sealed class RichTextDocumentEdit
     /// Resets character formatting in a range to the document default format.
     /// </summary>
     /// <param name="range">The nonempty text range to reset.</param>
-    public void ClearCharacterFormat(RichTextRange range) =>
+    public void ClearCharacterFormat(TextSpan range) =>
         SetCharacterFormat(
             range,
             RichTextDocumentSnapshot.CreateInheritedCharacterFormat(
@@ -371,7 +371,7 @@ public sealed class RichTextDocumentEdit
     /// </summary>
     /// <param name="range">The range whose paragraphs are affected.</param>
     /// <param name="format">The format to apply.</param>
-    public void SetParagraphFormat(RichTextRange range, RichTextParagraphFormat format)
+    public void SetParagraphFormat(TextSpan range, RichTextParagraphFormat format)
     {
         ArgumentNullException.ThrowIfNull(format);
         UpdateParagraphFormat(range, _ => format);
@@ -383,7 +383,7 @@ public sealed class RichTextDocumentEdit
     /// <param name="range">The range whose paragraphs are affected.</param>
     /// <param name="update">A transformation applied to each paragraph format.</param>
     public void UpdateParagraphFormat(
-        RichTextRange range,
+        TextSpan range,
         Func<RichTextParagraphFormat, RichTextParagraphFormat> update)
     {
         ArgumentNullException.ThrowIfNull(update);
@@ -399,7 +399,7 @@ public sealed class RichTextDocumentEdit
     /// Resets affected paragraphs to the document default paragraph format.
     /// </summary>
     /// <param name="range">The range whose paragraphs are reset.</param>
-    public void ClearParagraphFormat(RichTextRange range) =>
+    public void ClearParagraphFormat(TextSpan range) =>
         SetParagraphFormat(range, Snapshot.DefaultParagraphFormat);
 
     /// <summary>
@@ -440,8 +440,8 @@ public sealed class RichTextDocumentEdit
         Snapshot = Snapshot.With(lists: Snapshot.Lists.Add(id, definition));
         _changes.Add(new RichTextRangeChange(
             RichTextChangeKind.List,
-            RichTextRange.Empty,
-            RichTextRange.Empty));
+            TextSpan.Empty,
+            TextSpan.Empty));
         return id;
     }
 
@@ -464,7 +464,7 @@ public sealed class RichTextDocumentEdit
     /// <param name="range">The range whose paragraphs become list items.</param>
     /// <param name="listId">The existing document-local list identifier.</param>
     /// <param name="level">The zero-based definition level.</param>
-    public void ApplyList(RichTextRange range, RichTextListId listId, int level = 0)
+    public void ApplyList(TextSpan range, RichTextListId listId, int level = 0)
     {
         range.Validate(Snapshot.Length, nameof(range));
         if (!Snapshot.Lists.TryGetValue(listId, out var definition))
@@ -494,7 +494,7 @@ public sealed class RichTextDocumentEdit
     /// Removes list-item state and list-owned indentation from intersecting paragraphs.
     /// </summary>
     /// <param name="range">The range whose paragraphs leave their lists.</param>
-    public void RemoveList(RichTextRange range)
+    public void RemoveList(TextSpan range)
     {
         range.Validate(Snapshot.Length, nameof(range));
         var defaultFormat = Snapshot.DefaultParagraphFormat;
@@ -515,7 +515,7 @@ public sealed class RichTextDocumentEdit
     /// </summary>
     /// <param name="range">The range whose list items are changed.</param>
     /// <param name="delta">The signed level adjustment.</param>
-    public void ChangeListLevel(RichTextRange range, int delta)
+    public void ChangeListLevel(TextSpan range, int delta)
     {
         range.Validate(Snapshot.Length, nameof(range));
         if (delta == 0)
@@ -581,7 +581,7 @@ public sealed class RichTextDocumentEdit
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.List, range, range));
     }
 
-    private IReadOnlyList<RichTextParagraph> GetAffectedParagraphs(RichTextRange range)
+    private IReadOnlyList<RichTextParagraph> GetAffectedParagraphs(TextSpan range)
     {
         var lastPosition = range.IsEmpty ? range.Start : range.End - 1;
         var firstParagraph = range.Start == 0
@@ -678,7 +678,7 @@ public sealed class RichTextDocumentEdit
     /// <summary>Restarts intersecting numbered-list items at a positive value.</summary>
     /// <param name="range">The range whose list items are restarted.</param>
     /// <param name="startAt">The positive restart value.</param>
-    public void RestartList(RichTextRange range, int startAt)
+    public void RestartList(TextSpan range, int startAt)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(startAt);
         range.Validate(Snapshot.Length, nameof(range));
@@ -731,8 +731,8 @@ public sealed class RichTextDocumentEdit
             listPictures: Snapshot.ListPictures.Remove(pictureId).Values);
         _changes.Add(new RichTextRangeChange(
             RichTextChangeKind.List,
-            RichTextRange.Empty,
-            RichTextRange.Empty));
+            TextSpan.Empty,
+            TextSpan.Empty));
     }
 
     /// <summary>
@@ -741,7 +741,7 @@ public sealed class RichTextDocumentEdit
     /// <param name="range">The hyperlink display-text range.</param>
     /// <param name="target">The application-defined link target.</param>
     /// <param name="toolTip">An optional RTF hyperlink tooltip.</param>
-    public void SetLink(RichTextRange range, string target, string? toolTip = null)
+    public void SetLink(TextSpan range, string target, string? toolTip = null)
     {
         range.Validate(Snapshot.Text.Length, nameof(range));
         var affected = GetAffectedLinkRange(range);
@@ -753,7 +753,7 @@ public sealed class RichTextDocumentEdit
     /// Removes every hyperlink intersecting a range.
     /// </summary>
     /// <param name="range">The range from which links are removed.</param>
-    public void RemoveLinks(RichTextRange range)
+    public void RemoveLinks(TextSpan range)
     {
         range.Validate(Snapshot.Text.Length, nameof(range));
         var affected = GetAffectedLinkRange(range);
@@ -769,7 +769,7 @@ public sealed class RichTextDocumentEdit
     public void InsertImage(int position, RichTextImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
-        var range = new RichTextRange(position, 0);
+        var range = new TextSpan(position, 0);
         range.Validate(Snapshot.Text.Length, nameof(position));
         Snapshot = Snapshot.InsertImage(position, image);
         _changes.Add(new RichTextTextChange(
@@ -778,7 +778,7 @@ public sealed class RichTextDocumentEdit
         _changes.Add(new RichTextRangeChange(
             RichTextChangeKind.Image,
             range,
-            new RichTextRange(position, 1)));
+            new TextSpan(position, 1)));
     }
 
     /// <summary>
@@ -796,7 +796,7 @@ public sealed class RichTextDocumentEdit
 
         Snapshot = Snapshot.With(images: Snapshot.Images.Select(candidate =>
             candidate.Position == position ? image with { Position = position } : candidate));
-        var range = new RichTextRange(position, 1);
+        var range = new TextSpan(position, 1);
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.Image, range, range));
     }
 
@@ -811,7 +811,7 @@ public sealed class RichTextDocumentEdit
             throw new ArgumentOutOfRangeException(nameof(position), "No image exists at this position.");
         }
 
-        DeleteText(new RichTextRange(position, 1));
+        DeleteText(new TextSpan(position, 1));
     }
 
     /// <summary>
@@ -836,13 +836,13 @@ public sealed class RichTextDocumentEdit
         var id = new RichTextFieldId(GetNextFieldId());
         var field = new RichTextField(
             id,
-            new RichTextRange(position, insertedLength),
+            new TextSpan(position, insertedLength),
             instruction);
         Snapshot = Snapshot.With(fields: Snapshot.Fields.Append(field));
         _changes.Add(new RichTextRangeChange(
             RichTextChangeKind.Field,
-            new RichTextRange(position, 0),
-            new RichTextRange(position, insertedLength)));
+            new TextSpan(position, 0),
+            new TextSpan(position, insertedLength)));
         return id;
     }
 
@@ -873,7 +873,7 @@ public sealed class RichTextDocumentEdit
     /// <param name="result">The replacement visible result. Null is treated as empty.</param>
     /// <param name="format">An optional character format for the replacement result.</param>
     public void UpdateField(
-        RichTextRange range,
+        TextSpan range,
         string instruction,
         string? result,
         RichTextCharacterFormat? format = null)
@@ -925,7 +925,7 @@ public sealed class RichTextDocumentEdit
         Snapshot = Snapshot.With(fields: Snapshot.Fields.Where(field => field.Id != original.Id));
         ReplaceText(range, result, format);
         var insertedLength = Snapshot.Length - (oldDocumentLength - range.Length);
-        var newRange = new RichTextRange(range.Start, insertedLength);
+        var newRange = new TextSpan(range.Start, insertedLength);
         Snapshot = Snapshot.With(fields: Snapshot.Fields.Append(
             original with { Range = newRange, Instruction = instruction }));
         _changes.Add(new RichTextRangeChange(RichTextChangeKind.Field, range, newRange));
@@ -950,7 +950,7 @@ public sealed class RichTextDocumentEdit
     /// Removes fields intersecting a range while retaining their visible result text.
     /// </summary>
     /// <param name="range">The field range to clear.</param>
-    public void RemoveFields(RichTextRange range)
+    public void RemoveFields(TextSpan range)
     {
         range.Validate(Snapshot.Text.Length, nameof(range));
         var affected = GetAffectedFieldRange(range);
@@ -972,11 +972,11 @@ public sealed class RichTextDocumentEdit
 
     private RichTextRangeChange WholeDocumentChange(RichTextChangeKind kind)
     {
-        var range = new RichTextRange(0, Snapshot.Text.Length);
+        var range = new TextSpan(0, Snapshot.Text.Length);
         return new RichTextRangeChange(kind, range, range);
     }
 
-    private RichTextRange GetAffectedLinkRange(RichTextRange range)
+    private TextSpan GetAffectedLinkRange(TextSpan range)
     {
         var intersecting = Snapshot.Links.Where(link =>
             range.IsEmpty
@@ -989,10 +989,10 @@ public sealed class RichTextDocumentEdit
 
         var start = Math.Min(range.Start, intersecting[0].Start);
         var end = Math.Max(range.End, intersecting[^1].End);
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
-    private RichTextRange GetAffectedFieldRange(RichTextRange range)
+    private TextSpan GetAffectedFieldRange(TextSpan range)
     {
         var intersecting = Snapshot.Fields.Where(field =>
             FieldIntersectsRange(field, range)).ToArray();
@@ -1003,7 +1003,7 @@ public sealed class RichTextDocumentEdit
 
         var start = Math.Min(range.Start, intersecting[0].Start);
         var end = Math.Max(range.End, intersecting[^1].End);
-        return new RichTextRange(start, end - start);
+        return new TextSpan(start, end - start);
     }
 
     private int GetNextFieldId() => checked(Snapshot.Fields
@@ -1011,7 +1011,7 @@ public sealed class RichTextDocumentEdit
         .DefaultIfEmpty()
         .Max() + 1);
 
-    private static bool FieldIntersectsRange(RichTextField field, RichTextRange range)
+    private static bool FieldIntersectsRange(RichTextField field, TextSpan range)
     {
         if (field.Range.IsEmpty)
         {
@@ -1033,8 +1033,8 @@ public sealed class RichTextDocumentEdit
             .Where(paragraph => paragraph.Format.List is { } item && ids.Contains(item.ListId))
             .ToArray();
         var range = affectedParagraphs.Length == 0
-            ? RichTextRange.Empty
-            : new RichTextRange(
+            ? TextSpan.Empty
+            : new TextSpan(
                 affectedParagraphs[0].Range.Start,
                 affectedParagraphs[^1].Range.End - affectedParagraphs[0].Range.Start);
         return new RichTextRangeChange(RichTextChangeKind.List, range, range);

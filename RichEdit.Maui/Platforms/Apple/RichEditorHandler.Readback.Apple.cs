@@ -15,7 +15,7 @@ public partial class RichEditorHandler
         var text = attributed.Value ?? string.Empty;
         var previous = DisplaySourceSnapshot;
         var replacement = _pendingNativeChange is { } pending && pending.Version == previous.Version
-            ? new RichTextRange(pending.Start, pending.RemovedLength)
+            ? new TextSpan(pending.Start, pending.RemovedLength)
             : NativeProjection.ToDisplay(VirtualView.SelectedRange);
         var remappedPrevious = previous.RemapText(text, replacement);
         var emptiedParagraphStart = -1;
@@ -287,7 +287,7 @@ public partial class RichEditorHandler
         if (RequiresFullNativeSnapshot(
             attributed,
             document,
-            new RichTextRange(pending.Start, insertedLength)))
+            new TextSpan(pending.Start, insertedLength)))
         {
             return null;
         }
@@ -331,7 +331,7 @@ public partial class RichEditorHandler
     private bool RequiresFullNativeSnapshot(
         NSAttributedString? attributed,
         RichTextDocumentSnapshot expected,
-        RichTextRange insertedRange)
+        TextSpan insertedRange)
     {
         if (attributed is null || attributed.Length != expected.Length)
         {
@@ -556,7 +556,7 @@ public partial class RichEditorHandler
             _sourceToken,
             mergeWithPrevious: mergeWithPrevious,
             projectedVersion: ReferenceEquals(_projectedDocument, VirtualView.Document) ? _projectedVersion : null,
-            selectionState: InferDisplaySelectionState(new RichTextRange(start, length)));
+            selectionState: InferDisplaySelectionState(new TextSpan(start, length)));
         _projectedDocument = null;
         _projectedVersion = null;
 
@@ -586,7 +586,7 @@ public partial class RichEditorHandler
             (int)textView.SelectedRange.Length,
             0,
             DisplaySourceSnapshot.Text.Length - start);
-        UpdateSelectionFromDisplay(InferDisplaySelectionState(new RichTextRange(start, length)));
+        UpdateSelectionFromDisplay(InferDisplaySelectionState(new TextSpan(start, length)));
         UpdateTypingFormatsFromPlatform();
         _pendingNativeChange = null;
     }

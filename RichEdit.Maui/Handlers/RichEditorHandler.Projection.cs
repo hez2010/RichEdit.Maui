@@ -42,9 +42,9 @@ public partial class RichEditorHandler
     private int DisplayInputLimit => VirtualView.MaxLength < 0 ? -1 : (int)Math.Min(int.MaxValue,
         (long)VirtualView.MaxLength + NativeProjection.Reservations.Sum(static item => item.Text.Length));
 
-    private IEnumerable<RichTextRange> DisplayFoldRanges => VirtualView.Folding.EffectiveRanges.Select(range => NativeProjection.ToDisplay(range));
+    private IEnumerable<TextSpan> DisplayFoldRanges => VirtualView.Folding.EffectiveRanges.Select(range => NativeProjection.ToDisplay(range));
 
-    private RichTextRange? FindDisplayFoldRange(int position) => VirtualView.Folding.FindRange(NativeProjection.ToSource(position)) is { } range ? NativeProjection.ToDisplay(range) : null;
+    private TextSpan? FindDisplayFoldRange(int position) => VirtualView.Folding.FindRange(NativeProjection.ToSource(position)) is { } range ? NativeProjection.ToDisplay(range) : null;
 
     private bool PrepareDisplayProjection()
     {
@@ -140,7 +140,7 @@ public partial class RichEditorHandler
             changes.SourceToken, before, DisplayPresentationSnapshot, changes.UndoBehavior, changes.UndoDescription);
     }
 
-    private void ApplyIncrementalChangesCore(RichTextChangeSet changes, RichTextRange selection,
+    private void ApplyIncrementalChangesCore(RichTextChangeSet changes, TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat, RichTextParagraphFormat typingParagraphFormat)
     {
         changes = PrepareDisplayChanges(changes);
@@ -148,7 +148,7 @@ public partial class RichEditorHandler
         CompleteDisplayProjection();
     }
 
-    private partial void ApplyDisplayChangesCore(RichTextChangeSet changes, RichTextRange selection,
+    private partial void ApplyDisplayChangesCore(RichTextChangeSet changes, TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat, RichTextParagraphFormat typingParagraphFormat);
 
     private void CompleteDisplayProjection()
@@ -229,7 +229,7 @@ public partial class RichEditorHandler
                 if (position is not { } current)
                     break;
 
-                position = RichTextPositionMap.Map(current, edit, RichTextTrackingAffinity.AfterInsertion, RichTextTrackingDeletionBehavior.Invalidate);
+                position = RichTextPositionMap.Map(current, edit, PositionAffinity.AfterInsertion, TrackingDeletionBehavior.Invalidate);
             }
             if (position is { } retained)
                 result.Add(retained, retained == image.Position ? image : image with { Position = retained });
@@ -256,11 +256,11 @@ public partial class RichEditorHandler
 
     private void UpdateDocumentFromDisplay(RichTextDocumentSnapshot snapshot, int selectionStart, int selectionLength,
         object sourceToken, RichTextChangeOrigin origin = RichTextChangeOrigin.User, bool mergeWithPrevious = false,
-        long? projectedVersion = null, RichTextSelectionState? selectionState = null, RichTextDocumentSnapshot? presentation = null)
+        long? projectedVersion = null, TextSelectionState? selectionState = null, RichTextDocumentSnapshot? presentation = null)
     {
         var nativePresentation = presentation ?? PreserveNativePresentation(snapshot);
         var map = ReadDisplayReservationMetadata(snapshot.Text);
-        var selection = map.ToSource(selectionState ?? RichTextSelectionState.FromRange(new(selectionStart, selectionLength)));
+        var selection = map.ToSource(selectionState ?? TextSelectionState.FromRange(new(selectionStart, selectionLength)));
         _displayState = new(map, snapshot, snapshot);
         _paintedSnapshot = nativePresentation;
         var source = map.Unproject(snapshot);
@@ -331,9 +331,9 @@ public partial class RichEditorHandler
         return observed.With(runs: runs);
     }
 
-    private void UpdateSelectionFromDisplay(RichTextSelectionState selection) => VirtualView.UpdateSelectionFromPlatform(NativeProjection.ToSource(selection));
+    private void UpdateSelectionFromDisplay(TextSelectionState selection) => VirtualView.UpdateSelectionFromPlatform(NativeProjection.ToSource(selection));
 
-    private void UpdateSelectionFromDisplay(int start, int length) => UpdateSelectionFromDisplay(RichTextSelectionState.FromRange(new(start, length)));
+    private void UpdateSelectionFromDisplay(int start, int length) => UpdateSelectionFromDisplay(TextSelectionState.FromRange(new(start, length)));
 
     internal void PrepareNativeSourceKey(EditorKey key, EditorKeyModifiers modifiers = EditorKeyModifiers.None)
     {
@@ -376,7 +376,7 @@ public partial class RichEditorHandler
             (NativeProjection.ContainsDisplayCharacter(start) || end > start && NativeProjection.ContainsDisplayCharacter(end - 1));
     }
 
-    private RichTextSelectionState InferDisplaySelectionState(RichTextRange range)
+    private TextSelectionState InferDisplaySelectionState(TextSpan range)
     {
         var previous = NativeProjection.ToDisplay(VirtualView.SelectionState);
         if (previous.Range == range)
@@ -386,7 +386,7 @@ public partial class RichEditorHandler
         if (range.Start == previous.Anchor)
             return new(range.Start, range.End);
 
-        return RichTextSelectionState.FromRange(range);
+        return TextSelectionState.FromRange(range);
     }
 
     private partial void WriteDisplayReservationMetadata();

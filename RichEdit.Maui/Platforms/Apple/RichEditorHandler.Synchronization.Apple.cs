@@ -144,7 +144,7 @@ public partial class RichEditorHandler
 
     private partial void ApplyDisplayChangesCore(
         RichTextChangeSet changes,
-        RichTextRange selection,
+        TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
     {

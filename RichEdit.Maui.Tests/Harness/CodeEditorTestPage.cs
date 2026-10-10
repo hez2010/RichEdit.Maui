@@ -79,7 +79,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 if (replaceDocument)
                     _editor.Document = CodeDocument.FromPlainText(source);
 
-                _editor.SelectedRange = RichTextRange.Empty;
+                _editor.SelectedRange = TextSpan.Empty;
                 _editor.Focus();
                 await Task.Delay(60);
                 await _editor.Coloring().RefreshAsync();
@@ -107,17 +107,17 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             var before = _editor.Document.CurrentSnapshot;
             var rtf = _textView.Document.RtfText;
             _editor.Document.MarkSaved();
-            _editor.SelectionState = new RichTextSelectionState(8, 1);
+            _editor.SelectionState = new TextSelectionState(8, 1);
             _editor.Coloring().Palette = static _ => Colors.Purple;
             await _editor.Coloring().RefreshAsync();
             Equal(before.Version, _editor.Document.Version);
             Equal(rtf, _textView.Document.RtfText);
             Equal(false, _editor.Document.IsModified);
-            Equal(new RichTextSelectionState(8, 1), _editor.SelectionState);
+            Equal(new TextSelectionState(8, 1), _editor.SelectionState);
             Equal(new CodePosition(1, 2), _editor.CaretPosition);
             ColorAt(0, TokenColor("keyword"));
             using var layer = _editor.Decorations.CreateLayer();
-            layer.TrySet(_editor.Document.Revision, [new(new RichTextRange(0, 5), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            layer.TrySet(_editor.Document.Revision, [new(new TextSpan(0, 5), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             ColorAt(0, Colors.Green);
             Equal(before.Version, _editor.Document.Version);
             layer.Clear();
@@ -127,18 +127,18 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         await Test("source document undo restores direction and save points", "123456", async () =>
         {
             _editor.Document.MarkSaved();
-            _editor.SelectionState = new RichTextSelectionState(4, 1);
+            _editor.SelectionState = new TextSelectionState(4, 1);
             _editor.Selection.ReplaceText("9");
-            _editor.SelectionState = new RichTextSelectionState(0, 0);
+            _editor.SelectionState = new TextSelectionState(0, 0);
             _editor.Undo();
             await _editor.Coloring().RefreshAsync();
             Equal("123456", _editor.Document.Text);
-            Equal(new RichTextSelectionState(4, 1), _editor.SelectionState);
+            Equal(new TextSelectionState(4, 1), _editor.SelectionState);
             Equal(false, _editor.Document.IsModified);
             Equal(1, _editor.GetOffset(_editor.CaretPosition));
             _editor.Redo();
             Equal("1956", _editor.Document.Text);
-            Equal(new RichTextSelectionState(2, 2), _editor.SelectionState);
+            Equal(new TextSelectionState(2, 2), _editor.SelectionState);
         });
 
         await Test("syntax colors reach native text", "class C { string s = \"hello\"; int n = 42; // comment\n}", () =>
@@ -171,7 +171,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("theme changes preserve selection and redo", "class C { }", async () =>
         {
-            _editor.SelectedRange = new RichTextRange(6, 1);
+            _editor.SelectedRange = new TextSpan(6, 1);
             _editor.Selection.ReplaceText("D");
             _editor.Undo();
             var selection = _editor.SelectedRange;
@@ -206,7 +206,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("native newline and indentation share one undo unit", "    value", async () =>
         {
-            _editor.SelectedRange = new RichTextRange(_editor.Document.Length, 0);
+            _editor.SelectedRange = new TextSpan(_editor.Document.Length, 0);
             EditorContractTests.NativeReplace(_textView, "\n");
             await Task.Delay(200);
             Equal("    value\n    ", _editor.Document.Text);
@@ -219,14 +219,14 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         await Test("block indent and outdent are atomic", "one\ntwo\nthree", () =>
         {
-            _editor.SelectedRange = new RichTextRange(0, 8);
+            _editor.SelectedRange = new TextSpan(0, 8);
             _actions.Indent();
             Equal("    one\n    two\nthree", _editor.Document.Text);
             _editor.Undo();
             Equal("one\ntwo\nthree", _editor.Document.Text);
             Equal(false, _editor.CanUndo);
             _editor.Redo();
-            _editor.SelectedRange = new RichTextRange(0, 16);
+            _editor.SelectedRange = new TextSpan(0, 16);
             _actions.Outdent();
             Equal("one\ntwo\nthree", _editor.Document.Text);
             return Task.CompletedTask;
@@ -248,8 +248,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         {
             var options = new CodeSearchOptions(WholeWord: true);
             Equal(3, _actions.FindAll("foo", options).Count);
-            Equal(new RichTextRange(0, 3), _actions.FindNext("foo", options));
-            Equal(new RichTextRange(9, 3), _actions.FindNext("foo", options));
+            Equal(new TextSpan(0, 3), _actions.FindNext("foo", options));
+            Equal(new TextSpan(9, 3), _actions.FindNext("foo", options));
             Equal(3, _actions.ReplaceAll("foo", "bar", options));
             Equal("bar food bar foo\u0301 bar", _editor.Document.Text);
             _editor.Undo();
@@ -293,7 +293,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(true, captured.Lines.SelectMany(line => line.SourceRanges).Select(range => range.Start).SequenceEqual(new[] { 0, 3, 7 }),
                 "visible line-number source positions after layout invalidation");
             _actions.GoToLine(2, 3);
-            Equal(new RichTextRange(5, 0), _editor.SelectedRange);
+            Equal(new TextSpan(5, 0), _editor.SelectedRange);
             var gutter = ((Grid)_editor.Content).Children.OfType<GraphicsView>().Single();
             Equal(true, gutter.Width > 0 && gutter.Height > 0, "gutter layout");
 #if IOS || MACCATALYST
@@ -371,7 +371,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.Undo();
             await _editor.Coloring().RefreshAsync();
             using var layer = _editor.Decorations.CreateLayer();
-            layer.TrySet(_editor.Document.Revision, [new(new RichTextRange(0, 2), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            layer.TrySet(_editor.Document.Revision, [new(new TextSpan(0, 2), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
             ColorAt(0, Colors.Green);
             Equal(true, _editor.CanUndo);
             Equal(true, _editor.CanRedo);
@@ -419,21 +419,21 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 #if ANDROID
         await Test("hardware arrow keys retain native navigation", "abcd\nnext", async () =>
         {
-            _editor.SelectedRange = new RichTextRange(2, 0);
+            _editor.SelectedRange = new TextSpan(2, 0);
             Key(Android.Views.Keycode.DpadLeft);
             await Task.Delay(30);
-            Equal(new RichTextRange(1, 0), _editor.SelectedRange, "left arrow");
+            Equal(new TextSpan(1, 0), _editor.SelectedRange, "left arrow");
             Key(Android.Views.Keycode.DpadRight);
-            Equal(new RichTextRange(2, 0), _editor.SelectedRange, "right arrow");
+            Equal(new TextSpan(2, 0), _editor.SelectedRange, "right arrow");
             Key(Android.Views.Keycode.MoveEnd);
-            Equal(new RichTextRange(4, 0), _editor.SelectedRange, "End");
+            Equal(new TextSpan(4, 0), _editor.SelectedRange, "End");
             Key(Android.Views.Keycode.MoveHome);
-            Equal(RichTextRange.Empty, _editor.SelectedRange, "Home");
+            Equal(TextSpan.Empty, _editor.SelectedRange, "Home");
         });
 
         await Test("hardware Delete and Backspace retain native deletion", "abcd", () =>
         {
-            _editor.SelectedRange = new RichTextRange(1, 0);
+            _editor.SelectedRange = new TextSpan(1, 0);
             Key(Android.Views.Keycode.ForwardDel);
             Equal("acd", _editor.Document.Text, "Delete");
             Key(Android.Views.Keycode.Del);
@@ -454,7 +454,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         await Test("hardware Tab and Enter invoke code commands", "    value", async () =>
         {
             var native = (Android.Widget.EditText)_textView.Handler!.PlatformView!;
-            _editor.SelectedRange = new RichTextRange(_editor.Document.Length, 0);
+            _editor.SelectedRange = new TextSpan(_editor.Document.Length, 0);
             using var enter = new Android.Views.KeyEvent(Android.Views.KeyEventActions.Down, Android.Views.Keycode.Enter);
             native.DispatchKeyEvent(enter);
             await Task.Delay(100);

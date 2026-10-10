@@ -6,6 +6,38 @@ namespace TextEdit.Core.Tests;
 public sealed class TextTrackingTests
 {
     [Fact]
+    public void AbandonedHandlesAreSweptWithoutKeepingTheirRegistrationAlive()
+    {
+        var document = new TextDocument("abc");
+        var weak = AbandonRange(document);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Assert.False(weak.TryGetTarget(out _));
+        document.Edit(edit => edit.Insert(0, "!"));
+        Assert.Equal(0, document.Tracking.Count);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference<TextTrackedRange> AbandonRange(TextDocument document) => new(document.Tracking.TrackRange(new(0, 1)));
+
+    [Fact]
+    public void DeletionAtAnAnchorInvalidatesItAndResetInvalidatesPreservedHandles()
+    {
+        var document = new TextDocument("abc");
+        using var point = document.Tracking.TrackPosition(1);
+        using var empty = document.Tracking.TrackRange(new(1, 0));
+        using var preserved = document.Tracking.TrackRange(new(0, 3), deletion: TrackingDeletionBehavior.Preserve);
+        document.Edit(edit => edit.Delete(new(1, 1)));
+        Assert.Null(point.Position);
+        Assert.Null(empty.Range);
+        Assert.Equal(new TextSpan(0, 2), preserved.Range);
+        document.Tracking.InvalidateAll();
+        Assert.False(preserved.IsValid);
+        Assert.Equal(0, document.Tracking.Count);
+    }
+
+    [Fact]
     public void PrefixInsertionsShiftAnIndexedSuffixWithoutVisitingEveryHandle()
     {
         var document = new TextDocument(new string('x', 100_000));

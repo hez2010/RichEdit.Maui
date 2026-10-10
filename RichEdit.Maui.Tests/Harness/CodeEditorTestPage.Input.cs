@@ -31,7 +31,7 @@ internal sealed partial class CodeEditorTestPage
             Equal("text!", _editor.Document.Text);
             _editor.Undo();
             Equal("text", _editor.Document.Text);
-            Equal(new RichTextRange(4, 0), _editor.SelectedRange);
+            Equal(new TextSpan(4, 0), _editor.SelectedRange);
             _editor.KeyBindings.RemoveAt(_editor.KeyBindings.Count - 1);
             SendNativeKey(EditorKey.Tab);
             Equal("text    ", _editor.Document.Text);

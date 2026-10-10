@@ -65,7 +65,7 @@ public partial class IncrementalCharacterFormattingTests
             ForegroundColor = Colors.Navy,
         }));
         var document = fixture.Editor.Document;
-        var range = new RichTextRange(7, 6);
+        var range = new TextSpan(7, 6);
         document.Edit(edit => edit.SetCharacterFormat(range, Formats[name]));
         AssertMatchesFullProjection(fixture);
         document.Undo();

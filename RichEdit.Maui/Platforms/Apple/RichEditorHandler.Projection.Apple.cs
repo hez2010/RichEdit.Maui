@@ -6,8 +6,8 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private (RichTextRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
-    private (RichTextRevision Revision, CoreGraphics.CGPoint Offset)? _viewportAfterLayout;
+    private (DocumentRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
+    private (DocumentRevision Revision, CoreGraphics.CGPoint Offset)? _viewportAfterLayout;
 
     partial void PreserveAdornmentScrollAnchor(int position, double top) => _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);
 
@@ -33,7 +33,7 @@ public partial class RichEditorHandler
             OffsetAdornmentScroll(saved.Offset.Y - PlatformView.ContentOffset.Y);
     }
 
-    private void ApplyReservationChanges(RichTextChangeSet changes, RichTextRange selection,
+    private void ApplyReservationChanges(RichTextChangeSet changes, TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat, RichTextParagraphFormat typingParagraphFormat)
     {
         var snapshot = DisplayPresentationSnapshot;

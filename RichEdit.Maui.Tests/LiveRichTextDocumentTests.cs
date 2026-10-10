@@ -53,7 +53,7 @@ public sealed class LiveRichTextDocumentTests
             {
                 edit.InsertText(0, "hello");
                 edit.UpdateCharacterFormat(
-                    new RichTextRange(0, 5),
+                    new TextSpan(0, 5),
                     format => format with { FontWeight = 700 });
                 edit.SetMetadata("source", "test");
             },
@@ -71,7 +71,7 @@ public sealed class LiveRichTextDocumentTests
         Assert.Contains(changeSet.Changes, change => change.Kind == RichTextChangeKind.CharacterFormat);
         Assert.Contains(changeSet.Changes, change => change.Kind == RichTextChangeKind.Metadata);
         Assert.Equal("hello", document.Text);
-        Assert.True(document.GetCharacterFormat(new RichTextRange(0, 5)).RepresentativeFormat.Bold);
+        Assert.True(document.GetCharacterFormat(new TextSpan(0, 5)).RepresentativeFormat.Bold);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class LiveRichTextDocumentTests
 
         Assert.Throws<InvalidOperationException>(() => document.Edit(edit =>
         {
-            edit.ReplaceText(new RichTextRange(0, 6), "after");
+            edit.ReplaceText(new TextSpan(0, 6), "after");
             edit.SetMetadata("partial", "must not escape");
             throw new InvalidOperationException("Abort transaction");
         }));
@@ -107,7 +107,7 @@ public sealed class LiveRichTextDocumentTests
 
         var empty = document.Edit(_ => { });
         var emptyReplacement = document.Edit(edit =>
-            edit.ReplaceText(RichTextRange.Empty, string.Empty));
+            edit.ReplaceText(TextSpan.Empty, string.Empty));
 
         Assert.True(empty.IsEmpty);
         Assert.True(emptyReplacement.IsEmpty);
@@ -143,14 +143,14 @@ public sealed class LiveRichTextDocumentTests
                 FontFamily = "Document Default",
             });
             edit.UpdateCharacterFormat(
-                new RichTextRange(1, 1),
+                new TextSpan(1, 1),
                 format => format with { FontFamily = "Explicit" });
         });
 
         var snapshot = document.CurrentSnapshot;
         Assert.Same(snapshot.RtfText, snapshot.RtfText);
 
-        var range = new RichTextRange(0, 2);
+        var range = new TextSpan(0, 2);
         var first = document.GetCharacterFormat(range);
         var second = document.GetCharacterFormat(range);
         Assert.Same(first, second);
@@ -182,7 +182,7 @@ public sealed class LiveRichTextDocumentTests
         Assert.Null(run.FontFamily);
         Assert.Null(run.FontSize);
         Assert.Null(run.ForegroundColor);
-        var summary = document.GetCharacterFormat(new RichTextRange(0, document.Length));
+        var summary = document.GetCharacterFormat(new TextSpan(0, document.Length));
         Assert.True(summary.FontFamily.IsInherited);
         Assert.Equal("Georgia", summary.EffectiveFontFamily.Value);
         Assert.Equal(17, summary.EffectiveFontSize.Value);
@@ -210,14 +210,14 @@ public sealed class LiveRichTextDocumentTests
             });
             edit.InsertText(0, "explicit");
             edit.UpdateCharacterFormat(
-                new RichTextRange(0, 8),
+                new TextSpan(0, 8),
                 format => format with { FontFamily = "Georgia" });
         });
 
         var parsed = RichTextDocument.FromRtf(document.RtfText);
         Assert.Equal("Georgia", Assert.Single(parsed.CurrentSnapshot.Runs).Format.FontFamily);
 
-        parsed.Edit(edit => edit.ClearCharacterFormat(new RichTextRange(0, parsed.Length)));
+        parsed.Edit(edit => edit.ClearCharacterFormat(new TextSpan(0, parsed.Length)));
         Assert.Null(Assert.Single(parsed.CurrentSnapshot.Runs).Format.FontFamily);
     }
 
@@ -438,7 +438,7 @@ public sealed class LiveRichTextDocumentTests
         {
             edit.InsertText(0, "first\nsecond");
             listId = edit.CreateList(NumberedOutline);
-            edit.ApplyList(new RichTextRange(0, 12), listId);
+            edit.ApplyList(new TextSpan(0, 12), listId);
         });
 
         var snapshot = document.CurrentSnapshot;
@@ -447,15 +447,15 @@ public sealed class LiveRichTextDocumentTests
         Assert.All(snapshot.Paragraphs, paragraph =>
             Assert.Equal(listId, paragraph.Format.List?.ListId));
 
-        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), 1));
+        document.Edit(edit => edit.ChangeListLevel(new TextSpan(6, 6), 1));
         Assert.Equal(0, document.CurrentSnapshot.Paragraphs[0].Format.List?.Level);
         Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
         Assert.Equal(1, document.CurrentSnapshot.Paragraphs[1].Format.NativeList?.Level);
 
-        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MaxValue));
+        document.Edit(edit => edit.ChangeListLevel(new TextSpan(6, 6), int.MaxValue));
         Assert.Equal(8, document.CurrentSnapshot.Paragraphs[1].Format.List?.Level);
         Assert.Equal(9, document.CurrentSnapshot.Lists[listId].Levels.Length);
-        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(6, 6), int.MinValue));
+        document.Edit(edit => edit.ChangeListLevel(new TextSpan(6, 6), int.MinValue));
         Assert.Null(document.CurrentSnapshot.Paragraphs[1].Format.List);
     }
 
@@ -480,10 +480,10 @@ public sealed class LiveRichTextDocumentTests
         {
             edit.InsertText(0, "item");
             listId = edit.CreateList(list);
-            edit.ApplyList(new RichTextRange(0, 4), listId);
+            edit.ApplyList(new TextSpan(0, 4), listId);
         });
 
-        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(0, 4), 1));
+        document.Edit(edit => edit.ChangeListLevel(new TextSpan(0, 4), 1));
 
         var definition = document.CurrentSnapshot.Lists[listId];
         Assert.Equal(2, definition.Levels.Length);
@@ -495,10 +495,10 @@ public sealed class LiveRichTextDocumentTests
         Assert.Equal(36, definition.Levels[1].MarkerTab);
         Assert.Equal(1, document.CurrentSnapshot.Paragraphs[0].Format.List?.Level);
 
-        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(0, 4), -1));
+        document.Edit(edit => edit.ChangeListLevel(new TextSpan(0, 4), -1));
         Assert.Equal(0, document.CurrentSnapshot.Paragraphs[0].Format.List?.Level);
 
-        document.Edit(edit => edit.ChangeListLevel(new RichTextRange(0, 4), -1));
+        document.Edit(edit => edit.ChangeListLevel(new TextSpan(0, 4), -1));
         var paragraph = document.CurrentSnapshot.Paragraphs[0].Format;
         Assert.Null(paragraph.List);
         Assert.Null(paragraph.NativeList);
@@ -515,7 +515,7 @@ public sealed class LiveRichTextDocumentTests
         {
             edit.InsertText(0, "item");
             var id = edit.CreateList(CreateBulletList());
-            edit.ApplyList(new RichTextRange(0, 4), id);
+            edit.ApplyList(new TextSpan(0, 4), id);
         });
 
         var previous = document.CurrentSnapshot;
@@ -553,7 +553,7 @@ public sealed class LiveRichTextDocumentTests
         {
             edit.InsertText(0, "item");
             listId = edit.CreateList(NumberedOutline);
-            edit.ApplyList(new RichTextRange(0, 4), listId);
+            edit.ApplyList(new TextSpan(0, 4), listId);
         });
 
         var previous = document.CurrentSnapshot;
@@ -589,10 +589,10 @@ public sealed class LiveRichTextDocumentTests
         });
         var fragment = RichTextDocumentFragment.FromRange(
             source.CurrentSnapshot,
-            new RichTextRange(0, source.Length));
+            new TextSpan(0, source.Length));
 
         var target = new RichTextDocument();
-        target.Edit(edit => edit.ReplaceFragment(RichTextRange.Empty, fragment));
+        target.Edit(edit => edit.ReplaceFragment(TextSpan.Empty, fragment));
 
         Assert.Empty(fragment.Snapshot.Lists);
         Assert.Empty(target.CurrentSnapshot.Lists);
@@ -619,11 +619,11 @@ public sealed class LiveRichTextDocumentTests
         {
             edit.InsertText(0, "item");
             edit.UpdateCharacterFormat(
-                new RichTextRange(0, 4),
+                new TextSpan(0, 4),
                 format => format with { Italic = true });
-            edit.SetLink(new RichTextRange(0, 4), "https://example.com");
+            edit.SetLink(new TextSpan(0, 4), "https://example.com");
             var listId = edit.CreateList(NumberedOutline);
-            edit.ApplyList(new RichTextRange(0, 4), listId);
+            edit.ApplyList(new TextSpan(0, 4), listId);
         });
         var fragment = RichTextDocumentFragment.FromRtf(source.RtfText);
 
@@ -631,14 +631,14 @@ public sealed class LiveRichTextDocumentTests
         target.Edit(edit =>
         {
             edit.InsertText(0, "AB");
-            edit.ReplaceFragment(new RichTextRange(1, 0), fragment);
+            edit.ReplaceFragment(new TextSpan(1, 0), fragment);
         });
 
         var snapshot = target.CurrentSnapshot;
         Assert.Equal("AitemB", target.Text);
         Assert.True(snapshot.GetCharacterFormat(1).Italic);
         Assert.Contains(snapshot.Links, link =>
-            link.Range == new RichTextRange(1, 4) &&
+            link.Range == new TextSpan(1, 4) &&
             link.Target == "https://example.com");
         Assert.Single(snapshot.Lists);
         Assert.NotNull(snapshot.GetParagraphFormat(1).List);
@@ -652,12 +652,12 @@ public sealed class LiveRichTextDocumentTests
         {
             edit.InsertText(0, "one\ntwo\nthree\nfour");
             var listId = edit.CreateList(NumberedOutline);
-            edit.ApplyList(new RichTextRange(0, 18), listId);
+            edit.ApplyList(new TextSpan(0, 18), listId);
         });
         RichTextChangeSet? observed = null;
         document.Changed += (_, args) => observed = args.ChangeSet;
 
-        document.Edit(edit => edit.DeleteText(new RichTextRange(4, 10)));
+        document.Edit(edit => edit.DeleteText(new TextSpan(4, 10)));
 
         Assert.Equal("one\nfour", document.Text);
         Assert.Equal((int[])[0, 4], document.CurrentSnapshot.Paragraphs.Select(static item => item.Range.Start));
@@ -665,7 +665,7 @@ public sealed class LiveRichTextDocumentTests
             Assert.NotNull(paragraph.Format.List));
         Assert.Single(document.CurrentSnapshot.Lists);
         var textChange = Assert.Single(observed!.Changes.OfType<RichTextTextChange>());
-        Assert.Equal(new RichTextRange(4, 10), textChange.OldRange);
+        Assert.Equal(new TextSpan(4, 10), textChange.OldRange);
         Assert.Equal(string.Empty, textChange.InsertedText);
     }
 
@@ -679,14 +679,14 @@ public sealed class LiveRichTextDocumentTests
             [
                 new RichTextRangeChange(
                     RichTextChangeKind.CharacterFormat,
-                    new RichTextRange(100, 10),
-                    new RichTextRange(100, 10)),
-                new RichTextTextChange(new RichTextRange(50, 0), "y"),
+                    new TextSpan(100, 10),
+                    new TextSpan(100, 10)),
+                new RichTextTextChange(new TextSpan(50, 0), "y"),
             ],
             tag: null);
 
         Assert.Equal(
-            new RichTextRange(50, 61),
+            new TextSpan(50, 61),
             changes.GetAffectedRange(documentLength: 121));
     }
 
@@ -697,7 +697,7 @@ public sealed class LiveRichTextDocumentTests
         document.Edit(edit => edit.InsertText(0, "same"));
 
         var changes = document.Edit(edit => edit.ReplaceText(
-            new RichTextRange(0, 4),
+            new TextSpan(0, 4),
             "same",
             RichTextCharacterFormat.Default with { FontWeight = 700 }));
 
@@ -721,7 +721,7 @@ public sealed class LiveRichTextDocumentTests
 
         Assert.Equal("updated", document.Text);
         var field = Assert.Single(document.CurrentSnapshot.Fields);
-        Assert.Equal(new RichTextRange(0, 7), field.Range);
+        Assert.Equal(new TextSpan(0, 7), field.Range);
         Assert.Equal("NEW", field.Instruction);
         Assert.True(changes.IsTextChanged);
         Assert.Contains(changes.Changes, change => change.Kind == RichTextChangeKind.Field);
@@ -747,12 +747,12 @@ public sealed class LiveRichTextDocumentTests
             field =>
             {
                 Assert.Equal(first, field.Id);
-                Assert.Equal(new RichTextRange(0, 5), field.Range);
+                Assert.Equal(new TextSpan(0, 5), field.Range);
             },
             field =>
             {
                 Assert.Equal(second, field.Id);
-                Assert.Equal(new RichTextRange(5, 0), field.Range);
+                Assert.Equal(new TextSpan(5, 0), field.Range);
             });
 
         document.Edit(edit => edit.RemoveField(second));
@@ -766,7 +766,7 @@ public sealed class LiveRichTextDocumentTests
             @"{\rtf1{\field{\*\fldinst PAGE}{\fldrslt }}}");
         var document = new RichTextDocument();
 
-        document.Edit(edit => edit.ReplaceFragment(RichTextRange.Empty, fragment));
+        document.Edit(edit => edit.ReplaceFragment(TextSpan.Empty, fragment));
 
         Assert.Equal(string.Empty, document.Text);
         Assert.Equal("PAGE", Assert.Single(document.CurrentSnapshot.Fields).Instruction);
@@ -778,10 +778,10 @@ public sealed class LiveRichTextDocumentTests
         var document = new RichTextDocument();
         document.Edit(edit => edit.InsertField(0, "FIELD", "value"));
 
-        var changes = document.Edit(edit => edit.RemoveFields(new RichTextRange(2, 0)));
+        var changes = document.Edit(edit => edit.RemoveFields(new TextSpan(2, 0)));
 
         Assert.Empty(document.CurrentSnapshot.Fields);
-        Assert.Equal(new RichTextRange(0, 5), changes.GetAffectedRange(document.Length));
+        Assert.Equal(new TextSpan(0, 5), changes.GetAffectedRange(document.Length));
     }
 
     [Fact]
@@ -791,13 +791,13 @@ public sealed class LiveRichTextDocumentTests
         document.Edit(edit =>
         {
             edit.InsertText(0, "0123456789");
-            edit.SetLink(new RichTextRange(0, 10), "https://example.test");
+            edit.SetLink(new TextSpan(0, 10), "https://example.test");
         });
 
-        var changes = document.Edit(edit => edit.RemoveLinks(new RichTextRange(4, 2)));
+        var changes = document.Edit(edit => edit.RemoveLinks(new TextSpan(4, 2)));
 
         Assert.Empty(document.CurrentSnapshot.Links);
-        Assert.Equal(new RichTextRange(0, 10), changes.GetAffectedRange(document.Length));
+        Assert.Equal(new TextSpan(0, 10), changes.GetAffectedRange(document.Length));
     }
 
     [Fact]
@@ -807,13 +807,13 @@ public sealed class LiveRichTextDocumentTests
         document.Edit(edit =>
         {
             edit.InsertText(0, "0123456789");
-            edit.SetLink(new RichTextRange(0, 10), "https://example.test");
+            edit.SetLink(new TextSpan(0, 10), "https://example.test");
         });
 
-        var changes = document.Edit(edit => edit.RemoveLinks(new RichTextRange(4, 0)));
+        var changes = document.Edit(edit => edit.RemoveLinks(new TextSpan(4, 0)));
 
         Assert.Empty(document.CurrentSnapshot.Links);
-        Assert.Equal(new RichTextRange(0, 10), changes.GetAffectedRange(document.Length));
+        Assert.Equal(new TextSpan(0, 10), changes.GetAffectedRange(document.Length));
     }
 
     [Fact]
@@ -828,7 +828,7 @@ public sealed class LiveRichTextDocumentTests
         // field's result text: the model overlay must not survive as a
         // ghost zero-length field.
         document.Edit(edit => edit.ReplaceText(
-            new RichTextRange(7, "2026-07-30".Length),
+            new TextSpan(7, "2026-07-30".Length),
             string.Empty));
 
         Assert.Empty(document.CurrentSnapshot.Fields);
@@ -854,14 +854,14 @@ public sealed class LiveRichTextDocumentTests
                                                     MarkerTab = 24,
                                                 },
                 ]));
-            edit.ApplyList(new RichTextRange(6, 6), listId);
-            edit.UpdateParagraphFormat(new RichTextRange(6, 6), format => format with
+            edit.ApplyList(new TextSpan(6, 6), listId);
+            edit.UpdateParagraphFormat(new TextSpan(6, 6), format => format with
             {
                 Alignment = RichTextAlignment.Center,
             });
         });
 
-        var fragment = RichTextDocumentFragment.FromRange(document.CurrentSnapshot, new RichTextRange(7, 3));
+        var fragment = RichTextDocumentFragment.FromRange(document.CurrentSnapshot, new TextSpan(7, 3));
 
         Assert.Equal("eco", fragment.Text);
         Assert.Equal(document.CurrentSnapshot.GetParagraphFormat(7), fragment.Snapshot.GetParagraphFormat(0));
@@ -889,8 +889,8 @@ public sealed class LiveRichTextDocumentTests
             edit.InsertText(0, "target");
         });
 
-        var fragment = RichTextDocumentFragment.FromRange(source.CurrentSnapshot, new RichTextRange(0, source.Length));
-        target.Edit(edit => edit.ReplaceFragment(new RichTextRange(3, 0), fragment));
+        var fragment = RichTextDocumentFragment.FromRange(source.CurrentSnapshot, new TextSpan(0, source.Length));
+        target.Edit(edit => edit.ReplaceFragment(new TextSpan(3, 0), fragment));
 
         var format = target.CurrentSnapshot.ResolveCharacterFormat(target.CurrentSnapshot.GetCharacterFormat(3));
         Assert.Equal("Georgia", format.FontFamily);
@@ -907,10 +907,10 @@ public sealed class LiveRichTextDocumentTests
         document.Edit(edit =>
         {
             edit.InsertText(0, "before after", RichTextCharacterFormat.Default with { FontWeight = 700, FontSize = 20 });
-            edit.UpdateParagraphFormat(RichTextRange.Empty, format => format with { Alignment = RichTextAlignment.Center });
+            edit.UpdateParagraphFormat(TextSpan.Empty, format => format with { Alignment = RichTextAlignment.Center });
         });
 
-        document.Edit(edit => edit.ReplaceFragment(new RichTextRange(7, 0), RichTextDocumentFragment.FromPlainText("plain")));
+        document.Edit(edit => edit.ReplaceFragment(new TextSpan(7, 0), RichTextDocumentFragment.FromPlainText("plain")));
 
         Assert.Equal("before plainafter", document.Text);
         var format = document.CurrentSnapshot.GetCharacterFormat(7);
@@ -1027,7 +1027,7 @@ public sealed class LiveRichTextDocumentTests
             paragraphs: (RichTextParagraph[])[new(0, new() { Alignment = RichTextAlignment.Center }),
                 new(4, new() { Alignment = RichTextAlignment.Right }), new(8, new() { Alignment = RichTextAlignment.Justified })],
             links: (RichTextLink[])[new(0, 3, "https://source.example")],
-            fields: (RichTextField[])[new(new RichTextRange(4, 3), "PAGE")],
+            fields: (RichTextField[])[new(new TextSpan(4, 3), "PAGE")],
             defaultCharacterFormat: new() { FontSize = 17 });
         var document = RichTextDocument.FromPlainText("left old right\nnext");
         document.Edit(edit => edit.SetLink(new(0, 14), "https://destination.example"));
@@ -1037,8 +1037,8 @@ public sealed class LiveRichTextDocumentTests
         Assert.Equal("left ONE\nTWO\n right\nnext", after.Text);
         Assert.Equal(new[] { RichTextAlignment.Center, RichTextAlignment.Right, RichTextAlignment.Justified, RichTextAlignment.Left },
             after.Paragraphs.Select(static paragraph => paragraph.Format.Alignment));
-        Assert.Equal(new RichTextRange(5, 3), Assert.Single(after.Links).Range);
-        Assert.Equal(new RichTextRange(9, 3), Assert.Single(after.Fields).Range);
+        Assert.Equal(new TextSpan(5, 3), Assert.Single(after.Links).Range);
+        Assert.Equal(new TextSpan(9, 3), Assert.Single(after.Fields).Range);
         Assert.Equal(17d, after.GetCharacterFormat(9).FontSize);
         Assert.True(after.GetCharacterFormat(5).Italic);
         document.Undo();

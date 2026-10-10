@@ -45,7 +45,7 @@ public class DocumentHistoryTests
         document.Edit(edit => edit.InsertText(2, "c"));
         document.Undo();
         var version = document.Version;
-        var changes = document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(0, 2),
+        var changes = document.Edit(edit => edit.UpdateCharacterFormat(new TextSpan(0, 2),
             format => format with { ForegroundColor = Colors.Green }), new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory));
         Assert.True(document.CanUndo);
         Assert.True(document.CanRedo);
@@ -107,9 +107,9 @@ public class DocumentHistoryTests
         var before = document.CurrentSnapshot;
         Assert.Throws<InvalidOperationException>(() => document.Edit(edit =>
         {
-            edit.UpdateCharacterFormat(new RichTextRange(0, 4), format => format with { Italic = true });
+            edit.UpdateCharacterFormat(new TextSpan(0, 4), format => format with { Italic = true });
             if (semantic)
-                edit.SetLink(new RichTextRange(0, 4), "https://example.com");
+                edit.SetLink(new TextSpan(0, 4), "https://example.com");
             else
                 edit.InsertText(0, "unsafe");
         }, new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory)));
@@ -130,7 +130,7 @@ public class DocumentHistoryTests
             document.Edit(edit => edit.InsertText(5, " one"));
             using (document.BeginUndoGroup())
                 document.Edit(edit => edit.InsertText(9, " two"));
-            document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(0, 5), format => format with { Italic = true }));
+            document.Edit(edit => edit.UpdateCharacterFormat(new TextSpan(0, 5), format => format with { Italic = true }));
             Assert.True(document.IsUndoGroupOpen);
             Assert.False(document.CanUndo);
             Assert.False(document.CanRedo);
@@ -156,7 +156,7 @@ public class DocumentHistoryTests
         { }
         Assert.True(document.CanRedo);
         using (document.BeginUndoGroup())
-            document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(0, 1), format => format with { ForegroundColor = Colors.Red }),
+            document.Edit(edit => edit.UpdateCharacterFormat(new TextSpan(0, 1), format => format with { ForegroundColor = Colors.Red }),
                 new RichTextEditOptions(RichTextUndoBehavior.PreserveHistory));
         Assert.False(document.CanUndo);
         Assert.True(document.CanRedo);
@@ -246,7 +246,7 @@ public class DocumentHistoryTests
         var document = new RichTextDocument();
         document.Edit(edit => edit.InsertText(0, "0123456789"));
         document.Edit(edit => edit.SetLink(
-            new RichTextRange(2, 6),
+            new TextSpan(2, 6),
             "https://example.test"));
 
         RichTextChangeSet? changes = null;

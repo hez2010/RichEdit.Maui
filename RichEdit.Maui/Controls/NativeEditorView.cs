@@ -37,37 +37,37 @@ public partial class NativeEditorView : View
 
     /// <summary>Identifies the directional <see cref="SelectionState"/> bindable property.</summary>
     public static readonly BindableProperty SelectionStateProperty = BindableProperty.Create(
-        nameof(SelectionState), typeof(RichTextSelectionState), typeof(NativeEditorView), default(RichTextSelectionState), BindingMode.TwoWay,
+        nameof(SelectionState), typeof(TextSelectionState), typeof(NativeEditorView), default(TextSelectionState), BindingMode.TwoWay,
         coerceValue: static (bindable, value) =>
         {
             var editor = (NativeEditorView)bindable;
             editor.VerifyAccess();
             editor.VerifySelectionMutation();
-            return ((RichTextSelectionState)value).Clamp(editor.Document.Length);
+            return ((TextSelectionState)value).Clamp(editor.Document.Length);
         },
         propertyChanged: static (bindable, before, after) => ((NativeEditorView)bindable).OnSelectionStateChanged(
-            (RichTextSelectionState)before, (RichTextSelectionState)after));
+            (TextSelectionState)before, (TextSelectionState)after));
 
     /// <summary>Identifies the <see cref="SelectedRange"/> bindable property.</summary>
     public static readonly BindableProperty SelectedRangeProperty = BindableProperty.Create(
         nameof(SelectedRange),
-        typeof(RichTextRange),
+        typeof(TextSpan),
         typeof(NativeEditorView),
-        RichTextRange.Empty,
+        TextSpan.Empty,
         BindingMode.TwoWay,
         coerceValue: static (bindable, value) =>
         {
             ((NativeEditorView)bindable).VerifyAccess();
             ((NativeEditorView)bindable).VerifySelectionMutation();
             var length = ((NativeEditorView)bindable).Document.Length;
-            var range = value is RichTextRange richRange ? richRange : RichTextRange.Empty;
+            var range = value is TextSpan richRange ? richRange : TextSpan.Empty;
             var start = Math.Clamp(range.Start, 0, length);
-            return new RichTextRange(start, Math.Clamp(range.Length, 0, length - start));
+            return new TextSpan(start, Math.Clamp(range.Length, 0, length - start));
         },
         propertyChanged: static (bindable, oldValue, newValue) =>
             ((NativeEditorView)bindable).OnSelectedRangePropertyChanged(
-                (RichTextRange)oldValue,
-                (RichTextRange)newValue));
+                (TextSpan)oldValue,
+                (TextSpan)newValue));
 
     /// <summary>Identifies the <see cref="Placeholder"/> bindable property.</summary>
     public static readonly BindableProperty PlaceholderProperty = BindableProperty.Create(
@@ -196,10 +196,10 @@ public partial class NativeEditorView : View
     private bool _updatingSelectionRange;
     private bool _deferNotifications;
     private readonly List<string> _deferredProperties = [];
-    private RichTextSelectionState _selectionBeforeNotification;
+    private TextSelectionState _selectionBeforeNotification;
     private RichTextDocument? _attachedDocument;
-    private RichTextSelectionState? _pendingPlatformSelection;
-    private RichTextSelectionState? _pendingProgrammaticSelection;
+    private TextSelectionState? _pendingPlatformSelection;
+    private TextSelectionState? _pendingProgrammaticSelection;
     private RichTextCharacterFormat _typingCharacterFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _typingParagraphFormat = RichTextParagraphFormat.Default;
 
@@ -298,16 +298,16 @@ public partial class NativeEditorView : View
     /// Gets or sets the selected UTF-16 document range. Assigned values are clamped
     /// to the current document bounds.
     /// </summary>
-    public RichTextRange SelectedRange
+    public TextSpan SelectedRange
     {
-        get => (RichTextRange)GetValue(SelectedRangeProperty);
-        set => SelectionState = RichTextSelectionState.FromRange(value);
+        get => (TextSpan)GetValue(SelectedRangeProperty);
+        set => SelectionState = TextSelectionState.FromRange(value);
     }
 
     /// <summary>Gets or sets the anchor and active UTF-16 offsets, clamped to the document.</summary>
-    public RichTextSelectionState SelectionState
+    public TextSelectionState SelectionState
     {
-        get => (RichTextSelectionState)GetValue(SelectionStateProperty);
+        get => (TextSelectionState)GetValue(SelectionStateProperty);
         set
         {
             VerifyAccess();
@@ -498,11 +498,11 @@ public partial class NativeEditorView : View
     }
 
     /// <summary>Selects the complete logical document.</summary>
-    public void SelectAll() => SelectedRange = new RichTextRange(0, Document.Length);
+    public void SelectAll() => SelectedRange = new TextSpan(0, Document.Length);
 
     /// <summary>Brings a document range into view without changing the selection.</summary>
     /// <param name="range">The bounded UTF-16 range to reveal.</param>
-    public void ScrollIntoView(RichTextRange range)
+    public void ScrollIntoView(TextSpan range)
     {
         VerifyAccess();
         range.Validate(Document.Length, nameof(range));
@@ -595,7 +595,7 @@ public partial class NativeEditorView : View
 
     private RichTextDocumentFragment? LimitFragmentToMaxLength(
         RichTextDocumentFragment fragment,
-        RichTextRange replacedRange)
+        TextSpan replacedRange)
     {
         var maxLength = MaxLength;
         if (maxLength < 0)
@@ -618,7 +618,7 @@ public partial class NativeEditorView : View
             ? null
             : fragment.IsPlainText
                 ? RichTextDocumentFragment.FromPlainText(fragment.Text[..available])
-                : RichTextDocumentFragment.FromRange(fragment.Snapshot, new RichTextRange(0, available));
+                : RichTextDocumentFragment.FromRange(fragment.Snapshot, new TextSpan(0, available));
     }
 
     internal void UpdateDocumentFromPlatform(
@@ -629,11 +629,11 @@ public partial class NativeEditorView : View
         RichTextChangeOrigin origin = RichTextChangeOrigin.User,
         bool mergeWithPrevious = false,
         long? projectedVersion = null,
-        RichTextSelectionState? selectionState = null)
+        TextSelectionState? selectionState = null)
     {
         VerifyAccess();
         snapshot = Decorations.RestoreAuthoredSnapshot(snapshot, SelectedRange);
-        var selection = selectionState ?? RichTextSelectionState.FromRange(new RichTextRange(selectionStart, selectionLength));
+        var selection = selectionState ?? TextSelectionState.FromRange(new TextSpan(selectionStart, selectionLength));
         selection.Range.Validate(snapshot.Text.Length, nameof(selectionLength));
         if (Composition.IsActive)
         {
@@ -698,9 +698,9 @@ public partial class NativeEditorView : View
     }
 
     internal void UpdateSelectionFromPlatform(int start, int length) =>
-        UpdateSelectionFromPlatform(RichTextSelectionState.FromRange(new RichTextRange(start, length)));
+        UpdateSelectionFromPlatform(TextSelectionState.FromRange(new TextSpan(start, length)));
 
-    internal void UpdateSelectionFromPlatform(RichTextSelectionState selection)
+    internal void UpdateSelectionFromPlatform(TextSelectionState selection)
     {
         if (Composition.IsActive)
         {
@@ -716,33 +716,33 @@ public partial class NativeEditorView : View
         SetSelectionFromPlatform(selection);
     }
 
-    internal RichTextSelectionState InferSelectionState(RichTextRange range)
+    internal TextSelectionState InferSelectionState(TextSpan range)
     {
         var previous = SelectionState;
         if (previous.Range == range)
             return previous;
         if (range.End == previous.Anchor)
-            return new RichTextSelectionState(range.End, range.Start);
+            return new TextSelectionState(range.End, range.Start);
         if (range.Start == previous.Anchor)
-            return new RichTextSelectionState(range.Start, range.End);
+            return new TextSelectionState(range.Start, range.End);
         if (range.End == previous.Range.End)
-            return new RichTextSelectionState(range.End, range.Start);
+            return new TextSelectionState(range.End, range.Start);
 
-        return RichTextSelectionState.FromRange(range);
+        return TextSelectionState.FromRange(range);
     }
 
     internal void UpdateUndoStateFromPlatform() => RefreshUndoState();
 
     internal void RestoreDocumentFromNativeUndo(
         RichTextDocumentSnapshot snapshot,
-        RichTextRange selection,
+        TextSpan selection,
         RichTextChangeOrigin origin,
         object? sourceToken = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         selection.Validate(snapshot.Length, nameof(selection));
         var previousPendingSelection = _pendingProgrammaticSelection;
-        _pendingProgrammaticSelection = RichTextSelectionState.FromRange(selection);
+        _pendingProgrammaticSelection = TextSelectionState.FromRange(selection);
         RichTextChangeSet changes;
         try
         {
@@ -764,11 +764,11 @@ public partial class NativeEditorView : View
 
     internal RichTextChangeSet EditDocument(
         Action<RichTextDocumentEdit> edit,
-        RichTextRange resultingSelection) => EditDocument(edit, RichTextSelectionState.FromRange(resultingSelection));
+        TextSpan resultingSelection) => EditDocument(edit, TextSelectionState.FromRange(resultingSelection));
 
     internal RichTextChangeSet EditDocument(
         Action<RichTextDocumentEdit> edit,
-        RichTextSelectionState resultingSelection,
+        TextSelectionState resultingSelection,
         RichTextEditOptions options = default)
     {
         VerifyAccess();
@@ -825,7 +825,7 @@ public partial class NativeEditorView : View
     internal bool RaiseLinkInvoked(RichTextLink link)
     {
         var args = new RichTextLinkInvokedEventArgs(
-            new RichTextRange(link.Start, link.Length),
+            new TextSpan(link.Start, link.Length),
             link.Target,
             link.ToolTip);
         LinkInvoked?.Invoke(this, args);
@@ -901,13 +901,13 @@ public partial class NativeEditorView : View
         DocumentChanged?.Invoke(this, new(oldDocument, newDocument));
     }
 
-    private void OnSelectedRangePropertyChanged(RichTextRange oldRange, RichTextRange newRange)
+    private void OnSelectedRangePropertyChanged(TextSpan oldRange, TextSpan newRange)
     {
         if (!_updatingSelectionRange)
-            SelectionState = RichTextSelectionState.FromRange(newRange);
+            SelectionState = TextSelectionState.FromRange(newRange);
     }
 
-    private void OnSelectionStateChanged(RichTextSelectionState before, RichTextSelectionState after)
+    private void OnSelectionStateChanged(TextSelectionState before, TextSelectionState after)
     {
         SynchronizeSelectionSet(after);
         _updatingSelectionRange = true;
@@ -953,7 +953,7 @@ public partial class NativeEditorView : View
 
     private void ClampSelectionToDocument() => SetSelectionCore(SelectionState.Clamp(Document.Length), fromPlatform: false);
 
-    internal RichTextSelectionState GetSelectionAfterEdit(IEnumerable<RichTextChange> changes, int length)
+    internal TextSelectionState GetSelectionAfterEdit(IEnumerable<RichTextChange> changes, int length)
     {
         if (_pendingProgrammaticSelection is { } requested)
             requested.Range.Validate(length, nameof(requested));
@@ -974,7 +974,7 @@ public partial class NativeEditorView : View
         var selections = ReferenceEquals(changeSet.SelectionOwnerToken, EditSourceToken) && changeSet.SelectionsAfter is { } requestedSet
             ? requestedSet : GetSelectionsAfterEdit(changeSet.Changes, Document.Length);
         SetSelectionsFromDocument(selections);
-        var selection = new RichTextSelectionState(selections.Primary.Anchor, selections.Primary.Active);
+        var selection = new TextSelectionState(selections.Primary.Anchor, selections.Primary.Active);
         SetSelectionCore(selection, fromPlatform: true);
         var handler = Handler as IRichEditorHandler;
         if (handler is not null && !ReferenceEquals(changeSet.SourceToken, handler.SourceToken))
@@ -994,7 +994,7 @@ public partial class NativeEditorView : View
             InvalidateMeasure();
     }
 
-    internal void ApplyDecorationChanges(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after, RichTextRange? dirtyRange = null)
+    internal void ApplyDecorationChanges(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after, TextSpan? dirtyRange = null)
     {
         VerifyAccess();
         var changes = RichTextDocument.CreateDelta(before, after).ToList();
@@ -1058,9 +1058,9 @@ public partial class NativeEditorView : View
             throw new InvalidOperationException("An attached document and its editor must be mutated on the editor's owning UI thread. Use an immutable snapshot for background work.");
     }
 
-    private void SetSelectionFromPlatform(RichTextSelectionState selection) => SetSelectionCore(selection, fromPlatform: true);
+    private void SetSelectionFromPlatform(TextSelectionState selection) => SetSelectionCore(selection, fromPlatform: true);
 
-    private void SetSelectionCore(RichTextSelectionState selection, bool fromPlatform)
+    private void SetSelectionCore(TextSelectionState selection, bool fromPlatform)
     {
         selection.Range.Validate(Document.Length, nameof(selection));
         if (SelectionState == selection)

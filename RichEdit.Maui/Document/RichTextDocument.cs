@@ -26,8 +26,8 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     private long _savedStateId;
     private long _lastSavePointStateId = -1;
     private long _undoGroupStateId;
-    private RichTextSelectionState? _undoGroupSelection;
-    private RichTextSelectionState? _undoGroupAfterSelection;
+    private TextSelectionState? _undoGroupSelection;
+    private TextSelectionState? _undoGroupAfterSelection;
     private TextSelectionSet? _undoGroupSelections;
     private TextSelectionSet? _undoGroupAfterSelections;
     private readonly Stack<UndoEntry> _undo = new();
@@ -43,10 +43,10 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     private bool _editInProgress;
     private bool _notificationInProgress;
     private long _characterSummaryVersion = -1;
-    private RichTextRange _characterSummaryRange;
+    private TextSpan _characterSummaryRange;
     private RichTextCharacterFormatSummary? _characterSummary;
     private long _paragraphSummaryVersion = -1;
-    private RichTextRange _paragraphSummaryRange;
+    private TextSpan _paragraphSummaryRange;
     private RichTextParagraphFormatSummary? _paragraphSummary;
     private long _lastNativeEditTick;
     private object? _lastNativeSourceToken;
@@ -64,7 +64,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         _snapshot = snapshot.WithVersion(0, _identity);
-        Tracking = new(this);
+        Tracking = new(() => Length, VerifyAccess);
     }
 
     /// <summary>
@@ -83,10 +83,10 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     public long Version => _snapshot.Version;
 
     /// <summary>Gets the current document identity and version as an opaque token.</summary>
-    public RichTextRevision Revision => _snapshot.Revision;
+    public DocumentRevision Revision => _snapshot.Revision;
 
     /// <summary>Gets the document's position and range tracking service.</summary>
-    public RichTextTracking Tracking { get; }
+    public TextTracking Tracking { get; }
 
     /// <summary>
     /// Gets the number of UTF-16 code units in the logical text.
@@ -249,7 +249,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
 
     internal void BreakUndoGroup() => ResetNativeEditCoalescing();
 
-    internal void BreakUndoGroupForSelection(RichTextRange selection)
+    internal void BreakUndoGroupForSelection(TextSpan selection)
     {
         if (!selection.IsEmpty || _lastNativeTextChange?.NewRange.End != selection.Start)
         {
@@ -284,7 +284,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     /// </summary>
     /// <param name="range">The range to read.</param>
     /// <returns>The selected plain text.</returns>
-    public string GetText(RichTextRange range)
+    public string GetText(TextSpan range)
     {
         range.Validate(Length, nameof(range));
         return _snapshot.GetText(range);
@@ -295,7 +295,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     /// </summary>
     /// <param name="range">The range to inspect.</param>
     /// <returns>A character-format summary.</returns>
-    public RichTextCharacterFormatSummary GetCharacterFormat(RichTextRange range)
+    public RichTextCharacterFormatSummary GetCharacterFormat(TextSpan range)
     {
         range.Validate(Length, nameof(range));
         if (_characterSummaryVersion != Version || _characterSummaryRange != range)
@@ -313,7 +313,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
     /// </summary>
     /// <param name="range">The range to inspect.</param>
     /// <returns>A paragraph-format summary.</returns>
-    public RichTextParagraphFormatSummary GetParagraphFormat(RichTextRange range)
+    public RichTextParagraphFormatSummary GetParagraphFormat(TextSpan range)
     {
         range.Validate(Length, nameof(range));
         if (_paragraphSummaryVersion != Version || _paragraphSummaryRange != range)
@@ -628,7 +628,7 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         RichTextChangeOrigin origin,
         RichTextUndoBehavior undoBehavior = RichTextUndoBehavior.CreateUnit,
         object? sourceToken = null,
-        RichTextSelectionState? selection = null,
+        TextSelectionState? selection = null,
         IReadOnlyList<RichTextChange>? positionChanges = null,
         NativeEditorView? selectionOwner = null,
         TextSelectionSet? selections = null)
@@ -731,7 +731,11 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         {
             // Complete internal synchronization before application callbacks, regardless
             // of when those callbacks subscribed to the document.
-            Tracking.MapThrough(changeSet);
+            if (changeSet.Changes.Any(change => change.Kind == RichTextChangeKind.Reset))
+                Tracking.InvalidateAll();
+            else
+                Tracking.MapThrough(new PositionMap(previousSnapshot.Length, changeSet.Changes.OfType<RichTextTextChange>()
+                    .Select(change => new PositionChange(change.OldRange, change.InsertedText.Length))));
             foreach (var editor in editors)
                 Notify(() => editor.SynchronizeDocumentChange(changeSet));
             Notify(() => Changed?.Invoke(this, new RichTextDocumentChangedEventArgs(changeSet)));
@@ -879,8 +883,8 @@ public sealed partial class RichTextDocument : INotifyPropertyChanged
         string? Description,
         long BeforeStateId,
         long AfterStateId,
-        RichTextSelectionState? BeforeSelection,
-        RichTextSelectionState? AfterSelection,
+        TextSelectionState? BeforeSelection,
+        TextSelectionState? AfterSelection,
         List<RichTextChange> Forward,
         List<RichTextChange> ReverseInverse)
     {

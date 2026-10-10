@@ -63,7 +63,7 @@ public partial class RichEditorHandler
             var caret = PlatformView.Document.GetRange(NativePositionFromDisplay(DisplaySourceSnapshot.Length), NativePositionFromDisplay(DisplaySourceSnapshot.Length));
             NativeGeometryQueryCount++;
             caret.GetPoint(HorizontalCharacterAlignment.Left, VerticalCharacterAlignment.Baseline, PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var baseline);
-            lines.Add(new(ImmutableArray.Create(new RichTextRange(VirtualView.InputSnapshot.Length, 0)), end, baseline.Y + origin.Y));
+            lines.Add(new(ImmutableArray.Create(new TextSpan(VirtualView.InputSnapshot.Length, 0)), end, baseline.Y + origin.Y));
         }
 
         return new(viewport, textViewport, lines.ToImmutableArray());
@@ -92,7 +92,7 @@ public partial class RichEditorHandler
         return new(rect.X + origin.X, rect.Y + origin.Y, Math.Max(1, rect.Width), rect.Height);
     }
 
-    private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(RichTextRange range)
+    private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(TextSpan range)
     {
         var result = new List<Rect>();
         var origin = TextLayoutOrigin();

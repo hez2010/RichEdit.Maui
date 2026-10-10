@@ -65,13 +65,13 @@ public partial class CodeEditorTests
         Assert.Equal(4, editor.LineCount);
         Assert.False(editor.CanUndo);
         Assert.Equal(0, editor.Document.Version);
-        Assert.Equal(new RichTextRange(6, 0), editor.GetLineRange(4));
+        Assert.Equal(new TextSpan(6, 0), editor.GetLineRange(4));
     });
 
     [Fact]
     public Task BlockIndentExcludesAnUnselectedFollowingLineAndIsAtomic() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("one\ntwo\nthree"), SelectedRange = new RichTextRange(0, 8) };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("one\ntwo\nthree"), SelectedRange = new TextSpan(0, 8) };
         var actions = new CodeEditorActions(editor);
         var changes = 0;
         editor.TextChanged += (_, _) => changes++;
@@ -82,7 +82,7 @@ public partial class CodeEditorTests
         Assert.Equal("one\ntwo\nthree", editor.Document.Text);
         Assert.False(editor.CanUndo);
         editor.Redo();
-        editor.SelectedRange = new RichTextRange(0, 16);
+        editor.SelectedRange = new TextSpan(0, 16);
         actions.Outdent();
         Assert.Equal("one\ntwo\nthree", editor.Document.Text);
     });
@@ -90,11 +90,11 @@ public partial class CodeEditorTests
     [Fact]
     public Task IndentUsesTheNextStopAndOutdentHandlesTabs() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("ab"), SelectedRange = new RichTextRange(2, 0) };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("ab"), SelectedRange = new TextSpan(2, 0) };
         var actions = new CodeEditorActions(editor);
         actions.Indent();
         Assert.Equal("ab  ", editor.Document.Text);
-        Assert.Equal(new RichTextRange(4, 0), editor.SelectedRange);
+        Assert.Equal(new TextSpan(4, 0), editor.SelectedRange);
         editor.Document = CodeDocument.FromPlainText("\tfirst\n  second");
         editor.SelectAll();
         actions.Outdent();
@@ -108,14 +108,14 @@ public partial class CodeEditorTests
     [Fact]
     public Task NewLineCopiesOnlyIndentationBeforeTheCaret() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("    call();"), SelectedRange = new RichTextRange(11, 0) };
+        var editor = new CodeEditor { Document = CodeDocument.FromPlainText("    call();"), SelectedRange = new TextSpan(11, 0) };
         var actions = new CodeEditorActions(editor);
         actions.InsertNewLine();
         Assert.Equal("    call();\n    ", editor.Document.Text);
         Assert.Equal(new CodePosition(2, 5), editor.CaretPosition);
         editor.Undo();
         Assert.Equal("    call();", editor.Document.Text);
-        editor.SelectedRange = new RichTextRange(2, 0);
+        editor.SelectedRange = new TextSpan(2, 0);
         actions.InsertNewLine();
         Assert.Equal("  \n    call();", editor.Document.Text);
         Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
@@ -173,12 +173,12 @@ public partial class CodeEditorTests
         var options = new CodeSearchOptions(WholeWord: true);
         Assert.Equal(3, actions.FindAll("foo", options).Count);
         Assert.Equal(2, actions.FindAll("foo", new CodeSearchOptions(MatchCase: true, WholeWord: true)).Count);
-        Assert.Equal(new RichTextRange(0, 3), actions.FindNext("foo", options));
-        Assert.Equal(new RichTextRange(9, 3), actions.FindNext("foo", options));
-        Assert.Equal(new RichTextRange(18, 3), actions.FindNext("foo", options));
+        Assert.Equal(new TextSpan(0, 3), actions.FindNext("foo", options));
+        Assert.Equal(new TextSpan(9, 3), actions.FindNext("foo", options));
+        Assert.Equal(new TextSpan(18, 3), actions.FindNext("foo", options));
         Assert.Null(actions.FindNext("foo", options, wrap: false));
-        Assert.Equal(new RichTextRange(0, 3), actions.FindNext("foo", options));
-        Assert.Equal(new RichTextRange(18, 3), actions.FindPrevious("foo", options));
+        Assert.Equal(new TextSpan(0, 3), actions.FindNext("foo", options));
+        Assert.Equal(new TextSpan(18, 3), actions.FindPrevious("foo", options));
         var source = editor.Document.Text;
         Assert.Equal(3, actions.ReplaceAll("foo", "bar", options));
         Assert.Equal("bar food bar foo\u0301 bar", editor.Document.Text);
@@ -199,7 +199,7 @@ public partial class CodeEditorTests
         second.SelectedRange = new(4, 0);
         first.Selection.ReplaceText("O");
         Assert.Equal("Owned", second.Document.Text);
-        Assert.Equal(new RichTextRange(4, 0), second.SelectedRange);
+        Assert.Equal(new TextSpan(4, 0), second.SelectedRange);
         GC.KeepAlive(first);
     });
 
@@ -209,7 +209,7 @@ public partial class CodeEditorTests
         var editor = new CodeEditor { Document = CodeDocument.FromPlainText("😀\n日本語\n") };
         var actions = new CodeEditorActions(editor);
         actions.GoToLine(2, 3);
-        Assert.Equal(new RichTextRange(5, 0), editor.SelectedRange);
+        Assert.Equal(new TextSpan(5, 0), editor.SelectedRange);
         Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
         actions.GoToLine(100, 100);
         Assert.Equal(new CodePosition(3, 1), editor.CaretPosition);
@@ -225,7 +225,7 @@ public partial class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture("class C { }");
         var editor = fixture.Editor;
-        editor.SelectedRange = new RichTextRange(6, 1);
+        editor.SelectedRange = new TextSpan(6, 1);
         editor.Selection.ReplaceText("D");
         editor.Undo();
         var document = editor.Document;
@@ -253,7 +253,7 @@ public partial class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture("public class C { return 42; }");
         var editor = fixture.Editor;
-        editor.TextView.Document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(2, 8),
+        editor.TextView.Document.Edit(edit => edit.UpdateCharacterFormat(new TextSpan(2, 8),
             format => format with { FontWeight = 700, BackgroundColor = Microsoft.Maui.Graphics.Colors.Yellow }));
         var before = editor.TextView.Document.CurrentSnapshot;
         await editor.Coloring().RefreshAsync();
@@ -281,7 +281,7 @@ public partial class CodeEditorTests
             var source = string.Join('\n', Enumerable.Repeat(block, 400));
             using var fixture = new CodeEditorFixture(source);
             var editor = fixture.Editor;
-            editor.SelectedRange = new RichTextRange(source.LastIndexOf("return", StringComparison.Ordinal), 6);
+            editor.SelectedRange = new TextSpan(source.LastIndexOf("return", StringComparison.Ordinal), 6);
             editor.Selection.ReplaceText("throw");
             editor.Undo();
             var selection = editor.SelectedRange;
@@ -325,7 +325,7 @@ public partial class CodeEditorTests
         await editor.Coloring().RefreshAsync();
         var start = editor.Document.Text.LastIndexOf("class", StringComparison.Ordinal);
         var previousFormat = editor.TextView.Document.CurrentSnapshot.Runs.First(run => run.Range.Start <= start && run.Range.End > start).Format;
-        editor.Document.Edit(edit => edit.ReplaceText(new RichTextRange(start, 5), "other"));
+        editor.Document.Edit(edit => edit.ReplaceText(new TextSpan(start, 5), "other"));
         var changes = new List<RichTextChangeSet>();
         editor.ContentChanged += (_, args) => changes.Add(args.ChangeSet);
         await editor.Coloring().RefreshAsync();
@@ -343,7 +343,7 @@ public partial class CodeEditorTests
         using var fixture = new CodeEditorFixture("class C { }");
         var editor = fixture.Editor;
         await editor.Coloring().RefreshAsync();
-        editor.SelectedRange = new RichTextRange(0, 0);
+        editor.SelectedRange = new TextSpan(0, 0);
         fixture.Handler.PlatformView.Document.Selection.SetText(TextSetOptions.None, "public ");
         Assert.Equal("public class C { }", editor.Document.Text);
         await editor.Coloring().RefreshAsync();
@@ -415,7 +415,7 @@ public partial class CodeEditorTests
     {
         using var fixture = new CodeEditorFixture("    value");
         var editor = fixture.Editor;
-        editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+        editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
         fixture.Handler.PlatformView.Document.Selection.TypeText("\r");
         await Task.Delay(100);
         Assert.Equal("    value\n    ", editor.Document.Text);
@@ -545,7 +545,7 @@ public partial class CodeEditorTests
             fixture.Editor.Folding.Collapse(new(0, 5));
             await Task.Delay(80);
             Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.GetVisibleLines().Select(line => line.Number));
-            fixture.Editor.Folding.SetCollapsedRanges((RichTextRange[])[new(5, 12)]);
+            fixture.Editor.Folding.SetCollapsedRanges((TextSpan[])[new(5, 12)]);
             await Task.Delay(80);
             Assert.Equal(new[] { 1, 3 }, fixture.Editor.GetVisibleLines().Select(line => line.Number));
             fixture.Editor.Folding.ExpandAll();
@@ -595,7 +595,7 @@ public partial class CodeEditorTests
             new CodeEditorActions(editor).CollapseSelection();
             await Task.Delay(100);
 
-            Assert.Equal(new RichTextRange(7, 4), Assert.Single(editor.Folding.CollapsedRanges));
+            Assert.Equal(new TextSpan(7, 4), Assert.Single(editor.Folding.CollapsedRanges));
             Assert.Equal(source, editor.Document.Text);
             Assert.Same(snapshot, editor.Document.CurrentSnapshot);
             Assert.True(editor.CanRedo);

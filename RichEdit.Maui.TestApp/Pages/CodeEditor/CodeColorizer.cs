@@ -11,7 +11,7 @@ internal sealed partial class CodeColorizer : IDisposable
     private bool _disposed;
     private bool _enabled = true;
     private Func<CodeToken, Color?>? _palette = DefaultPalette;
-    private RichTextRevision _revision;
+    private DocumentRevision _revision;
 
     internal Func<string, CancellationToken, Task<IReadOnlyList<CodeToken>>>? ClassifyAsync { get; set; }
     internal IReadOnlyList<CodeToken> Tokens { get; private set; } = Array.Empty<CodeToken>();
@@ -103,7 +103,7 @@ internal sealed partial class CodeColorizer : IDisposable
         }
     }
 
-    private bool Publish(RichTextRevision revision, IReadOnlyList<CodeToken> tokens)
+    private bool Publish(DocumentRevision revision, IReadOnlyList<CodeToken> tokens)
     {
         var palette = Palette;
         var decorations = tokens.Select(token => (Token: token, Color: palette?.Invoke(token)))

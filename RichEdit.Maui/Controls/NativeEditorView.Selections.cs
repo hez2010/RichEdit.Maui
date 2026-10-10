@@ -72,7 +72,7 @@ public partial class NativeEditorView
         }
     }
 
-    private void SynchronizeSelectionSet(RichTextSelectionState selection)
+    private void SynchronizeSelectionSet(TextSelectionState selection)
     {
         if (_updatingSelections)
             return;
@@ -104,7 +104,7 @@ public partial class NativeEditorView
         var current = Selections;
         var items = current.Select(item =>
         {
-            var mapped = new RichTextSelectionState(item.Anchor, item.Active).Map(changeArray, length);
+            var mapped = new TextSelectionState(item.Anchor, item.Active).Map(changeArray, length);
             if (item.Id == current.Primary.Id)
                 mapped = GetSelectionAfterEdit(changeArray, length);
             return item with { Anchor = mapped.Anchor, Active = mapped.Active, PreferredVisualX = null };
@@ -127,7 +127,7 @@ public partial class NativeEditorView
     internal bool ReplaceRichSelections(RichTextDocumentFragment fragment) =>
         ReplaceSelectionFragments(Selections.Select(_ => fragment).ToArray());
 
-    private void ResetSelectionsForDocument(RichTextSelectionState selection)
+    private void ResetSelectionsForDocument(TextSelectionState selection)
     {
         var previous = _synchronizingSelection;
         _synchronizingSelection = true;

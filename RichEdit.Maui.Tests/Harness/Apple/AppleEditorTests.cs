@@ -73,7 +73,7 @@ internal static class AppleEditorTests
             editor.Selection.ReplaceText("one\nsecond");
             editor.ClearUndoHistory();
             var before = editor.Document.CurrentSnapshot;
-            editor.SelectedRange = new RichTextRange(5, 0);
+            editor.SelectedRange = new TextSpan(5, 0);
             editor.SelectAll();
             await EditorContractTests.Verify(editor);
             if (native.Text != before.Text)
@@ -97,17 +97,17 @@ internal static class AppleEditorTests
         await Test("programmatic history restores text and keeps the caret valid", async () =>
         {
             editor.Selection.ReplaceText("one\nsecond");
-            Equal(new RichTextRange(10, 0), editor.SelectedRange);
+            Equal(new TextSpan(10, 0), editor.SelectedRange);
             Equal("one\nsecond", native.Text);
             await Drain();
             editor.Undo();
             await Drain();
             Equal("", editor.Document.Text);
-            Equal(RichTextRange.Empty, editor.SelectedRange);
+            Equal(TextSpan.Empty, editor.SelectedRange);
             editor.Redo();
             await Drain();
             Equal("one\nsecond", editor.Document.Text);
-            Equal(new RichTextRange(10, 0), editor.SelectedRange);
+            Equal(new TextSpan(10, 0), editor.SelectedRange);
         });
 
         await Test("native formatting without metadata distinguishes defaults from edits", async () =>
@@ -164,7 +164,7 @@ internal static class AppleEditorTests
         await Test("formatting preserves the scrolled viewport", async () =>
         {
             editor.Selection.ReplaceText(string.Concat(Enumerable.Repeat("Paragraph text for scrolling.\n", 150)));
-            editor.SelectedRange = new RichTextRange(31, 9);
+            editor.SelectedRange = new TextSpan(31, 9);
             await Drain();
             native.SetContentOffset(new CoreGraphics.CGPoint(0, 200), false);
             await Drain();
@@ -205,7 +205,7 @@ internal static class AppleEditorTests
         {
             var source = string.Concat(Enumerable.Repeat("Paragraph text for scrolling.\n", 150));
             editor.Document = RichTextDocument.FromPlainText(source);
-            editor.SelectedRange = new RichTextRange(31, 0);
+            editor.SelectedRange = new TextSpan(31, 0);
             native.InsertText("edit");
             await Task.Delay(100);
             native.SetContentOffset(new CoreGraphics.CGPoint(0, 200), false);
@@ -224,11 +224,11 @@ internal static class AppleEditorTests
             editor.Undo();
             await VerifyViewport("undo");
             Equal(source, editor.Document.Text);
-            Equal(new RichTextRange(31, 0), editor.SelectedRange);
+            Equal(new TextSpan(31, 0), editor.SelectedRange);
             editor.Redo();
             await VerifyViewport("redo");
             Equal(source.Insert(31, "edit"), editor.Document.Text);
-            Equal(new RichTextRange(35, 0), editor.SelectedRange);
+            Equal(new TextSpan(35, 0), editor.SelectedRange);
 
             editor.Document = RichTextDocument.FromPlainText("short");
             editor.Selection.ReplaceText(source);
@@ -375,7 +375,7 @@ internal static class AppleEditorTests
             editor.Undo();
             await Drain();
             Equal(before, editor.Document.RtfText);
-            Equal(new RichTextRange(0, 5), editor.SelectedRange);
+            Equal(new TextSpan(0, 5), editor.SelectedRange);
             Equal(false, editor.CanUndo);
             editor.Redo();
             await Drain();
@@ -437,7 +437,7 @@ internal static class AppleEditorTests
             {
                 edit.SetDefaultCharacterFormat(RichTextCharacterFormat.Default with { FontSize = 16.5 });
                 edit.InsertText(0, "first\nsecond");
-                edit.SetParagraphFormat(new RichTextRange(0, 12), RichTextParagraphFormat.Default with
+                edit.SetParagraphFormat(new TextSpan(0, 12), RichTextParagraphFormat.Default with
                 {
                     Alignment = RichTextAlignment.Distributed,
                     LeadingIndent = 18.5,
@@ -447,7 +447,7 @@ internal static class AppleEditorTests
                 });
             });
             var before = editor.Document.CurrentSnapshot;
-            editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+            editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
             native.InsertText("\nnew");
             await Drain();
             Equal(before.Runs[0].Format, editor.Document.CurrentSnapshot.Runs[0].Format);
@@ -480,7 +480,7 @@ internal static class AppleEditorTests
                     Prefix = "", Suffix = "", LeadingIndent = 36, FirstLineIndent = -30, MarkerTab = 36,
                 }]));
             await Drain();
-            editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+            editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
             var before = editor.Document.CurrentSnapshot;
             var selection = editor.SelectedRange;
             VerifyListMarkerPixels(native, 0);
@@ -505,14 +505,14 @@ internal static class AppleEditorTests
                 edit.SetDefaultParagraphFormat(RichTextParagraphFormat.Default with { SpaceAfter = 16 });
             });
             editor.Selection.ReplaceText("Test\n\nTail");
-            editor.SelectedRange = new RichTextRange(0, 0);
+            editor.SelectedRange = new TextSpan(0, 0);
             editor.Selection.SetList(new RichTextListDefinition([
                 new RichTextListLevelDefinition
                 {
                     Marker = new RichTextListMarker.Bullet("•"),
                     Prefix = "", Suffix = "", LeadingIndent = 18, FirstLineIndent = -18, MarkerTab = 18,
                 }]));
-            editor.SelectedRange = new RichTextRange(5, 0);
+            editor.SelectedRange = new TextSpan(5, 0);
             await Drain();
             // UIKit can inherit the native list style while discarding custom
             // attributes on a new item, as in the captured keyboard reproduction.
@@ -544,7 +544,7 @@ internal static class AppleEditorTests
             }
 
             var itemStart = editor.Document.Text.IndexOf("Dsv", StringComparison.Ordinal);
-            editor.SelectedRange = new RichTextRange(itemStart, 1);
+            editor.SelectedRange = new TextSpan(itemStart, 1);
             native.InsertText("T");
             await Drain();
             CheckItems(36);
@@ -555,7 +555,7 @@ internal static class AppleEditorTests
             await Drain();
             CheckItems(36);
             var emptyItem = editor.Document.Text.IndexOf("\n\n", StringComparison.Ordinal) + 1;
-            editor.SelectedRange = new RichTextRange(emptyItem, 0);
+            editor.SelectedRange = new TextSpan(emptyItem, 0);
             await Drain();
             var emptyMarker = VerifyListMarkerPixels(native, emptyItem);
             native.InsertText("x");
@@ -789,7 +789,7 @@ internal static class AppleEditorTests
                     Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),
                     Prefix = "", Suffix = ".", LeadingIndent = 36, FirstLineIndent = -30, MarkerTab = 36,
                 }]));
-            editor.SelectedRange = new RichTextRange(4, 0);
+            editor.SelectedRange = new TextSpan(4, 0);
             await Drain();
             var before = VerifyListMarkerPixels(native, 4);
             editor.Selection.RestartList(7);
@@ -966,7 +966,7 @@ internal static class AppleEditorTests
         await Test("marked text respects replacement length budget", async () =>
         {
             editor.Selection.ReplaceText("abc");
-            editor.SelectedRange = new RichTextRange(1, 1);
+            editor.SelectedRange = new TextSpan(1, 1);
             editor.MaxLength = 4;
             native.SetMarkedText("日本", new NSRange(2, 0));
             native.UnmarkText();

@@ -107,7 +107,7 @@ internal sealed class CSharpClassifier
             }
 
             if (kind is { } tokenKind)
-                tokens.Add(new CodeToken(new RichTextRange(start, position - start), tokenKind));
+                tokens.Add(new CodeToken(new TextSpan(start, position - start), tokenKind));
         }
 
         return tokens;
@@ -212,4 +212,4 @@ internal sealed class CSharpClassifier
 }
 
 internal enum CodeTokenKind { Keyword, String, Comment, Number, Preprocessor }
-internal readonly record struct CodeToken(RichTextRange Range, CodeTokenKind Kind);
+internal readonly record struct CodeToken(TextSpan Range, CodeTokenKind Kind);

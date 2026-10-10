@@ -3,7 +3,7 @@ namespace RichEdit.Maui;
 /// <summary>The current native marked-text state. An active composition need not have a known source range.</summary>
 /// <param name="IsActive">Whether the native input method owns a marked-text session.</param>
 /// <param name="Range">The logical marked range when known accurately.</param>
-public readonly record struct RichTextCompositionState(bool IsActive, RichTextRange? Range);
+public readonly record struct RichTextCompositionState(bool IsActive, TextSpan? Range);
 
 /// <summary>A native composition transition, after reconciliation of committed source and selection.</summary>
 /// <param name="previous">The previous marked-text state.</param>

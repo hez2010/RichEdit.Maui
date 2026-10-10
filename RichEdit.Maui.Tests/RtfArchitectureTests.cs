@@ -1088,7 +1088,7 @@ public sealed class RtfArchitectureTests
         var document = EditableRichTextDocument.FromRtf(@"{\rtf1 " + prefix + @"{\b bold}\u55357?\u56832?\par}").CurrentSnapshot;
         Assert.Equal(prefix + "bold😀\n", document.Text);
         Assert.Equal(3, document.Runs.Length);
-        Assert.Equal(new RichTextRange(prefix.Length, 4), document.Runs[1].Range);
+        Assert.Equal(new TextSpan(prefix.Length, 4), document.Runs[1].Range);
         Assert.True(document.Runs[1].Format.Bold);
         Assert.False(document.Runs[2].Format.Bold);
     }
@@ -1104,7 +1104,7 @@ public sealed class RtfArchitectureTests
         var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
         Assert.Equal("abcde", snapshot.Text);
         var ranges = hyperlinks ? snapshot.Links.Select(static link => link.Range) : snapshot.Fields.Select(static field => field.Range);
-        Assert.Equal(new RichTextRange[] { new(1, 1), new(4, 1) }, ranges);
+        Assert.Equal(new TextSpan[] { new(1, 1), new(4, 1) }, ranges);
         if (hyperlinks)
         {
             Assert.Empty(snapshot.Fields);
@@ -1124,7 +1124,7 @@ public sealed class RtfArchitectureTests
         var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
         Assert.Equal("x", snapshot.Text);
         Assert.Equal(new[] { "START", "OUTER", "END" }, snapshot.Fields.Select(static field => field.Instruction));
-        Assert.Equal(new RichTextRange[] { new(0, 0), new(0, 1), new(1, 0) }, snapshot.Fields.Select(static field => field.Range));
+        Assert.Equal(new TextSpan[] { new(0, 0), new(0, 1), new(1, 0) }, snapshot.Fields.Select(static field => field.Range));
     }
 
     [Fact]
@@ -1134,7 +1134,7 @@ public sealed class RtfArchitectureTests
         var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
         Assert.Equal("ab", snapshot.Text);
         Assert.Equal(new[] { "MIDDLE", "END1", "END2" }, snapshot.Fields.Select(static field => field.Instruction));
-        Assert.Equal(new RichTextRange[] { new(1, 0), new(2, 0), new(2, 0) }, snapshot.Fields.Select(static field => field.Range));
+        Assert.Equal(new TextSpan[] { new(1, 0), new(2, 0), new(2, 0) }, snapshot.Fields.Select(static field => field.Range));
     }
 
     [Fact]
@@ -1144,7 +1144,7 @@ public sealed class RtfArchitectureTests
         var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
         Assert.Equal("ab", snapshot.Text);
         Assert.Equal(new[] { "INNER", "END" }, snapshot.Fields.Select(static field => field.Instruction));
-        Assert.Equal(new RichTextRange[] { new(1, 1), new(2, 0) }, snapshot.Fields.Select(static field => field.Range));
+        Assert.Equal(new TextSpan[] { new(1, 1), new(2, 0) }, snapshot.Fields.Select(static field => field.Range));
     }
 
     [Theory]
@@ -1156,8 +1156,8 @@ public sealed class RtfArchitectureTests
         var body = FieldRtf(outerLink ? hyperlink : "OUTER", "a" + FieldRtf(outerLink ? "INNER" : hyperlink, "b") + "c");
         var snapshot = EditableRichTextDocument.FromRtf(@"{\rtf1 " + body + "}").CurrentSnapshot;
         Assert.Equal("abc", snapshot.Text);
-        Assert.Equal(outerLink ? new(0, 3) : new RichTextRange(1, 1), Assert.Single(snapshot.Links).Range);
-        Assert.Equal(outerLink ? new(1, 1) : new RichTextRange(0, 3), Assert.Single(snapshot.Fields).Range);
+        Assert.Equal(outerLink ? new(0, 3) : new TextSpan(1, 1), Assert.Single(snapshot.Links).Range);
+        Assert.Equal(outerLink ? new(1, 1) : new TextSpan(0, 3), Assert.Single(snapshot.Fields).Range);
     }
 
     [Theory]
@@ -1177,7 +1177,7 @@ public sealed class RtfArchitectureTests
         var snapshot = EditableRichTextDocument.FromRtf(rtf.ToString()).CurrentSnapshot;
         Assert.Equal(new string('x', count), snapshot.Text);
         var ranges = hyperlinks ? snapshot.Links.Select(static link => link.Range) : snapshot.Fields.Select(static field => field.Range);
-        Assert.Equal(Enumerable.Range(0, count).Select(static index => new RichTextRange(index, 1)), ranges);
+        Assert.Equal(Enumerable.Range(0, count).Select(static index => new TextSpan(index, 1)), ranges);
     }
 
     private static string FieldRtf(string instruction, string result) =>
@@ -1191,7 +1191,7 @@ public sealed class RtfArchitectureTests
         Assert.Equal(2, Assert.Single(image.Images).Position);
         var field = EditableRichTextDocument.FromRtf(@"{\rtf1\trowd\cellx100\cellx200\intbl a\cell{\field{\*\fldinst DATE}{\fldrslt b}}\cell\row}").CurrentSnapshot;
         Assert.Equal("a\tb\n", field.Text);
-        Assert.Equal(new RichTextRange(2, 1), Assert.Single(field.Fields).Range);
+        Assert.Equal(new TextSpan(2, 1), Assert.Single(field.Fields).Range);
     }
 
     [Theory]

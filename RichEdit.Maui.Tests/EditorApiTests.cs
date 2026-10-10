@@ -102,13 +102,13 @@ public partial class EditorApiTests
             await Task.Delay(60);
             fixture.Handler.PlatformView.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
             fixture.Editor.SelectionState = new(5, 1);
-            Assert.Equal(new RichTextRange(1, 4), fixture.Editor.SelectedRange);
+            Assert.Equal(new TextSpan(1, 4), fixture.Editor.SelectedRange);
             Assert.True((fixture.Handler.PlatformView.Document.Selection.Options & SelectionOptions.StartActive) != 0);
             var native = fixture.Handler.PlatformView.Document.Selection;
             var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             void OnSelectionChanged(object? sender, RichTextSelectionChangedEventArgs args)
             {
-                if (fixture.Editor.SelectionState == new RichTextSelectionState(4, 2))
+                if (fixture.Editor.SelectionState == new TextSelectionState(4, 2))
                     observed.TrySetResult();
             }
             fixture.Editor.SelectionChanged += OnSelectionChanged;
@@ -126,7 +126,7 @@ public partial class EditorApiTests
                 fixture.Editor.SelectionChanged -= OnSelectionChanged;
             }
 
-            Assert.Equal(new RichTextSelectionState(4, 2), fixture.Editor.SelectionState);
+            Assert.Equal(new TextSelectionState(4, 2), fixture.Editor.SelectionState);
             fixture.Editor.SelectionState = new(1, 5);
             Assert.False((native.Options & SelectionOptions.StartActive) != 0);
             Assert.Equal(5, fixture.Editor.Selection.Active);
@@ -143,10 +143,10 @@ public partial class EditorApiTests
         var editor = new CodeEditor { Document = new CodeDocument("abc\nxyz") };
         editor.SelectionState = new(6, 1);
         Assert.Equal(new CodePosition(1, 2), editor.CaretPosition);
-        Assert.Equal(new RichTextSelectionState(6, 1), editor.GetValue(CodeEditor.SelectionStateProperty));
-        editor.SetValue(CodeEditor.SelectionStateProperty, new RichTextSelectionState(1, 6));
+        Assert.Equal(new TextSelectionState(6, 1), editor.GetValue(CodeEditor.SelectionStateProperty));
+        editor.SetValue(CodeEditor.SelectionStateProperty, new TextSelectionState(1, 6));
         Assert.Equal(new CodePosition(2, 3), editor.CaretPosition);
-        Assert.Equal(new RichTextRange(1, 5), editor.SelectedRange);
+        Assert.Equal(new TextSpan(1, 5), editor.SelectedRange);
         Assert.Equal(6, editor.GetOffset(editor.GetPosition(6)));
         Assert.Throws<ArgumentOutOfRangeException>(() => editor.GetOffset(new CodePosition(2, 5)));
     });
@@ -158,14 +158,14 @@ public partial class EditorApiTests
         var document = editor.Document;
         editor.SelectionState = new(4, 1);
         editor.Selection.ReplaceText("X");
-        Assert.Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(2, 2), editor.SelectionState);
         editor.SelectionState = new(0, 0);
         editor.Undo();
         Assert.Equal("abcdef", document.Text);
-        Assert.Equal(new RichTextSelectionState(4, 1), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(4, 1), editor.SelectionState);
         editor.SelectionState = new(6, 6);
         editor.Redo();
-        Assert.Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(2, 2), editor.SelectionState);
         editor.Document = new CodeDocument("other");
         document.Undo();
         Assert.Equal("abcdef", document.Text);
@@ -178,7 +178,7 @@ public partial class EditorApiTests
         var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abc") };
         var before = editor.Document.CurrentSnapshot;
         Assert.Throws<ArgumentOutOfRangeException>(() => editor.Selection.Edit(
-            edit => edit.InsertText(3, "x"), new RichTextSelectionState(50, 50)));
+            edit => edit.InsertText(3, "x"), new TextSelectionState(50, 50)));
         Assert.Same(before, editor.Document.CurrentSnapshot);
         Assert.False(editor.Document.CanUndo);
         Assert.False(editor.Document.IsModified);
@@ -194,7 +194,7 @@ public partial class EditorApiTests
         {
             events.Add("document");
             Assert.Equal("f", fixture!.NativeText);
-            Assert.Equal(new RichTextSelectionState(0, 1), fixture.Editor.SelectionState);
+            Assert.Equal(new TextSelectionState(0, 1), fixture.Editor.SelectionState);
             Assert.Throws<InvalidOperationException>(() => document.Edit(edit => edit.InsertText(0, "recursive")));
         };
         using (fixture = new RichFixture(document))
@@ -209,7 +209,7 @@ public partial class EditorApiTests
             };
             fixture.Editor.SelectionChanged += (_, _) => events.Add("selection");
             fixture.Editor.SelectionFormatChanged += (_, _) => events.Add("format");
-            document.Edit(edit => edit.DeleteText(new RichTextRange(0, 5)));
+            document.Edit(edit => edit.DeleteText(new TextSpan(0, 5)));
             Assert.Equal(["document", "content", "text", "property", "selection", "format"], events);
         }
     });
@@ -302,7 +302,7 @@ public partial class EditorApiTests
         Assert.Equal(Colors.Navy, fixture.Foreground(0));
         Assert.Equal(Colors.Navy, fixture.Foreground(5));
         Assert.Equal(Colors.Red, fixture.Foreground(2));
-        Assert.Equal(new RichTextSelectionState(5, 1), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(5, 1), editor.SelectionState);
         Assert.True(fixture.Handler.PlatformView.Document.Selection.Options.HasFlag(SelectionOptions.StartActive));
         Assert.Same(snapshot, document.CurrentSnapshot);
         Assert.Equal(version, document.Version);

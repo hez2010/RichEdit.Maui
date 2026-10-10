@@ -62,7 +62,7 @@ public sealed partial class RichTextDocumentSnapshot
     public long Version { get; }
 
     /// <summary>Gets the owning document's opaque revision, or an invalid value for a standalone fragment.</summary>
-    public RichTextRevision Revision { get; private init; }
+    public DocumentRevision Revision { get; private init; }
 
     /// <summary>Gets the logical UTF-16 text length.</summary>
     public int Length => _text.Length;
@@ -74,7 +74,7 @@ public sealed partial class RichTextDocumentSnapshot
     public TextSnapshot TextBuffer => _text;
 
     /// <summary>Reads a bounded UTF-16 range without materializing the whole document.</summary>
-    public string GetText(RichTextRange range) => _text.GetText(new(range.Start, range.Length));
+    public string GetText(TextSpan range) => _text.GetText(new(range.Start, range.Length));
 
     /// <summary>Gets the canonical RTF representation of this snapshot.</summary>
     public string RtfText => _cachedRtf ??= RtfCodec.Serialize(this);
@@ -571,7 +571,7 @@ public sealed partial class RichTextDocumentSnapshot
             DictionariesEqual(_metadata, other._metadata);
     }
 
-    internal RichTextDocumentSnapshot RemapText(string text, RichTextRange? replacedRange = null)
+    internal RichTextDocumentSnapshot RemapText(string text, TextSpan? replacedRange = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         if (string.Equals(Text, text, StringComparison.Ordinal))
@@ -598,7 +598,7 @@ public sealed partial class RichTextDocumentSnapshot
         return Replace(prefixLength..oldEnd, text[prefixLength..newEnd]);
     }
 
-    internal static bool TryGetReplacement(string before, string after, RichTextRange range, out string insertedText)
+    internal static bool TryGetReplacement(string before, string after, TextSpan range, out string insertedText)
     {
         insertedText = string.Empty;
         var insertedLength = after.Length - (before.Length - range.Length);

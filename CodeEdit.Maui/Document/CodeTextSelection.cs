@@ -22,10 +22,10 @@ public sealed partial class CodeTextSelection : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>Gets the normalized UTF-16 range.</summary>
-    public RichTextRange Range => _selection.Range;
+    public TextSpan Range => _selection.Range;
 
     /// <summary>Gets the anchor and active endpoints.</summary>
-    public RichTextSelectionState State => _selection.State;
+    public TextSelectionState State => _selection.State;
 
     /// <summary>Gets the fixed endpoint.</summary>
     public int Anchor => State.Anchor;
@@ -38,11 +38,11 @@ public sealed partial class CodeTextSelection : INotifyPropertyChanged
 
     /// <summary>Selects a range with the caret at its end.</summary>
     /// <param name="range">The range to select.</param>
-    public void Select(RichTextRange range) => _selection.Select(range);
+    public void Select(TextSpan range) => _selection.Select(range);
 
     /// <summary>Sets a directional selection.</summary>
     /// <param name="selection">The anchor and active offsets.</param>
-    public void Select(RichTextSelectionState selection) => _selection.Select(selection);
+    public void Select(TextSelectionState selection) => _selection.Select(selection);
 
     /// <summary>Replaces the selection with source text and advances the caret.</summary>
     /// <param name="text">The replacement source.</param>

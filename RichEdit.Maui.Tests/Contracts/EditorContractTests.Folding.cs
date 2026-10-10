@@ -41,9 +41,9 @@ internal static partial class EditorContractTests
             editor.Document = RichTextDocument.FromPlainText("head\none\ntwo\ntail");
             await Verify(editor);
             var before = FoldingCaretRect(editor, 13).Y;
-            var outer = new RichTextRange(5, 8);
-            var inner = new RichTextRange(9, 4);
-            editor.Folding.SetCollapsedRanges((RichTextRange[])[inner, outer]);
+            var outer = new TextSpan(5, 8);
+            var inner = new TextSpan(9, 4);
+            editor.Folding.SetCollapsedRanges((TextSpan[])[inner, outer]);
             await Task.Delay(80);
             var both = FoldingCaretRect(editor, 13).Y;
             editor.Folding.Expand(outer);
@@ -87,12 +87,12 @@ internal static partial class EditorContractTests
             NativeReplace(editor, "prefix\n");
             await Verify(editor);
             Equal("prefix\n" + source, editor.Document.Text);
-            Equal(new RichTextRange(12, 8), editor.Folding.CollapsedRanges.Single());
+            Equal(new TextSpan(12, 8), editor.Folding.CollapsedRanges.Single());
             editor.SelectedRange = new(editor.Document.Length, 0);
             NativeReplace(editor, "!");
             await Verify(editor);
             Equal("prefix\n" + source + "!", editor.Document.Text);
-            Equal(new RichTextRange(12, 8), editor.Folding.CollapsedRanges.Single());
+            Equal(new TextSpan(12, 8), editor.Folding.CollapsedRanges.Single());
             editor.Undo();
             await Verify(editor);
             Equal("prefix\n" + source, editor.Document.Text);
@@ -127,7 +127,7 @@ internal static partial class EditorContractTests
             editor.Folding.Collapse(new(0, editor.Document.Length));
             NativeSelect(editor, new(0, editor.Document.Length));
             await Drain(); // WinUI delivers native selection changes asynchronously.
-            Equal(new RichTextRange(0, editor.Document.Length), editor.SelectedRange, "native selection before deletion");
+            Equal(new TextSpan(0, editor.Document.Length), editor.SelectedRange, "native selection before deletion");
             NativeReplace(editor, string.Empty);
             await Verify(editor);
             Equal(string.Empty, editor.Document.Text);

@@ -76,22 +76,22 @@ internal static partial class EditorContractTests
             editor.Selection.ReplaceText("123456");
             editor.Document.ClearUndoHistory();
             editor.Document.MarkSaved();
-            editor.SelectionState = new RichTextSelectionState(4, 1);
+            editor.SelectionState = new TextSelectionState(4, 1);
             await Verify(editor);
-            Equal(new RichTextSelectionState(4, 1), editor.SelectionState);
+            Equal(new TextSelectionState(4, 1), editor.SelectionState);
             editor.Selection.ReplaceText("9");
             Equal("1956", editor.Document.Text);
             Equal(true, editor.Document.IsModified);
-            editor.SelectionState = new RichTextSelectionState(0, 0);
+            editor.SelectionState = new TextSelectionState(0, 0);
             editor.Undo();
             await Verify(editor);
             Equal("123456", editor.Document.Text);
-            Equal(new RichTextSelectionState(4, 1), editor.SelectionState);
+            Equal(new TextSelectionState(4, 1), editor.SelectionState);
             Equal(false, editor.Document.IsModified);
             editor.Redo();
             await Verify(editor);
             Equal("1956", editor.Document.Text);
-            Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
+            Equal(new TextSelectionState(2, 2), editor.SelectionState);
         });
 
         yield return new("asynchronous save points retain intervening changes", async editor =>
@@ -117,7 +117,7 @@ internal static partial class EditorContractTests
             {
                 try
                 {
-                    editor.Document.Edit(edit => edit.DeleteText(new RichTextRange(0, 3)));
+                    editor.Document.Edit(edit => edit.DeleteText(new TextSpan(0, 3)));
                     return null;
                 }
                 catch (Exception exception)
@@ -139,8 +139,8 @@ internal static partial class EditorContractTests
             var before = editor.Document.CurrentSnapshot;
             var rtf = editor.Document.RtfText;
             using var layer = editor.Decorations.CreateLayer();
-            layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new RichTextRange(0, 3), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
-            editor.SelectionState = new RichTextSelectionState(1, 1);
+            layer.TrySet(editor.Document.Revision, (RichTextDecoration[])[new(new TextSpan(0, 3), new RichTextDecorationStyle { ForegroundColor = Colors.Green })]);
+            editor.SelectionState = new TextSelectionState(1, 1);
             await Verify(editor);
             Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
             Equal(rtf, editor.Document.RtfText);
@@ -180,7 +180,7 @@ internal static partial class EditorContractTests
                     Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot), "focus changed document version");
                 }
 
-                editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+                editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
                 editor.Selection.ReplaceText("!");
                 editor.Undo();
                 Equal(true, editor.CanRedo);
@@ -199,7 +199,7 @@ internal static partial class EditorContractTests
             editor.Selection.ReplaceText("A😀e\u0301\r\n日本語\rאבג\u2028\t\u00a0👩‍💻");
             Equal("A😀e\u0301\n日本語\nאבג\u2028\t\u00a0👩‍💻", editor.Document.Text);
             await Verify(editor);
-            NativeSelect(editor, new RichTextRange(1, 2));
+            NativeSelect(editor, new TextSpan(1, 2));
             await Drain();
             Equal("😀", editor.Selection.Text);
             NativeReplace(editor, "🦊");
@@ -207,16 +207,16 @@ internal static partial class EditorContractTests
             Equal("A🦊e\u0301\n日本語\nאבג\u2028\t\u00a0👩‍💻", editor.Document.Text);
             editor.Undo();
             await Verify(editor);
-            Equal("😀", editor.Document.GetText(new RichTextRange(1, 2)));
+            Equal("😀", editor.Document.GetText(new TextSpan(1, 2)));
         });
 
         yield return new("native selection replacement, backward selection and history", async editor =>
         {
             editor.Selection.ReplaceText("first\nsecond\nthird");
             editor.ClearUndoHistory();
-            NativeSelect(editor, new RichTextRange(3, 7), backwards: true);
+            NativeSelect(editor, new TextSpan(3, 7), backwards: true);
             await Drain();
-            Equal(new RichTextRange(3, 7), editor.SelectedRange);
+            Equal(new TextSpan(3, 7), editor.SelectedRange);
             NativeReplace(editor, "X\nY");
             await Verify(editor);
             Equal("firX\nYnd\nthird", editor.Document.Text);
@@ -232,43 +232,43 @@ internal static partial class EditorContractTests
         {
             editor.Selection.ReplaceText("abcdef");
             editor.ClearUndoHistory();
-            editor.SelectedRange = new RichTextRange(1, 2);
+            editor.SelectedRange = new TextSpan(1, 2);
             Equal(false, editor.CanUndo);
             editor.Selection.ToggleBold();
-            editor.SelectedRange = new RichTextRange(5, 0);
+            editor.SelectedRange = new TextSpan(5, 0);
             editor.Undo();
             await Verify(editor);
-            Equal(new RichTextRange(1, 2), editor.SelectedRange);
-            Equal(false, editor.Document.GetCharacterFormat(new RichTextRange(1, 2)).RepresentativeFormat.Bold);
-            editor.SelectedRange = new RichTextRange(0, 2);
+            Equal(new TextSpan(1, 2), editor.SelectedRange);
+            Equal(false, editor.Document.GetCharacterFormat(new TextSpan(1, 2)).RepresentativeFormat.Bold);
+            editor.SelectedRange = new TextSpan(0, 2);
             Equal(true, editor.CanRedo);
             editor.Redo();
             await Verify(editor);
-            Equal(new RichTextRange(1, 2), editor.SelectedRange);
-            Equal(true, editor.Document.GetCharacterFormat(new RichTextRange(1, 2)).RepresentativeFormat.Bold);
+            Equal(new TextSpan(1, 2), editor.SelectedRange);
+            Equal(true, editor.Document.GetCharacterFormat(new TextSpan(1, 2)).RepresentativeFormat.Bold);
 
             editor.ClearUndoHistory();
-            editor.SelectedRange = new RichTextRange(6, 0);
+            editor.SelectedRange = new TextSpan(6, 0);
             editor.Selection.ReplaceText(" tail");
-            editor.SelectedRange = new RichTextRange(0, 1);
+            editor.SelectedRange = new TextSpan(0, 1);
             editor.Undo();
             await Verify(editor);
             Equal("abcdef", editor.Document.Text);
-            Equal(new RichTextRange(6, 0), editor.SelectedRange);
+            Equal(new TextSpan(6, 0), editor.SelectedRange);
             editor.Redo();
             await Verify(editor);
             Equal("abcdef tail", editor.Document.Text);
-            Equal(new RichTextRange(11, 0), editor.SelectedRange);
-            editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+            Equal(new TextSpan(11, 0), editor.SelectedRange);
+            editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
             editor.Undo();
             await Verify(editor);
-            Equal(new RichTextRange(6, 0), editor.SelectedRange);
+            Equal(new TextSpan(6, 0), editor.SelectedRange);
         });
 
         yield return new("formatting mixed selections and clearing inherited values", async editor =>
         {
             editor.Selection.ReplaceText("abcdef");
-            editor.SelectedRange = new RichTextRange(0, 3);
+            editor.SelectedRange = new TextSpan(0, 3);
             editor.Selection.ToggleBold();
             editor.Selection.CharacterFormat.FontSize = 24;
             editor.SelectAll();
@@ -288,23 +288,23 @@ internal static partial class EditorContractTests
         {
             editor.Selection.ReplaceText("ab");
             editor.ClearUndoHistory();
-            editor.SelectedRange = new RichTextRange(1, 0);
+            editor.SelectedRange = new TextSpan(1, 0);
             editor.Selection.ToggleItalic();
             editor.Selection.ToggleScript(RichTextScript.Superscript);
             Equal(false, editor.CanUndo);
             NativeReplace(editor, "x");
             await Verify(editor);
             Equal("axb", editor.Document.Text);
-            Equal(true, editor.Document.GetCharacterFormat(new RichTextRange(1, 1)).RepresentativeFormat.Italic);
-            Equal(RichTextScript.Superscript, editor.Document.GetCharacterFormat(new RichTextRange(1, 1)).RepresentativeFormat.Script);
-            Equal(false, editor.Document.GetCharacterFormat(new RichTextRange(0, 1)).RepresentativeFormat.Italic);
-            Equal(false, editor.Document.GetCharacterFormat(new RichTextRange(2, 1)).RepresentativeFormat.Italic);
+            Equal(true, editor.Document.GetCharacterFormat(new TextSpan(1, 1)).RepresentativeFormat.Italic);
+            Equal(RichTextScript.Superscript, editor.Document.GetCharacterFormat(new TextSpan(1, 1)).RepresentativeFormat.Script);
+            Equal(false, editor.Document.GetCharacterFormat(new TextSpan(0, 1)).RepresentativeFormat.Italic);
+            Equal(false, editor.Document.GetCharacterFormat(new TextSpan(2, 1)).RepresentativeFormat.Italic);
         });
 
         yield return new("appearance and input settings never author content or history", async editor =>
         {
             editor.Selection.ReplaceText("one\ntwo");
-            editor.SelectedRange = new RichTextRange(1, 3);
+            editor.SelectedRange = new TextSpan(1, 3);
             editor.ClearUndoHistory();
             var before = editor.Document.CurrentSnapshot;
             foreach (var keyboard in new[] { Keyboard.Email, Keyboard.Numeric, Keyboard.Telephone, Keyboard.Url, Keyboard.Default })
@@ -318,7 +318,7 @@ internal static partial class EditorContractTests
                 editor.PlaceholderColor = Colors.Gray;
                 editor.AutoSize = EditorAutoSizeOption.TextChanges;
                 await Verify(editor);
-                Equal(new RichTextRange(1, 3), editor.SelectedRange);
+                Equal(new TextSpan(1, 3), editor.SelectedRange);
                 Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
                 Equal(false, editor.CanUndo);
             }
@@ -391,7 +391,7 @@ internal static partial class EditorContractTests
             await Verify(editor);
             Equal("new", editor.Document.Text);
             Equal(true, ReferenceEquals(selection, editor.Selection));
-            editor.SelectedRange = new RichTextRange(3, 0);
+            editor.SelectedRange = new TextSpan(3, 0);
             NativeReplace(editor, "!");
             await Verify(editor);
             Equal("new!", replacement.Text);
@@ -406,20 +406,20 @@ internal static partial class EditorContractTests
             editor.Selection.InsertField("DATE", "today");
             editor.Selection.InsertImage(Image());
             editor.Document.Edit(edit => edit.SetMetadata("author", "test"));
-            editor.SelectedRange = new RichTextRange(0, 3);
+            editor.SelectedRange = new TextSpan(0, 3);
             editor.Selection.ToggleBold();
             editor.ClearUndoHistory();
             var before = editor.Document.CurrentSnapshot;
             NativeReplace(editor, "the");
             await Verify(editor);
             Equal("the today\uFFFC", editor.Document.Text);
-            Equal(new RichTextRange(4, 5), editor.Document.CurrentSnapshot.Fields.Single().Range);
+            Equal(new TextSpan(4, 5), editor.Document.CurrentSnapshot.Fields.Single().Range);
             Equal(9, editor.Document.CurrentSnapshot.Images.Single().Position);
-            editor.SelectedRange = new RichTextRange(0, 3);
+            editor.SelectedRange = new TextSpan(0, 3);
             NativeReplace(editor, "their");
             await Verify(editor);
             Equal("their today\uFFFC", editor.Document.Text);
-            Equal(new RichTextRange(6, 5), editor.Document.CurrentSnapshot.Fields.Single().Range);
+            Equal(new TextSpan(6, 5), editor.Document.CurrentSnapshot.Fields.Single().Range);
             Equal(11, editor.Document.CurrentSnapshot.Images.Single().Position);
             var after = editor.Document.CurrentSnapshot;
             var count = 0;
@@ -443,15 +443,15 @@ internal static partial class EditorContractTests
         yield return new("native deletion in repeated text remaps the actual edited range", async editor =>
         {
             editor.Selection.ReplaceText("aaa");
-            editor.SelectedRange = new RichTextRange(1, 0);
+            editor.SelectedRange = new TextSpan(1, 0);
             editor.Selection.InsertField("DATE", "a");
             var before = editor.Document.CurrentSnapshot;
             editor.ClearUndoHistory();
-            editor.SelectedRange = new RichTextRange(0, 1);
+            editor.SelectedRange = new TextSpan(0, 1);
             NativeReplace(editor, "");
             await Verify(editor);
             Equal("aaa", editor.Document.Text);
-            Equal(new RichTextRange(0, 1), editor.Document.CurrentSnapshot.Fields.Single().Range);
+            Equal(new TextSpan(0, 1), editor.Document.CurrentSnapshot.Fields.Single().Range);
             editor.Undo();
             await Verify(editor);
             SameContent(before, editor.Document.CurrentSnapshot);
@@ -510,7 +510,7 @@ internal static partial class EditorContractTests
                 editor.Document.Edit(edit =>
                 {
                     edit.InsertText(0, "hello");
-                    edit.UpdateCharacterFormat(new RichTextRange(0, 5), format => format with { Italic = true });
+                    edit.UpdateCharacterFormat(new TextSpan(0, 5), format => format with { Italic = true });
                     edit.SetMetadata("author", "test");
                 });
                 Equal(1, content.Count);
@@ -533,7 +533,7 @@ internal static partial class EditorContractTests
 
                 Equal(true, ReferenceEquals(before, editor.Document.CurrentSnapshot));
                 Equal(2, content.Count);
-                editor.SelectedRange = new RichTextRange(5, 0);
+                editor.SelectedRange = new TextSpan(5, 0);
                 NativeReplace(editor, "!");
                 await Verify(editor);
                 Equal(RichTextChangeOrigin.User, content[^1].Origin);
@@ -611,9 +611,9 @@ internal static partial class EditorContractTests
         yield return new("rich clipboard round trip includes lists, links, fields and image bytes", async editor =>
         {
             editor.Selection.ReplaceText("link\n");
-            editor.SelectedRange = new RichTextRange(0, 4);
+            editor.SelectedRange = new TextSpan(0, 4);
             editor.Selection.SetLink("https://example.com/a?q=1", "tooltip");
-            editor.SelectedRange = new RichTextRange(5, 0);
+            editor.SelectedRange = new TextSpan(5, 0);
             editor.Selection.InsertField("DATE", "today");
             editor.Selection.InsertImage(Image() with { AlternativeText = "pixel", Source = "owned", Rotation = 30 });
             editor.SelectAll();
@@ -697,7 +697,7 @@ internal static partial class EditorContractTests
                     switch (mutation)
                     {
                         case "selection":
-                            editor.SelectedRange = new RichTextRange(0, 0);
+                            editor.SelectedRange = new TextSpan(0, 0);
                             break;
                         case "document":
                             editor.Document = RichTextDocument.FromRtf(@"{\rtf1 replacement}");
@@ -737,7 +737,7 @@ internal static partial class EditorContractTests
                 await SetPlainClipboard(input);
                 await editor.PasteAsync();
                 Equal(expected, editor.Document.Text);
-                Equal(new RichTextRange(expected.Length, 0), editor.SelectedRange);
+                Equal(new TextSpan(expected.Length, 0), editor.SelectedRange);
                 if (expected.Length > 0)
                     Equal(true, editor.Document.CurrentSnapshot.Runs[0].Format.Bold);
 
@@ -753,32 +753,32 @@ internal static partial class EditorContractTests
             await editor.CopyAsync();
             editor.Document = new RichTextDocument();
             editor.Selection.ReplaceText("12345");
-            editor.SelectedRange = new RichTextRange(1, 3);
+            editor.SelectedRange = new TextSpan(1, 3);
             editor.MaxLength = 5;
             await editor.PasteAsync();
             Equal("1abc5", editor.Document.Text);
-            Equal(new RichTextRange(4, 0), editor.SelectedRange);
-            Equal(true, editor.Document.GetCharacterFormat(new RichTextRange(1, 3)).RepresentativeFormat.Bold);
+            Equal(new TextSpan(4, 0), editor.SelectedRange);
+            Equal(true, editor.Document.GetCharacterFormat(new TextSpan(1, 3)).RepresentativeFormat.Bold);
             var field = editor.Document.CurrentSnapshot.Fields.Single();
-            Equal(new RichTextRange(1, 3), field.Range);
+            Equal(new TextSpan(1, 3), field.Range);
             await Verify(editor);
         });
 
         yield return new("links and fields remap through native edits and semantic-only changes", async editor =>
         {
             editor.Selection.ReplaceText("lead link ");
-            editor.SelectedRange = new RichTextRange(5, 4);
+            editor.SelectedRange = new TextSpan(5, 4);
             editor.Selection.SetLink("https://example.com", "tip");
-            editor.SelectedRange = new RichTextRange(10, 0);
+            editor.SelectedRange = new TextSpan(10, 0);
             editor.Selection.InsertField("DATE", "one\ntwo");
             var original = editor.Document.CurrentSnapshot;
-            editor.SelectedRange = RichTextRange.Empty;
+            editor.SelectedRange = TextSpan.Empty;
             NativeReplace(editor, "prefix ");
             await Verify(editor);
             Equal("prefix lead link one\ntwo", editor.Document.Text);
-            Equal(new RichTextRange(12, 4), editor.Document.CurrentSnapshot.Links.Single().Range);
+            Equal(new TextSpan(12, 4), editor.Document.CurrentSnapshot.Links.Single().Range);
             var field = editor.Document.CurrentSnapshot.Fields.Single();
-            Equal(new RichTextRange(17, 7), field.Range);
+            Equal(new TextSpan(17, 7), field.Range);
             editor.Document.Edit(edit => edit.UpdateField(field.Id, "TIME", "one\ntwo"));
             Equal("TIME", editor.Document.CurrentSnapshot.Fields.Single().Instruction);
             editor.Undo();
@@ -793,13 +793,13 @@ internal static partial class EditorContractTests
             yield return new($"image update, native deletion and history ({(valid ? "PNG" : "invalid bytes")})", async editor =>
             {
                 editor.Selection.ReplaceText("ab");
-                editor.SelectedRange = new RichTextRange(1, 0);
+                editor.SelectedRange = new TextSpan(1, 0);
                 editor.Selection.InsertImage(valid ? Image() : RichTextImage.FromBytes(0, "image/png", [1, 2, 3], 12, 12));
                 var image = editor.Document.CurrentSnapshot.Images.Single();
                 editor.Document.Edit(edit => edit.UpdateImage(1, image with { Width = 24, AlternativeText = "updated" }));
                 var before = editor.Document.CurrentSnapshot;
                 editor.ClearUndoHistory();
-                editor.SelectedRange = new RichTextRange(1, 1);
+                editor.SelectedRange = new TextSpan(1, 1);
                 NativeReplace(editor, "");
                 await Verify(editor);
                 Equal("ab", editor.Document.Text);
@@ -820,13 +820,13 @@ internal static partial class EditorContractTests
                 editor.Selection.ReplaceText("one\ntwo\nthree");
                 editor.SelectAll();
                 editor.Selection.SetList(List(style));
-                editor.SelectedRange = new RichTextRange(4, 3);
+                editor.SelectedRange = new TextSpan(4, 3);
                 editor.Selection.ChangeListLevel(1);
                 editor.Selection.RestartList(7);
                 var middle = editor.Document.CurrentSnapshot.Paragraphs[1].Format.List!;
                 Equal(1, middle.Level);
                 Equal(7, middle.RestartAt);
-                editor.SelectedRange = new RichTextRange(7, 0);
+                editor.SelectedRange = new TextSpan(7, 0);
                 NativeReplace(editor, "\nnew");
                 await Verify(editor);
                 Equal(4, editor.Document.CurrentSnapshot.Paragraphs.Length);
@@ -847,17 +847,17 @@ internal static partial class EditorContractTests
             yield return new($"character {name} survives unrelated native input and history", async editor =>
             {
                 editor.Selection.ReplaceText("styled\nplain");
-                editor.Document.Edit(edit => edit.SetCharacterFormat(new RichTextRange(0, 6), format));
-                var expected = editor.Document.GetCharacterFormat(new RichTextRange(0, 6)).RepresentativeFormat;
-                editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+                editor.Document.Edit(edit => edit.SetCharacterFormat(new TextSpan(0, 6), format));
+                var expected = editor.Document.GetCharacterFormat(new TextSpan(0, 6)).RepresentativeFormat;
+                editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
                 editor.ClearUndoHistory();
                 NativeReplace(editor, "!");
                 await Verify(editor);
-                Equal(expected, editor.Document.GetCharacterFormat(new RichTextRange(0, 6)).RepresentativeFormat);
+                Equal(expected, editor.Document.GetCharacterFormat(new TextSpan(0, 6)).RepresentativeFormat);
                 var after = editor.Document.CurrentSnapshot;
                 editor.Undo();
                 await Verify(editor);
-                Equal(expected, editor.Document.GetCharacterFormat(new RichTextRange(0, 6)).RepresentativeFormat);
+                Equal(expected, editor.Document.GetCharacterFormat(new TextSpan(0, 6)).RepresentativeFormat);
                 editor.Redo();
                 SameContent(after, editor.Document.CurrentSnapshot);
                 await Verify(editor);
@@ -869,9 +869,9 @@ internal static partial class EditorContractTests
             yield return new($"paragraph {name} survives unrelated native input and history", async editor =>
             {
                 editor.Selection.ReplaceText("one\ntwo");
-                editor.Document.Edit(edit => edit.SetParagraphFormat(new RichTextRange(0, 3), format));
+                editor.Document.Edit(edit => edit.SetParagraphFormat(new TextSpan(0, 3), format));
                 var expected = editor.Document.CurrentSnapshot.Paragraphs[0].Format;
-                editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+                editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
                 editor.ClearUndoHistory();
                 NativeReplace(editor, "\nnew");
                 await Verify(editor);
@@ -894,7 +894,7 @@ internal static partial class EditorContractTests
                     var start = random.Next(expected.Length + 1);
                     var length = random.Next(expected.Length - start + 1);
                     var text = insertions[random.Next(insertions.Length)];
-                    editor.SelectedRange = new RichTextRange(start, length);
+                    editor.SelectedRange = new TextSpan(start, length);
                     if (step % 3 == 0)
                     {
                         NativeReplace(editor, text);
@@ -912,7 +912,7 @@ internal static partial class EditorContractTests
                     Equal(expected, editor.Document.Text, $"seed {seed}, step {step}");
                     if (step % 7 == 0 && expected.Length > 0)
                     {
-                        editor.Document.Edit(edit => edit.UpdateCharacterFormat(new RichTextRange(0, expected.Length), format => format with { Italic = !format.Italic }));
+                        editor.Document.Edit(edit => edit.UpdateCharacterFormat(new TextSpan(0, expected.Length), format => format with { Italic = !format.Italic }));
                     }
 
                     await Verify(editor);
@@ -947,14 +947,14 @@ internal static partial class EditorContractTests
             editor.Selection.ReplaceText(text);
             await Verify(editor);
             Equal(text, editor.Document.Text);
-            editor.SelectedRange = new RichTextRange(0, 9);
+            editor.SelectedRange = new TextSpan(0, 9);
             NativeReplace(editor, "Start");
-            editor.SelectedRange = new RichTextRange(editor.Document.Length, 0);
+            editor.SelectedRange = new TextSpan(editor.Document.Length, 0);
             editor.Selection.ToggleBold();
             NativeReplace(editor, "end");
             await Verify(editor);
             Equal("Start" + text[9..] + "end", editor.Document.Text);
-            Equal(true, editor.Document.GetCharacterFormat(new RichTextRange(editor.Document.Length - 3, 3)).RepresentativeFormat.Bold);
+            Equal(true, editor.Document.GetCharacterFormat(new TextSpan(editor.Document.Length - 3, 3)).RepresentativeFormat.Bold);
         });
     }
 
@@ -1090,7 +1090,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
     [DynamicWindowsRuntimeCast(typeof(RichEditBox))]
 #endif
-    public static void NativeSelect(NativeEditorView editor, RichTextRange range, bool backwards = false)
+    public static void NativeSelect(NativeEditorView editor, TextSpan range, bool backwards = false)
     {
 #if WINDOWS
         var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;

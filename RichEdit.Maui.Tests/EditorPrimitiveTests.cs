@@ -26,7 +26,7 @@ public class EditorPrimitiveTests
         Assert.Equal(new CodePosition(2, 3), captured.GetPosition(4));
         Assert.Equal(4, captured.GetOffset(new(2, 3)));
         code.Edit(edit => edit.InsertText(0, "new\n"));
-        Assert.Equal(new RichTextRange(2, 2), captured.GetLineRange(2));
+        Assert.Equal(new TextSpan(2, 2), captured.GetLineRange(2));
     }
 
     [Fact]
@@ -38,11 +38,11 @@ public class EditorPrimitiveTests
             new(new(4, 2), "END"), new(new(1, 2), "R"), new(new(1, 0), "one"),
             new(new(3, 0), "\r\ntwo\r"), new(new(1, 0), "last") ]));
         Assert.Equal("aonelastR\ntwo\ndEND", editor.Document.Text);
-        Assert.Equal(new RichTextSelectionState(editor.Document.Length, 0), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(editor.Document.Length, 0), editor.SelectionState);
         Assert.True(editor.CanUndo);
         editor.Undo();
         Assert.Equal("abcdef", editor.Document.Text);
-        Assert.Equal(new RichTextSelectionState(6, 0), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(6, 0), editor.SelectionState);
         Assert.False(editor.CanUndo);
         editor.Redo();
         Assert.Equal("aonelastR\ntwo\ndEND", editor.Document.Text);
@@ -60,7 +60,7 @@ public class EditorPrimitiveTests
         Assert.Throws<ArgumentException>(() => editor.TryApplyEdits(snapshot.Revision, (RichTextEdit[])[new(new(0, 3), "a"), new(new(2, 2), "b")]));
         Assert.Throws<ArgumentOutOfRangeException>(() => editor.TryApplyEdits(snapshot.Revision, insert, new(9, 9)));
         Assert.Same(snapshot, editor.Document.CurrentSnapshot);
-        Assert.Equal(new RichTextSelectionState(3, 1), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(3, 1), editor.SelectionState);
         Assert.False(editor.CanUndo);
         editor.MaxLength = 4;
         Assert.False(editor.TryApplyEdits(snapshot.Revision, insert));
@@ -78,22 +78,22 @@ public class EditorPrimitiveTests
         var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcd"), SelectionState = new(3, 1) };
         var revision = editor.Document.Revision;
         Assert.True(editor.TryApplyEdits(revision, (RichTextEdit[])[new(new(0, 4), "abcd")]));
-        Assert.Equal(new RichTextSelectionState(3, 1), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(3, 1), editor.SelectionState);
         Assert.Equal(revision, editor.Document.Revision);
         Assert.True(editor.TryApplyEdits(revision, Array.Empty<RichTextEdit>(), new(0, 0)));
         Assert.False(editor.CanUndo);
         Assert.True(editor.TryApplyEdits(revision, (RichTextEdit[])[new(new(1, 1), "\r\n")], new(2, 2)));
         Assert.Equal("a\ncd", editor.Document.Text);
         editor.Undo();
-        Assert.Equal(new RichTextSelectionState(0, 0), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(0, 0), editor.SelectionState);
         editor.Redo();
-        Assert.Equal(new RichTextSelectionState(2, 2), editor.SelectionState);
+        Assert.Equal(new TextSelectionState(2, 2), editor.SelectionState);
     });
 
     [Theory]
-    [InlineData(RichTextTrackingAffinity.BeforeInsertion, 2)]
-    [InlineData(RichTextTrackingAffinity.AfterInsertion, 4)]
-    public void PositionsHonorAffinity(RichTextTrackingAffinity affinity, int expected)
+    [InlineData(PositionAffinity.BeforeInsertion, 2)]
+    [InlineData(PositionAffinity.AfterInsertion, 4)]
+    public void PositionsHonorAffinity(PositionAffinity affinity, int expected)
     {
         var document = RichTextDocument.FromPlainText("abcd");
         using var handle = document.Tracking.TrackPosition(2, affinity);
@@ -101,7 +101,7 @@ public class EditorPrimitiveTests
         Assert.Equal(expected, handle.Position);
         document.Undo();
         // An after-insertion anchor is the end boundary of the removed text and survives.
-        Assert.Equal(affinity == RichTextTrackingAffinity.BeforeInsertion ? null : 2, handle.Position);
+        Assert.Equal(affinity == PositionAffinity.BeforeInsertion ? null : 2, handle.Position);
     }
 
     [Fact]
@@ -109,16 +109,16 @@ public class EditorPrimitiveTests
     {
         var document = RichTextDocument.FromPlainText("abcd");
         using var exclusive = document.Tracking.TrackRange(new(1, 2));
-        using var inclusive = document.Tracking.TrackRange(new(1, 2), RichTextTrackingAffinity.BeforeInsertion, RichTextTrackingAffinity.AfterInsertion);
+        using var inclusive = document.Tracking.TrackRange(new(1, 2), PositionAffinity.BeforeInsertion, PositionAffinity.AfterInsertion);
         using var empty = document.Tracking.TrackRange(new(1, 0));
-        using var inclusiveEmpty = document.Tracking.TrackRange(new(1, 0), RichTextTrackingAffinity.BeforeInsertion, RichTextTrackingAffinity.AfterInsertion);
+        using var inclusiveEmpty = document.Tracking.TrackRange(new(1, 0), PositionAffinity.BeforeInsertion, PositionAffinity.AfterInsertion);
         document.Edit(edit => edit.InsertText(1, "X"));
-        Assert.Equal(new RichTextRange(2, 2), exclusive.Range);
-        Assert.Equal(new RichTextRange(1, 3), inclusive.Range);
-        Assert.Equal(new RichTextRange(2, 0), empty.Range);
-        Assert.Equal(new RichTextRange(1, 1), inclusiveEmpty.Range);
+        Assert.Equal(new TextSpan(2, 2), exclusive.Range);
+        Assert.Equal(new TextSpan(1, 3), inclusive.Range);
+        Assert.Equal(new TextSpan(2, 0), empty.Range);
+        Assert.Equal(new TextSpan(1, 1), inclusiveEmpty.Range);
         document.Edit(edit => edit.InsertText(3, "Y"));
-        Assert.Equal(new RichTextRange(2, 3), exclusive.Range);
+        Assert.Equal(new TextSpan(2, 3), exclusive.Range);
     }
 
     [Fact]
@@ -126,15 +126,15 @@ public class EditorPrimitiveTests
     {
         var document = RichTextDocument.FromPlainText("abcdef");
         using var invalidated = document.Tracking.TrackRange(new(1, 4));
-        using var preserved = document.Tracking.TrackRange(new(1, 4), deletion: RichTextTrackingDeletionBehavior.Preserve);
-        using var point = document.Tracking.TrackPosition(2, deletion: RichTextTrackingDeletionBehavior.Preserve);
+        using var preserved = document.Tracking.TrackRange(new(1, 4), deletion: TrackingDeletionBehavior.Preserve);
+        using var point = document.Tracking.TrackPosition(2, deletion: TrackingDeletionBehavior.Preserve);
         document.Edit(edit => edit.ReplaceText(new(2, 2), "X"));
         Assert.Null(invalidated.Range);
-        Assert.Equal(new RichTextRange(1, 3), preserved.Range);
+        Assert.Equal(new TextSpan(1, 3), preserved.Range);
         Assert.Equal(3, point.Position);
         document.Undo();
         Assert.Null(invalidated.Range);
-        Assert.Equal(new RichTextRange(1, 4), preserved.Range);
+        Assert.Equal(new TextSpan(1, 4), preserved.Range);
         point.Dispose();
         point.Dispose();
         Assert.Null(point.Position);
@@ -154,7 +154,7 @@ public class EditorPrimitiveTests
         Assert.Equal(8, position.Position);
         document.Undo();
         Assert.Equal(6, position.Position);
-        Assert.Equal(new RichTextRange(4, 6), range.Range);
+        Assert.Equal(new TextSpan(4, 6), range.Range);
         document.Redo();
         Assert.Equal(8, position.Position);
         document.Edit(edit => edit.InsertText(document.Length, "!"), new(RichTextUndoBehavior.MergeWithPrevious));

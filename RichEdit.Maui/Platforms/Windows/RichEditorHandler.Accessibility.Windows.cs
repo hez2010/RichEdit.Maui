@@ -194,11 +194,11 @@ public partial class RichEditorHandler
                 throw new InvalidOperationException("The editor cannot accept an accessibility edit in its current input state.");
         }
 
-        internal SourceTextRange Range(RichTextRange range) => new(this, range);
+        internal SourceTextRange Range(TextSpan range) => new(this, range);
 
         internal IRawElementProviderSimple Provider => ProviderFromPeer(this);
 
-        internal IEnumerable<IRawElementProviderSimple> Providers(RichTextRange range)
+        internal IEnumerable<IRawElementProviderSimple> Providers(TextSpan range)
         {
             var images = GetChildrenCore().OfType<SourceImagePeer>().Where(peer => peer.Image is { } image && image.Position >= range.Start && image.Position < range.End)
                 .Select(peer => (Position: peer.Image!.Position, Provider: (IRawElementProviderSimple?)ProviderFromPeer(peer)));
@@ -213,7 +213,7 @@ public partial class RichEditorHandler
         internal IRawElementProviderSimple? ProviderFor(RichTextAdornment item) => item.View.Handler?.PlatformView is FrameworkElement native &&
             (FromElement(native) ?? CreatePeerForElement(native)) is { } peer ? ProviderFromPeer(peer) : null;
 
-        internal object Attribute(RichTextRange range, int attribute)
+        internal object Attribute(TextSpan range, int attribute)
         {
             var source = Editor.PresentationSnapshot;
             var value = At(range.Start);
@@ -317,7 +317,7 @@ public partial class RichEditorHandler
     {
         private readonly SourceTextPeer _owner;
         private readonly RichTextDocument _document;
-        private readonly RichTextTrackedRange _range;
+        private readonly TextTrackedRange _range;
 
         internal SourceImagePeer(SourceTextPeer owner, int position)
         {
@@ -371,11 +371,11 @@ public partial class RichEditorHandler
         private readonly SourceTextPeer _peer;
         private readonly RichTextDocument _rootDocument;
         private RichTextDocument _document;
-        private RichTextTrackedRange _tracking;
+        private TextTrackedRange _tracking;
         private RichTextDocument? _previewOwner;
-        private RichTextTrackedRange? _previewTracking;
+        private TextTrackedRange? _previewTracking;
 
-        internal SourceTextRange(SourceTextPeer peer, RichTextRange range)
+        internal SourceTextRange(SourceTextPeer peer, TextSpan range)
         {
             _peer = peer;
             _rootDocument = peer.Editor.Document;
@@ -385,7 +385,7 @@ public partial class RichEditorHandler
                 peer.TrackCompositionRange(this);
         }
 
-        private RichTextRange Range
+        private TextSpan Range
         {
             get
             {
@@ -415,13 +415,13 @@ public partial class RichEditorHandler
             _previewOwner = null;
             if (!ReferenceEquals(_rootDocument, _peer.Editor.Document) || ReferenceEquals(_document, _rootDocument))
                 return;
-            var range = _tracking.Range ?? RichTextRange.Empty;
+            var range = _tracking.Range ?? TextSpan.Empty;
             _tracking.Dispose();
             _document = _rootDocument;
             _tracking = _document.Tracking.TrackWeakRange(range.Clamp(_document.Length));
         }
 
-        private void Set(RichTextRange range)
+        private void Set(TextSpan range)
         {
             _tracking.Dispose();
             _previewTracking?.Dispose();
@@ -443,7 +443,7 @@ public partial class RichEditorHandler
         public int CompareEndpoints(TextPatternRangeEndpoint endpoint, ITextRangeProvider targetRange, TextPatternRangeEndpoint targetEndpoint) =>
             Endpoint(Range, endpoint) - Endpoint(Other(targetRange).Range, targetEndpoint);
 
-        private static int Endpoint(RichTextRange range, TextPatternRangeEndpoint endpoint) => endpoint == TextPatternRangeEndpoint.Start ? range.Start : range.End;
+        private static int Endpoint(TextSpan range, TextPatternRangeEndpoint endpoint) => endpoint == TextPatternRangeEndpoint.Start ? range.Start : range.End;
 
         private void SetEndpoint(TextPatternRangeEndpoint endpoint, int position)
         {
@@ -477,10 +477,10 @@ public partial class RichEditorHandler
             var source = _peer.Editor.PresentationSnapshot;
             var boundaries = source.Runs.Select(static run => run.Start).Concat(source.Paragraphs.Select(static paragraph => paragraph.Start))
                 .Where(position => position > range.Start && position < range.End).Append(range.Start).Append(range.End).Distinct().Order().ToArray();
-            RichTextRange? match = null;
+            TextSpan? match = null;
             for (var index = backward ? boundaries.Length - 2 : 0; index >= 0 && index < boundaries.Length - 1; index += backward ? -1 : 1)
             {
-                var candidate = new RichTextRange(boundaries[index], boundaries[index + 1] - boundaries[index]);
+                var candidate = new TextSpan(boundaries[index], boundaries[index + 1] - boundaries[index]);
                 if (Equals(_peer.Attribute(candidate, attributeId), value))
                     match = match is { } preceding ? new(Math.Min(preceding.Start, candidate.Start), preceding.Length + candidate.Length) : candidate;
                 else if (match is not null)

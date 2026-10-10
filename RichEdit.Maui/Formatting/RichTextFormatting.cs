@@ -299,19 +299,19 @@ public sealed record RichTextRun
     /// <summary>Initializes a character-format run.</summary>
     /// <param name="range">The nonempty run range.</param>
     /// <param name="format">The immutable character format.</param>
-    public RichTextRun(RichTextRange range, RichTextCharacterFormat format)
+    public RichTextRun(TextSpan range, RichTextCharacterFormat format)
     {
         Range = range;
         Format = format ?? throw new ArgumentNullException(nameof(format));
     }
 
     internal RichTextRun(int start, int length, RichTextCharacterFormat format)
-        : this(new RichTextRange(start, length), format)
+        : this(new TextSpan(start, length), format)
     {
     }
 
     /// <summary>Gets the half-open UTF-16 run range.</summary>
-    public RichTextRange Range { get; init; }
+    public TextSpan Range { get; init; }
 
     /// <summary>Gets the run's character format.</summary>
     public RichTextCharacterFormat Format { get; init; }
@@ -554,19 +554,19 @@ public sealed record RichTextParagraph
     /// <summary>Initializes a paragraph entry.</summary>
     /// <param name="range">The paragraph's UTF-16 range.</param>
     /// <param name="format">The immutable paragraph format.</param>
-    public RichTextParagraph(RichTextRange range, RichTextParagraphFormat format)
+    public RichTextParagraph(TextSpan range, RichTextParagraphFormat format)
     {
         Range = range;
         Format = format ?? throw new ArgumentNullException(nameof(format));
     }
 
     internal RichTextParagraph(int start, RichTextParagraphFormat format)
-        : this(new RichTextRange(start, 0), format)
+        : this(new TextSpan(start, 0), format)
     {
     }
 
     /// <summary>Gets the paragraph's half-open UTF-16 range.</summary>
-    public RichTextRange Range { get; init; }
+    public TextSpan Range { get; init; }
 
     /// <summary>Gets the paragraph format.</summary>
     public RichTextParagraphFormat Format { get; init; }
@@ -581,7 +581,7 @@ public sealed record RichTextLink
     /// <param name="range">The nonempty display-text range.</param>
     /// <param name="target">The application-defined target.</param>
     /// <param name="toolTip">Optional tooltip text.</param>
-    public RichTextLink(RichTextRange range, string target, string? toolTip = null)
+    public RichTextLink(TextSpan range, string target, string? toolTip = null)
     {
         Range = range;
         Target = target ?? throw new ArgumentNullException(nameof(target));
@@ -589,12 +589,12 @@ public sealed record RichTextLink
     }
 
     internal RichTextLink(int start, int length, string target, string? toolTip = null)
-        : this(new RichTextRange(start, length), target, toolTip)
+        : this(new TextSpan(start, length), target, toolTip)
     {
     }
 
     /// <summary>Gets the display-text range.</summary>
-    public RichTextRange Range { get; init; }
+    public TextSpan Range { get; init; }
 
     /// <summary>Gets the application-defined target.</summary>
     public string Target { get; init; }
@@ -630,7 +630,7 @@ public sealed record RichTextField
     /// <summary>Initializes a field.</summary>
     /// <param name="range">The visible result range.</param>
     /// <param name="instruction">The nonempty RTF field instruction.</param>
-    public RichTextField(RichTextRange range, string instruction)
+    public RichTextField(TextSpan range, string instruction)
         : this(default, range, instruction)
     {
     }
@@ -642,7 +642,7 @@ public sealed record RichTextField
     /// </param>
     /// <param name="range">The visible result range.</param>
     /// <param name="instruction">The nonempty RTF field instruction.</param>
-    public RichTextField(RichTextFieldId id, RichTextRange range, string instruction)
+    public RichTextField(RichTextFieldId id, TextSpan range, string instruction)
     {
         Id = id;
         Range = range;
@@ -650,7 +650,7 @@ public sealed record RichTextField
     }
 
     internal RichTextField(int start, int length, string instruction)
-        : this(default, new RichTextRange(start, length), instruction)
+        : this(default, new TextSpan(start, length), instruction)
     {
     }
 
@@ -658,7 +658,7 @@ public sealed record RichTextField
     public RichTextFieldId Id { get; init; }
 
     /// <summary>Gets the visible result range.</summary>
-    public RichTextRange Range { get; init; }
+    public TextSpan Range { get; init; }
 
     /// <summary>Gets the RTF field instruction.</summary>
     public string Instruction { get; init; }

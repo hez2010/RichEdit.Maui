@@ -43,10 +43,10 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     public static CodeDocument FromPlainText(string? text) => new(text);
 
     /// <summary>Gets the opaque source-document revision.</summary>
-    public RichTextRevision Revision => Source.Revision;
+    public DocumentRevision Revision => Source.Revision;
 
     /// <summary>Gets source position and range tracking.</summary>
-    public RichTextTracking Tracking => Source.Tracking;
+    public TextTracking Tracking => Source.Tracking;
 
     /// <summary>Gets the monotonically increasing content revision.</summary>
     public long Version => Source.Version;
@@ -97,7 +97,7 @@ public sealed partial class CodeDocument : INotifyPropertyChanged
     /// <summary>Reads a bounded UTF-16 source range.</summary>
     /// <param name="range">The range to read.</param>
     /// <returns>The source in that range.</returns>
-    public string GetText(RichTextRange range) => Source.GetText(range);
+    public string GetText(TextSpan range) => Source.GetText(range);
 
     /// <summary>Undoes the preceding edit and maps each attached view's selection.</summary>
     public void Undo() => Source.Undo();
@@ -131,7 +131,7 @@ public sealed class CodeDocumentSnapshot
     private readonly CodeLineMap _lines;
     internal CodeLineMap Lines => _lines;
 
-    internal CodeDocumentSnapshot(RichTextRevision revision, string text)
+    internal CodeDocumentSnapshot(DocumentRevision revision, string text)
     {
         Revision = revision;
         Text = text;
@@ -142,7 +142,7 @@ public sealed class CodeDocumentSnapshot
     public long Version => Revision.Version;
 
     /// <summary>Gets the captured document identity and version.</summary>
-    public RichTextRevision Revision { get; }
+    public DocumentRevision Revision { get; }
 
     /// <summary>Gets the UTF-16 source text.</summary>
     public string Text { get; }
@@ -156,7 +156,7 @@ public sealed class CodeDocumentSnapshot
     /// <summary>Gets a one-based source line, excluding LF.</summary>
     /// <param name="line">The one-based logical line.</param>
     /// <returns>The line's source range.</returns>
-    public RichTextRange GetLineRange(int line) => _lines.GetRange(line - 1);
+    public TextSpan GetLineRange(int line) => _lines.GetRange(line - 1);
 
     /// <summary>Converts a UTF-16 source offset to a one-based line and column.</summary>
     /// <param name="offset">The source offset.</param>
@@ -190,10 +190,10 @@ public sealed class CodeDocumentEdit
 
     /// <summary>Deletes a UTF-16 source range.</summary>
     /// <param name="range">The range to delete.</param>
-    public void DeleteText(RichTextRange range) => _edit.DeleteText(range);
+    public void DeleteText(TextSpan range) => _edit.DeleteText(range);
 
     /// <summary>Replaces a UTF-16 range with source text.</summary>
     /// <param name="range">The replaced range.</param>
     /// <param name="text">The replacement source.</param>
-    public void ReplaceText(RichTextRange range, string? text) => _edit.ReplaceText(range, text);
+    public void ReplaceText(TextSpan range, string? text) => _edit.ReplaceText(range, text);
 }

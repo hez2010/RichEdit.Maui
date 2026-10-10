@@ -32,7 +32,7 @@ public class AdornmentTests
         Assert.Equal(editor.Document.Text, original.GetText(-1));
         var found = text.DocumentRange.FindText("bc", false, false);
         found.Select();
-        Assert.Equal(new RichTextRange(4, 2), editor.SelectedRange);
+        Assert.Equal(new TextSpan(4, 2), editor.SelectedRange);
         Assert.Equal("bc", text.GetSelection().Single().GetText(-1));
         editor.Selection.CharacterFormat.Bold = true;
         await Task.Delay(50);
@@ -157,9 +157,9 @@ public class AdornmentTests
     {
         var editor = new CodeEditor { Document = new("head\none\ntwo\ntail") };
         using var indicators = new CodeEditorFoldIndicators(editor);
-        var outer = new RichTextRange(5, 8);
-        var inner = new RichTextRange(9, 4);
-        editor.Folding.SetCollapsedRanges((RichTextRange[])[outer, inner]);
+        var outer = new TextSpan(5, 8);
+        var inner = new TextSpan(9, 4);
+        editor.Folding.SetCollapsedRanges((TextSpan[])[outer, inner]);
         Assert.Single(editor.Adornments);
         ClickSampleIndicator(editor);
         Assert.Equal(inner, Assert.Single(editor.Folding.CollapsedRanges));
@@ -175,11 +175,11 @@ public class AdornmentTests
     {
         var editor = new CodeEditor { Document = new("one ABC two DEF end") };
         using var indicators = new CodeEditorFoldIndicators(editor);
-        editor.Folding.SetCollapsedRanges((RichTextRange[])[new(4, 3), new(12, 3)]);
+        editor.Folding.SetCollapsedRanges((TextSpan[])[new(4, 3), new(12, 3)]);
         var row = Assert.IsType<HorizontalStackLayout>(Assert.Single(editor.Adornments).View);
         Assert.Equal(2, row.Count);
         ((Button)row[0]).Command.Execute(null);
-        Assert.Equal(new RichTextRange(12, 3), Assert.Single(editor.Folding.CollapsedRanges));
+        Assert.Equal(new TextSpan(12, 3), Assert.Single(editor.Folding.CollapsedRanges));
         ClickSampleIndicator(editor);
         Assert.Empty(editor.Folding.CollapsedRanges);
     });

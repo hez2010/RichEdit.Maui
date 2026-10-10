@@ -5,11 +5,11 @@ namespace RichEdit.Maui.TestApp;
 // Each demonstration uses the same public surface available to an application.
 public partial class RichEditorPage
 {
-    private sealed record CapturedEdit(RichTextRevision Revision, RichTextRange Range, string Text);
+    private sealed record CapturedEdit(DocumentRevision Revision, TextSpan Range, string Text);
 
     private CapturedEdit? _capturedEdit;
-    private RichTextTrackedRange? _trackedRange;
-    private RichTextTrackedPosition? _bookmark;
+    private TextTrackedRange? _trackedRange;
+    private TextTrackedPosition? _bookmark;
     private RichTextDecorationLayer? _capturedHighlight;
     private RichTextDecorationLayer? _trackingHighlight;
     private RichTextLayoutSnapshot? _capturedLayout;
@@ -127,8 +127,8 @@ public partial class RichEditorPage
     private void OnTrackSelection(object? sender, EventArgs args)
     {
         _trackedRange?.Dispose();
-        _trackedRange = Editor.Document.Tracking.TrackRange(Editor.SelectedRange, RichTextTrackingAffinity.BeforeInsertion,
-            RichTextTrackingAffinity.AfterInsertion, RichTextTrackingDeletionBehavior.Preserve);
+        _trackedRange = Editor.Document.Tracking.TrackRange(Editor.SelectedRange, PositionAffinity.BeforeInsertion,
+            PositionAffinity.AfterInsertion, TrackingDeletionBehavior.Preserve);
         PaintTracking();
         ResultLabel.Text = "The blue range follows edits, including a replacement of its selected text.";
         UpdateState();
@@ -148,7 +148,7 @@ public partial class RichEditorPage
     private void OnBookmark(object? sender, EventArgs args)
     {
         _bookmark?.Dispose();
-        _bookmark = Editor.Document.Tracking.TrackPosition(Editor.SelectionState.Active, RichTextTrackingAffinity.AfterInsertion);
+        _bookmark = Editor.Document.Tracking.TrackPosition(Editor.SelectionState.Active, PositionAffinity.AfterInsertion);
         ResultLabel.Text = "Bookmarked the caret. Insertions at the bookmark move it after the inserted text.";
         UpdateState();
     }
@@ -334,7 +334,7 @@ public partial class RichEditorPage
             ObservationLabel.Text += $" · {_pointer}";
     }
 
-    private static string RangeText(RichTextRange range) => $"[{range.Start}, {range.End})";
+    private static string RangeText(TextSpan range) => $"[{range.Start}, {range.End})";
 
     private static string RectText(Rect rect) => $"({rect.X:F0}, {rect.Y:F0}, {rect.Width:F0} × {rect.Height:F0})";
 

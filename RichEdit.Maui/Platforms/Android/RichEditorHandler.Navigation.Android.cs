@@ -2,8 +2,8 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private partial (RichTextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
-        RichTextSelectionState selection, EditorKey direction, bool extend, double? preferredX)
+    private partial (TextSelectionState Selection, double? PreferredX)? NavigateDisplaySelectionCore(
+        TextSelectionState selection, EditorKey direction, bool extend, double? preferredX)
     {
         if (PlatformView.Layout is not { } layout || PlatformView.EditableText is not { } text)
             return null;

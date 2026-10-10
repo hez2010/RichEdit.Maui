@@ -23,7 +23,7 @@ public partial class NativeEditorView
 
     private bool _planningInput;
 
-    private NativeSelectionEdit? PlanNativeInput(RichTextDocumentSnapshot native, RichTextSelectionState selection,
+    private NativeSelectionEdit? PlanNativeInput(RichTextDocumentSnapshot native, TextSelectionState selection,
         NativeSelectionEdit? expanded)
     {
         if (InputRules.Count == 0 || ReferenceEquals(expanded?.Snapshot, Document.CurrentSnapshot))

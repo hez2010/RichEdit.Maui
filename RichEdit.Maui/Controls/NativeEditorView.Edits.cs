@@ -3,7 +3,7 @@ namespace RichEdit.Maui;
 /// <summary>A replacement expressed in the original revision's UTF-16 coordinates.</summary>
 /// <param name="Range">The source range to replace.</param>
 /// <param name="Text">The replacement text. Line endings are normalized to LF.</param>
-public sealed record RichTextEdit(RichTextRange Range, string Text);
+public sealed record RichTextEdit(TextSpan Range, string Text);
 
 public partial class NativeEditorView
 {
@@ -13,8 +13,8 @@ public partial class NativeEditorView
     /// <param name="selectionAfter">An optional directional selection in the resulting normalized source.</param>
     /// <param name="options">History behavior and application metadata.</param>
     /// <returns>False for stale revisions, read-only state, composition, or an exceeded input limit.</returns>
-    public bool TryApplyEdits(RichTextRevision revision, IReadOnlyList<RichTextEdit> edits,
-        RichTextSelectionState? selectionAfter = null, RichTextEditOptions options = default)
+    public bool TryApplyEdits(DocumentRevision revision, IReadOnlyList<RichTextEdit> edits,
+        TextSelectionState? selectionAfter = null, RichTextEditOptions options = default)
     {
         VerifyAccess();
         Document.VerifyAttachmentChange();
@@ -44,7 +44,7 @@ public partial class NativeEditorView
                 throw new ArgumentException("Edit ranges overlap.", nameof(edits));
 
             var replacement = replacements.FirstOrDefault();
-            var range = replacement?.Range ?? new RichTextRange(group.Key, 0);
+            var range = replacement?.Range ?? new TextSpan(group.Key, 0);
             var text = string.Concat(group.Where(static edit => edit.Range.IsEmpty).Select(static edit => edit.Text)) + replacement?.Text;
             normalized.Add(new(range, text));
             previousEnd = range.End;
@@ -64,7 +64,7 @@ public partial class NativeEditorView
         {
             var edit = normalized[i];
             var change = new RichTextTextChange(edit.Range, edit.Text);
-            selection = new(RichTextSelectionState.MapOffset(selection.Anchor, change), RichTextSelectionState.MapOffset(selection.Active, change));
+            selection = new(TextSelectionStateExtensions.MapOffset(selection.Anchor, change), TextSelectionStateExtensions.MapOffset(selection.Active, change));
         }
 
         EditDocument(transaction =>

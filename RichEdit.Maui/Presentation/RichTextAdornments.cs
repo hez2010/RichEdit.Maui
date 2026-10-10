@@ -25,7 +25,7 @@ public sealed record RichTextAdornmentOptions
     public RichTextAdornmentPlacement Placement { get; init; }
 
     /// <summary>Gets which side of an insertion retains the anchor.</summary>
-    public RichTextTrackingAffinity Affinity { get; init; } = RichTextTrackingAffinity.AfterInsertion;
+    public PositionAffinity Affinity { get; init; } = PositionAffinity.AfterInsertion;
 
     /// <summary>Gets an overlay or margin displacement in device-independent units.</summary>
     public Point Offset { get; init; }
@@ -38,7 +38,7 @@ public sealed record RichTextAdornmentOptions
         if (!Enum.IsDefined(Placement))
             throw new ArgumentOutOfRangeException(nameof(Placement));
 
-        RichTextTracking.Validate(Affinity, RichTextTrackingDeletionBehavior.Invalidate);
+        TextTracking.Validate(Affinity, TrackingDeletionBehavior.Invalidate);
         if (!double.IsFinite(Offset.X) || !double.IsFinite(Offset.Y))
             throw new ArgumentOutOfRangeException(nameof(Offset));
         if (Placement is not (RichTextAdornmentPlacement.Overlay or RichTextAdornmentPlacement.LeftMargin) && Offset != Point.Zero)
@@ -52,11 +52,11 @@ public sealed record RichTextAdornmentOptions
 public sealed partial class RichTextAdornment : IDisposable
 {
     private readonly RichTextAdornments _owner;
-    private RichTextTrackedPosition _anchor;
+    private TextTrackedPosition _anchor;
     private RichTextAdornmentOptions _options;
     private int _lastPosition;
 
-    internal RichTextAdornment(RichTextAdornments owner, RichTextTrackedPosition anchor, View view, RichTextAdornmentOptions options)
+    internal RichTextAdornment(RichTextAdornments owner, TextTrackedPosition anchor, View view, RichTextAdornmentOptions options)
     {
         _owner = owner;
         _anchor = anchor;
@@ -85,7 +85,7 @@ public sealed partial class RichTextAdornment : IDisposable
     internal bool MeasureDirty { get; set; } = true;
     internal bool IsRealized { get; set; }
 
-    internal void SetOptions(RichTextTracking tracking, RichTextAdornmentOptions options)
+    internal void SetOptions(TextTracking tracking, RichTextAdornmentOptions options)
     {
         var position = Position;
         if (options.Affinity != _options.Affinity)
@@ -188,7 +188,7 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
     /// <param name="adornment">The new handle, or null for a stale revision.</param>
     /// <param name="options">Optional placement, insertion affinity, and sizing.</param>
     /// <returns>Whether the view was attached.</returns>
-    public bool TryAdd(RichTextRevision revision, int position, View view, out RichTextAdornment? adornment, RichTextAdornmentOptions? options = null)
+    public bool TryAdd(DocumentRevision revision, int position, View view, out RichTextAdornment? adornment, RichTextAdornmentOptions? options = null)
     {
         _editor.VerifyAccess();
         ArgumentNullException.ThrowIfNull(view);

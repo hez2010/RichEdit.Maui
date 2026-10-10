@@ -56,8 +56,8 @@ public class EditingRoundTripTests
                     Marker = new RichTextListMarker.Number(RichTextListNumberStyle.Arabic, 1),
                     Prefix = "", Suffix = ".", LeadingIndent = 24, FirstLineIndent = -12, MarkerTab = 24,
                 }]));
-            edit.ApplyList(new RichTextRange(0, 3), list);
-            edit.RestartList(new RichTextRange(0, 3), 7);
+            edit.ApplyList(new TextSpan(0, 3), list);
+            edit.RestartList(new TextSpan(0, 3), 7);
         });
         document.Edit(edit => edit.InsertText(position, text));
         Assert.Equal(7, document.CurrentSnapshot.Paragraphs[0].Format.List!.RestartAt);
@@ -77,13 +77,13 @@ public class EditingRoundTripTests
         {
             edit.InsertText(0, "prefix suffix");
             edit.InsertField(7, "MERGEFIELD value", result);
-            edit.UpdateParagraphFormat(new RichTextRange(0, edit.Snapshot.Length), format => format with { Alignment = RichTextAlignment.Center });
+            edit.UpdateParagraphFormat(new TextSpan(0, edit.Snapshot.Length), format => format with { Alignment = RichTextAlignment.Center });
         });
         var restored = RichTextDocument.FromRtf(document.RtfText);
         Assert.Equal(document.Text, restored.Text);
         Assert.All(restored.CurrentSnapshot.Paragraphs, paragraph => Assert.Equal(RichTextAlignment.Center, paragraph.Format.Alignment));
         var field = Assert.Single(restored.CurrentSnapshot.Fields);
-        Assert.Equal(new RichTextRange(7, result.Length), field.Range);
+        Assert.Equal(new TextSpan(7, result.Length), field.Range);
         restored.Edit(edit => edit.UpdateField(field.Id, "MERGEFIELD replacement", "new"));
         Assert.Equal("prefix newsuffix", restored.Text);
     }
@@ -130,11 +130,11 @@ public class EditingRoundTripTests
             var length = random.Next(document.Length - start + 1);
             var change = document.Edit(edit =>
             {
-                edit.ReplaceText(new RichTextRange(start, length), insertions[random.Next(insertions.Length)]);
+                edit.ReplaceText(new TextSpan(start, length), insertions[random.Next(insertions.Length)]);
                 if (edit.Snapshot.Length > 0)
                 {
                     var position = random.Next(edit.Snapshot.Length);
-                    edit.UpdateCharacterFormat(new RichTextRange(position, 1), format => format with { Italic = !format.Italic });
+                    edit.UpdateCharacterFormat(new TextSpan(position, 1), format => format with { Italic = !format.Italic });
                 }
 
                 edit.SetMetadata("iteration", iteration.ToString());
@@ -181,7 +181,7 @@ public class EditingRoundTripTests
         var changes = document.ReplaceSnapshotFromNative(after, new object(), nativeUndoOwned: true);
 
         var formatting = Assert.Single(changes.Changes, change => change.Kind == RichTextChangeKind.CharacterFormat);
-        Assert.Equal(new RichTextRange(1, 3), formatting.NewRange);
+        Assert.Equal(new TextSpan(1, 3), formatting.NewRange);
     }
 
     [Fact]
