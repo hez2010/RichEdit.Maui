@@ -42,7 +42,7 @@ public sealed class EditorInputTests
     [Fact]
     public Task LastMatchingBindingOwnsTheGestureAndChecksItsParameter() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var invoked = 0;
         var enabled = false;
         var parameter = new object();
@@ -63,7 +63,7 @@ public sealed class EditorInputTests
     [Fact]
     public Task ModifiersMatchExactlyAndAltGrDoesNotInvokeControlAltBinding() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var invoked = 0;
         var modifiers = EditorKeyModifiers.Control | EditorKeyModifiers.Alt;
         editor.KeyBindings.Add(new(EditorKey.Q, modifiers, new Command(() => invoked++)));
@@ -76,7 +76,7 @@ public sealed class EditorInputTests
     [Fact]
     public Task KeyBindingChangesRejectBackgroundMutation() => WindowsTestHost.RunAsync(async () =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         await Task.Run(() => Assert.Throws<InvalidOperationException>(() =>
             editor.KeyBindings.Add(new(EditorKey.S, EditorKeyModifiers.Control, new Command(static () => { })))));
         Assert.Empty(editor.KeyBindings);
@@ -85,7 +85,7 @@ public sealed class EditorInputTests
     [Fact]
     public Task ContextMenuCustomizationDoesNotMutateTheConfiguredMenu() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var configured = new MenuFlyout { new MenuFlyoutItem { Text = "Configured" } };
         FlyoutBase.SetContextFlyout(editor, configured);
         editor.ContextMenuOpening += (_, args) => args.Items.Add(new MenuFlyoutItem { Text = "Dynamic" });
@@ -151,7 +151,7 @@ public sealed class EditorInputTests
     [Fact]
     public Task KeyCommandExceptionsPropagate() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var failure = new InvalidOperationException("Application command failure");
         editor.KeyBindings.Add(new(EditorKey.F1, EditorKeyModifiers.None, new Command(() => throw failure)));
         Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => editor.SendKeyDown(EditorKey.F1, EditorKeyModifiers.None)));

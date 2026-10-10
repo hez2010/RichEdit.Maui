@@ -6,8 +6,8 @@ public class SharedDocumentTests
     public Task CompositionInOneViewPreventsMutationThroughAnother() => WindowsTestHost.RunAsync(() =>
     {
         var document = RichTextDocument.FromPlainText("abc");
-        var first = new RichEditor { Document = document };
-        var second = new RichEditor { Document = document };
+        var first = new NativeEditorView { Document = document };
+        var second = new NativeEditorView { Document = document };
         var revision = document.Revision;
         first.SetCompositionState(new(true, new(0, 1)));
         var invoked = false;
@@ -28,8 +28,8 @@ public class SharedDocumentTests
     public Task FailingObserverDoesNotPreventPeerPublication() => WindowsTestHost.RunAsync(() =>
     {
         var document = RichTextDocument.FromPlainText("abc");
-        var first = new RichEditor { Document = document };
-        var second = new RichEditor { Document = document };
+        var first = new NativeEditorView { Document = document };
+        var second = new NativeEditorView { Document = document };
         var failure = new InvalidOperationException("observer failure");
         first.ContentChanged += (_, _) => throw failure;
         var notified = false;
@@ -48,10 +48,10 @@ public class SharedDocumentTests
     [Fact]
     public Task SharedDocumentRejectsAnotherViewThreadBeforeAttachment() => WindowsTestHost.RunAsync(async () =>
     {
-        var first = new RichEditor { Document = RichTextDocument.FromPlainText("source") };
+        var first = new NativeEditorView { Document = RichTextDocument.FromPlainText("source") };
         await Task.Run(() =>
         {
-            var other = new RichEditor();
+            var other = new NativeEditorView();
             var previous = other.Document;
             Assert.Throws<InvalidOperationException>(() => other.Document = first.Document);
             Assert.Same(previous, other.Document);

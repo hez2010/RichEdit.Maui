@@ -14,6 +14,7 @@ public partial class NativeEditorView
         DiscardComposition();
         previous.SelectionChanged -= OnStructuredSelectionChanged;
         previous.TypingFormatChanged -= OnStructuredTypingFormatChanged;
+        previous.ReadOnlyChanged -= OnStructuredReadOnlyChanged;
         StructuredSession = null;
         previous.Dispose();
     }
@@ -38,6 +39,7 @@ public partial class NativeEditorView
             Selections = GetStructuredSelections()!;
             next.SelectionChanged += OnStructuredSelectionChanged;
             next.TypingFormatChanged += OnStructuredTypingFormatChanged;
+            next.ReadOnlyChanged += OnStructuredReadOnlyChanged;
         }
         catch
         {
@@ -49,6 +51,7 @@ public partial class NativeEditorView
         {
             previous.SelectionChanged -= OnStructuredSelectionChanged;
             previous.TypingFormatChanged -= OnStructuredTypingFormatChanged;
+            previous.ReadOnlyChanged -= OnStructuredReadOnlyChanged;
             previous.Dispose();
         }
     }
@@ -60,6 +63,8 @@ public partial class NativeEditorView
         RaiseSelectionFormatChanged();
     }
 
+    private void OnStructuredReadOnlyChanged(object? sender, EventArgs args) => IsReadOnly = StructuredSession!.IsReadOnly;
+
     private void OnStructuredSelectionChanged(object? sender, EventArgs args)
     {
         if (_deferNotifications || _synchronizingStructured) return;
@@ -68,6 +73,7 @@ public partial class NativeEditorView
         {
             SetSelectionsFromDocument(GetStructuredSelections()!);
             (Handler as RichEditorHandler)?.RefreshStructuredSelection();
+            Commands.Refresh();
         }
         finally { _synchronizingStructured = false; }
     }

@@ -175,7 +175,7 @@ public partial class EditorApiTests
     [Fact]
     public Task InvalidResultingSelectionRollsBackTheWholeEdit() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abc") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abc") };
         var before = editor.Document.CurrentSnapshot;
         Assert.Throws<ArgumentOutOfRangeException>(() => editor.Selection.Edit(
             edit => edit.InsertText(3, "x"), new TextSelectionState(50, 50)));
@@ -371,7 +371,7 @@ public partial class EditorApiTests
     [Fact]
     public Task NativeClipboardFailuresAreReportedWithoutChangingTaskExceptionBehavior() => WindowsTestHost.RunAsync(async () =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var failure = new System.Runtime.InteropServices.COMException("Clipboard unavailable");
         Exception? observed = null;
         editor.Commands.Failed += (_, args) => observed = args.Exception;
@@ -383,12 +383,12 @@ public partial class EditorApiTests
 
     private sealed partial class RichFixture : IDisposable
     {
-        internal RichEditor Editor { get; }
+        internal NativeEditorView Editor { get; }
         internal RichEditorHandler Handler { get; } = new();
 
         internal RichFixture(RichTextDocument document)
         {
-            Editor = new RichEditor { Document = document };
+            Editor = new NativeEditorView { Document = document };
             Handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
             Editor.Handler = Handler;
         }

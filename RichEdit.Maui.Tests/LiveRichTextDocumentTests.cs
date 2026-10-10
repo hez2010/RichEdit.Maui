@@ -355,8 +355,8 @@ public sealed class LiveRichTextDocumentTests
     public Task DocumentSupportsIndependentEditorAttachments() => WindowsTestHost.RunAsync(() =>
     {
         var document = new RichTextDocument();
-        var first = new RichEditor { Document = document };
-        var second = new RichEditor { Document = document };
+        var first = new NativeEditorView { Document = document };
+        var second = new NativeEditorView { Document = document };
         first.Selection.ReplaceText("shared");
         Assert.Equal("shared", second.Document.Text);
         first.Document = new RichTextDocument();
@@ -1050,13 +1050,13 @@ public sealed class LiveRichTextDocumentTests
     [Fact]
     public void PublicSurfaceContainsOnlyTheNewContentAndListApis()
     {
-        var editorType = typeof(RichEditor);
+        var editorType = typeof(NativeEditorView);
         Assert.Null(editorType.GetProperty("RtfText"));
         Assert.Null(editorType.GetProperty("Text"));
         Assert.Null(editorType.GetField("RtfTextProperty", BindingFlags.Public | BindingFlags.Static));
         Assert.Null(editorType.GetField("TextProperty", BindingFlags.Public | BindingFlags.Static));
-        Assert.NotNull(editorType.GetProperty(nameof(RichEditor.Document)));
-        Assert.NotNull(editorType.GetProperty(nameof(RichEditor.Selection)));
+        Assert.NotNull(editorType.GetProperty(nameof(NativeEditorView.Document)));
+        Assert.NotNull(editorType.GetProperty(nameof(NativeEditorView.Selection)));
         Assert.False(typeof(RichTextDocument).GetProperty(nameof(RichTextDocument.RtfText))!.CanWrite);
         Assert.DoesNotContain("Binding", Enum.GetNames<RichTextChangeOrigin>());
         Assert.Null(editorType.GetMethod("LoadRtf", BindingFlags.Public | BindingFlags.Instance));

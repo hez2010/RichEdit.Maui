@@ -8,7 +8,7 @@ namespace RichEdit.Maui.Tests;
 // Run on an emulator with: adb shell am start -n <activity> --ez run-editor-tests true
 internal static class AndroidEditorTests
 {
-    public static async Task RunAsync(RichEditor editor, string? filter = null)
+    public static async Task RunAsync(NativeEditorView editor, string? filter = null)
     {
         var native = (RichEditText)editor.Handler!.PlatformView!;
         var results = new List<string>();
@@ -26,7 +26,7 @@ internal static class AndroidEditorTests
         var output = Path.Combine(FileSystem.CacheDirectory, "editor-tests.txt");
         void Save() => File.WriteAllText(output,
             $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; Android {Android.OS.Build.VERSION.Release} API {Android.OS.Build.VERSION.SdkInt}\n" +
-            $"Started {started:O}; library {typeof(RichEditor).Assembly.ManifestModule.ModuleVersionId}\n" +
+            $"Started {started:O}; library {typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId}\n" +
             string.Join("\n", results) + "\n");
 
         async Task Test(string name, Func<Task> test)
@@ -196,7 +196,7 @@ internal static class AndroidEditorTests
             editor.SelectAll();
             editor.Selection.ToggleBold();
             native.OnTextContextMenuItem(Android.Resource.Id.Copy);
-            await Task.Yield();
+            await editor.Commands.ClipboardCompletion;
             editor.Document = new RichTextDocument();
             await editor.PasteAsync();
             Equal("today", editor.Document.Text);
@@ -211,7 +211,7 @@ internal static class AndroidEditorTests
             editor.ClearUndoHistory();
             var before = editor.Document.RtfText;
             native.OnTextContextMenuItem(Android.Resource.Id.Cut);
-            await Task.Yield();
+            await editor.Commands.ClipboardCompletion;
             Equal("", editor.Document.Text);
             native.OnTextContextMenuItem(Android.Resource.Id.Undo);
             Equal(before, editor.Document.RtfText);
@@ -229,7 +229,7 @@ internal static class AndroidEditorTests
             editor.Document = new RichTextDocument();
             editor.Selection.ToggleItalic();
             native.OnTextContextMenuItem(Android.Resource.Id.PasteAsPlainText);
-            await Task.Yield();
+            await editor.Commands.ClipboardCompletion;
             Equal("bold", editor.Document.Text);
             Equal(false, editor.Document.CurrentSnapshot.Runs[0].Format.Bold);
             Equal(true, editor.Document.CurrentSnapshot.Runs[0].Format.Italic);

@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
 
-namespace RichEdit.Maui.TestApp;
+namespace RichEdit.Maui.Tests;
 
 /// <summary>
 /// Supplies a list definition and level to an MVVM list command.
@@ -81,12 +81,12 @@ internal sealed record FieldRequest
 }
 
 // Application toolbar bindings wrap the library's selection operations.
-internal sealed partial class RichEditorFormattingCommands : IDisposable
+internal sealed partial class NativeFormattingCommands : IDisposable
 {
-    private readonly RichEditor _editor;
+    private readonly NativeEditorView _editor;
     private readonly Command[] _commands;
 
-    public RichEditorFormattingCommands(RichEditor editor)
+    public NativeFormattingCommands(NativeEditorView editor)
     {
         _editor = editor;
         ToggleBold = Create(editor.Selection.ToggleBold, () => CanMutateSelection);
@@ -193,7 +193,7 @@ internal sealed partial class RichEditorFormattingCommands : IDisposable
 
     private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName is nameof(RichEditor.IsReadOnly) or nameof(RichEditor.SelectedRange))
+        if (args.PropertyName is nameof(NativeEditorView.IsReadOnly) or nameof(NativeEditorView.SelectedRange))
             foreach (var command in _commands)
                 command.ChangeCanExecute();
     }

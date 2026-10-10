@@ -54,7 +54,17 @@ public sealed partial class RichEditorSession : IDisposable
             (inline?.Format ?? new()).Overlay(TypingCharacterFormat), snapshot.DefaultCharacter, paragraph.Character);
     }
     /// <summary>Gets or sets whether this view accepts authored edits.</summary>
-    public bool IsReadOnly { get => _readOnly; set { VerifyIdle(); VerifyNoComposition(); _readOnly = value; } }
+    public bool IsReadOnly
+    {
+        get => _readOnly;
+        set
+        {
+            VerifyIdle(); VerifyNoComposition();
+            if (_readOnly == value) return;
+            _readOnly = value;
+            Document.Plan(() => { ReadOnlyChanged?.Invoke(this, EventArgs.Empty); return 0; });
+        }
+    }
     /// <summary>Gets or sets the typed selection. Cell rectangles expand to whole merged cells.</summary>
     public RichSelection Selection
     {
@@ -79,6 +89,8 @@ public sealed partial class RichEditorSession : IDisposable
     public event EventHandler? CompositionChanged;
     /// <summary>Occurs when view-owned typing overrides are explicitly changed.</summary>
     public event EventHandler? TypingFormatChanged;
+    /// <summary>Occurs when this view's editability changes.</summary>
+    public event EventHandler? ReadOnlyChanged;
 
     /// <summary>Acquires the document's composition lease while keeping committed content and history unchanged.</summary>
     public RichComposition BeginComposition()

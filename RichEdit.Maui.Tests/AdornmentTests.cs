@@ -187,7 +187,7 @@ public class AdornmentTests
     [Fact]
     public Task AdornmentsValidateOwnershipAndThreadBeforeMutating() => WindowsTestHost.RunAsync(async () =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcd") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcd") };
         var label = new Label { Text = "annotation" };
         using var item = editor.Adornments.Add(2, label);
         Assert.Throws<ArgumentException>(() => editor.Adornments.Add(3, label));
@@ -259,7 +259,7 @@ public class AdornmentTests
     [InlineData(RichTextAdornmentPlacement.BelowLine)]
     public Task EmptyFieldsKeepZeroLengthAtReservationBoundaries(RichTextAdornmentPlacement placement) => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         editor.Document.Edit(edit => edit.InsertField(0, "PAGE", ""));
         using var item = editor.Adornments.Add(0, new Label(), new() { Placement = placement });
         item.MeasuredSize = new(20, 20);
@@ -274,7 +274,7 @@ public class AdornmentTests
     [InlineData(RichTextAdornmentPlacement.BelowLine)]
     public Task FoldedRowAnchorsDoNotPublishReservations(RichTextAdornmentPlacement placement) => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcd") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcd") };
         using var item = editor.Adornments.Add(2, new Label(), new() { Placement = placement });
         editor.Folding.Collapse(new(1, 2));
         Assert.True(RichTextDisplayProjection.Create(editor, 200).IsEmpty);
@@ -288,9 +288,9 @@ public class AdornmentTests
         ((Button)row[0]).Command.Execute(null);
     }
 
-    private static Task WithNativeEditor(Func<RichEditor, RichEditorHandler, Task> test) => WindowsTestHost.RunAsync(async () =>
+    private static Task WithNativeEditor(Func<NativeEditorView, RichEditorHandler, Task> test) => WindowsTestHost.RunAsync(async () =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var handler = new RichEditorHandler();
         handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
         editor.Handler = handler;

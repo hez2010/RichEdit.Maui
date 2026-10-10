@@ -120,7 +120,11 @@ public sealed class RichEditorCommands
     private Command Create(Func<Task> execute, Func<bool> canExecute) =>
         new(async () => await ExecuteClipboardAsync(execute), canExecute);
 
-    internal async Task ExecuteClipboardAsync(Func<Task> execute)
+    internal Task ClipboardCompletion { get; private set; } = Task.CompletedTask;
+
+    internal Task ExecuteClipboardAsync(Func<Task> execute) => ClipboardCompletion = ExecuteClipboardCoreAsync(execute);
+
+    private async Task ExecuteClipboardCoreAsync(Func<Task> execute)
     {
         try
         {

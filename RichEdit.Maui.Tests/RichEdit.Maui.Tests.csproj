@@ -34,8 +34,7 @@
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CodeColorizer.cs" Link="Samples\CodeColorizer.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CodeEditorActions.cs" Link="Samples\CodeEditorActions.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CodeEditorFeatures.cs" Link="Samples\CodeEditorFeatures.cs" />
-        <Compile Include="..\RichEdit.Maui.TestApp\Pages\RichEditor\RichEditorFormattingCommands.cs" Link="Samples\RichEditorFormattingCommands.cs" />
-        <EmbeddedResource Include="..\RichEdit.Maui.TestApp\Pages\RichEditor\RichEditorPage.xaml.cs" LogicalName="EditorSampleSource" />
+        <EmbeddedResource Include="Fixtures\ReferenceDocument.rtf" LogicalName="ReferenceDocument" />
     </ItemGroup>
 
 </Project>

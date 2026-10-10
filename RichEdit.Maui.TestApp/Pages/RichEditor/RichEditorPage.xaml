@@ -2,183 +2,39 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui"
-             xmlns:local="clr-namespace:RichEdit.Maui.TestApp"
              x:Class="RichEdit.Maui.TestApp.RichEditorPage"
              Title="Rich editor" Shell.NavBarIsVisible="False">
-    <ContentPage.Behaviors>
-        <local:SystemBarAppearanceBehavior LightIcons="{AppThemeBinding Light=False, Dark=True}" />
-    </ContentPage.Behaviors>
-    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14"
-          MaximumWidthRequest="1440" HorizontalOptions="Fill">
-        <Grid.Padding>
-            <OnIdiom x:TypeArguments="Thickness" Desktop="28" Phone="14" Default="20" />
-        </Grid.Padding>
-        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-            <Border BackgroundColor="{AppThemeBinding Light={StaticResource LightAccent}, Dark={StaticResource DarkAccent}}" StrokeThickness="0" StrokeShape="RoundRectangle 12" WidthRequest="44" HeightRequest="44">
-                <Label Text="Aa" FontSize="20" FontFamily="OpenSansSemibold" TextColor="{AppThemeBinding Light={StaticResource LightAccentText}, Dark={StaticResource DarkAccentText}}" HorizontalOptions="Center" VerticalOptions="Center" />
-            </Border>
-            <VerticalStackLayout Grid.Column="1" Spacing="1" VerticalOptions="Center">
-                <Label Text="RichEdit Studio" Style="{StaticResource Heading}" />
-                <Label Text="A canvas for words and ideas." Style="{StaticResource Caption}" />
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="18" RowSpacing="12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <VerticalStackLayout Spacing="3">
+                <Label Text="Rich document" FontSize="24" FontAttributes="Bold" />
+                <Label Text="Native editing · shared views · RTF" FontSize="12" Opacity="0.7" />
             </VerticalStackLayout>
-            <Button Grid.Column="2" Text="Theme" Clicked="OnToggleTheme" Style="{StaticResource QuietButton}" AutomationId="RichThemeToggle" SemanticProperties.Description="Switch light and dark appearance" />
+            <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                <Label Text="Split view" VerticalOptions="Center" />
+                <Switch Toggled="OnSplitChanged" />
+            </HorizontalStackLayout>
         </Grid>
-
-        <Border Grid.Row="1" BackgroundColor="{AppThemeBinding Light={StaticResource LightSurface}, Dark={StaticResource DarkSurface}}" StrokeShape="RoundRectangle 18">
-            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
-                <Grid Padding="16,12" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                    <VerticalStackLayout Spacing="2" VerticalOptions="Center">
-                        <Label Text="Studio notes.rtf" FontFamily="OpenSansSemibold" FontSize="14" />
-                        <Label Text="RICH TEXT DOCUMENT" Style="{StaticResource Eyebrow}" />
-                    </VerticalStackLayout>
-                    <Button Grid.Column="1" Text="Copy RTF" Clicked="OnCopyRtfClicked" Style="{StaticResource PrimaryButton}" />
-                </Grid>
-
-                <Grid Grid.Row="1" Padding="12,0,12,8" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="5">
-                    <Border Style="{StaticResource InputFrame}">
-                        <Picker x:Name="DemoPicker" AutomationId="PrimitiveDemo" SelectedIndexChanged="OnDemoChanged" SemanticProperties.Description="Choose editor tools" />
-                    </Border>
-                    <Button Grid.Column="1" Text="New" Clicked="OnNewDocumentClicked" AutomationId="NewDocument" />
-                    <Button Grid.Column="2" Text="Undo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Undo}" AutomationId="PrimitiveUndo" />
-                    <Button Grid.Column="3" Text="Redo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Redo}" />
-                </Grid>
-
-                <Grid Grid.Row="2" RowDefinitions="Auto,Auto" Padding="12,0,12,10" RowSpacing="4">
-                    <ScrollView x:Name="FormattingToolbar" Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
-                        <HorizontalStackLayout Spacing="3">
-                            <Picker x:Name="FontPicker" SelectedIndexChanged="OnFontChanged" WidthRequest="132" SemanticProperties.Description="Font family" />
-                            <Picker x:Name="SizePicker" SelectedIndexChanged="OnSizeChanged" WidthRequest="64" SemanticProperties.Description="Font size" />
-                            <BoxView Style="{StaticResource Divider}" />
-                            <Button x:Name="BoldButton" Text="B" FontAttributes="Bold" Clicked="OnBoldClicked" Style="{StaticResource FormatButton}" SemanticProperties.Description="Bold" />
-                            <Button x:Name="ItalicButton" Text="I" FontAttributes="Italic" Clicked="OnItalicClicked" Style="{StaticResource FormatButton}" SemanticProperties.Description="Italic" />
-                            <Button x:Name="UnderlineButton" Text="U̲" Clicked="OnUnderlineClicked" Style="{StaticResource FormatButton}" SemanticProperties.Description="Underline" />
-                            <Button x:Name="StrikethroughButton" Text="S̶" Clicked="OnStrikethroughClicked" Style="{StaticResource FormatButton}" SemanticProperties.Description="Strikethrough" />
-                            <Button x:Name="SuperscriptButton" Text="x²" Clicked="OnSuperscriptClicked" Style="{StaticResource FormatButton}" SemanticProperties.Description="Superscript" />
-                            <Button x:Name="SubscriptButton" Text="x₂" Clicked="OnSubscriptClicked" Style="{StaticResource FormatButton}" SemanticProperties.Description="Subscript" />
-                            <BoxView Style="{StaticResource Divider}" />
-                            <Button x:Name="ForegroundDefaultButton" Text="A" TextColor="{AppThemeBinding Light={StaticResource LightInk}, Dark={StaticResource DarkInk}}" BackgroundColor="{AppThemeBinding Light={StaticResource LightControl}, Dark={StaticResource DarkControl}}" CommandParameter="" Clicked="OnForegroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="ForegroundDefault" SemanticProperties.Description="Default text color" />
-                            <Button x:Name="ForegroundCoralButton" Text="A" TextColor="#B64F59" BackgroundColor="#FBECEF" CommandParameter="#E06C75" Clicked="OnForegroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="ForegroundCoral" SemanticProperties.Description="Coral text color" />
-                            <Button x:Name="ForegroundBlueButton" Text="A" TextColor="#327CCB" BackgroundColor="#EAF2FC" CommandParameter="#327CCB" Clicked="OnForegroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="ForegroundBlue" SemanticProperties.Description="Blue text color" />
-                            <Button x:Name="ForegroundGreenButton" Text="A" TextColor="#3A8F45" BackgroundColor="#E9F4EA" CommandParameter="#3A8F45" Clicked="OnForegroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="ForegroundGreen" SemanticProperties.Description="Green text color" />
-                            <BoxView Style="{StaticResource Divider}" />
-                            <Button x:Name="BackgroundClearButton" Text="∅" TextColor="{AppThemeBinding Light={StaticResource LightInk}, Dark={StaticResource DarkInk}}" BackgroundColor="{AppThemeBinding Light={StaticResource LightControl}, Dark={StaticResource DarkControl}}" CommandParameter="" Clicked="OnBackgroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="BackgroundClear" SemanticProperties.Description="Clear highlight color" />
-                            <Button x:Name="BackgroundYellowButton" Text="A" TextColor="#5A5428" BackgroundColor="#FFF3A3" CommandParameter="#FFF3A3" Clicked="OnBackgroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="BackgroundYellow" SemanticProperties.Description="Yellow highlight color" />
-                            <Button x:Name="BackgroundBlueButton" Text="A" TextColor="#305366" BackgroundColor="#BDE7FF" CommandParameter="#BDE7FF" Clicked="OnBackgroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="BackgroundBlue" SemanticProperties.Description="Blue highlight color" />
-                            <Button x:Name="BackgroundGreenButton" Text="A" TextColor="#395A2F" BackgroundColor="#D8F3C5" CommandParameter="#D8F3C5" Clicked="OnBackgroundColorClicked" Style="{StaticResource ColorButton}" AutomationId="BackgroundGreen" SemanticProperties.Description="Green highlight color" />
-                        </HorizontalStackLayout>
-                    </ScrollView>
-                    <ScrollView x:Name="ParagraphToolbar" Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
-                        <HorizontalStackLayout Spacing="3">
-                            <Button x:Name="BulletButton" Text="• List" Clicked="OnBulletedListClicked" Style="{StaticResource QuietButton}" />
-                            <Button x:Name="NumberButton" Text="1. List" Clicked="OnNumberedListClicked" Style="{StaticResource QuietButton}" />
-                            <Button Text="No list" Clicked="OnClearListClicked" Style="{StaticResource QuietButton}" />
-                            <Button Text="Outdent" Clicked="OnOutdentListClicked" Style="{StaticResource QuietButton}" />
-                            <Button Text="Indent" Clicked="OnIndentListClicked" Style="{StaticResource QuietButton}" />
-                            <Button Text="Restart" Clicked="OnRestartListClicked" Style="{StaticResource QuietButton}" />
-                            <BoxView Style="{StaticResource Divider}" />
-                            <Button x:Name="AlignLeftButton" Text="Left" Clicked="OnAlignLeftClicked" Style="{StaticResource QuietButton}" />
-                            <Button x:Name="AlignCenterButton" Text="Center" Clicked="OnAlignCenterClicked" Style="{StaticResource QuietButton}" />
-                            <Button x:Name="AlignRightButton" Text="Right" Clicked="OnAlignRightClicked" Style="{StaticResource QuietButton}" />
-                            <Button x:Name="AlignJustifyButton" Text="Justify" Clicked="OnAlignJustifyClicked" Style="{StaticResource QuietButton}" />
-                            <BoxView Style="{StaticResource Divider}" />
-                            <Button Text="Link" Clicked="OnSetLinkClicked" Style="{StaticResource QuietButton}" />
-                            <Button Text="Unlink" Clicked="OnRemoveLinksClicked" Style="{StaticResource QuietButton}" />
-                            <Button Text="Image" Clicked="OnInsertImageClicked" Style="{StaticResource QuietButton}" />
-                            <Button Text="Field" Clicked="OnInsertFieldClicked" Style="{StaticResource QuietButton}" />
-                            <BoxView Style="{StaticResource Divider}" />
-                            <Button Text="All" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.SelectAll}" Style="{StaticResource QuietButton}" />
-                            <Button Text="Cut" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Cut}" Style="{StaticResource QuietButton}" />
-                            <Button Text="Copy" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Copy}" Style="{StaticResource QuietButton}" />
-                            <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Paste}" Style="{StaticResource QuietButton}" />
-                            <Button Text="Studio notes" Clicked="OnLoadStudioDocument" Style="{StaticResource QuietButton}" />
-                            <Button Text="RTF reference" Clicked="OnLoadReferenceDocument" Style="{StaticResource QuietButton}" />
-                        </HorizontalStackLayout>
-                    </ScrollView>
-
-                    <Grid x:Name="PrimitiveTools" Grid.RowSpan="2" IsVisible="False">
-                        <VerticalStackLayout x:Name="RevisionTools" Spacing="6">
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <Border Style="{StaticResource InputFrame}">
-                                    <Entry x:Name="ReplacementEntry" Text="updated" Placeholder="Replacement text" AutomationId="PrimitiveReplacement" />
-                                </Border>
-                                <HorizontalStackLayout Grid.Column="1" Spacing="4">
-                                    <Switch IsToggled="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=IsReadOnly, Mode=TwoWay}" AutomationId="PrimitiveReadOnly" />
-                                    <Label Text="Read only" Style="{StaticResource Caption}" VerticalOptions="Center" />
-                                </HorizontalStackLayout>
-                            </Grid>
-                            <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
-                                <HorizontalStackLayout Spacing="6">
-                                    <Button Text="Capture" Clicked="OnCaptureEdit" AutomationId="CaptureEdit" />
-                                    <Button x:Name="ApplyEditButton" Text="Apply edit" Clicked="OnApplyEdit" AutomationId="ApplyCapturedEdit" Style="{StaticResource PrimaryButton}" />
-                                    <Button x:Name="HighlightButton" Text="Highlight" Clicked="OnHighlightCapture" AutomationId="HighlightCapture" />
-                                    <Button Text="Clear highlight" Clicked="OnClearHighlight" Style="{StaticResource QuietButton}" />
-                                </HorizontalStackLayout>
-                            </ScrollView>
-                        </VerticalStackLayout>
-                        <ScrollView x:Name="TrackingTools" Orientation="Horizontal" HorizontalScrollBarVisibility="Never" IsVisible="False">
-                            <HorizontalStackLayout Spacing="6">
-                                <Button Text="Track selection" Clicked="OnTrackSelection" AutomationId="TrackSelection" Style="{StaticResource PrimaryButton}" />
-                                <Button x:Name="SelectTrackedButton" Text="Select tracked range" Clicked="OnSelectTracked" AutomationId="SelectTrackedRange" />
-                                <Button Text="Bookmark caret" Clicked="OnBookmark" AutomationId="BookmarkCaret" />
-                                <Button x:Name="GoToBookmarkButton" Text="Go to bookmark" Clicked="OnGoToBookmark" AutomationId="GoToBookmark" />
-                                <Button Text="Clear tracking" Clicked="OnClearTracking" Style="{StaticResource QuietButton}" />
-                            </HorizontalStackLayout>
-                        </ScrollView>
-                        <Grid x:Name="AdornmentTools" IsVisible="False" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
-                            <Border Style="{StaticResource InputFrame}"><Picker x:Name="PlacementPicker" AutomationId="AdornmentPlacement" SemanticProperties.Description="Widget placement" /></Border>
-                            <Button Grid.Column="1" Text="Add at caret" Clicked="OnAddAdornment" AutomationId="AddAdornment" Style="{StaticResource PrimaryButton}" />
-                            <Button Grid.Column="2" Text="Clear" Clicked="OnClearAdornments" AutomationId="ClearAdornments" Style="{StaticResource QuietButton}" />
-                        </Grid>
-                        <VerticalStackLayout x:Name="LayoutTools" IsVisible="False" Spacing="4">
-                            <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
-                                <HorizontalStackLayout Spacing="6">
-                                    <Button Text="Capture layout" Clicked="OnCaptureLayout" AutomationId="CaptureLayout" Style="{StaticResource PrimaryButton}" />
-                                    <Button x:Name="InspectLayoutButton" Text="Query captured caret" Clicked="OnInspectLayout" AutomationId="InspectCapturedLayout" />
-                                    <Button Text="Inspect selection" Clicked="OnInspectSelection" />
-                                </HorizontalStackLayout>
-                            </ScrollView>
-                            <HorizontalStackLayout Spacing="6">
-                                <Switch x:Name="ShowGeometrySwitch" Toggled="OnShowGeometry" AutomationId="ShowGeometry" />
-                                <Label Text="Show line bounds, selection, and caret" Style="{StaticResource Caption}" VerticalOptions="Center" />
-                            </HorizontalStackLayout>
-                        </VerticalStackLayout>
-                    </Grid>
-                </Grid>
-
-                <Border Grid.Row="3" StrokeThickness="0" StrokeShape="Rectangle" BackgroundColor="{AppThemeBinding Light={StaticResource LightPaper}, Dark={StaticResource DarkPaper}}">
-                    <Border.Padding>
-                        <OnIdiom x:TypeArguments="Thickness" Desktop="28" Phone="12" Default="20" />
-                    </Border.Padding>
-                    <Grid HorizontalOptions="Fill">
-                        <rich:RichEditor x:Name="Editor" AutomationId="RichEditor" FontSize="17"
-                                         BackgroundColor="{AppThemeBinding Light={StaticResource LightPaper}, Dark={StaticResource DarkPaper}}" TextColor="{AppThemeBinding Light={StaticResource LightInk}, Dark={StaticResource DarkInk}}"
-                                         Placeholder="Every document begins with a thought…" PlaceholderColor="{AppThemeBinding Light={StaticResource LightMuted}, Dark={StaticResource DarkMuted}}"
-                                         ContentChanged="OnEditorContentChanged" InlineObjectInvoked="OnEditorInlineObjectInvoked"
-                                         LinkInvoked="OnEditorLinkInvoked" Pasting="OnEditorPasting" SelectionChanged="OnEditorSelectionChanged"
-                                         SelectionFormatChanged="OnEditorSelectionFormatChanged">
-                            <rich:RichEditor.FontFamily>
-                                <OnPlatform x:TypeArguments="x:String">
-                                    <On Platform="WinUI, iOS, MacCatalyst" Value="Georgia" />
-                                    <On Platform="Android" Value="serif" />
-                                </OnPlatform>
-                            </rich:RichEditor.FontFamily>
-                        </rich:RichEditor>
-                        <GraphicsView x:Name="GeometryOverlay" InputTransparent="True" IsVisible="False" />
-                    </Grid>
-                </Border>
-                <Grid Grid.Row="4" Padding="16,10" BackgroundColor="{AppThemeBinding Light={StaticResource LightSurface}, Dark={StaticResource DarkSurface}}">
-                    <Grid x:Name="FormattingStatus" ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <Label x:Name="StatusLabel" Text="Ready" Style="{StaticResource Caption}" VerticalOptions="Center" />
-                        <Label x:Name="DocumentLengthLabel" Grid.Column="1" Style="{StaticResource Caption}" VerticalOptions="Center" />
-                    </Grid>
-                    <VerticalStackLayout x:Name="DemoReadout" IsVisible="False" Spacing="3">
-                        <Label x:Name="ResultLabel" FontSize="12" HeightRequest="44" MaxLines="3" AutomationId="PrimitiveResult" />
-                        <Label x:Name="StateLabel" Style="{StaticResource Caption}" HeightRequest="40" MaxLines="3" AutomationId="PrimitiveState" />
-                        <Label x:Name="ObservationLabel" Style="{StaticResource Caption}" HeightRequest="28" MaxLines="2" AutomationId="PrimitiveObservation" />
-                    </VerticalStackLayout>
-                </Grid>
-            </Grid>
-        </Border>
-        <Label x:Name="InstructionsLabel" Grid.Row="2" Style="{StaticResource Caption}" MaxLines="3" Margin="2,0" />
+        <FlexLayout Grid.Row="1" Wrap="Wrap" AlignItems="Center">
+            <Button Text="Bold" Clicked="OnBold" Margin="2" />
+            <Button Text="Italic" Clicked="OnItalic" Margin="2" />
+            <Button Text="Underline" Clicked="OnUnderline" Margin="2" />
+            <Button Text="Table" Clicked="OnInsertTable" Margin="2" />
+            <Button Text="Select cells" Clicked="OnSelectCells" Margin="2" />
+            <Button Text="Add row" Clicked="OnAddRow" Margin="2" />
+            <Button Text="Merge cells" Clicked="OnMergeCells" Margin="2" />
+            <Button Text="Caret below" Clicked="OnAddCaret" Margin="2" />
+            <Button Text="Undo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Undo}" Margin="2" />
+            <Button Text="Redo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Redo}" Margin="2" />
+            <Button Text="Copy" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Copy}" Margin="2" />
+            <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Paste}" Margin="2" />
+            <Button Text="Open RTF" Clicked="OnOpenRtf" Margin="2" />
+            <Button Text="Save RTF" Clicked="OnSaveRtf" Margin="2" />
+        </FlexLayout>
+        <Grid x:Name="EditorColumns" Grid.Row="2" ColumnDefinitions="*,0" ColumnSpacing="12">
+            <rich:RichEditor x:Name="Editor" AutomationId="RichEditor" FontSize="17" Placeholder="Start writing…" />
+            <rich:RichEditor x:Name="Peer" Grid.Column="1" AutomationId="RichEditorSplit" FontSize="17" IsVisible="False" />
+        </Grid>
+        <Label x:Name="StatusLabel" Grid.Row="3" FontSize="12" Opacity="0.7" />
     </Grid>
 </ContentPage>

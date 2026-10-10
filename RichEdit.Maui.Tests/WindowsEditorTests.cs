@@ -419,7 +419,7 @@ public partial class WindowsEditorTests
     [Fact]
     public Task ReadOnlyUndoAndRedoDoNotMutateContent() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         editor.Selection.ReplaceText("one");
         editor.IsReadOnly = true;
         Assert.False(editor.Commands.Undo.CanExecute(null));
@@ -560,19 +560,14 @@ public partial class WindowsEditorTests
 
     private static RichTextDocument LoadSampleDocument()
     {
-        using var source = typeof(WindowsEditorTests).Assembly.GetManifestResourceStream("EditorSampleSource")!;
+        using var source = typeof(WindowsEditorTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
         using var reader = new StreamReader(source);
-        var sample = System.Text.RegularExpressions.Regex.Match(reader.ReadToEnd(), "(?s)Editor\\.Document = RichTextDocument\\.FromRtf\\(\"\"\"\\r?\\n(?<rtf>.*?)\\r?\\n(?<indent>[ \\t]*)\"\"\"\\);");
-        Assert.True(sample.Success);
-        var indent = sample.Groups["indent"].Value;
-        var rtf = string.Join("\n", sample.Groups["rtf"].Value.Split('\n')
-            .Select(line => line.StartsWith(indent, StringComparison.Ordinal) ? line[indent.Length..] : line));
-        return RichTextDocument.FromRtf(rtf);
+        return RichTextDocument.FromRtf(reader.ReadToEnd());
     }
 
     private sealed partial class EditorFixture : IDisposable
     {
-        public RichEditor Editor { get; } = new();
+        public NativeEditorView Editor { get; } = new();
         public RichEditorHandler Handler { get; } = new();
 
         public string NativeText

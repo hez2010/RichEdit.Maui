@@ -8,7 +8,7 @@ namespace RichEdit.Maui.Tests;
 
 internal static class AppleEditorTests
 {
-    public static async Task RunAsync(RichEditor editor)
+    public static async Task RunAsync(NativeEditorView editor)
     {
         var native = (RichTextView)editor.Handler!.PlatformView!;
         // Exercise native transformations explicitly, regardless of simulator defaults.
@@ -22,7 +22,7 @@ internal static class AppleEditorTests
         pasteboard.Items = [];
         void Save() => File.WriteAllText(output,
             $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; {UIDevice.CurrentDevice.SystemVersion}\n" +
-            $"Started {started:O}; library {typeof(RichEditor).Assembly.ManifestModule.ModuleVersionId}\n" +
+            $"Started {started:O}; library {typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId}\n" +
             string.Join("\n", results) + "\n");
         async Task Test(string name, Func<Task> test)
         {

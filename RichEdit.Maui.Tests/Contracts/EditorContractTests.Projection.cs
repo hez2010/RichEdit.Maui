@@ -19,8 +19,8 @@ internal static partial class EditorContractTests
 #if ANDROID || IOS || MACCATALYST
         yield return new("projection custom keyboards retain capitalization and explicit overrides", async editor =>
         {
-            editor.ClearValue(RichEditor.IsSpellCheckEnabledProperty);
-            editor.ClearValue(RichEditor.IsTextPredictionEnabledProperty);
+            editor.ClearValue(NativeEditorView.IsSpellCheckEnabledProperty);
+            editor.ClearValue(NativeEditorView.IsTextPredictionEnabledProperty);
             editor.Keyboard = Keyboard.Create(KeyboardFlags.None);
             var native = ((RichEditorHandler)editor.Handler!).PlatformView;
 #if ANDROID
@@ -35,8 +35,8 @@ internal static partial class EditorContractTests
             editor.Keyboard = Keyboard.Create(KeyboardFlags.CapitalizeWord);
             Equal(UIKit.UITextAutocapitalizationType.Words, native.AutocapitalizationType);
 #endif
-            editor.SetValue(RichEditor.IsSpellCheckEnabledProperty, true);
-            editor.SetValue(RichEditor.IsTextPredictionEnabledProperty, true);
+            editor.SetValue(NativeEditorView.IsSpellCheckEnabledProperty, true);
+            editor.SetValue(NativeEditorView.IsTextPredictionEnabledProperty, true);
 #if ANDROID
             Equal(0, (int)(native.InputType & global::Android.Text.InputTypes.TextFlagNoSuggestions));
             Equal(true, (native.InputType & global::Android.Text.InputTypes.TextFlagAutoCorrect) != 0);
@@ -44,7 +44,7 @@ internal static partial class EditorContractTests
             Equal(UIKit.UITextSpellCheckingType.Yes, native.SpellCheckingType);
             Equal(UIKit.UITextAutocorrectionType.Yes, native.AutocorrectionType);
 #endif
-            editor.ClearValue(RichEditor.IsSpellCheckEnabledProperty);
+            editor.ClearValue(NativeEditorView.IsSpellCheckEnabledProperty);
             editor.IsTextPredictionEnabled = null;
 #if ANDROID
             Equal(true, (native.InputType & global::Android.Text.InputTypes.TextFlagNoSuggestions) != 0);

@@ -48,7 +48,7 @@ public class PlatformContractTests
 
     private static Task RunContract(string name) => WindowsTestHost.RunClipboardAsync(async () =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var handler = new RichEditorHandler();
         handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
         editor.Handler = handler;

@@ -8,7 +8,7 @@ public class EditorPrimitiveTests
     [Fact]
     public Task DecorationRequestsRejectOlderSettingsAgainstUnchangedSource() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("same source") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("same source") };
         using var layer = editor.Decorations.CreateLayer();
         using var other = editor.Decorations.CreateLayer();
         RichTextDecoration[] items = [new(new(0, 4), new() { ForegroundColor = Colors.Red })];
@@ -32,7 +32,7 @@ public class EditorPrimitiveTests
     [Fact]
     public Task DecorationPrioritiesComposeSpecifiedPropertiesIndependently() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("text") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("text") };
         using var high = editor.Decorations.CreateLayer(priority: 10);
         using var low = editor.Decorations.CreateLayer(priority: -10);
         Assert.True(high.TrySet(editor.Document.Revision, new[] { new RichTextDecoration(new(0, 4), new() { ForegroundColor = Colors.Red }) }));
@@ -73,7 +73,7 @@ public class EditorPrimitiveTests
     [Fact]
     public Task CheckedBatchesUseOriginalCoordinatesAndStableInsertionOrder() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcdef"), SelectionState = new(6, 0) };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcdef"), SelectionState = new(6, 0) };
         var before = editor.Document.Revision;
         Assert.True(editor.TryApplyEdits(before, (RichTextEdit[])[
             new(new(4, 2), "END"), new(new(1, 2), "R"), new(new(1, 0), "one"),
@@ -116,7 +116,7 @@ public class EditorPrimitiveTests
     [Fact]
     public Task IdenticalEditsKeepSelectionAndHistoryAndExplicitSelectionIsRecorded() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcd"), SelectionState = new(3, 1) };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcd"), SelectionState = new(3, 1) };
         var revision = editor.Document.Revision;
         Assert.True(editor.TryApplyEdits(revision, (RichTextEdit[])[new(new(0, 4), "abcd")]));
         Assert.Equal(new TextSelectionState(3, 1), editor.SelectionState);
@@ -224,7 +224,7 @@ public class EditorPrimitiveTests
     [Fact]
     public Task DecorationPublicationChecksIdentityAndValidatesBeforeReplacing() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcd") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcd") };
         using var layer = editor.Decorations.CreateLayer();
         RichTextDecoration[] valid = [new(new(0, 2), new() { ForegroundColor = Colors.Green })];
         Assert.True(layer.TrySet(editor.Document.Revision, valid));

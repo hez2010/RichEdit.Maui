@@ -209,12 +209,12 @@ public partial class IncrementalCharacterFormattingTests
 
     private sealed partial class EditorFixture : IDisposable
     {
-        internal RichEditor Editor { get; }
+        internal NativeEditorView Editor { get; }
         internal RichEditorHandler Handler { get; } = new();
 
         internal EditorFixture(RichTextDocumentSnapshot snapshot)
         {
-            Editor = new RichEditor { Document = new RichTextDocument(snapshot) };
+            Editor = new NativeEditorView { Document = new RichTextDocument(snapshot) };
             Handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
             Editor.Handler = Handler;
         }

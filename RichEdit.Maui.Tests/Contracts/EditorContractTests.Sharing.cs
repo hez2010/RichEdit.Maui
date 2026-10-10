@@ -84,7 +84,7 @@ internal static partial class EditorContractTests
 
         internal SharedEditor(NativeEditorView first)
         {
-            Editor = new RichEditor { Document = first.Document };
+            Editor = new NativeEditorView { Document = first.Document };
             _handler = new RichEditorHandler();
             _handler.SetMauiContext(first.Handler!.MauiContext!);
             Editor.Handler = _handler;

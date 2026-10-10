@@ -76,7 +76,7 @@ public class FoldingTests
     [Fact]
     public Task FoldingPreservesDocumentSelectionHistoryAndSaveState() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcdef") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcdef") };
         editor.Document.Edit(edit => edit.InsertText(6, "g"));
         editor.Document.MarkSaved();
         editor.Document.Edit(edit => edit.InsertText(7, "h"));
@@ -110,7 +110,7 @@ public class FoldingTests
     [Fact]
     public Task FoldBoundariesTrackEditsAndKeepBoundaryInsertionsVisible() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abCDEFgh") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abCDEFgh") };
         editor.Folding.Collapse(new(2, 4));
         editor.Document.Edit(edit => edit.InsertText(0, "!"));
         Assert.Equal(new TextSpan(3, 4), Assert.Single(editor.Folding.CollapsedRanges));
@@ -131,7 +131,7 @@ public class FoldingTests
     [Fact]
     public Task InvalidUpdatesAreAtomicAndDocumentReplacementClearsFolds() => WindowsTestHost.RunAsync(() =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcdefgh") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcdefgh") };
         var range = new TextSpan(2, 4);
         editor.Folding.Collapse(range);
         Assert.Throws<ArgumentException>(() => editor.Folding.SetCollapsedRanges((TextSpan[])[new(1, 2), new(5, 0)]));
@@ -147,7 +147,7 @@ public class FoldingTests
     [Fact]
     public Task FoldingMutationsRejectBackgroundThreads() => WindowsTestHost.RunAsync(async () =>
     {
-        var editor = new RichEditor { Document = RichTextDocument.FromPlainText("abcdef") };
+        var editor = new NativeEditorView { Document = RichTextDocument.FromPlainText("abcdef") };
         await Task.Run(() => Assert.Throws<InvalidOperationException>(() => editor.Folding.Collapse(new(1, 2))));
         Assert.Empty(editor.Folding.CollapsedRanges);
     });
@@ -250,9 +250,9 @@ public class FoldingTests
         }
     });
 
-    private static Task WithNativeEditor(Func<RichEditor, RichEditorHandler, Task> test) => WindowsTestHost.RunAsync(async () =>
+    private static Task WithNativeEditor(Func<NativeEditorView, RichEditorHandler, Task> test) => WindowsTestHost.RunAsync(async () =>
     {
-        var editor = new RichEditor();
+        var editor = new NativeEditorView();
         var handler = new RichEditorHandler();
         handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
         editor.Handler = handler;

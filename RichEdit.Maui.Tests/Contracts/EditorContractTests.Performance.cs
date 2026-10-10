@@ -90,7 +90,7 @@ internal static partial class EditorContractTests
             var dense = await MeasureEditing();
             Progress("dense edits complete");
             var report = JsonSerializer.Serialize(new PerformanceReport(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
-                System.Runtime.InteropServices.RuntimeInformation.OSDescription, typeof(RichEditor).Assembly.ManifestModule.ModuleVersionId,
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId,
                 2000, 4000, 2000, baseline, initial, dense),
                 new PerformanceJsonContext(new JsonSerializerOptions { WriteIndented = true }).PerformanceReport);
 #if WINDOWS

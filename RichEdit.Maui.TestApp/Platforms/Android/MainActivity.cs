@@ -27,7 +27,7 @@ public class MainActivity : MauiAppCompatActivity
         if (!_testsStarted && Intent?.GetBooleanExtra("run-editor-tests", false) == true)
         {
             _testsStarted = true;
-            var editor = new RichEditor();
+            var editor = new NativeEditorView();
             editor.Loaded += async (_, _) => await Tests.AndroidEditorTests.RunAsync(editor, Intent?.GetStringExtra("test-filter"));
             Microsoft.Maui.Controls.Application.Current!.Windows[0].Page = new ContentPage
             {

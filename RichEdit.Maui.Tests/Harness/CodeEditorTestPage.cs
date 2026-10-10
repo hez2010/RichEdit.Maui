@@ -47,7 +47,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         var output = Path.Combine(FileSystem.CacheDirectory, "code-editor-tests.txt");
         void Save() => File.WriteAllText(output,
             $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; {DeviceInfo.Platform} {DeviceInfo.VersionString}\n" +
-            $"Started {started:O}; library {typeof(RichEditor).Assembly.ManifestModule.ModuleVersionId}; code {typeof(CodeEditor).Assembly.ManifestModule.ModuleVersionId}\n" +
+            $"Started {started:O}; library {typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId}; code {typeof(CodeEditor).Assembly.ManifestModule.ModuleVersionId}\n" +
             string.Join("\n", results) + "\n");
         async Task Test(string name, string source, Func<Task> action, bool replaceDocument = true)
         {

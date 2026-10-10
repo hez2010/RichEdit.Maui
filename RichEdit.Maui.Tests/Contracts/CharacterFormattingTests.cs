@@ -99,7 +99,7 @@ internal static class CharacterFormattingTests
             edit.SetDefaultCharacterFormat(editor.Document.DefaultCharacterFormat);
             edit.SetCharacterFormats(editor.Document.CurrentSnapshot.Runs);
         });
-        var reference = new RichEditor
+        var reference = new NativeEditorView
         {
             Document = document,
             FontFamily = editor.FontFamily,

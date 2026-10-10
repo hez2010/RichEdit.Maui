@@ -14,7 +14,7 @@ namespace RichEdit.Maui.Tests;
 // the platform text API, rather than calling back into the document model.
 internal static partial class EditorContractTests
 {
-    internal sealed record Case(string Name, Func<RichEditor, Task> Run);
+    internal sealed record Case(string Name, Func<NativeEditorView, Task> Run);
 
     public static IReadOnlyList<Case> Cases { get; } = CreateCases().ToArray();
 
@@ -555,7 +555,7 @@ internal static partial class EditorContractTests
 
         yield return new("read-only blocks selection operations and commands but permits document edits", async editor =>
         {
-            using var formatting = new RichEditorFormattingCommands(editor);
+            using var formatting = new NativeFormattingCommands(editor);
             editor.Selection.ReplaceText("fixed");
             editor.SelectAll();
             var before = editor.Document.CurrentSnapshot;
@@ -581,7 +581,7 @@ internal static partial class EditorContractTests
 
         yield return new("command state, parameters, notifications and redo invalidation", async editor =>
         {
-            using var formatting = new RichEditorFormattingCommands(editor);
+            using var formatting = new NativeFormattingCommands(editor);
             var notifications = 0;
             void StateChanged(object? sender, EventArgs args) => notifications++;
             editor.Commands.Undo.CanExecuteChanged += StateChanged;
