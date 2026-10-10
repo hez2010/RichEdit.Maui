@@ -276,8 +276,10 @@ public sealed class RichDocumentSnapshot
         {
             case RichStory { Blocks.Count: 0 } or RichListItem { Blocks.Count: 0 } or RichTableCell { Blocks.Count: 0 }:
                 throw new ArgumentException("Text containers require at least one block.");
-            case RichList { Items.Count: 0 } or RichList { StartNumber: < 0 }:
+            case RichList list when list.Items.Count == 0 || list.StartNumber < 0 || (long)list.StartNumber + list.Items.Count - 1 > int.MaxValue:
                 throw new ArgumentException("Lists require items and a nonnegative starting number.");
+            case RichListItem item when Get<RichNode>(item.Blocks[0]) is not RichParagraph:
+                throw new ArgumentException("A list item starts with a paragraph, followed by any nested blocks.");
             case RichTable table when table.Columns.IsDefaultOrEmpty || table.Rows.Count == 0 || table.Columns.Any(width => width.Twips <= 0):
                 throw new ArgumentException("Tables require rows and positive column widths.");
             case RichText text:

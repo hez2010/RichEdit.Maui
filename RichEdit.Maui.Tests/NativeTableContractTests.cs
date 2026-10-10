@@ -6,6 +6,66 @@ namespace RichEdit.Maui.Tests;
 [Collection("Native editor")]
 public class NativeTableContractTests
 {
+    [Fact]
+    public Task StructuredNestedTablesRemainNativeTables() => WindowsTestHost.RunAsync(async () =>
+    {
+        var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>
+        {
+            var outer = edit.InsertTable(edit.Body, 1, 1, (RichEdit.Core.RichLength[])[new(4000)]);
+            var cell = edit.Snapshot.GetTableGrid(outer)[0, 0];
+            var inner = edit.InsertTable(cell, 1, 1, (RichEdit.Core.RichLength[])[new(1500), new(1500)]);
+            var current = edit.Snapshot;
+            var paragraph = current.Get<RichEdit.Core.RichTableCell>(current.GetTableGrid(inner)[0, 0]).Blocks[0];
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "inside");
+            edit.DeleteBlock(new(2));
+        });
+        var native = new RichEditBox();
+        native.Document.SetText(TextSetOptions.FormatRtf, await StructuredRichProjection.CreateRtfAsync(snapshot));
+        native.Document.GetText(TextGetOptions.None, out var text);
+        Assert.Contains("inside", text);
+        native.Document.GetText(TextGetOptions.FormatRtf, out var saved);
+        Assert.Contains(@"\nestrow", saved);
+    });
+
+    [Fact]
+    public Task StructuredModelTablesProjectIntoTheNativeEngineWithCharacterFormatting()
+    {
+        return WindowsTestHost.RunAsync(async () =>
+        {
+            var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>
+            {
+                var table = edit.InsertTable(edit.Body, 1, 2, (RichEdit.Core.RichLength[])[new(1440), new(1440)]);
+                var initial = edit.Snapshot;
+                var grid = initial.GetTableGrid(table);
+                var labels = new[] { "alpha", "beta", "gamma", "delta" };
+                for (var row = 0; row < 2; row++)
+                    for (var column = 0; column < 2; column++)
+                    {
+                        var paragraph = initial.Get<RichEdit.Core.RichTableCell>(grid[row, column]).Blocks[0];
+                        var point = new RichEdit.Core.RichTextPoint(edit.Body, paragraph, 0);
+                        var text = labels[row * 2 + column];
+                        edit.ReplaceText(point, 0, text);
+                        if (column == 1) edit.SetCharacterFormat(point, text.Length, new() { Bold = true, Foreground = new RichEdit.Core.RichColor(255, 0, 0) });
+                    }
+                edit.DeleteBlock(new(2));
+        });
+        var native = new RichEditBox();
+        var rtf = await StructuredRichProjection.CreateRtfAsync(snapshot);
+        native.Document.SetText(TextSetOptions.FormatRtf, rtf);
+        native.Document.GetText(TextGetOptions.None, out var text);
+        Assert.Contains("alpha", text);
+        Assert.Contains("beta", text);
+        Assert.Contains("gamma", text);
+        Assert.Contains("delta", text);
+        var start = text.IndexOf("beta", StringComparison.Ordinal);
+        var format = native.Document.GetRange(start, start + 4).CharacterFormat;
+        Assert.Equal(FormatEffect.On, format.Bold);
+        Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 0, 0), format.ForegroundColor);
+        native.Document.GetText(TextGetOptions.FormatRtf, out var saved);
+        Assert.Equal(2, saved.Split(@"\trowd", StringSplitOptions.None).Length - 1);
+        });
+    }
+
     private const string TableRtf = @"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}\fs24
 \trowd\trgaph108\trleft0\cellx1440\cellx2880
 \intbl alpha\cell beta\cell\row

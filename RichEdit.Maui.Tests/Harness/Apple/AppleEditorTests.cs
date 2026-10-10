@@ -68,11 +68,8 @@ internal static class AppleEditorTests
             Console.WriteLine(results[index]);
         }
 
-        await Test("native RTF tables retain editable cells and row geometry", async () =>
+        async Task VerifyNativeTable(string tableRtf)
         {
-            const string tableRtf = @"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}\fs24
-\trowd\trgaph108\trleft0\trautofit0\trftsWidth3\trwWidth2880\clftsWidth3\clwWidth1440\cellx1440\clftsWidth3\clwWidth1440\cellx2880\intbl alpha\cell beta\cell\row
-\trowd\trgaph108\trleft0\trautofit0\trftsWidth3\trwWidth2880\clftsWidth3\clwWidth1440\cellx1440\clftsWidth3\clwWidth1440\cellx2880\intbl gamma\cell delta\cell\row\pard\par}";
             using var data = NSData.FromArray(System.Text.Encoding.ASCII.GetBytes(tableRtf));
             var options = new NSAttributedStringDocumentAttributes { DocumentType = NSDocumentType.RTF };
             using var imported = NSAttributedString.Create(data, options, out var importError);
@@ -111,6 +108,33 @@ internal static class AppleEditorTests
                 await Drain();
             }
             finally { view.ResignFirstResponder(); view.RemoveFromSuperview(); native.BecomeFirstResponder(); }
+        }
+
+        await Test("native RTF tables retain editable cells and row geometry", async () =>
+        {
+            const string tableRtf = @"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}\fs24
+\trowd\trgaph108\trleft0\trautofit0\trftsWidth3\trwWidth2880\clftsWidth3\clwWidth1440\cellx1440\clftsWidth3\clwWidth1440\cellx2880\intbl alpha\cell beta\cell\row
+\trowd\trgaph108\trleft0\trautofit0\trftsWidth3\trwWidth2880\clftsWidth3\clwWidth1440\cellx1440\clftsWidth3\clwWidth1440\cellx2880\intbl gamma\cell delta\cell\row\pard\par}";
+            await VerifyNativeTable(tableRtf);
+        });
+
+        await Test("structured RTF tables retain native cells and widths", async () =>
+        {
+            var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>
+            {
+                var table = edit.InsertTable(edit.Body, 1, 2, (RichEdit.Core.RichLength[])[new(1440), new(1440)]);
+                var initial = edit.Snapshot;
+                var grid = initial.GetTableGrid(table);
+                var labels = new[] { "alpha", "beta", "gamma", "delta" };
+                for (var row = 0; row < 2; row++)
+                    for (var column = 0; column < 2; column++)
+                    {
+                        var paragraph = initial.Get<RichEdit.Core.RichTableCell>(grid[row, column]).Blocks[0];
+                        edit.ReplaceText(new(edit.Body, paragraph, 0), 0, labels[row * 2 + column]);
+                    }
+                edit.DeleteBlock(new(2));
+            });
+            await VerifyNativeTable(await StructuredRichProjection.CreateRtfAsync(snapshot));
         });
 
         await Test("native smart selection transformations remain tracked", async () =>
