@@ -10,7 +10,8 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
     string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null, bool semantic = false,
     Func<RichNodeId, bool, string?>? marker = null, Func<string, string>? nativeText = null,
     RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null,
-    bool includeIdentities = false, IReadOnlySet<RichNodeId>? contextScaffolding = null)
+    bool includeIdentities = false, IReadOnlySet<RichNodeId>? contextScaffolding = null,
+    IReadOnlySet<RichNodeId>? nativePrivateParagraphs = null)
 {
     private readonly RtfOutput _output = new(output);
     private readonly Dictionary<string, int> _fonts = new(StringComparer.Ordinal);
@@ -82,6 +83,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
 
     private async Task Blocks(ImmutableList<RichNodeId> blocks, int tableLevel, bool terminateLast, RichList? listContext = null)
     {
+        var firstListParagraph = true;
         for (var index = 0; index < blocks.Count; index++)
         {
             _cancellation.ThrowIfCancellationRequested();
@@ -100,7 +102,11 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
             }
             switch (snapshot.Get<RichBlock>(blocks[index]))
             {
-                case RichParagraph paragraph: await Paragraph(paragraph, tableLevel, terminate, listContext, index == 0); break;
+                case RichParagraph paragraph:
+                    var authored = nativePrivateParagraphs?.Contains(paragraph.Id) != true;
+                    await Paragraph(paragraph, tableLevel, terminate, listContext, firstListParagraph && authored);
+                    if (authored) firstListParagraph = false;
+                    break;
                 case RichTable table: await Table(table, tableLevel + 1); break;
                 case RichList list:
                     if (semantic) { await S(@"{\*\relistbegin"); await C("ls", _lists[list.Id]); await S("}"); }

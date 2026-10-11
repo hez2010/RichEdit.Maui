@@ -63,7 +63,22 @@ public partial class RichEditorHandler
     {
         if (UsesStructuredNativeDocument)
         {
-            if (_structuredNativeMap is null) TryApplyStructuredNativeDocument();
+            _displayWidth = Math.Max(1, GetAdornmentViewport().Width);
+            var changed = _structuredNativeMap is null || _displayAdornmentVersion != VirtualView.Adornments.Version;
+            var structuredBudget = _presentationBudget ?? new RichPresentationBudget();
+            var pending = false;
+            foreach (var item in VirtualView.Adornments)
+            {
+                if (!item.ReservesSpace || !item.IsRealized || !item.MeasureDirty) continue;
+                if (!structuredBudget.TryStart()) { pending = true; continue; }
+                var size = ((IView)item.View).Measure(item.Options.Placement == RichTextAdornmentPlacement.Inline ? double.PositiveInfinity : _displayWidth, double.PositiveInfinity);
+                if (item.Options.Baseline > size.Height) throw new ArgumentException("The inline baseline cannot exceed the measured content height.");
+                item.MeasuredSize = size;
+                item.MeasureDirty = false;
+                changed = true;
+            }
+            if (changed) TryApplyStructuredNativeDocument();
+            if (pending) QueueAdornmentLayout();
             return false;
         }
         var viewportWidth = GetAdornmentViewport().Width;
@@ -466,7 +481,7 @@ public partial class RichEditorHandler
 
         var item = reservation.Adornment;
         var size = item.MeasuredSize;
-        var width = item.Options.Placement == RichTextAdornmentPlacement.Inline ? Math.Min(size.Width, _displayWidth) : _displayWidth;
+        var width = NativeProjection.IsStructured ? size.Width : item.Options.Placement == RichTextAdornmentPlacement.Inline ? Math.Min(size.Width, _displayWidth) : _displayWidth;
         return new(baseline.X, baseline.Y - (item.Options.Baseline ?? size.Height), width, size.Height);
     }
 

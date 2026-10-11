@@ -35,6 +35,9 @@ public partial class RichEditorHandler
 
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply)
     {
+        var presentation = StructuredRichPresentation.Create(VirtualView, snapshot);
+        var sourceProjection = VirtualView.ProjectStructuredInput(snapshot);
+        snapshot = presentation?.Render ?? snapshot;
         // The writer uses an owned MemoryStream, so preparation has no pending
         // asynchronous I/O. All native work remains on the document's UI thread.
         var defaults = PlatformView.Document.GetDefaultCharacterFormat();
@@ -44,7 +47,8 @@ public partial class RichEditorHandler
             fallbackSize: RichFontSize.FromPoints(VirtualView.FontSize ?? defaults.Size),
             fallbackColor: color is null ? null : new((byte)Math.Round(color.Red * 255), (byte)Math.Round(color.Green * 255), (byte)Math.Round(color.Blue * 255)),
             selectedCells: (VirtualView.StructuredSession!.Composition?.Selection ?? VirtualView.StructuredSession.Selection) as RichCellSelection,
-            selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground).GetAwaiter().GetResult();
+            selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground,
+            nativePrivateParagraphs: presentation?.PrivateParagraphs).GetAwaiter().GetResult();
         var scratch = (_structuredScratch ??= new RichEditBox()).Document;
         scratch.SetText(TextSetOptions.FormatRtf | TextSetOptions.ApplyRtfDocumentDefaults, prepared.Rtf);
         var text = ReadNativeStoryText(scratch);
@@ -79,8 +83,9 @@ public partial class RichEditorHandler
             }
             finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }
         }
-        return resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
+        var result = resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
             .With(runs: CaptureStructuredFormats(scratch, resolved.Map).Characters));
+        return presentation is null ? result : result.WithPresentation(presentation, sourceProjection);
     }
 
     private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)
@@ -92,6 +97,20 @@ public partial class RichEditorHandler
         {
             PlatformView.IsReadOnly = false;
             ApplyCharacterFormatsIncrementally(after, new(0, after.Length), before);
+            PlatformView.Document.ClearUndoRedoHistory();
+        }
+        finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }
+    }
+
+    private partial void ApplyStructuredReservationsCore(IReadOnlyList<RichTextImage> images)
+    {
+        var applying = _applyingDocument;
+        var readOnly = PlatformView.IsReadOnly;
+        _applyingDocument = true;
+        try
+        {
+            PlatformView.IsReadOnly = false;
+            foreach (var image in images) ApplyImageIncrementally(image);
             PlatformView.Document.ClearUndoRedoHistory();
         }
         finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }

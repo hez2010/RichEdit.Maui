@@ -7,6 +7,80 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured widgets reserve native inline and block space without authored nodes", async editor =>
+        {
+            var previous = editor.Document;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "abcdefgh");
+                edit.InsertField(new(edit.Body, new(2), 8), "MERGEFIELD demo", "VALUE");
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                await Task.Delay(60);
+                using var widgets = editor.Adornments.CreateSource(widget => new Label
+                { Text = widget.Id, WidthRequest = widget.EstimatedSize.Width, HeightRequest = widget.EstimatedSize.Height });
+                Equal(true, widgets.TryPublish(widgets.BeginUpdate(), new RichTextWidget[]
+                {
+                    new("inline", 4, new(30, 16), Options: new() { Placement = RichTextAdornmentPlacement.Inline }),
+                    new("above", 4, new(40, 20), Options: new() { Placement = RichTextAdornmentPlacement.AboveLine }),
+                    new("below", 4, new(40, 24), Options: new() { Placement = RichTextAdornmentPlacement.BelowLine }),
+                }));
+                for (var attempt = 0; attempt < 100 && editor.Adornments.Any(item => item.CreatedView?.Bounds.Width is not > 0); attempt++)
+                    await Task.Delay(30);
+                var handler = (RichEditorHandler)editor.Handler!;
+                Equal(3, handler.NativeProjection.Reservations.Length);
+                foreach (var widget in editor.Adornments) Equal(true, widget.CreatedView?.Bounds.Width > 0,
+                    $"{widget.Key}: realized {widget.IsRealized}, bounds {widget.CreatedView?.Bounds}, viewport {editor.TextLayout.Capture()?.Viewport}; native {NativeText(editor)}; " +
+                    $"lines {string.Join(';', editor.TextLayout.Capture()?.Lines.Select(line => $"{line.Bounds}:{string.Join(',', line.SourceRanges)}") ?? [])}; " +
+                    string.Join(";", handler.NativeProjection.Reservations.Select(item => $"{item.Adornment.Key}:{item.SourcePosition}/{item.DisplayStart}/{item.ImagePosition}/{item.Text.Length}")));
+                Equal(false, model.CanUndo);
+                editor.SelectedRange = new(4, 0);
+                NativeMultiInsert(editor, "X");
+                await Task.Delay(100);
+                Equal("abcdXefgh\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(1, model.CurrentSnapshot.Nodes.Values.OfType<RichParagraph>().Count());
+                Equal(0, model.CurrentSnapshot.Nodes.Values.OfType<RichImage>().Count());
+                Equal(0, model.CurrentSnapshot.Assets.Count);
+                editor.Undo();
+                await Task.Delay(100);
+                Equal("abcdefgh\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+#if ANDROID || IOS || MACCATALYST
+                editor.SelectedRange = new(2, 0);
+                editor.Focus();
+                await Task.Delay(40);
+                var committed = model.CurrentSnapshot;
+#if ANDROID
+                var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+                using var info = new Android.Views.InputMethods.EditorInfo();
+                using var connection = native.OnCreateInputConnection(info)!;
+                using var first = new Java.Lang.String("仮");
+                using var second = new Java.Lang.String("仮名");
+                connection.SetComposingText(first, 1);
+                connection.SetComposingText(second, 1);
+#else
+                var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+                native.SetMarkedText("仮", new Foundation.NSRange(1, 0));
+                native.SetMarkedText("仮名", new Foundation.NSRange(2, 0));
+#endif
+                Equal(true, ReferenceEquals(committed, model.CurrentSnapshot));
+                Equal("ab仮名cdefgh\uFFFC", editor.StructuredSession!.Composition!.Snapshot.ProjectText().Text.ToString());
+#if ANDROID
+                connection.FinishComposingText();
+#else
+                native.UnmarkText();
+#endif
+                await Task.Delay(80);
+                Equal("ab仮名cdefgh\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(1, model.CurrentSnapshot.Nodes.Values.OfType<RichParagraph>().Count());
+                Equal(0, model.CurrentSnapshot.Nodes.Values.OfType<RichImage>().Count());
+                editor.Undo();
+                Equal("abcdefgh\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+#endif
+            }
+            finally { editor.DiscardComposition(); editor.Document = previous; }
+        });
 #if ANDROID || IOS || MACCATALYST
         yield return new("structured field decorations paint native results without authoring styles", async editor =>
         {

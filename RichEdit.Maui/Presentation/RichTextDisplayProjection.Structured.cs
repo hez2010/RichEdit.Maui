@@ -3,7 +3,7 @@ namespace RichEdit.Maui;
 internal sealed partial class RichTextDisplayProjection
 {
     private StructuredRichNativeMap? _structured;
-    internal static RichTextDisplayProjection FromStructured(StructuredRichNativeMap map) => new([]) { _structured = map };
+    internal static RichTextDisplayProjection FromStructured(StructuredRichNativeMap map) => new(map.Reservations) { _structured = map };
     internal bool IsStructured => _structured is not null;
     internal RichTextDocumentSnapshot? StructuredDisplay => _structured is { } map ? NativeDescription(map) : null;
 

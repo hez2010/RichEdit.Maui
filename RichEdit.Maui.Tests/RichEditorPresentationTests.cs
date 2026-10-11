@@ -1,10 +1,101 @@
 using RichEdit.Core;
 using Microsoft.Maui;
+using Microsoft.Maui.Controls.Hosting;
+using Microsoft.Maui.Hosting;
+using Microsoft.Maui.Platform;
 
 namespace RichEdit.Maui.Tests;
 
-public sealed class RichEditorPresentationTests
+public sealed partial class RichEditorPresentationTests
 {
+    private static Microsoft.UI.Xaml.Window? _window;
+    private static MauiApp? _app;
+    private sealed partial class PresentationApplication : Application;
+
+    [Fact]
+    public Task InlineWidgetReservesNativeTableLayoutWithoutChangingTheRichDocument() => WindowsTestHost.RunAsync(async () =>
+    {
+        RichNodeId paragraph = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            var table = edit.InsertTable(edit.Body, 1, 1, new RichLength[] { new(3600) });
+            paragraph = edit.Snapshot.Get<RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "abcdefgh");
+        }));
+        var rich = new RichEditor { Document = document, FontSize = 18 };
+        var app = _app ??= MauiApp.CreateBuilder().UseMauiApp<PresentationApplication>().UseRichEdit().Build();
+        var window = _window ??= new Microsoft.UI.Xaml.Window();
+        window.Content = rich.ToPlatform(new MauiContext(app.Services));
+        window.Activate();
+        try
+        {
+            await Task.Delay(80);
+            var point = new RichTextPoint(document.CurrentSnapshot.Body, paragraph, 4);
+            var before = rich.TextLayout.GetCaretBounds(rich.TextLayout.Capture()!, point)!.Value;
+            var snapshot = document.CurrentSnapshot;
+            Label? view = null;
+            var views = new Dictionary<string, Label>();
+            using var widgets = rich.Presentation.CreateWidgetSource(widget =>
+            {
+                var label = new Label { Text = widget.Id, WidthRequest = widget.EstimatedSize.Width, HeightRequest = widget.EstimatedSize.Height };
+                views[widget.Id] = label;
+                if (widget.Id == "hint") view = label;
+                return label;
+            });
+            Assert.True(widgets.TryPublish(widgets.BeginUpdate(), new RichEditorWidget[]
+            { new("hint", point, new(30, 16), Options: new() { Placement = RichTextAdornmentPlacement.Inline }) }));
+            await Task.Delay(200);
+            var after = rich.TextLayout.GetCaretBounds(rich.TextLayout.Capture()!, point)!.Value;
+            Assert.NotNull(view);
+            Assert.True(view.Bounds.Width > 0, $"Widget bounds: {view.Bounds}");
+            Assert.True(after.X - before.X >= 29, $"Caret before {before}; after {after}");
+            Assert.Same(snapshot, document.CurrentSnapshot);
+            Assert.False(document.CanUndo);
+            Assert.True(widgets.TryPublish(widgets.BeginUpdate(), new RichEditorWidget[]
+            { new("hint", point, new(30, 30), Options: new() { Placement = RichTextAdornmentPlacement.Inline, Baseline = 8 }, ContentVersion: 1) }));
+            await Task.Delay(120);
+            var capture = rich.TextLayout.Capture()!;
+            var sourceOffset = capture.TextProjection.GetOffset(point);
+            var line = capture.Lines.First(line => line.SourceRanges.Any(range => range.Start <= sourceOffset && sourceOffset < range.End));
+            Assert.InRange(Math.Abs(view.Bounds.Top + 8 - line.Baseline), 0, 1);
+            rich.Selection = new RichEdit.Core.RichTextSelection(point, point);
+            var handler = (RichEditorHandler)rich.NativeView.Handler!;
+            handler.PlatformView.Document.Selection.TypeText("X");
+            await Task.Delay(100);
+            Assert.Contains("abcdXefgh", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Empty(document.CurrentSnapshot.Nodes.Values.OfType<RichImage>());
+            Assert.Empty(document.CurrentSnapshot.Assets);
+            Assert.Single(handler.NativeProjection.Reservations);
+            rich.Undo();
+            await Task.Delay(80);
+            Assert.Contains("abcdefgh", document.CurrentSnapshot.ProjectText().Text.ToString());
+            var beforeRemoval = document.CurrentSnapshot;
+            var slot = Assert.Single(handler.NativeProjection.Reservations);
+            handler.PlatformView.Document.GetRange(slot.ImagePosition, slot.ImagePosition + 1).Delete(Microsoft.UI.Text.TextRangeUnit.Character, 0);
+            await Task.Delay(80);
+            Assert.Same(beforeRemoval, document.CurrentSnapshot);
+            var repaired = Assert.Single(handler.NativeProjection.Reservations);
+            Assert.Equal('\uFFFC', handler.PlatformView.Document.GetRange(repaired.ImagePosition, repaired.ImagePosition + 1).Character);
+            Assert.True(widgets.TryPublish(widgets.BeginUpdate(), new RichEditorWidget[]
+            {
+                new("above", point, new(40, 20), Options: new() { Placement = RichTextAdornmentPlacement.AboveLine }),
+                new("below", point, new(40, 24), Options: new() { Placement = RichTextAdornmentPlacement.BelowLine }),
+            }));
+            await Task.Delay(150);
+            var current = rich.TextLayout.GetCaretBounds(rich.TextLayout.Capture()!, point)!.Value;
+            Assert.True(views["above"].Bounds.Width > 0);
+            Assert.True(views["below"].Bounds.Width > 0);
+            Assert.True(views["above"].Bounds.Bottom <= current.Top + 1, $"Above {views["above"].Bounds}, text {current}");
+            var belowSlot = handler.NativeProjection.Reservations.Single(item => item.Adornment.Options.Placement == RichTextAdornmentPlacement.BelowLine);
+            var belowRange = handler.PlatformView.Document.GetRange(belowSlot.ImagePosition, belowSlot.ImagePosition + 1);
+            belowRange.GetRect(Microsoft.UI.Text.PointOptions.ClientCoordinates | Microsoft.UI.Text.PointOptions.AllowOffClient, out var belowRect, out _);
+            Assert.True(views["below"].Bounds.Top >= current.Bottom - 1, $"Below {views["below"].Bounds}, text {current}, native {belowRect}, font {belowRange.CharacterFormat.Size}");
+            Assert.Same(beforeRemoval, document.CurrentSnapshot);
+            Assert.True(document.CanRedo);
+        }
+        finally { window.Content = null; rich.NativeView.Handler?.DisconnectHandler(); rich.Handler?.DisconnectHandler(); }
+    });
+
     [Fact]
     public Task NativeTableDecorationsPaintClearAndDoNotAuthorFormatting() => WindowsTestHost.RunAsync(async () =>
     {

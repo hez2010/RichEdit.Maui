@@ -75,12 +75,51 @@ internal sealed class StructuredRichNativeMap
     private readonly ImmutableArray<Paragraph> _ordered;
     private readonly RichTextProjection _text;
     private readonly ImmutableDictionary<RichNodeId, int> _boundaries;
+    private readonly StructuredRichNativeMap? _rendered;
+    private readonly StructuredRichPresentation? _presentation;
+    internal ImmutableArray<RichTextDisplayReservation> Reservations { get; }
     private StructuredRichNativeMap(RichDocumentSnapshot snapshot, string nativeText, ImmutableArray<Paragraph> paragraphs, ImmutableDictionary<RichNodeId, int> boundaries,
-        RichTextProjection? projection = null, RichTextDocumentSnapshot? display = null, RichTextDocumentSnapshot? authoredDisplay = null)
-    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = projection ?? snapshot.ProjectText(); _boundaries = boundaries; Display = display; AuthoredDisplay = authoredDisplay; }
+        RichTextProjection? projection = null, RichTextDocumentSnapshot? display = null, RichTextDocumentSnapshot? authoredDisplay = null,
+        StructuredRichNativeMap? rendered = null, StructuredRichPresentation? presentation = null, ImmutableArray<RichTextDisplayReservation> reservations = default)
+    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = projection ?? snapshot.ProjectText(); _boundaries = boundaries; Display = display; AuthoredDisplay = authoredDisplay;
+        _rendered = rendered; _presentation = presentation; Reservations = reservations.IsDefault ? [] : reservations; }
     internal RichTextDocumentSnapshot? Display { get; }
     internal RichTextDocumentSnapshot? AuthoredDisplay { get; }
-    internal StructuredRichNativeMap WithAuthoredDisplay(RichTextDocumentSnapshot display) => new(Snapshot, NativeText, _ordered, _boundaries, _text, Display, display);
+    internal StructuredRichNativeMap WithAuthoredDisplay(RichTextDocumentSnapshot display) => new(Snapshot, NativeText, _ordered, _boundaries, _text, Display, display, _rendered, _presentation, Reservations);
+    internal StructuredRichNativeMap WithPresentation(StructuredRichPresentation presentation, RichTextProjection source)
+    {
+        var privateImages = presentation.Widgets.ToDictionary(item => item.Image);
+        var privateParagraphs = presentation.Widgets.Where(item => item.Paragraph is not null).ToDictionary(item => item.Paragraph!.Value);
+        var paragraphs = ImmutableArray.CreateBuilder<Paragraph>();
+        var reservations = ImmutableArray.CreateBuilder<RichTextDisplayReservation>();
+        for (var index = 0; index < _ordered.Length; index++)
+        {
+            var paragraph = _ordered[index];
+            if (privateParagraphs.TryGetValue(paragraph.Id, out var block))
+            {
+                var start = block.Adornment.Options.Placement == RichTextAdornmentPlacement.AboveLine ? paragraph.Start : _ordered[index - 1].End;
+                var end = block.Adornment.Options.Placement == RichTextAdornmentPlacement.AboveLine ? _ordered[index + 1].Start : paragraph.End;
+                reservations.Add(new(block.Adornment, source.GetOffset(block.Anchor), start, NativeText.Substring(start, end - start)));
+                continue;
+            }
+            var segments = ImmutableArray.CreateBuilder<Segment>();
+            foreach (var segment in paragraph.Segments)
+            {
+                if (segment.Inline is { } id && privateImages.TryGetValue(id, out var widget))
+                {
+                    reservations.Add(new(widget.Adornment, source.GetOffset(widget.Anchor), segment.NativeStart,
+                        NativeText.Substring(segment.NativeStart, segment.NativeLength)));
+                    continue;
+                }
+                var start = presentation.Backward.Map(new(Snapshot.Body, paragraph.Id, segment.LocalStart))!.Value;
+                var end = presentation.Backward.Map(new(Snapshot.Body, paragraph.Id, segment.LocalEnd))!.Value;
+                segments.Add(segment with { LocalStart = start.Offset, LocalLength = end.Offset - start.Offset });
+            }
+            paragraphs.Add(paragraph with { Segments = segments.ToImmutable() });
+        }
+        return new(presentation.Source, NativeText, paragraphs.ToImmutable(), _boundaries, source, Display, AuthoredDisplay,
+            this, presentation, reservations.OrderBy(item => item.DisplayStart).ToImmutableArray());
+    }
     internal static StructuredRichNativeMap FromDisplay(RichTextProjection projection, RichTextDocumentSnapshot display, ImmutableArray<Paragraph> paragraphs) =>
         new(projection.Snapshot, display.Text, paragraphs, ImmutableDictionary<RichNodeId, int>.Empty, projection, display);
     internal RichDocumentSnapshot Snapshot { get; }
@@ -170,7 +209,8 @@ internal sealed class StructuredRichNativeMap
 
     internal static async Task<Prepared> PrepareAsync(RichDocumentSnapshot snapshot, CancellationToken cancellationToken = default,
         string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null,
-        RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null)
+        RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null,
+        IReadOnlySet<RichNodeId>? nativePrivateParagraphs = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var prefix = "RichMap" + Guid.NewGuid().ToString("N") + ":";
@@ -188,7 +228,7 @@ internal sealed class StructuredRichNativeMap
             markers.Add(marker);
             return marker.Text;
         }, nativeText: NativeLiteralText, selectedCells: selectedCells, selectionBackground: selectionBackground,
-            selectionForeground: selectionForeground).WriteAsync(cancellationToken).ConfigureAwait(false);
+            selectionForeground: selectionForeground, nativePrivateParagraphs: nativePrivateParagraphs).WriteAsync(cancellationToken).ConfigureAwait(false);
         return new(Encoding.ASCII.GetString(stream.GetBuffer(), 0, checked((int)stream.Length)), markers.ToImmutable(), snapshot, prefix);
     }
 
@@ -207,6 +247,7 @@ internal sealed class StructuredRichNativeMap
     internal int ToNative(RichTextPoint point)
     {
         Snapshot.ValidatePoint(point);
+        if (_rendered is not null) return _rendered.ToNative(_presentation!.Forward.Map(point)!.Value);
         var paragraph = _paragraphs[point.Paragraph];
         if (paragraph.Segments.IsEmpty) return paragraph.Start;
         foreach (var segment in paragraph.Segments)
@@ -221,6 +262,14 @@ internal sealed class StructuredRichNativeMap
 
     internal RichTextPoint? ToRich(int nativeOffset, CaretAffinity affinity = CaretAffinity.Downstream)
     {
+        if (_rendered is not null)
+        {
+            var reservation = Reservations.FirstOrDefault(item => nativeOffset >= item.DisplayStart && nativeOffset < item.DisplayEnd);
+            if (reservation is not null) return _presentation!.Widgets.First(item => ReferenceEquals(item.Adornment, reservation.Adornment)).Anchor with { Affinity = affinity };
+            if (_rendered.ToRich(nativeOffset, affinity) is not { } point) return null;
+            if (_presentation!.Widgets.FirstOrDefault(item => item.Paragraph == point.Paragraph) is { } block) return block.Anchor with { Affinity = affinity };
+            return _presentation.Backward.Map(point);
+        }
         if (nativeOffset < 0 || nativeOffset > NativeText.Length) throw new ArgumentOutOfRangeException(nameof(nativeOffset));
         var low = 0; var high = _ordered.Length;
         while (low < high)

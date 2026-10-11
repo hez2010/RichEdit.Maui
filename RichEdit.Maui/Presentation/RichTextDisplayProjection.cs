@@ -74,6 +74,7 @@ internal sealed partial class RichTextDisplayProjection
 
     internal int ToDisplayCaret(int position, bool afterInline = true)
     {
+        if (_structured is { } rich) return rich.FromSource(position, afterInline);
         var result = ToDisplay(position, false);
         for (var index = Bound(_sourcePositions, position, false); index < Reservations.Length; index++)
         {

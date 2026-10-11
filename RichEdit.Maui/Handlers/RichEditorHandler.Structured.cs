@@ -33,6 +33,7 @@ public partial class RichEditorHandler
         }
         var snapshot = VirtualView.StructuredSession!.Document.CurrentSnapshot;
         SetStructuredNativeMap(CreateStructuredNativeDocumentCore(snapshot, apply: true), captureFormats: false);
+        ApplyStructuredReservations();
         ApplyStructuredDecorations();
         _paintedCellSelection = VirtualView.StructuredSession.Selection as RichCellSelection;
         _structuredSelection = StructuredNativeSelection();
@@ -46,6 +47,7 @@ public partial class RichEditorHandler
         if (_structuredNativeMap is null || !VirtualView.PrepareStructuredComposition()) return;
         var composition = VirtualView.StructuredSession!.Composition!;
         SetStructuredNativeMap(CreateStructuredNativeDocumentCore(composition.Snapshot, apply: true), captureFormats: false);
+        ApplyStructuredReservations();
         ApplyStructuredDecorations();
         var selection = (RichEdit.Core.RichTextSelection)composition.Selection;
         SetNativeSelectionCore(new(_structuredNativeMap!.ToNative(selection.Anchor), _structuredNativeMap.ToNative(selection.Active)));
@@ -90,6 +92,18 @@ public partial class RichEditorHandler
     }
 
     private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after);
+
+    private void ApplyStructuredReservations()
+    {
+        if (_structuredNativeMap is not { Reservations.IsEmpty: false } map) return;
+        ApplyStructuredReservationsCore(map.Reservations.Where(item => item.ImagePosition >= 0).Select(item => new RichTextImage
+        {
+            Position = item.ImagePosition, Adornment = item.Adornment, Data = RichTextDisplayProjection.TransparentPixel,
+            Width = Math.Max(0.1, item.Adornment.MeasuredSize.Width), Height = Math.Max(0.1, item.Adornment.MeasuredSize.Height),
+            AdornmentBaseline = item.Adornment.Options.Baseline ?? item.Adornment.MeasuredSize.Height,
+        }).ToArray());
+    }
+    private partial void ApplyStructuredReservationsCore(IReadOnlyList<RichTextImage> images);
 
     private TextSelectionState StructuredNativeSelection()
     {
@@ -147,7 +161,9 @@ public partial class RichEditorHandler
         var nativeRange = new TextSelectionState(prefix, map.NativeText.Length - suffix);
         var selected = (session.Composition?.Selection ?? session.Selection) is RichCellSelection or RichBlockSelection
             ? session.Composition?.Selection ?? session.Selection : map.SelectionFromNative(nativeRange);
-        var replacement = text.Substring(prefix, text.Length - prefix - suffix).Replace('\r', '\n').Replace('\v', '\u2028');
+        var observedReservations = ReadDisplayReservationMetadata(text);
+        var replacement = observedReservations.SourceText(text.Substring(prefix, text.Length - prefix - suffix), prefix)
+            .Replace('\r', '\n').Replace('\v', '\u2028');
         if (VirtualView.TryHandleStructuredListReplacement(selected, replacement))
         {
             ((IRichEditorHandler)this).ApplyDocument(VirtualView.SelectedRange, VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
@@ -186,7 +202,7 @@ public partial class RichEditorHandler
         VirtualView.UpdateDocumentFromPlatform(snapshot, resulting.Range.Start, resulting.Range.Length, _sourceToken, selectionState: resulting);
         if (VirtualView.Composition.IsActive && session.Composition is { } composition)
             SetStructuredNativeMap(CreateStructuredNativeDocumentCore(composition.Snapshot, apply: false));
-        else if (_structuredNativeMap?.Snapshot.Revision != session.Document.Revision) TryApplyStructuredNativeDocument();
+        else if (_structuredNativeMap?.Snapshot.Revision != session.Document.Revision || _structuredNativeMap.NativeText != text) TryApplyStructuredNativeDocument();
         return true;
     }
 

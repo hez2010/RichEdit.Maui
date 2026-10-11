@@ -6,6 +6,25 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial void ApplyStructuredReservationsCore(IReadOnlyList<RichTextImage> images)
+    {
+        var applying = _applyingDocument;
+        _applyingDocument = true;
+        var text = PlatformView.EditableText!;
+        PlatformView.BeginBatchEdit();
+        try
+        {
+            foreach (var image in images)
+            {
+                RemoveSpans<ImageSpan>(text, image.Position, image.Position + 1);
+                RemoveSpans<RichImageMetadataSpan>(text, image.Position, image.Position + 1);
+                RemoveSpans<RichAdornmentSpan>(text, image.Position, image.Position + 1);
+                ApplyImage(text, image);
+            }
+        }
+        finally { PlatformView.EndBatchEdit(); _applyingDocument = applying; }
+    }
+
     private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)
     {
         var applying = _applyingDocument;
@@ -17,7 +36,10 @@ public partial class RichEditorHandler
 
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply)
     {
-        var map = RichTextDocumentSnapshot.CreateExpandedFields(VirtualView.ProjectStructuredInput(snapshot));
+        var presentation = StructuredRichPresentation.Create(VirtualView, snapshot);
+        var sourceProjection = VirtualView.ProjectStructuredInput(snapshot);
+        var map = RichTextDocumentSnapshot.CreateExpandedFields(VirtualView.ProjectStructuredInput(presentation?.Render ?? snapshot));
+        if (presentation is not null) map = map.WithPresentation(presentation, sourceProjection);
         if (apply)
         {
             SetStructuredNativeMap(map, captureFormats: false);

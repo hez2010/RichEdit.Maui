@@ -33,13 +33,17 @@ public partial class RichEditorHandler
 
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply)
     {
+        var presentation = StructuredRichPresentation.Create(VirtualView, snapshot);
+        var sourceProjection = VirtualView.ProjectStructuredInput(snapshot);
+        snapshot = presentation?.Render ?? snapshot;
         var font = ResolveFont(RichTextCharacterFormat.Default);
         var color = VirtualView.TextColor ?? _defaultTextColor.ToColor() ?? Colors.Black;
         var selectionColors = StructuredSelectionColors();
         var prepared = StructuredRichNativeMap.PrepareAsync(snapshot, fallbackFont: font.Name, fallbackSize: RichFontSize.FromPoints(font.PointSize),
             fallbackColor: new((byte)Math.Round(color.Red * 255), (byte)Math.Round(color.Green * 255), (byte)Math.Round(color.Blue * 255)),
             selectedCells: (VirtualView.StructuredSession!.Composition?.Selection ?? VirtualView.StructuredSession.Selection) as RichCellSelection,
-            selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground).GetAwaiter().GetResult();
+            selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground,
+            nativePrivateParagraphs: presentation?.PrivateParagraphs).GetAwaiter().GetResult();
         using var data = NSData.FromArray(System.Text.Encoding.ASCII.GetBytes(prepared.Rtf));
         using var imported = NSAttributedString.Create(data,
             new NSAttributedStringDocumentAttributes { DocumentType = NSDocumentType.RTF }, out var error);
@@ -63,8 +67,9 @@ public partial class RichEditorHandler
             }
             finally { _applyingDocument = applying; }
         }
-        return resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
+        var result = resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
             .With(runs: CaptureStructuredFormats(content, resolved.Map).Characters));
+        return presentation is null ? result : result.WithPresentation(presentation, sourceProjection);
     }
 
     private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)
@@ -73,6 +78,16 @@ public partial class RichEditorHandler
         _applyingDocument = true;
         PlatformView.TextStorage.BeginEditing();
         try { ApplyCharacterFormatsIncrementally(after, new(0, after.Length), before); }
+        finally { PlatformView.TextStorage.EndEditing(); _applyingDocument = applying; }
+        PlatformView.UndoManager?.RemoveAllActions();
+    }
+
+    private partial void ApplyStructuredReservationsCore(IReadOnlyList<RichTextImage> images)
+    {
+        var applying = _applyingDocument;
+        _applyingDocument = true;
+        PlatformView.TextStorage.BeginEditing();
+        try { foreach (var image in images) ApplyImage(PlatformView.TextStorage, image); }
         finally { PlatformView.TextStorage.EndEditing(); _applyingDocument = applying; }
         PlatformView.UndoManager?.RemoveAllActions();
     }
