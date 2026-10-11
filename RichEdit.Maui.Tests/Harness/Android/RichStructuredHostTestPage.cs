@@ -61,6 +61,10 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             var cells = new RichCellSelection(_table, 0, 0, 1, 2);
             _editor.Selection = cells; _editor.Focus(); await Task.Delay(80);
             Equal(cells, _editor.Selection, "after focus");
+            var selectedGrid = NativeViews<NativeGrid>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Single();
+            var selectedBackground = (Android.Graphics.Drawables.GradientDrawable)selectedGrid.GetChildAt(0)!.Background!;
+            Equal(((RichEditorHandler)Surface(Cell(0, 0)).Handler!).PlatformView.HighlightColor,
+                selectedBackground.Color!.DefaultColor, "cell selection follows native highlight color");
             _editor.Edit(edit => edit.MergeCells(cells)); await Task.Delay(150);
             var grid = NativeViews<NativeGrid>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Single();
             Equal(3, grid.ChildCount);
@@ -200,6 +204,44 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             _editor.Undo(); await Task.Delay(100);
             Equal(2, _editor.Document.CurrentSnapshot.GetTableGrid(_table).Rows);
             Equal(false, _editor.CanUndo);
+        });
+        await Test("table scrolling invalidates geometry and structural edits retain the viewport anchor", async () =>
+        {
+            RichNodeId table = default;
+            _editor.Document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                table = edit.InsertTable(edit.Body, 1, 36, new RichLength[] { new(6000), new(6000) });
+                var grid = edit.Snapshot.GetTableGrid(table);
+                for (var row = 0; row < grid.Rows; row++)
+                    for (var column = 0; column < grid.Columns; column++)
+                        edit.ReplaceText(new(edit.Body, edit.Snapshot.Get<RichTableCell>(grid[row, column]).Blocks[0], 0), 0, $"Row {row} cell {column}");
+            }));
+            await Task.Delay(220);
+            var root = (Android.Widget.ScrollView)_editor.Content!.Handler!.PlatformView!;
+            var horizontal = NativeViews<Android.Widget.HorizontalScrollView>(root).First();
+            var changed = 0;
+            void OnChanged(object? sender, EventArgs args) => changed++;
+            _editor.TextLayout.Changed += OnChanged;
+            try
+            {
+                horizontal.ScrollTo(90, 0);
+                await Task.Delay(50);
+                Equal(true, changed > 0, "horizontal viewport notification");
+                var density = root.Resources!.DisplayMetrics!.Density;
+                root.ScrollTo(0, (int)(500 * density));
+                await Task.Delay(70);
+                var capture = _editor.TextLayout.Capture()!;
+                var line = capture.Lines.First(line => line.SourceRanges.Count > 0 && line.Bounds.Top >= capture.Viewport.Top);
+                var anchor = capture.TextProjection.GetPoint(line.SourceRanges[0].Start)!.Value;
+                var before = _editor.TextLayout.GetCaretBounds(capture, anchor)!.Value;
+                _editor.Edit(edit => edit.InsertRows(table, 0));
+                await Task.Delay(180);
+                var afterCapture = _editor.TextLayout.Capture()!;
+                var after = _editor.TextLayout.GetCaretBounds(afterCapture, anchor);
+                Equal(true, after is not null && Math.Abs(after.Value.Top - before.Top) < 3,
+                    $"anchor before {before}; after {after}; scroll {root.ScrollY}");
+            }
+            finally { _editor.TextLayout.Changed -= OnChanged; }
         });
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         File.WriteAllLines(report, results);

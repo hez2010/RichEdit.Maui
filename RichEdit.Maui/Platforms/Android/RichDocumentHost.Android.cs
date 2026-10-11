@@ -35,11 +35,13 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
     private readonly Dictionary<RichNodeId, Android.Widget.FrameLayout> _cells = [];
     private readonly Dictionary<RichNodeId, GradientDrawable> _cellBackgrounds = [];
     private HashSet<RichNodeId>? _selectedCells;
+    private (int Selection, int Border)? _cellColors;
     private readonly Dictionary<RichNodeId, RichTable> _tables = [];
     private LinearLayout? _body;
     private bool _connected;
     private bool _queued;
     private string? _shape;
+    private (DocumentRevision Revision, RichTextPoint Point, double Top)? _viewportAnchor;
 
     internal RichDocumentHost(Context context, RichEditor owner, IMauiContext mauiContext) : base(context)
     {
@@ -69,11 +71,15 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         _owner.CompositionChanged -= OnCompositionChanged;
         _coordinator.PropertyChanged -= OnAppearanceChanged;
         foreach (var surface in _surfaces.Values) Release(surface);
-        _surfaces.Clear(); _cells.Clear(); _cellBackgrounds.Clear(); _selectedCells = null; _tables.Clear();
-        RemoveAllViews(); _body = null; _shape = null;
+        _surfaces.Clear(); _cells.Clear(); _cellBackgrounds.Clear(); _selectedCells = null; _cellColors = null; _tables.Clear();
+        RemoveAllViews(); _body = null; _shape = null; _viewportAnchor = null;
     }
-    private void OnContentChanged(object? sender, RichDocumentChangedEventArgs args) => QueueRebuild();
-    private void OnDocumentReplaced(object? sender, RichDocumentReplacedEventArgs args) { _shape = null; QueueRebuild(); }
+    private void OnContentChanged(object? sender, RichDocumentChangedEventArgs args)
+    {
+        _viewportAnchor = CaptureViewportAnchor();
+        QueueRebuild();
+    }
+    private void OnDocumentReplaced(object? sender, RichDocumentReplacedEventArgs args) { _shape = null; _viewportAnchor = null; QueueRebuild(); }
     private void OnSelectionChanged(object? sender, EventArgs args) { PaintCellSelection(); }
     private void OnCompositionChanged(object? sender, EventArgs args) { if (_owner.Composition is null) QueueRebuild(); }
     private void OnAppearanceChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
@@ -158,7 +164,6 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
                     var cell = snapshot.Get<RichTableCell>(cellId);
                     var frame = new Android.Widget.FrameLayout(Context!);
                     var background = new GradientDrawable();
-                    background.SetStroke(Math.Max(1, Pixels(0.5)), Android.Graphics.Color.Gray);
                     frame.Background = background;
                     _cellBackgrounds.Add(cell.Id, background);
                     frame.AddView(Container(cell.Id, scopes), new Android.Widget.FrameLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
@@ -168,7 +173,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
                     grid.AddView(frame, parameters);
                     _cells.Add(cell.Id, frame);
                 }
-            var horizontal = new HorizontalScrollView(Context) { HorizontalScrollBarEnabled = true };
+            var horizontal = new RichTableScrollView(Context!, _coordinator) { HorizontalScrollBarEnabled = true };
             horizontal.AddView(grid, new HorizontalScrollView.LayoutParams(LayoutParams.WrapContent, LayoutParams.WrapContent));
             return horizontal;
         }
@@ -236,12 +241,24 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
             for (var row = selection.Row; row < selection.Row + selection.RowCount; row++)
                 for (var column = selection.Column; column < selection.Column + selection.ColumnCount; column++) selected.Add(grid[row, column]);
         }
-        if (_selectedCells?.SetEquals(selected) == true) return;
+        var nativeText = _surfaces.Values.Select(surface => (surface.Handler as RichEditorHandler)?.PlatformView).FirstOrDefault(view => view is not null);
+        var foreground = new Android.Graphics.Color(nativeText?.CurrentTextColor ?? Android.Graphics.Color.Black.ToArgb());
+        var colors = (Selection: nativeText?.HighlightColor ?? Android.Graphics.Color.Transparent.ToArgb(),
+            Border: Android.Graphics.Color.Argb(112, foreground.R, foreground.G, foreground.B).ToArgb());
+        if (_selectedCells?.SetEquals(selected) == true && _cellColors == colors) return;
         _selectedCells = selected;
+        _cellColors = colors;
         foreach (var pair in _cellBackgrounds)
         {
-            pair.Value.SetColor(selected.Contains(pair.Key) ? Android.Graphics.Color.Argb(70, 40, 120, 220) : Android.Graphics.Color.Transparent);
+            pair.Value.SetStroke(Math.Max(1, Pixels(0.5)), new Android.Graphics.Color(colors.Border));
+            pair.Value.SetColor(selected.Contains(pair.Key) ? new Android.Graphics.Color(colors.Selection) : Android.Graphics.Color.Transparent);
         }
+    }
+    protected override void OnConfigurationChanged(Android.Content.Res.Configuration? newConfig)
+    {
+        base.OnConfigurationChanged(newConfig);
+        _cellColors = null;
+        Post(() => { if (_connected) PaintCellSelection(); });
     }
     private int Pixels(double value) => checked((int)Math.Ceiling(value * (Resources?.DisplayMetrics?.Density ?? 1)));
     private Rect SurfaceBounds(NativeEditorView surface)
@@ -269,6 +286,58 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
                 var density = Resources?.DisplayMetrics?.Density ?? 1;
                 surface.StructuredInputOffset = new((location[0] - origin[0]) / density, (location[1] - origin[1]) / density);
             }
+        RestoreViewportAnchor();
+    }
+
+    private (DocumentRevision Revision, RichTextPoint Point, double Top)? CaptureViewportAnchor()
+    {
+        if (_body is null || _shape is null || Height <= 0) return null;
+        var density = Resources?.DisplayMetrics?.Density ?? 1;
+        NativeEditorView? selected = null;
+        var selectedBounds = Rect.Zero;
+        var nearest = double.MaxValue;
+        foreach (var surface in _surfaces.Values)
+        {
+            if (surface.Document.StructuredProjection is not { Paragraphs.IsEmpty: false }) continue;
+            var bounds = SurfaceBounds(surface);
+            if (bounds.Bottom <= 0 || bounds.Top >= Height / density || bounds.Right <= 0 || bounds.Left >= Width / density) continue;
+            var distance = Math.Max(0, bounds.Top);
+            if (distance >= nearest) continue;
+            nearest = distance; selected = surface; selectedBounds = bounds;
+        }
+        if (selected?.Handler is not RichEditorHandler handler || selected.Document.StructuredProjection is not { } projection) return null;
+        var point = new Point(Math.Max(0, -selectedBounds.Left) + 1, Math.Max(0, -selectedBounds.Top) + 1);
+        if (handler.HitTestText(point) is not { } hit || projection.GetPoint(hit.Position) is not { } rich ||
+            handler.GetTextCaretBounds(hit.Position, hit.Affinity) is not { } caret) return null;
+        return (_owner.Document.Revision, rich, selectedBounds.Top + caret.Top);
+    }
+
+    private void RestoreViewportAnchor()
+    {
+        if (_viewportAnchor is not { } anchor) return;
+        _viewportAnchor = null;
+        if (_owner.Document.Revision != anchor.Revision ||
+            _coordinator.FindStructuredSurface(new RichEdit.Core.RichTextSelection(anchor.Point, anchor.Point)) is not { } surface ||
+            surface.Handler is not RichEditorHandler handler || surface.Document.StructuredProjection is not { } projection) return;
+        if (handler.GetTextCaretBounds(projection.GetOffset(anchor.Point), RichTextCaretAffinity.Downstream) is not { } caret) return;
+        var delta = SurfaceBounds(surface).Top + caret.Top - anchor.Top;
+        if (Math.Abs(delta) > 0.5) ScrollTo(ScrollX, Math.Max(0, ScrollY + Pixels(delta)));
+    }
+
+    public override bool OnInterceptTouchEvent(MotionEvent? ev)
+    {
+        if (ev?.ActionMasked is MotionEventActions.Down or MotionEventActions.Move) _viewportAnchor = null;
+        return base.OnInterceptTouchEvent(ev);
+    }
+}
+
+internal sealed class RichTableScrollView(Context context, NativeEditorView coordinator) : HorizontalScrollView(context)
+{
+    private readonly WeakReference<NativeEditorView> _coordinator = new(coordinator);
+    protected override void OnScrollChanged(int left, int top, int oldLeft, int oldTop)
+    {
+        base.OnScrollChanged(left, top, oldLeft, oldTop);
+        if (_coordinator.TryGetTarget(out var view)) view.TextLayout.Invalidate();
     }
 }
 
