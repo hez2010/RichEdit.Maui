@@ -188,6 +188,30 @@ public partial class CodeEditorTests
     });
 
     [Fact]
+    public Task SampleCommandsUseAllCaretsAndPreserveExplicitLineEndings() => WindowsTestHost.RunAsync(() =>
+    {
+        var editor = new CodeEditor { Document = new("a\r\nb"), NewLine = "\r\n" };
+        var actions = new CodeEditorActions(editor);
+        editor.Selections = new((TextSelection[])[new(1, 1), new(4, 4)]);
+        actions.InsertNewLine();
+        Assert.Equal("a\r\n\r\nb\r\n", editor.Document.Text);
+        Assert.Equal(2, editor.Selections.Count);
+        editor.Undo();
+        Assert.Equal("a\r\nb", editor.Document.Text);
+        Assert.Equal(2, editor.Selections.Count);
+        actions.Indent();
+        Assert.Equal("a   \r\nb   ", editor.Document.Text);
+        editor.Undo();
+        actions.ToggleLineComment();
+        Assert.Equal("// a\r\n// b", editor.Document.Text);
+        editor.Undo();
+        Assert.Equal(1, actions.ReplaceAll("a", "x\ry\r\nz"));
+        Assert.Equal("x\ry\r\nz\r\nb", editor.Document.Text);
+        editor.Undo();
+        Assert.Equal("a\r\nb", editor.Document.Text);
+    });
+
+    [Fact]
     public Task CodeViewsShareTheDocumentAndKeepIndependentSelections() => WindowsTestHost.RunAsync(() =>
     {
         var first = new CodeEditor { Document = CodeDocument.FromPlainText("owned") };

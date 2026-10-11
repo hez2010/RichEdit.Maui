@@ -8,6 +8,7 @@ public partial class RichEditorPage : ContentPage
     public RichEditorPage()
     {
         InitializeComponent();
+        EditorColumns.SizeChanged += (_, _) => SplitPaneLayout.Update(EditorColumns, PeerPane);
         Editor.Document = new RichDocument(RichDocumentSnapshot.Build(edit =>
         {
             edit.SetStyles(new((RichStyleDefinition[])
@@ -32,6 +33,12 @@ public partial class RichEditorPage : ContentPage
                     edit.ReplaceText(new(edit.Body, snapshot.Get<RichTableCell>(grid[row, column]).Blocks[0], 0), 0, labels[row * 2 + column]);
             edit.ApplyCharacterFormat(new RichCellSelection(table, 0, 0, 1, 2), new() { Bold = true });
             edit.InsertParagraph(edit.Body, 3, "Turn on Split view to try shared editing. Use Caret below to add another insertion point.", new(1));
+            var notes = edit.InsertParagraph(edit.Body, 4, "Reusable styles change every matching paragraph.", new(1));
+            edit.InsertParagraph(edit.Body, 5, "Comments and bookmarks stay with the document when you save RTF.", new(1));
+            edit.WrapInList(edit.Body, 4, 2, numbered: true);
+            var noteRange = new RichEdit.Core.RichTextSelection(new(edit.Body, notes, 0), new(edit.Body, notes, 15));
+            edit.AddComment(noteRange, "Try Styles & lists → Restyle headings, then Undo.", "Sample");
+            edit.AddBookmark("StyleExample", noteRange);
         }));
         Peer.Document = Editor.Document;
         Editor.SelectionChanged += (_, _) => UpdateStatus();
@@ -43,24 +50,15 @@ public partial class RichEditorPage : ContentPage
         UpdateStatus();
     }
 
-    private void OnBold(object? sender, EventArgs args) { Editor.ToggleBold(); Editor.Focus(); }
-    private void OnItalic(object? sender, EventArgs args) { Editor.ToggleItalic(); Editor.Focus(); }
-    private void OnUnderline(object? sender, EventArgs args) { Editor.ToggleUnderline(); Editor.Focus(); }
+    private void OnBold(object? sender, EventArgs args) => RunRich(Editor.ToggleBold);
+    private void OnItalic(object? sender, EventArgs args) => RunRich(Editor.ToggleItalic);
+    private void OnUnderline(object? sender, EventArgs args) => RunRich(Editor.ToggleUnderline);
     private void OnAddCaret(object? sender, EventArgs args) { Editor.AddCaretBelow(); Editor.Focus(); }
     private void OnSplitChanged(object? sender, ToggledEventArgs args)
     {
         if (Peer is null) return;
-        Peer.IsVisible = args.Value;
-        EditorColumns.ColumnDefinitions[1].Width = args.Value ? GridLength.Star : new GridLength(0);
-    }
-    private void OnInsertTable(object? sender, EventArgs args)
-    {
-        Editor.ReplaceSelection(new RichDocumentFragment(RichDocumentSnapshot.Build(edit =>
-        {
-            edit.InsertTable(edit.Body, 1, 2, (RichLength[])[new(2400), new(2400)]);
-            edit.DeleteBlock(new(2));
-        })));
-        Editor.Focus();
+        PeerPane.IsVisible = args.Value;
+        SplitPaneLayout.Update(EditorColumns, PeerPane);
     }
     private RichNodeId? SelectedTable()
     {
@@ -74,23 +72,6 @@ public partial class RichEditorPage : ContentPage
             if (node is RichTable) return node.Id;
         }
         return null;
-    }
-    private void OnSelectCells(object? sender, EventArgs args)
-    {
-        if (SelectedTable() is not { } table) { StatusLabel.Text = "Place the caret in a table first."; return; }
-        var grid = Editor.Document.CurrentSnapshot.GetTableGrid(table);
-        Editor.Selection = new RichCellSelection(table, 0, 0, 1, grid.Columns);
-        Editor.Focus();
-    }
-    private void OnAddRow(object? sender, EventArgs args)
-    {
-        if (SelectedTable() is not { } table) { StatusLabel.Text = "Place the caret in a table first."; return; }
-        Editor.Edit(edit => edit.InsertRows(table, edit.Snapshot.GetTableGrid(table).Rows), new("Insert row"));
-    }
-    private void OnMergeCells(object? sender, EventArgs args)
-    {
-        if (Editor.Selection is not RichCellSelection cells) { StatusLabel.Text = "Select table cells first."; return; }
-        Editor.Edit(edit => edit.MergeCells(cells), new("Merge cells"));
     }
     private async void OnOpenRtf(object? sender, EventArgs args)
     {
@@ -110,6 +91,7 @@ public partial class RichEditorPage : ContentPage
             var result = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(stream);
             Editor.Document = new RichDocument(result.Snapshot);
             Peer.Document = Editor.Document;
+            TrackingSwitch.IsToggled = false;
             UpdateStatus();
             if (!result.Diagnostics.IsEmpty) StatusLabel.Text = string.Join(" ", result.Diagnostics.Select(item => item.Message));
         }
@@ -147,6 +129,7 @@ public partial class RichEditorPage : ContentPage
             RichObjectSelection => "Object selected",
             _ => "Text selection",
         };
-        StatusLabel.Text = $"{selection} · {(Editor.IsModified ? "Modified" : "Saved")}";
+        var snapshot = Editor.Document.CurrentSnapshot;
+        StatusLabel.Text = $"{selection} · {(Editor.IsModified ? "Modified" : "Saved")} · Comments: {snapshot.Comments.Count} · Changes: {snapshot.Revisions.Values.Select(item => item.Info.Group).Distinct().Count()}";
     }
 }

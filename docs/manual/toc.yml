@@ -2,6 +2,8 @@
   href: index.md
 - name: Getting started
   href: getting-started.md
+- name: RichEdit Studio sample
+  href: sample-app.md
 - name: XAML and data binding
   href: binding.md
 - name: Documents and editing

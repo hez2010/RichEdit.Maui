@@ -4,7 +4,7 @@
              xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui"
              x:Class="RichEdit.Maui.TestApp.RichEditorPage"
              Title="Rich editor" Shell.NavBarIsVisible="False">
-    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="18" RowSpacing="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Padding="18" RowSpacing="10">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <VerticalStackLayout Spacing="3">
                 <Label Text="Rich document" FontSize="24" FontAttributes="Bold" />
@@ -15,14 +15,15 @@
                 <Switch Toggled="OnSplitChanged" />
             </HorizontalStackLayout>
         </Grid>
-        <FlexLayout Grid.Row="1" Wrap="Wrap" AlignItems="Center">
+        <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Default">
+        <HorizontalStackLayout Spacing="4">
             <Button Text="Bold" Clicked="OnBold" Margin="2" />
             <Button Text="Italic" Clicked="OnItalic" Margin="2" />
             <Button Text="Underline" Clicked="OnUnderline" Margin="2" />
-            <Button Text="Table" Clicked="OnInsertTable" Margin="2" />
-            <Button Text="Select cells" Clicked="OnSelectCells" Margin="2" />
-            <Button Text="Add row" Clicked="OnAddRow" Margin="2" />
-            <Button Text="Merge cells" Clicked="OnMergeCells" Margin="2" />
+            <Button Text="Styles &amp; lists" Clicked="OnStyles" Margin="2" />
+            <Button Text="Table" Clicked="OnTableTools" Margin="2" />
+            <Button Text="Annotations" Clicked="OnAnnotations" Margin="2" />
+            <Button Text="Review" Clicked="OnReview" Margin="2" />
             <Button Text="Caret below" Clicked="OnAddCaret" Margin="2" />
             <Button Text="Undo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Undo}" Margin="2" />
             <Button Text="Redo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Redo}" Margin="2" />
@@ -30,11 +31,29 @@
             <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Paste}" Margin="2" />
             <Button Text="Open RTF" Clicked="OnOpenRtf" Margin="2" />
             <Button Text="Save RTF" Clicked="OnSaveRtf" Margin="2" />
-        </FlexLayout>
-        <Grid x:Name="EditorColumns" Grid.Row="2" ColumnDefinitions="*,0" ColumnSpacing="12">
-            <rich:RichEditor x:Name="Editor" AutomationId="RichEditor" FontSize="17" Placeholder="Start writing…" />
-            <rich:RichEditor x:Name="Peer" Grid.Column="1" AutomationId="RichEditorSplit" FontSize="17" IsVisible="False" />
+        </HorizontalStackLayout>
+        </ScrollView>
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+            <Label Text="Tools apply to the main view. Select text to format it or add a comment." FontSize="12" VerticalOptions="Center" />
+            <HorizontalStackLayout Grid.Column="1" Spacing="6">
+                <Label Text="Track changes" VerticalOptions="Center" FontSize="12" />
+                <Switch x:Name="TrackingSwitch" Toggled="OnTrackingChanged" AutomationId="TrackRichChanges" />
+            </HorizontalStackLayout>
         </Grid>
-        <Label x:Name="StatusLabel" Grid.Row="3" FontSize="12" Opacity="0.7" />
+        <Grid x:Name="EditorColumns" Grid.Row="3" ColumnDefinitions="*,0" RowDefinitions="*,0" ColumnSpacing="12" RowSpacing="12">
+            <Grid RowDefinitions="Auto,*" RowSpacing="6">
+                <Label Text="MAIN VIEW" FontSize="11" Opacity="0.7" />
+                <rich:RichEditor x:Name="Editor" Grid.Row="1" AutomationId="RichEditor" FontSize="17" Placeholder="Start writing…" />
+            </Grid>
+            <Grid x:Name="PeerPane" Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="6" IsVisible="False">
+                <HorizontalStackLayout Spacing="6">
+                    <Label Text="SECOND VIEW" FontSize="11" Opacity="0.7" VerticalOptions="Center" />
+                    <Button Text="Undo" Command="{Binding Source={x:Reference Peer}, x:DataType=rich:RichEditor, Path=Commands.Undo}" />
+                    <Button Text="Redo" Command="{Binding Source={x:Reference Peer}, x:DataType=rich:RichEditor, Path=Commands.Redo}" />
+                </HorizontalStackLayout>
+                <rich:RichEditor x:Name="Peer" Grid.Row="1" AutomationId="RichEditorSplit" FontSize="17" />
+            </Grid>
+        </Grid>
+        <Label x:Name="StatusLabel" Grid.Row="4" FontSize="12" Opacity="0.7" />
     </Grid>
 </ContentPage>

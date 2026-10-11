@@ -8,12 +8,18 @@ public sealed partial class CodeEditorPage : ContentPage
     private CodeColorizer? _colorizer;
     private CodeEditorFoldIndicators? _foldIndicators;
     private CodeEditorFeatures? _features;
+    private CodeColorizer? _peerColorizer;
 
     public CodeEditorPage()
     {
         InitializeComponent();
+        CodeColumns.SizeChanged += (_, _) => SplitPaneLayout.Update(CodeColumns, CodePeerPane);
         _actions = new CodeEditorActions(Editor);
         Editor.Document = CodeDocument.FromPlainText(Sample);
+        CodePeer.Document = Editor.Document;
+        TabWidthPicker.ItemsSource = new[] { "2", "4", "8" };
+        TabWidthPicker.SelectedIndex = 1;
+        Editor.SelectionsChanged += (_, _) => UpdateStatus();
         Editor.SelectionChanged += (_, _) => UpdateStatus();
         Editor.TextChanged += (_, _) => UpdateStatus();
         Editor.Folding.Changed += (_, _) => UpdateStatus();
@@ -44,6 +50,7 @@ public sealed partial class CodeEditorPage : ContentPage
         _colorizer.Failed += OnColoringFailed;
         Application.Current.RequestedThemeChanged += OnThemeChanged;
         ApplyPalette();
+        UpdatePeerColorizer();
     }
 
     protected override void OnDisappearing()
@@ -54,6 +61,8 @@ public sealed partial class CodeEditorPage : ContentPage
         _foldIndicators = null;
         _colorizer?.Dispose();
         _colorizer = null;
+        _peerColorizer?.Dispose();
+        _peerColorizer = null;
         _features?.Dispose();
         _features = null;
         PopupLayer.BindingContext = null;
@@ -129,8 +138,8 @@ public sealed partial class CodeEditorPage : ContentPage
     {
         if (_features is not null)
             _features.PlaceholderColor = StudioTheme.Get("Selection");
-        if (_colorizer is not null)
-            _colorizer.Palette = token => token.Kind switch
+        foreach (var colorizer in new[] { _colorizer, _peerColorizer }.OfType<CodeColorizer>())
+            colorizer.Palette = token => token.Kind switch
         {
             CodeTokenKind.Keyword => StudioTheme.Get("Keyword"),
             CodeTokenKind.String => StudioTheme.Get("String"),
@@ -143,7 +152,8 @@ public sealed partial class CodeEditorPage : ContentPage
 
     private void UpdateStatus()
     {
-        StatusLabel.Text = $"Ln {Editor.CaretPosition.Line + 1}, Col {Editor.CaretPosition.Column + 1}  ·  {Editor.LineCount} lines";
+        StatusLabel.Text = $"Ln {Editor.CaretPosition.Line + 1}, Col {Editor.CaretPosition.Column + 1} · {Editor.LineCount} lines · Carets: {Editor.Selections.Count}";
+        EndingsLabel.Text = Editor.NewLine switch { "\r\n" => "Insert CRLF", "\r" => "Insert CR", _ => "Insert LF" };
         CollapseSelectionButton.IsEnabled = _actions.GetCollapseRange() is not null;
         ExpandAtCaretButton.IsEnabled = _actions.GetFoldAtCaret() is not null;
         ExpandAllButton.IsEnabled = Editor.Folding.CollapsedRanges.Count > 0;

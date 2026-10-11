@@ -44,101 +44,10 @@ internal sealed class CodeEditorActions(CodeEditor editor)
             editor.Folding.Expand(range);
     }
 
-    /// <summary>Inserts indentation at the caret, or indents every selected logical line in one undo unit.</summary>
-    public void Indent()
-    {
-        if (editor.IsReadOnly)
-            return;
-        if (editor.SelectedRange.IsEmpty)
-        {
-            var line = editor.GetLineRange(editor.GetPosition(editor.SelectedRange.Start).Line);
-            var column = 0;
-            foreach (var character in editor.Document.Text.AsSpan(line.Start, editor.SelectedRange.Start - line.Start))
-                column += character == '\t' ? editor.IndentSize - column % editor.IndentSize : 1;
-
-            var indentation = editor.UseTabs ? "\t" : new string(' ', editor.IndentSize - column % editor.IndentSize);
-            ApplyEdits((CodeTextEdit[])[new(editor.SelectedRange, indentation)], "Indent");
-            return;
-        }
-
-        var (first, last) = GetSelectedLines();
-        var edits = new List<CodeTextEdit>();
-        for (var line = first; line <= last; line++)
-            edits.Add(new(new TextSpan(editor.GetLineRange(line).Start, 0), Indentation));
-
-        ApplyEdits(edits, "Indent lines");
-    }
-
-    /// <summary>Removes one indentation level from each selected line in one undo unit.</summary>
-    public void Outdent()
-    {
-        if (editor.IsReadOnly)
-            return;
-
-        var (first, last) = GetSelectedLines();
-        var edits = new List<CodeTextEdit>();
-        for (var line = first; line <= last; line++)
-        {
-            var range = editor.GetLineRange(line);
-            var length = 0;
-            if (!range.IsEmpty && editor.Document.Text[range.Start] == '\t')
-                length = 1;
-            else
-                while (length < Math.Min(editor.IndentSize, range.Length) && editor.Document.Text[range.Start + length] == ' ')
-                    length++;
-            if (length > 0)
-                edits.Add(new(new TextSpan(range.Start, length), string.Empty));
-        }
-
-        ApplyEdits(edits, "Outdent lines");
-    }
-
-    /// <summary>Replaces the selection with a newline and, when enabled, the current line's leading whitespace.</summary>
-    public void InsertNewLine()
-    {
-        if (editor.IsReadOnly)
-            return;
-
-        ApplyEdits((CodeTextEdit[])[new(editor.SelectedRange, "\n" + (editor.AutoIndent ? GetIndentation(editor.SelectedRange.Start) : string.Empty))], "New line");
-    }
-
-    /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>
-    public void ToggleLineComment()
-    {
-        if (editor.IsReadOnly)
-            return;
-
-        var (first, last) = GetSelectedLines();
-        var targets = new List<TextSpan>();
-        for (var line = first; line <= last; line++)
-        {
-            var range = editor.GetLineRange(line);
-            var start = range.Start;
-            while (start < range.End && editor.Document.Text[start] is ' ' or '\t')
-                start++;
-            if (start != range.End || first == last)
-                targets.Add(new TextSpan(start, range.End - start));
-        }
-
-        var uncomment = targets.Count > 0 && targets.All(range =>
-            editor.Document.Text.AsSpan(range.Start, range.Length).StartsWith(editor.LineCommentPrefix, StringComparison.Ordinal));
-        var edits = new List<CodeTextEdit>();
-        foreach (var range in targets)
-        {
-            if (uncomment)
-            {
-                var length = editor.LineCommentPrefix.Length;
-                if (length < range.Length && editor.Document.Text[range.Start + length] == ' ')
-                    length++;
-
-                edits.Add(new(new TextSpan(range.Start, length), string.Empty));
-            }
-            else
-                edits.Add(new(new TextSpan(range.Start, 0), editor.LineCommentPrefix + " "));
-        }
-
-        ApplyEdits(edits, uncomment ? "Uncomment lines" : "Comment lines");
-    }
+    public void Indent() => editor.Indent();
+    public void Outdent() => editor.Outdent();
+    public void InsertNewLine() => editor.InsertNewLine();
+    public void ToggleLineComment() => editor.ToggleLineComment();
 
     /// <summary>Moves the caret to a one-based logical line and UTF-16 column, clamped to the document.</summary>
     /// <param name="line">The requested line, starting at one.</param>
@@ -223,8 +132,7 @@ internal sealed class CodeEditorActions(CodeEditor editor)
     {
         ArgumentNullException.ThrowIfNull(replacement);
         var matches = FindAll(query, options);
-        var normalized = replacement.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        return ApplyEdits(matches.Select(range => new CodeTextEdit(range, normalized)).ToList(), "Replace all") ? matches.Count : 0;
+        return ApplyEdits(matches.Select(range => new CodeTextEdit(range, replacement)).ToList(), "Replace all") ? matches.Count : 0;
     }
 
     private TextSpan SelectMatch(TextSpan range)
@@ -232,18 +140,6 @@ internal sealed class CodeEditorActions(CodeEditor editor)
         editor.SelectedRange = range;
         editor.ScrollIntoView(editor.SelectedRange);
         return range;
-    }
-
-    private string Indentation => editor.UseTabs ? "\t" : new string(' ', editor.IndentSize);
-
-    private string GetIndentation(int position)
-    {
-        var range = editor.GetLineRange(editor.GetPosition(position).Line);
-        var end = range.Start;
-        while (end < Math.Min(position, range.End) && editor.Document.Text[end] is ' ' or '\t')
-            end++;
-
-        return editor.Document.Text[range.Start..end];
     }
 
     private (int First, int Last) GetSelectedLines()

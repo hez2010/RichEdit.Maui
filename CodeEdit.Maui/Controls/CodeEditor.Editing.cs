@@ -19,7 +19,7 @@ public sealed partial class CodeEditor
     }
 
     /// <summary>Inserts indentation at the caret, or indents every selected logical line in one undo unit.</summary>
-    internal void Indent()
+    public void Indent()
     {
         if (IsReadOnly)
             return;
@@ -41,7 +41,7 @@ public sealed partial class CodeEditor
     }
 
     /// <summary>Removes one indentation level from each selected line in one undo unit.</summary>
-    internal void Outdent()
+    public void Outdent()
     {
         if (IsReadOnly)
             return;
@@ -65,7 +65,7 @@ public sealed partial class CodeEditor
     }
 
     /// <summary>Replaces the selection with a newline and, when enabled, the current line's leading whitespace.</summary>
-    internal void InsertNewLine()
+    public void InsertNewLine()
     {
         if (IsReadOnly)
             return;
@@ -74,7 +74,7 @@ public sealed partial class CodeEditor
     }
 
     /// <summary>Adds or removes the line-comment prefix after leading whitespace on selected nonempty lines.</summary>
-    internal void ToggleLineComment()
+    public void ToggleLineComment()
     {
         if (IsReadOnly)
             return;

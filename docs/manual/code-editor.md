@@ -23,6 +23,8 @@ var editor = new CodeEditor
 
 `IndentSize` controls inserted indentation; `TabSize` controls native tab display. `NewLine` is an insertion policy. Use an explicit document edit with `NormalizeLineEndings` to change existing terminators.
 
+`Indent()`, `Outdent()`, `InsertNewLine()`, and `ToggleLineComment()` apply the same editing policies as their keyboard bindings to all current selections. Use these methods for toolbar and menu commands. Each operation is one undoable edit and respects read-only mode and the length limit.
+
 `GetPosition`, `GetOffset`, `GetLineRange`, and snapshot `GetLine` use zero-based UTF-16 coordinates. `CaretPosition` describes the primary caret. Add one for user-facing line/column displays.
 
 ## Multiple selections
