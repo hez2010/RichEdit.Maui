@@ -48,13 +48,21 @@ namespace RichEdit.Maui.Platforms.Apple
             if (editor.TextLayout.HitTest(layout, new(local.X, local.Y)) is not { } hit)
                 return -1;
 
-            return editor.Document.CurrentSnapshot.Paragraphs.TakeWhile(paragraph => paragraph.Start <= hit.Position).Count() - 1;
+            return editor.InputSnapshot.FindParagraphIndex(hit.Position);
         }
 
         private TextSpan? AccessibilityLine(nint line)
         {
-            if (ProjectionHandler is not { VirtualView.InputSnapshot: var source } || line < 0 || line >= source.Paragraphs.Length)
+            if (ProjectionHandler is not { VirtualView.InputSnapshot: var source } || line < 0)
                 return null;
+
+            if (source.IsSourceProjection)
+            {
+                if (line >= source.TextBuffer.LineCount) return null;
+                var logical = source.TextBuffer.GetLine((int)line);
+                return new(logical.Span.Start, logical.Span.Length + logical.LineBreakLength);
+            }
+            if (line >= source.Paragraphs.Length) return null;
 
             var start = source.Paragraphs[(int)line].Start;
             var end = line + 1 < source.Paragraphs.Length ? source.Paragraphs[(int)line + 1].Start : source.Length;
@@ -63,7 +71,7 @@ namespace RichEdit.Maui.Platforms.Apple
 
         /// <inheritdoc />
         public string GetAccessibilityContent(nint lineNumber) => AccessibilityLine(lineNumber) is { } line ?
-            ProjectionHandler!.VirtualView.InputSnapshot.Text.Substring(line.Start, line.Length) : "";
+            ProjectionHandler!.VirtualView.InputSnapshot.GetText(line) : "";
 
         /// <inheritdoc />
         public CGRect GetAccessibilityFrame(nint lineNumber)

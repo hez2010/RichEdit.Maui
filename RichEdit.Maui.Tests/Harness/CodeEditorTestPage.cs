@@ -34,7 +34,11 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 return;
 
             started = true;
+#if IOS || MACCATALYST
+            await AppleTestEnvironment.RunAsync(() => RunAsync(filter));
+#else
             await RunAsync(filter);
+#endif
         };
     }
 
@@ -685,6 +689,23 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(false, _editor.CanUndo);
         });
 #else
+        await Test("accessibility reads indexed source lines without flattening the document", "", () =>
+        {
+            _editor.Coloring().Enabled = false;
+            var native = (UIKit.IUIAccessibilityReadingContent)_textView.Handler!.PlatformView!;
+            _ = native.GetAccessibilityContent(0);
+            _editor.Document = new(string.Concat(Enumerable.Repeat("alpha\r\nbeta\rchar\n", 10_000)));
+            var allocated = GC.GetAllocatedBytesForCurrentThread();
+            Equal("alpha\r\n", native.GetAccessibilityContent(29_997));
+            Equal("beta\r", native.GetAccessibilityContent(29_998));
+            Equal("char\n", native.GetAccessibilityContent(29_999));
+            Equal("", native.GetAccessibilityContent(30_000));
+            Equal("", native.GetAccessibilityContent(30_001));
+            Equal("", native.GetAccessibilityContent(-1));
+            allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+            Equal(true, allocated < 256_000, $"bounded line reads allocated {allocated} bytes");
+            return Task.CompletedTask;
+        });
         await Test("source input disables smart substitutions", "", () =>
         {
             var native = (UIKit.UITextView)_textView.Handler!.PlatformView!;
