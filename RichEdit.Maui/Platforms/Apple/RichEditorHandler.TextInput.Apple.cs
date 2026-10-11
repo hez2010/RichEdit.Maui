@@ -57,7 +57,12 @@ namespace RichEdit.Maui.Platforms.Apple
         internal UITextPosition? GetDisplayWordBoundary(UITextPosition from, UITextLayoutDirection direction)
         {
             using var scope = new DisplayInputScope(this);
-            return Tokenizer.GetPosition(from, UITextGranularity.Word, (UITextDirection)(long)direction);
+            if (Tokenizer is { } tokenizer)
+                return tokenizer.GetPosition(from, UITextGranularity.Word, (UITextDirection)(long)direction);
+            // Some UIKit/runtime combinations do not expose the text view's
+            // tokenizer. Retain native word segmentation for that case too.
+            using var fallback = new UITextInputStringTokenizer(this);
+            return fallback.GetPosition(from, UITextGranularity.Word, (UITextDirection)(long)direction);
         }
 
         internal UITextRange? GetDisplayRange(UITextPosition from, UITextPosition to)
