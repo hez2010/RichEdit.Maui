@@ -41,11 +41,12 @@ public partial class RichEditorHandler
             var listPictures = new Dictionary<string, Drawable?>(StringComparer.Ordinal);
 
             var listNumbers = new Dictionary<(int Id, int Level), int>();
-            var allJustified = true;
-            var allHyphenated = true;
-            var allLeftToRight = true;
-            var allRightToLeft = true;
-            foreach (var paragraph in document.Paragraphs)
+            var richParagraphs = VirtualView.SourceSession is null;
+            var allJustified = richParagraphs;
+            var allHyphenated = richParagraphs;
+            var allLeftToRight = richParagraphs;
+            var allRightToLeft = richParagraphs;
+            foreach (var paragraph in richParagraphs ? document.Paragraphs : [])
             {
                 allJustified &= paragraph.Format.Alignment is
                     RichTextAlignment.Justified or RichTextAlignment.Distributed;
@@ -190,7 +191,7 @@ public partial class RichEditorHandler
             }
 
             var paragraphRange = GetAffectedParagraphRange(changes, snapshot.Text);
-            if (changes.Changes.Any(static change => change.Kind is
+            if (VirtualView.SourceSession is null && changes.Changes.Any(static change => change.Kind is
                     RichTextChangeKind.Text or
                     RichTextChangeKind.ParagraphFormat or
                     RichTextChangeKind.List or

@@ -8,7 +8,24 @@ namespace RichEdit.Maui.Tests;
 
 public partial class CodeEditorTests
 {
-    [Fact]
+    [Fact(Explicit = true)]
+    public Task LargeNativeSourceAndLongLineKeepSplitViewsAndHistoryCoherent() => WithPerformanceSourceSurface(async editor =>
+    {
+        var host = (Microsoft.Maui.Controls.Grid)editor.Parent;
+        var peer = new CodeEditor();
+        host.Children.Add(peer);
+        ((IView)host).Measure(660, 350);
+        ((IView)host).Arrange(new(0, 0, 660, 350));
+        try { await SourcePerformanceWorkload.RunLarge(editor, peer); }
+        finally
+        {
+            host.Children.Remove(peer);
+            peer.TextView.Handler?.DisconnectHandler();
+            peer.Handler?.DisconnectHandler();
+        }
+    }, TimeSpan.FromMinutes(5));
+
+    [Fact(Explicit = true)]
     public Task ModernSourceDenseWorkloadMeasuresLazyWidgetsAndLatencyPercentiles() => WithPerformanceSourceSurface(
         SourcePerformanceWorkload.RunDense, TimeSpan.FromMinutes(3));
 

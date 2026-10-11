@@ -15,6 +15,7 @@ public partial class RichEditorHandler
 
         var previous = DisplaySourceSnapshot;
         var remappedPrevious = previous.RemapText(text, replacedRange);
+        if (VirtualView.SourceSession is not null) return remappedPrevious;
         var defaultCharacterFormat = previous.DefaultCharacterFormat;
         var inheritedCharacterFormat =
             RichTextDocumentSnapshot.CreateInheritedCharacterFormat(defaultCharacterFormat);
@@ -154,8 +155,8 @@ public partial class RichEditorHandler
             ContainsPastedRichContent(editable, insertedStart, insertedStart + insertedLength);
         var containsPastedListContent = insertedLength > 0 &&
             ContainsPastedListContent(editable, insertedStart, insertedStart + insertedLength);
-        var requiresNativeSnapshot = containsPastedRichContent ||
-            containsPastedListContent;
+        var requiresNativeSnapshot = VirtualView.SourceSession is null && (containsPastedRichContent ||
+            containsPastedListContent);
         RichTextDocumentSnapshot document;
         if (requiresNativeSnapshot)
         {
@@ -183,7 +184,7 @@ public partial class RichEditorHandler
                 new TextSpan(insertedStart, insertedLength));
         }
 
-        if (paragraphStructureChanged)
+        if (paragraphStructureChanged && VirtualView.SourceSession is null)
         {
             _applyingDocument = true;
             try
@@ -209,7 +210,8 @@ public partial class RichEditorHandler
         var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Text.Length);
         var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Text.Length);
         UpdateDocumentFromDisplay(document, start, end - start, _sourceToken, selectionState: new TextSelectionState(
-            Math.Clamp(PlatformView.SelectionStart, 0, document.Length), Math.Clamp(PlatformView.SelectionEnd, 0, document.Length)), presentation: presentation);
+            Math.Clamp(PlatformView.SelectionStart, 0, document.Length), Math.Clamp(PlatformView.SelectionEnd, 0, document.Length)), presentation: presentation,
+            nativeReplacement: new(removedStart, removedLength));
         WatchNativeFormats();
         UpdateTypingFormatsFromPlatform();
     }

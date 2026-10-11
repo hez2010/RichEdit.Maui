@@ -10,6 +10,65 @@ namespace RichEdit.Maui.Tests;
 // and a second frame opportunity. A frame callback is not a GPU-present timestamp.
 internal static partial class SourcePerformanceWorkload
 {
+    internal static async Task RunLarge(CodeEditor editor, CodeEditor? peer = null)
+    {
+        var colorizer = editor.Coloring();
+        var enabled = colorizer.Enabled;
+        colorizer.Enabled = false;
+        var measurements = new List<LargeCase>();
+#if WINDOWS
+        var progressPath = Path.Combine(AppContext.BaseDirectory, "source-editor-large-progress.txt");
+#else
+        var progressPath = Path.Combine(FileSystem.CacheDirectory, "source-editor-large-progress.txt");
+#endif
+        File.WriteAllText(progressPath, "");
+        void Progress(string text) => File.AppendAllText(progressPath, $"{DateTimeOffset.UtcNow:O} {text}\n");
+        try
+        {
+            editor.WordWrap = false;
+            editor.AutoIndent = false;
+            if (peer is not null) { peer.WordWrap = false; peer.Coloring().Enabled = false; }
+            foreach (var workload in new[]
+            {
+                (Name: "100000-lines-10MiB", Text: string.Concat(Enumerable.Repeat(new string('x', 105) + "\r\n", 100_000))),
+                (Name: "1MiB-logical-line", Text: new string('x', 1024 * 1024) + "a\u0301 \U0001f600 אבג العربية"),
+            })
+            {
+                var allocation = GC.GetTotalAllocatedBytes(true);
+                var started = Stopwatch.GetTimestamp();
+                Progress(workload.Name + " assigning source");
+                editor.Document = new(workload.Text);
+                Progress("primary bound");
+                if (peer is not null) peer.Document = editor.Document;
+                Progress("peer bound");
+                editor.Focus();
+                await FrameOpportunity(TimeSpan.FromSeconds(60));
+                Progress("initial layout complete");
+                var load = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                var frozen = editor.Document.CurrentSnapshot;
+                InputMeasurements samples;
+                using (editor.Document.BeginUndoGroup("Large workload input"))
+                    samples = await MeasureInput(editor, 100, Progress);
+                Check(peer is null || ReferenceEquals(editor.Document.CurrentSnapshot, peer.Document.CurrentSnapshot), "split views lost shared document identity");
+                if (peer is not null) Check(Surface(peer).Document.CurrentSnapshot.TextBuffer.Length == editor.Document.Length, "split native cache did not synchronize");
+                var history = editor.Document.RetainedHistoryByteEstimate;
+                editor.Undo();
+                Check(editor.Document.Length == frozen.Length && editor.Document.CurrentSnapshot.GetText(new(0, frozen.Length)) == workload.Text,
+                    "large document history changed canonical source");
+                measurements.Add(new(workload.Name, frozen.Length, frozen.LineCount, load, samples, history, GC.GetTotalAllocatedBytes(true) - allocation));
+            }
+            var report = new LargeReport(DateTimeOffset.UtcNow, System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, peer is not null, measurements.ToArray());
+            var json = JsonSerializer.Serialize(report, new ReportJsonContext(new() { WriteIndented = true }).LargeReport);
+#if WINDOWS
+            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "source-editor-large-performance.json"), json);
+#else
+            File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "source-editor-large-performance.json"), json);
+#endif
+        }
+        finally { colorizer.Enabled = enabled; }
+    }
+
     internal static async Task RunDense(CodeEditor editor)
     {
         const int lines = 2000;
@@ -144,19 +203,19 @@ internal static partial class SourcePerformanceWorkload
         return ready.Task;
     }
 
-    private static async Task FrameOpportunity()
+    private static async Task FrameOpportunity(TimeSpan? timeout = null)
     {
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var frames = 0;
 #if WINDOWS
         void Frame(object? sender, object args) { if (++frames == 2) ready.TrySetResult(); }
         Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += Frame;
-        try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+        try { await ready.Task.WaitAsync(timeout ?? TimeSpan.FromSeconds(5)); }
         finally { Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= Frame; }
 #elif ANDROID
         using var frame = new FrameCallback(() => { if (++frames == 2) ready.TrySetResult(); return frames < 2; });
         Android.Views.Choreographer.Instance!.PostFrameCallback(frame);
-        try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+        try { await ready.Task.WaitAsync(timeout ?? TimeSpan.FromSeconds(5)); }
         finally { Android.Views.Choreographer.Instance!.RemoveFrameCallback(frame); }
 #else
         using var link = CoreAnimation.CADisplayLink.Create(() => { if (++frames == 2) ready.TrySetResult(); });
@@ -180,6 +239,9 @@ internal static partial class SourcePerformanceWorkload
     private sealed record Publication(double SubmitMs, double CompletionMs, double LongestQueueDelayMs, long AllocatedBytes, int CreatedViews, int RecycledViews, int LiveViews);
     private sealed record Report(DateTimeOffset Timestamp, string Runtime, string OS, int LogicalProcessors, Guid CodeAssembly, Guid NativeAssembly,
         int Lines, int Decorations, int Widgets, InputMeasurements Baseline, Publication Initial, InputMeasurements Dense, long RetainedHistoryBytes);
+    private sealed record LargeCase(string Name, int Length, int Lines, double LoadMs, InputMeasurements Input, long RetainedHistoryBytes, long AllocatedBytes);
+    private sealed record LargeReport(DateTimeOffset Timestamp, string Runtime, string OS, bool SplitViews, LargeCase[] Workloads);
     [JsonSerializable(typeof(Report))]
+    [JsonSerializable(typeof(LargeReport))]
     private partial class ReportJsonContext : JsonSerializerContext;
 }

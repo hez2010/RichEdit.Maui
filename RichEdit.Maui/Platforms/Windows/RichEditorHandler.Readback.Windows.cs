@@ -255,8 +255,9 @@ public partial class RichEditorHandler
         RichTextDocumentSnapshot document;
         int start;
         int end;
+        TextSpan? replacement = null;
         if (!_hasNativeLinks &&
-            TryReadIncrementalNativeDocument(nativeStart, nativeEnd, out document, out start, out end))
+            TryReadIncrementalNativeDocument(nativeStart, nativeEnd, out document, out start, out end, out replacement))
         {
             _nativeTextSnapshot = null;
         }
@@ -283,7 +284,7 @@ public partial class RichEditorHandler
         var length = end - start;
         UpdateCompositionState();
         UpdateDocumentFromDisplay(document, start, length, _sourceToken, selectionState:
-            (selection.Options & SelectionOptions.StartActive) != 0 ? new TextSelectionState(end, start) : new TextSelectionState(start, end));
+            (selection.Options & SelectionOptions.StartActive) != 0 ? new TextSelectionState(end, start) : new TextSelectionState(start, end), nativeReplacement: replacement);
         PlatformView.Document.ClearUndoRedoHistory();
         VirtualView.UpdateUndoStateFromPlatform();
         UpdateTypingFormatsFromPlatform();
@@ -294,34 +295,43 @@ public partial class RichEditorHandler
         int nativeSelectionEnd,
         out RichTextDocumentSnapshot document,
         out int selectionStart,
-        out int selectionEnd)
+        out int selectionEnd,
+        out TextSpan? replacement)
     {
+        replacement = null;
         var previous = DisplaySourceSnapshot;
         var text = ReadNativePlainText();
         selectionStart = Math.Clamp(nativeSelectionStart, 0, text.Length);
         selectionEnd = Math.Clamp(nativeSelectionEnd, selectionStart, text.Length);
 
-        var prefixLength = previous.Text.AsSpan().CommonPrefixLength(text);
-        var suffixLength = 0;
-        var maximumSuffixLength = Math.Min(previous.Length, text.Length) - prefixLength;
-        while (suffixLength < maximumSuffixLength &&
-               previous.Text[^(suffixLength + 1)] == text[^(suffixLength + 1)])
-        {
-            suffixLength++;
-        }
-
-        var oldEnd = previous.Length - suffixLength;
-        var newEnd = text.Length - suffixLength;
-        var insertedText = text.Substring(prefixLength, newEnd - prefixLength);
+        var previousText = previous.Text;
         var replacedRange = NativeProjection.ToDisplay(VirtualView.SelectedRange);
-        if (RichTextDocumentSnapshot.TryGetReplacement(previous.Text, text, replacedRange, out var knownInsertion))
+        int prefixLength, oldEnd;
+        string insertedText;
+        // Most native input replaces the captured selection. Validate both
+        // unchanged sides with span comparisons before falling back to a diff;
+        // do not first walk a multi-megabyte unchanged suffix character by character.
+        if (RichTextDocumentSnapshot.TryGetReplacement(previousText, text, replacedRange, out var knownInsertion))
         {
             prefixLength = replacedRange.Start;
             oldEnd = replacedRange.End;
             insertedText = knownInsertion;
         }
+        else
+        {
+            prefixLength = previousText.AsSpan().CommonPrefixLength(text);
+            var suffixLength = 0;
+            var maximumSuffixLength = Math.Min(previous.Length, text.Length) - prefixLength;
+            const int block = 4096;
+            while (maximumSuffixLength - suffixLength >= block &&
+                previousText.AsSpan(previous.Length - suffixLength - block, block).SequenceEqual(text.AsSpan(text.Length - suffixLength - block, block)))
+                suffixLength += block;
+            while (suffixLength < maximumSuffixLength && previousText[^(suffixLength + 1)] == text[^(suffixLength + 1)]) suffixLength++;
+            oldEnd = previous.Length - suffixLength;
+            insertedText = text.Substring(prefixLength, text.Length - suffixLength - prefixLength);
+        }
 
-        var textChanged = !string.Equals(previous.Text, text, StringComparison.Ordinal);
+        var textChanged = !previousText.AsSpan(prefixLength, oldEnd - prefixLength).SequenceEqual(insertedText);
         document = textChanged
             ? previous.Replace(prefixLength..oldEnd, insertedText, _nativeTypingFormat)
             : previous;
@@ -330,7 +340,7 @@ public partial class RichEditorHandler
         // Keep the render cache's private reservations until Unproject removes
         // them; reading them into a rich schema would mistake spacing slots for
         // authored images and can reject an otherwise valid native insertion.
-        if (VirtualView.SourceSession is not null) return true;
+        if (VirtualView.SourceSession is not null) { replacement = new(prefixLength, oldEnd - prefixLength); return true; }
 
         // A content callback with unchanged text can represent a native formatting
         // command. In that case inspect only the current selection (or its caret
@@ -371,15 +381,9 @@ public partial class RichEditorHandler
 
         return string.Create(length, rawText, static (destination, source) =>
         {
-            for (var index = 0; index < destination.Length; index++)
-            {
-                destination[index] = source[index] switch
-                {
-                    '\r' => '\n',
-                    '\v' => RichTextDocument.SoftLineBreakCharacter,
-                    var character => character,
-                };
-            }
+            source.AsSpan(0, destination.Length).CopyTo(destination);
+            destination.Replace('\r', '\n');
+            destination.Replace('\v', RichTextDocument.SoftLineBreakCharacter);
         });
     }
 

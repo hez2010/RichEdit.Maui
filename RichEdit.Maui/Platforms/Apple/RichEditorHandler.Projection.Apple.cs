@@ -52,7 +52,12 @@ public partial class RichEditorHandler
 
                 var affected = changes.GetAffectedRange(snapshot.Length);
                 ApplyCharacterFormatsIncrementally(snapshot, affected);
-                foreach (var paragraph in snapshot.Paragraphs)
+                if (VirtualView.SourceSession is not null && !affected.IsEmpty)
+                {
+                    using var attributes = CreateParagraphAttributes(snapshot.DefaultParagraphFormat);
+                    storage.AddAttributes(attributes, new(affected.Start, affected.Length));
+                }
+                foreach (var paragraph in VirtualView.SourceSession is null ? snapshot.Paragraphs : [])
                 {
                     var end = GetParagraphEnd(snapshot.Text, paragraph.Start);
                     if (paragraph.Start > affected.End || end < affected.Start || paragraph.Start == end)

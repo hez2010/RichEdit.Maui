@@ -8,13 +8,21 @@ public partial class RichEditorHandler
     private void RefreshSourceTabStops(ISpannable text, RichTextDocumentSnapshot snapshot, TextSpan range)
     {
         if (VirtualView.SourceSession is null || snapshot.Length == 0) return;
-        for (var index = snapshot.FindParagraphIndex(range.Start); index < snapshot.Paragraphs.Length; index++)
+        var buffer = snapshot.TextBuffer;
+        var first = buffer.GetLine(buffer.GetPosition(range.Start).Line).Span.Start;
+        var lastLine = buffer.GetLine(buffer.GetPosition(range.End).Line);
+        var last = lastLine.Span.End + lastLine.LineBreakLength;
+        // The common tab-free source needs no paragraph descriptors or JNI
+        // substring calls. Clear existing stops once, then inspect bounded text.
+        RemoveIntersectingParagraphSpans<TabStopSpanStandard>(text, first, last);
+        var source = snapshot.Text;
+        if (source.AsSpan(first, last - first).IndexOf('\t') < 0) return;
+        for (var start = first; start < last;)
         {
-            var start = snapshot.Paragraphs[index].Start;
-            if (start > range.End || !range.IsEmpty && start == range.End) break;
-            var end = GetParagraphEnd(snapshot.Text, start);
-            RemoveIntersectingParagraphSpans<TabStopSpanStandard>(text, start, end);
-            ApplySourceTabStops(text, start, end);
+            var end = GetParagraphEnd(source, start);
+            if (source.AsSpan(start, end - start).IndexOf('\t') >= 0) ApplySourceTabStops(text, start, end);
+            if (end <= start) break;
+            start = end;
         }
     }
 

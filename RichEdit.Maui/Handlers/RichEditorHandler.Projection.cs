@@ -310,7 +310,8 @@ public partial class RichEditorHandler
 
     private void UpdateDocumentFromDisplay(RichTextDocumentSnapshot snapshot, int selectionStart, int selectionLength,
         object sourceToken, RichTextChangeOrigin origin = RichTextChangeOrigin.User, bool mergeWithPrevious = false,
-        long? projectedVersion = null, TextSelectionState? selectionState = null, RichTextDocumentSnapshot? presentation = null)
+        long? projectedVersion = null, TextSelectionState? selectionState = null, RichTextDocumentSnapshot? presentation = null,
+        TextSpan? nativeReplacement = null)
     {
         var nativePresentation = presentation ?? PreserveNativePresentation(snapshot);
         var map = ReadDisplayReservationMetadata(snapshot.Text);
@@ -318,7 +319,8 @@ public partial class RichEditorHandler
         var source = map.Unproject(snapshot);
         if (VirtualView.SourceSession is not null)
         {
-            var restored = VirtualView.RestoreNativeSource(source, selection);
+            var restored = VirtualView.RestoreNativeSource(source, selection,
+                nativeReplacement is { } replaced ? NativeProjection.ToSource(new TextSelectionState(replaced.Start, replaced.End)).Range : null);
             source = restored.Snapshot;
             selection = restored.Selection;
             map = map.WithLineEndings(restored.Projection);

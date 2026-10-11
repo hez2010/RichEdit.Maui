@@ -18,6 +18,7 @@ public partial class RichEditorHandler
             ? new TextSpan(pending.Start, pending.RemovedLength)
             : NativeProjection.ToDisplay(VirtualView.SelectedRange);
         var remappedPrevious = previous.RemapText(text, replacement);
+        if (VirtualView.SourceSession is not null) return remappedPrevious;
         var emptiedParagraphStart = -1;
         var deletedLength = previous.Length - text.Length;
         if (deletedLength > 0)
@@ -241,8 +242,9 @@ public partial class RichEditorHandler
             RecordPendingNativeChange(PlatformView.SelectedRange);
     }
 
-    private RichTextDocumentSnapshot? TryReadIncrementalNativeChange(UITextView textView)
+    private RichTextDocumentSnapshot? TryReadIncrementalNativeChange(UITextView textView, out TextSpan? replacement)
     {
+        replacement = null;
         if (_pendingNativeChange is not { } pending || VirtualView is null)
         {
             return null;
@@ -272,8 +274,8 @@ public partial class RichEditorHandler
 
         using var inserted = attributed.Substring(pending.Start, insertedLength);
         var insertedText = inserted.Value ?? string.Empty;
-        if (previous.Text.AsSpan(pending.Start, pending.RemovedLength).Contains('\n') ||
-            insertedText.Contains('\n'))
+        if (VirtualView.SourceSession is null && (previous.Text.AsSpan(pending.Start, pending.RemovedLength).Contains('\n') ||
+            insertedText.Contains('\n')))
         {
             // NSTextStorage owns paragraph/list semantics. Structural edits
             // are read back in full rather than predicted or corrected.
@@ -284,6 +286,10 @@ public partial class RichEditorHandler
             pending.Start..(pending.Start + pending.RemovedLength),
             insertedText,
             insertedLength == 0 ? null : _nativeTypingFormat);
+        // Source input has no authored paragraph or character attributes. Native
+        // spelling/typing defaults and syntax overlays must not force a complete
+        // attributed-story scan, especially for a very long logical line.
+        if (VirtualView.SourceSession is not null) { replacement = new(pending.Start, pending.RemovedLength); return document; }
         if (RequiresFullNativeSnapshot(
             attributed,
             document,
@@ -533,9 +539,10 @@ public partial class RichEditorHandler
         PlatformView.UpdatePlaceholderVisibility();
         var generation = _nativeEditGeneration;
         RichTextDocumentSnapshot document;
+        TextSpan? replacement;
         try
         {
-            document = TryReadIncrementalNativeChange(textView) ??
+            document = TryReadIncrementalNativeChange(textView, out replacement) ??
                 ReadDocumentFromPlatform();
         }
         finally
@@ -565,7 +572,7 @@ public partial class RichEditorHandler
             _sourceToken,
             mergeWithPrevious: mergeWithPrevious,
             projectedVersion: ReferenceEquals(_projectedDocument, VirtualView.Document) ? _projectedVersion : null,
-            selectionState: InferDisplaySelectionState(new TextSpan(start, length)));
+            selectionState: InferDisplaySelectionState(new TextSpan(start, length)), nativeReplacement: replacement);
         _projectedDocument = null;
         _projectedVersion = null;
 

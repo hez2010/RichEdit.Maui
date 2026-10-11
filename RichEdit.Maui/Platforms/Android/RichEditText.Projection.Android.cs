@@ -16,6 +16,8 @@ public partial class RichEditText
     private ObservedInputConnection? _sourceInputConnection;
     private bool _inputUpdateQueued;
     private string _accessibleText = "";
+    private const int MaximumServiceTextLength = 8192;
+    private const int MaximumAutofillTextLength = 65536;
 
     /// <inheritdoc />
     public override NativeAutofillValue? AutofillValue
@@ -24,7 +26,11 @@ public partial class RichEditText
         {
             // Autofill is a source-text boundary. TextView's default implementation
             // copies and sorts every native span, including private reservations.
-            using var text = new Java.Lang.String(ProjectionHandler?.VirtualView.InputSnapshot.Text ?? Text ?? "");
+            var snapshot = ProjectionHandler?.VirtualView.InputSnapshot;
+            if (snapshot?.Length > MaximumAutofillTextLength) return null;
+            var value = snapshot?.Text ?? Text ?? "";
+            if (value.Length > MaximumAutofillTextLength) return null;
+            using var text = new Java.Lang.String(value);
             return NativeAutofillValue.ForText(text);
         }
     }
@@ -60,6 +66,8 @@ public partial class RichEditText
 
         var editor = handler.VirtualView;
         var text = editor.InputSnapshot.Text;
+        var accessibilityEnabled = Context?.GetSystemService(Context.AccessibilityService) is AccessibilityManager { IsEnabled: true };
+        if (!accessibilityEnabled) _accessibleText = text;
         if (_accessibleText != text)
         {
             var start = 0;
@@ -84,8 +92,7 @@ public partial class RichEditText
             changed.ClassName = Class.Name;
             changed.PackageName = Context?.PackageName;
             _accessibleText = text;
-            if (Context?.GetSystemService(Context.AccessibilityService) is AccessibilityManager { IsEnabled: true })
-                base.SendAccessibilityEventUnchecked(changed);
+            base.SendAccessibilityEventUnchecked(changed);
         }
         if (_inputUpdateQueued)
             return;
@@ -166,6 +173,7 @@ public partial class RichEditText
     /// <inheritdoc />
     public override void SendAccessibilityEventUnchecked(AccessibilityEvent? e)
     {
+        if (Context?.GetSystemService(Context.AccessibilityService) is not AccessibilityManager { IsEnabled: true }) return;
         if (e is not null && ProjectionHandler is { } handler)
         {
             if (e.EventType == EventTypes.ViewTextChanged)
@@ -287,26 +295,28 @@ public partial class RichEditText
 
         public override Java.Lang.ICharSequence? GetTextBeforeCursorFormatted(int n, GetTextFlags flags)
         {
-            if (Projection is not { } handler)
+            if (owner.ProjectionHandler is not { } handler)
                 return base.GetTextBeforeCursorFormatted(n, flags);
 
             var end = handler.VirtualView.InputSelection.Range.Start;
-            return new Java.Lang.String(handler.VirtualView.InputSnapshot.Text[Math.Max(0, end - Math.Max(0, n))..end]);
+            var start = Math.Max(0, end - Math.Clamp(n, 0, MaximumServiceTextLength));
+            return new Java.Lang.String(handler.VirtualView.InputSnapshot.TextBuffer.GetText(new(start, end - start)));
         }
 
         public override Java.Lang.ICharSequence? GetTextAfterCursorFormatted(int n, GetTextFlags flags)
         {
-            if (Projection is not { } handler)
+            if (owner.ProjectionHandler is not { } handler)
                 return base.GetTextAfterCursorFormatted(n, flags);
 
             var start = handler.VirtualView.InputSelection.Range.End;
-            var text = handler.VirtualView.InputSnapshot.Text;
-            var length = Math.Min(Math.Max(0, n), text.Length - start);
-            return new Java.Lang.String(text.Substring(start, length));
+            var text = handler.VirtualView.InputSnapshot.TextBuffer;
+            var length = Math.Min(Math.Clamp(n, 0, MaximumServiceTextLength), text.Length - start);
+            return new Java.Lang.String(text.GetText(new(start, length)));
         }
 
-        public override Java.Lang.ICharSequence? GetSelectedTextFormatted(GetTextFlags flags) => Projection is { } handler ?
-            new Java.Lang.String(handler.VirtualView.InputSnapshot.Text.Substring(handler.VirtualView.InputSelection.Range.Start, handler.VirtualView.InputSelection.Range.Length)) : base.GetSelectedTextFormatted(flags);
+        public override Java.Lang.ICharSequence? GetSelectedTextFormatted(GetTextFlags flags) => owner.ProjectionHandler is { } handler ?
+            handler.VirtualView.InputSelection.Range.Length > MaximumServiceTextLength ? null :
+            new Java.Lang.String(handler.VirtualView.InputSnapshot.TextBuffer.GetText(handler.VirtualView.InputSelection.Range)) : base.GetSelectedTextFormatted(flags);
 
         public override ExtractedText? GetExtractedText(ExtractedTextRequest? request, GetTextFlags flags)
         {
@@ -314,15 +324,20 @@ public partial class RichEditText
                 return base.GetExtractedText(request, flags);
             if (((int)flags & 1) != 0)
                 _extractedToken = request?.Token;
-
+            var editor = handler.VirtualView;
+            var selected = editor.InputSelection.Range;
+            if (selected.Length > MaximumServiceTextLength) return null;
+            var available = MaximumServiceTextLength - selected.Length;
+            var start = Math.Max(0, selected.Start - available / 2);
+            var end = Math.Min(editor.InputSnapshot.Length, start + MaximumServiceTextLength);
             return new()
             {
-                Text = new Java.Lang.String(handler.VirtualView.InputSnapshot.Text),
-                StartOffset = 0,
+                Text = new Java.Lang.String(editor.InputSnapshot.TextBuffer.GetText(new(start, end - start))),
+                StartOffset = start,
                 PartialStartOffset = -1,
                 PartialEndOffset = -1,
-                SelectionStart = handler.VirtualView.InputSelection.Anchor,
-                SelectionEnd = handler.VirtualView.InputSelection.Active,
+                SelectionStart = editor.InputSelection.Anchor - start,
+                SelectionEnd = editor.InputSelection.Active - start,
             };
         }
 
@@ -340,24 +355,29 @@ public partial class RichEditText
         [SupportedOSPlatform("android34.0")]
         public override TextSnapshot? TakeSnapshot()
         {
-            if (Projection is not { } handler)
+            if (owner.ProjectionHandler is not { } handler)
                 return base.TakeSnapshot();
 
             var composition = handler.VirtualView.Composition.Range;
-            return new(GetSurroundingText(int.MaxValue, int.MaxValue, 0)!, composition?.Start ?? -1, composition?.End ?? -1, 0);
+            return GetSurroundingText(int.MaxValue, int.MaxValue, 0) is { } surrounding
+                ? new(surrounding, composition?.Start ?? -1, composition?.End ?? -1, 0) : null;
         }
 
         [SupportedOSPlatform("android31.0")]
         public override SurroundingText? GetSurroundingText(int beforeLength, int afterLength, int flags)
         {
-            if (Projection is not { } handler)
+            if (owner.ProjectionHandler is not { } handler)
                 return base.GetSurroundingText(beforeLength, afterLength, flags);
 
             var editor = handler.VirtualView;
-            var selection = editor.SelectedRange;
-            var start = Math.Max(0, selection.Start - Math.Max(0, beforeLength));
-            var end = (int)Math.Min(editor.InputSnapshot.Length, (long)selection.End + Math.Max(0, afterLength));
-            return new(new Java.Lang.String(editor.InputSnapshot.Text[start..end]), editor.InputSelection.Anchor - start, editor.InputSelection.Active - start, start);
+            var selection = editor.InputSelection.Range;
+            if (selection.Length > MaximumServiceTextLength) return null;
+            var budget = MaximumServiceTextLength - selection.Length;
+            var before = Math.Min(Math.Max(0, beforeLength), budget / 2);
+            var after = Math.Min(Math.Max(0, afterLength), budget - before);
+            var start = Math.Max(0, selection.Start - before);
+            var end = (int)Math.Min(editor.InputSnapshot.Length, (long)selection.End + after);
+            return new(new Java.Lang.String(editor.InputSnapshot.TextBuffer.GetText(new(start, end - start))), editor.InputSelection.Anchor - start, editor.InputSelection.Active - start, start);
         }
 
         public override bool DeleteSurroundingText(int beforeLength, int afterLength) => DeleteSource(beforeLength, afterLength, false);

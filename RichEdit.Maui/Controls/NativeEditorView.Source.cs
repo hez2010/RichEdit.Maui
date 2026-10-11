@@ -43,11 +43,25 @@ public partial class NativeEditorView
     internal sealed record SourceReadback(RichTextDocumentSnapshot Snapshot, TextSelectionState Selection, LfTextProjection Projection);
 
     internal SourceReadback RestoreNativeSource(
-        RichTextDocumentSnapshot native, TextSelectionState selection)
+        RichTextDocumentSnapshot native, TextSelectionState selection, TextSpan? knownSourceReplacement = null)
     {
         var before = InputSnapshot;
         var projection = ReferenceEquals(before.TextBuffer, Document.SourceLineEndings?.Source)
             ? Document.SourceLineEndings : new LfTextProjection(before.TextBuffer);
+        if (knownSourceReplacement is { } known)
+        {
+            var displayRange = projection.ToDisplay(known);
+            var insertedLength = native.Length - (projection.Display.Length - displayRange.Length);
+            if (insertedLength >= 0 && displayRange.Start <= native.Length - insertedLength)
+            {
+                var inserted = native.GetText(new(displayRange.Start, insertedLength));
+                if (projection.Display.GetText(displayRange) == inserted)
+                    return new(before, new(projection.ToSource(selection.Anchor), projection.ToSource(selection.Active)), projection);
+                var updated = projection.Source.Replace(known, inserted.Replace("\n", SourceNewLine, StringComparison.Ordinal));
+                var mapped = new LfTextProjection(updated, native.TextBuffer);
+                return new(RichTextDocumentSnapshot.CreateSourceProjection(updated), new(mapped.ToSource(selection.Anchor), mapped.ToSource(selection.Active)), mapped);
+            }
+        }
         var text = projection.Display.ToString();
         if (text == native.Text)
             return new(before, new(projection.ToSource(selection.Anchor), projection.ToSource(selection.Active)), projection);

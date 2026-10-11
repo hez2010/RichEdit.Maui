@@ -28,8 +28,8 @@ public partial class RichEditorHandler
         {
             var attributed = new NSMutableAttributedString(document.Text);
             Dictionary<int, NSTextList[]>? textListsByParagraph = null;
-            if (OperatingSystem.IsIOSVersionAtLeast(16) ||
-                OperatingSystem.IsMacCatalystVersionAtLeast(16))
+            if (VirtualView.SourceSession is null && (OperatingSystem.IsIOSVersionAtLeast(16) ||
+                OperatingSystem.IsMacCatalystVersionAtLeast(16)))
             {
                 ownedTextLists = [];
                 textListsByParagraph = CreateNativeTextLists(document, ownedTextLists);
@@ -53,7 +53,12 @@ public partial class RichEditorHandler
                         new NSRange(run.Start, run.Length));
                 }
 
-                foreach (var paragraph in document.Paragraphs)
+                if (VirtualView.SourceSession is not null)
+                {
+                    using var attributes = CreateParagraphAttributes(document.DefaultParagraphFormat);
+                    attributed.AddAttributes(attributes, fullRange);
+                }
+                foreach (var paragraph in VirtualView.SourceSession is null ? document.Paragraphs : [])
                 {
                     var end = GetParagraphEnd(document.Text, paragraph.Start);
                     if (end <= paragraph.Start)
@@ -146,8 +151,9 @@ public partial class RichEditorHandler
         RichTextCharacterFormat typingCharacterFormat,
         RichTextParagraphFormat typingParagraphFormat)
     {
-        if (_updatingDisplayProjection)
+        if (_updatingDisplayProjection || VirtualView.SourceSession is not null && !changes.Changes.Any(change => change.Kind == RichTextChangeKind.Reset))
         {
+            _pendingNativeChange = null;
             ApplyReservationChanges(changes, selection, typingCharacterFormat, typingParagraphFormat);
             return;
         }

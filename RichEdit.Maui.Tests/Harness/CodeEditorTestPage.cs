@@ -631,6 +631,33 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             return Task.CompletedTask;
         });
 
+        await Test("input services bound large source payloads with canonical offsets", "", () =>
+        {
+            _editor.Document = new(new string('x', 100_000));
+            _editor.SelectedRange = new(50_000, 0);
+            var native = (RichEdit.Maui.Platforms.Android.RichEditText)_textView.Handler!.PlatformView!;
+            Equal(true, native.AutofillValue is null);
+            using var info = new Android.Views.InputMethods.EditorInfo();
+            using var connection = native.OnCreateInputConnection(info)!;
+            using var request = new Android.Views.InputMethods.ExtractedTextRequest();
+            using var extracted = connection.GetExtractedText(request, Android.Views.InputMethods.GetTextFlags.None)!;
+            Equal(true, extracted.Text!.Length() <= 8192);
+            Equal(50_000, extracted.StartOffset + extracted.SelectionStart);
+            Equal(50_000, extracted.StartOffset + extracted.SelectionEnd);
+            using var before = connection.GetTextBeforeCursorFormatted(int.MaxValue, Android.Views.InputMethods.GetTextFlags.None)!;
+            using var after = connection.GetTextAfterCursorFormatted(int.MaxValue, Android.Views.InputMethods.GetTextFlags.None)!;
+            Equal(8192, before.Length()); Equal(8192, after.Length());
+            if (OperatingSystem.IsAndroidVersionAtLeast(31))
+            {
+                using var surrounding = connection.GetSurroundingText(int.MaxValue, int.MaxValue, 0)!;
+                Equal(true, surrounding.Text!.Length <= 8192);
+                Equal(50_000, surrounding.Offset + surrounding.SelectionStart);
+            }
+            _editor.SelectedRange = new(0, 100_000);
+            Equal(true, connection.GetSelectedTextFormatted(Android.Views.InputMethods.GetTextFlags.None) is null);
+            Equal(true, connection.GetExtractedText(request, Android.Views.InputMethods.GetTextFlags.None) is null);
+            return Task.CompletedTask;
+        });
         await Test("hardware backtick and punctuation reach native input", "", () =>
         {
             Key(Android.Views.Keycode.Grave);
@@ -671,6 +698,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 
         if (string.Equals(filter, "performance", StringComparison.OrdinalIgnoreCase))
             await Test("performance modern source dense", "", () => SourcePerformanceWorkload.RunDense(_editor));
+        if (string.Equals(filter, "large", StringComparison.OrdinalIgnoreCase))
+            await Test("large native source and long logical line", "", () => SourcePerformanceWorkload.RunLarge(_editor));
         await RunInputTests((name, source, action) => Test("input " + name, source, action));
         await RunFeatureTests((name, source, action) => Test(name, source, action));
 
