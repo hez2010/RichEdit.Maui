@@ -21,7 +21,12 @@ internal sealed partial class CodeEditorNativeAdapter
 
     private partial void UpdateConfigurationCore()
     {
-        PlatformView.TextWrapping = Owner.WordWrap ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        var wrapping = Owner.WordWrap ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        if (PlatformView.TextWrapping != wrapping)
+        {
+            PlatformView.TextWrapping = wrapping;
+            _handler.InvalidateNativeReservationPolicy();
+        }
         ScrollViewer.SetHorizontalScrollBarVisibility(PlatformView, Owner.WordWrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
     }
 }

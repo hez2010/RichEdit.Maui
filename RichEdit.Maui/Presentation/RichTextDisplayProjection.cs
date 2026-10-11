@@ -9,7 +9,7 @@ internal sealed record RichTextDisplayReservation(RichTextAdornment Adornment, i
 {
     internal int DisplayEnd => DisplayStart + Text.Length;
 
-    internal int ImagePosition => Text.IndexOf('\uFFFC') is var offset && offset >= 0 ? DisplayStart + offset : -1;
+    internal int ImagePosition => Text.IndexOfAny(['\uFFFC', '\u00A0']) is var offset && offset >= 0 ? DisplayStart + offset : -1;
 }
 
 // Native spans and ranges track positions. Their payload only identifies a private
@@ -165,22 +165,26 @@ internal sealed partial class RichTextDisplayProjection
             if (editor.Folding.FindRange(lineEndings?.ToSource(position) ?? position) is not null)
                 continue;
 
-            var text = "\uFFFC";
+            var glyph = "\uFFFC";
+#if WINDOWS
+            if (editor.Handler is RichEditorHandler handler && handler.CanUseTextReservation(item)) glyph = "\u00A0";
+#endif
+            var text = glyph;
             var order = 1;
             switch (item.Options.Placement)
             {
                 case RichTextAdornmentPlacement.AboveLine:
                     position = source.GetLine(source.GetPosition(position).Line).Span.Start;
-                    text = "\uFFFC\n";
+                    text = glyph + "\n";
                     order = 0;
                     break;
                 case RichTextAdornmentPlacement.BelowLine:
                     position = source.GetLine(source.GetPosition(position).Line).Span.End;
-                    text = "\n\uFFFC";
+                    text = "\n" + glyph;
                     order = 2;
                     break;
                 case RichTextAdornmentPlacement.Inline when item.MeasuredSize.Width > viewportWidth:
-                    text = (position > 0 && source[position - 1] != '\n' ? "\n" : "") + "\uFFFC" +
+                    text = (position > 0 && source[position - 1] != '\n' ? "\n" : "") + glyph +
                         (position < source.Length && source[position] != '\n' ? "\n" : "");
                     break;
             }
@@ -239,6 +243,9 @@ internal sealed partial class RichTextDisplayProjection
         foreach (var item in Reservations)
         {
             var format = snapshot.GetCaretFormat(item.SourcePosition);
+#if WINDOWS
+            if (item.Text.Contains('\u00A0')) format = RichEditorHandler.TextReservationFormat(item.Adornment, viewportWidth);
+#endif
             runs.Add(new(item.DisplayStart, item.Text.Length, format.Hidden ? format with { Hidden = false } : format));
         }
 

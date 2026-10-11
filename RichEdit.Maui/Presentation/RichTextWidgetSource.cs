@@ -64,6 +64,7 @@ public sealed partial class RichTextWidgetSource : IDisposable
             if (widget.Options?.Baseline > widget.EstimatedSize.Height) throw new ArgumentException("The estimated height must include the inline baseline.", nameof(widgets));
         }
         if (!Current(request)) return false;
+        using var publication = _owner.DeferUpdates();
         foreach (var pair in _items.ToArray())
         {
             if (next.TryGetValue(pair.Key, out var widget) && pair.Value.Handle.IsValid && pair.Value.Handle.Position == widget.Position &&
@@ -89,6 +90,7 @@ public sealed partial class RichTextWidgetSource : IDisposable
         _owner.Editor.VerifyAccess();
         if (_disposed) return;
         _disposed = true;
+        using var publication = _owner.DeferUpdates();
         foreach (var item in _items.Values) item.Handle.Dispose();
         _items.Clear();
     }

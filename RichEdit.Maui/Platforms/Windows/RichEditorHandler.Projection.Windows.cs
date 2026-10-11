@@ -8,6 +8,16 @@ public partial class RichEditorHandler
 
     private readonly List<(RichTextDisplayMarker Marker, ITextRange Range)> _displayReservationRanges = [];
 
+    private void ParkDisplayReservationRanges()
+    {
+        // During our synchronous native transaction, the prepared projection
+        // supplies every final marker position. Park tracking ranges outside
+        // edited/formatted content so TOM need not maintain each one repeatedly.
+        // CompleteDisplayProjection restores them before input can resume.
+        if (VirtualView.SourceSession is null) return;
+        foreach (var item in _displayReservationRanges) item.Range.SetRange(0, 0);
+    }
+
     private partial void WriteDisplayReservationMetadata()
     {
         if (NativeProjection.IsEmpty)

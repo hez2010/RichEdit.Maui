@@ -18,6 +18,7 @@ public partial class RichEditorHandler
         var imagePositions = snapshot.Images.Select(image => image.Position).ToHashSet();
         var surviving = GetSurvivingImages(changes);
         foreach (var image in snapshot.Images.Where(image =>
+            !IsTextReservation(snapshot, image) &&
             image.Position >= affectedRange.Start &&
             image.Position < affectedRange.End && (loadedImages is null || !loadedImages.Contains(image.Position)) &&
             surviving.GetValueOrDefault(image.Position) != image))

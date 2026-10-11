@@ -21,6 +21,17 @@ public partial class RichEditorHandler
     private RichTextDisplayProjection? _inputPresentationMap;
     private readonly RichPresentationCostEstimate _nativeReservationCost = new();
     private int _reservationPublicationCount;
+    internal string PresentationSchedulingState
+    {
+        get
+        {
+            var result = $"published {_publishedAdornments.Count}, native {NativeProjection.Reservations.Length}, pending {_displayPublicationPending}, marginal {_nativeReservationCost.MillisecondsPerItem:F3} ms";
+#if WINDOWS
+            result += $", text slots {NativeProjection.Reservations.Count(item => item.Text.Contains('\u00A0'))}, metrics {_reservationMetrics}";
+#endif
+            return result;
+        }
+    }
 
     internal RichTextDocumentSnapshot? GetCompositionPresentation()
     {
@@ -198,7 +209,7 @@ public partial class RichEditorHandler
         // projection construction to every new reservation causes batches to
         // shrink toward one while repeating that same fixed cost each pulse.
         var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-        _nativeReservationCost.Observe(_reservationPublicationCount, elapsed);
+        _nativeReservationCost.Observe(_reservationPublicationCount, elapsed, _publishedAdornments.Count - _reservationPublicationCount);
     }
 
     private void RefreshDisplayProjection(RichTextNativeLayout? previousLayout)

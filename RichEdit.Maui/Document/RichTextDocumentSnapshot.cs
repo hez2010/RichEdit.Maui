@@ -358,7 +358,6 @@ public sealed partial class RichTextDocumentSnapshot
         var oldEnd = start + length;
         var delta = replacement.Length - length;
         var buffer = _text.Replace(new(start, length), replacement);
-        var text = buffer.ToString();
         var insertionFormat = Validate(replacementFormat ?? GetCaretFormat(start));
         var runs = new List<RichTextRun>(_runs.Length + 2);
 
@@ -394,6 +393,12 @@ public sealed partial class RichTextDocumentSnapshot
             runs.Add(new RichTextRun(start, replacement.Length, insertionFormat));
         }
 
+        if (IsSourceProjection)
+            return CreateSourceDisplay(buffer, runs, _images
+                .Where(image => image.Position < start || image.Position >= oldEnd)
+                .Select(image => image.Position >= oldEnd ? image with { Position = image.Position + delta } : image));
+
+        var text = buffer.ToString();
         var insertionParagraphFormat = GetParagraphFormat(start);
         var paragraphs = EnumerateParagraphStarts(text).Select(paragraphStart =>
         {

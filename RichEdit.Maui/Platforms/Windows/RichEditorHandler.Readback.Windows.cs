@@ -220,6 +220,12 @@ public partial class RichEditorHandler
             if (PlatformView.Document.CanUndo())
             {
                 _nativeTextSnapshot = null;
+                if (VirtualView.SourceSession is not null && !_isComposing)
+                {
+                    ApplyCurrentDocument(VirtualView.SelectedRange.Start, VirtualView.SelectedRange.Length);
+                    ApplyTypingFormatCore(VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
+                    return;
+                }
                 ReadNativeDocumentChange();
             }
         });
@@ -319,6 +325,12 @@ public partial class RichEditorHandler
         document = textChanged
             ? previous.Replace(prefixLength..oldEnd, insertedText, _nativeTypingFormat)
             : previous;
+
+        // Source input has no authored character or paragraph formatting.
+        // Keep the render cache's private reservations until Unproject removes
+        // them; reading them into a rich schema would mistake spacing slots for
+        // authored images and can reject an otherwise valid native insertion.
+        if (VirtualView.SourceSession is not null) return true;
 
         // A content callback with unchanged text can represent a native formatting
         // command. In that case inspect only the current selection (or its caret

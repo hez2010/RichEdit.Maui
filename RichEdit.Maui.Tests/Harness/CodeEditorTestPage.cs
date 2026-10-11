@@ -669,6 +669,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
         });
 #endif
 
+        if (string.Equals(filter, "performance", StringComparison.OrdinalIgnoreCase))
+            await Test("performance modern source dense", "", () => SourcePerformanceWorkload.RunDense(_editor));
         await RunInputTests((name, source, action) => Test("input " + name, source, action));
         await RunFeatureTests((name, source, action) => Test(name, source, action));
 

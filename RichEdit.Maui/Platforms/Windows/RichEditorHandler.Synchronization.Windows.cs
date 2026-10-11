@@ -27,9 +27,10 @@ public partial class RichEditorHandler
             nativeDocument.BatchDisplayUpdates();
             try
             {
+                ParkDisplayReservationRanges();
                 _hasNativeLinks = false;
                 _nativeTextSnapshot = null;
-                var useNativeRtf = document.Images.Length > 0 ||
+                var useNativeRtf = document.Images.Any(image => !IsTextReservation(document, image)) ||
                     document.Paragraphs.Any(paragraph => paragraph.Format.NativeList is not null);
                 var loadedNativeRtf = false;
                 if (!useNativeRtf)
@@ -53,7 +54,7 @@ public partial class RichEditorHandler
                             .Where(item => item.character == '\uFFFC' && !imagePositions.Contains(item.position))
                             .Select(item => new RichTextImage { Position = item.position, Data = [.. ImagePlaceholder], Width = 12, Height = 12 });
                         var rtf = RtfCodec.SerializeForNativeProjection(
-                            document.With(images: document.Images.Select(static image => image.Adornment is null ? image :
+                            document.With(images: document.Images.Where(image => !IsTextReservation(document, image)).Select(static image => image.Adornment is null ? image :
                                 image with { Width = image.Width * 0.75, Height = image.Height * 0.75 }).Concat(literals)),
                             nativeDefaultCharacterFormat);
                         LoadRtfDocument(nativeDocument, rtf);
@@ -261,6 +262,7 @@ public partial class RichEditorHandler
             PlatformView.IsReadOnly = false;
             nativeDocument.BatchDisplayUpdates();
             displayUpdatesBatched = true;
+            ParkDisplayReservationRanges();
             var loadedImages = new HashSet<int>();
             var loadedRanges = new List<TextSpan>();
             var textChanges = changes.Changes.OfType<RichTextTextChange>().ToArray();
@@ -325,7 +327,7 @@ public partial class RichEditorHandler
                 changes.Changes.Where(static change => change.Kind is RichTextChangeKind.Text or RichTextChangeKind.ParagraphFormat or
                     RichTextChangeKind.List or RichTextChangeKind.Image or RichTextChangeKind.DefaultFormat)
                     .All(change => change.NewRange.Start >= paragraphs.Start && change.NewRange.End <= paragraphs.End));
-            if (!paragraphsLoaded && changes.Changes.Any(static change => change.Kind is
+            if (VirtualView.SourceSession is null && !paragraphsLoaded && changes.Changes.Any(static change => change.Kind is
                     RichTextChangeKind.Text or
                     RichTextChangeKind.ParagraphFormat or
                     RichTextChangeKind.List or

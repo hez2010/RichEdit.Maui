@@ -105,6 +105,7 @@ public sealed partial class RichTextAdornment : IDisposable
     internal Size MeasuredSize { get; set; }
     internal bool MeasureDirty { get; set; } = true;
     internal bool IsRealized { get; set; }
+    internal double NativeReservationSpace { get; set; }
 
     internal void SetOptions(TextTracking tracking, RichTextAdornmentOptions options)
     {
@@ -145,6 +146,8 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
     private readonly List<RichTextAdornment> _items = [];
     private readonly Dictionary<View, RichTextAdornment> _views = new(ReferenceEqualityComparer.Instance);
     private double _marginWidth;
+    private int _updateDepth;
+    private bool _updatePending;
 
     internal RichTextAdornmentLayout Overlay { get; }
     internal long Version { get; private set; }
@@ -357,7 +360,31 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
     private void Update()
     {
         Version++;
+        if (_updateDepth != 0) { _updatePending = true; return; }
         (_editor.Handler as RichEditorHandler)?.UpdateAdornments();
+    }
+
+    internal IDisposable DeferUpdates()
+    {
+        _editor.VerifyAccess();
+        _updateDepth++;
+        return new UpdateScope(this);
+    }
+
+    private sealed class UpdateScope(RichTextAdornments owner) : IDisposable
+    {
+        private bool _closed;
+        public void Dispose()
+        {
+            owner._editor.VerifyAccess();
+            if (_closed) return;
+            _closed = true;
+            if (--owner._updateDepth == 0 && owner._updatePending)
+            {
+                owner._updatePending = false;
+                (owner._editor.Handler as RichEditorHandler)?.UpdateAdornments();
+            }
+        }
     }
 }
 

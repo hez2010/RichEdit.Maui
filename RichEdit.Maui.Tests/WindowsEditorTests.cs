@@ -608,7 +608,7 @@ internal static class WindowsTestHost
             return Task.CompletedTask;
         });
 
-    public static async Task RunAsync(Func<Task> action)
+    public static async Task RunAsync(Func<Task> action, TimeSpan? timeout = null)
     {
         var dispatcher = await Dispatcher.Value.WaitAsync(TimeSpan.FromSeconds(30));
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -624,7 +624,7 @@ internal static class WindowsTestHost
                 completion.SetException(exception);
             }
         }));
-        await completion.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await completion.Task.WaitAsync(timeout ?? TimeSpan.FromSeconds(30));
     }
 
     public static Task RunClipboardAsync(Func<Task> action) => RunAsync(async () =>

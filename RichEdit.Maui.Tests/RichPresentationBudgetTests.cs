@@ -5,6 +5,19 @@ namespace RichEdit.Maui.Tests;
 public class RichPresentationBudgetTests
 {
     [Fact]
+    public void GrowingExistingPresentationIsSeparateFromNewObjectCost()
+    {
+        var cost = new RichPresentationCostEstimate();
+        var counts = new[] { 4, 20, 8, 12 };
+        for (var pass = 0; pass < 60; pass++)
+        {
+            var count = counts[pass % counts.Length];
+            var existing = pass * 32;
+            cost.Observe(count, 10 + count * 0.1 + existing * 0.8, existing);
+        }
+        Assert.InRange(cost.MillisecondsPerItem, 0.09, 0.11);
+    }
+    [Fact]
     public void FixedNativeOverheadDoesNotBecomeAPerWidgetCost()
     {
         var cost = new RichPresentationCostEstimate();
