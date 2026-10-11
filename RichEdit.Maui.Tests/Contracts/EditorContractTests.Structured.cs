@@ -8,6 +8,31 @@ internal static partial class EditorContractTests
     private static IEnumerable<Case> StructuredBindingCases()
     {
 #if ANDROID || IOS || MACCATALYST
+        yield return new("structured typed presentation remains transient through native input", async editor =>
+        {
+            var model = RichDocument.FromPlainText("abcd");
+            var rich = new RichEditor { Document = model };
+            try
+            {
+                _ = rich.ToPlatform(editor.Handler!.MauiContext!);
+                using var layer = rich.Presentation.CreateDecorationLayer();
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, new(2), 0);
+                var request = layer.BeginUpdate();
+                Equal(true, layer.TryPublish(request, [new(new(point, point with { Offset = 4 }), new() { Italic = true })]));
+                Equal(false, model.CanUndo);
+                rich.Selection = new RichEdit.Core.RichTextSelection(point with { Offset = 2 }, point with { Offset = 2 });
+                await Task.Delay(40);
+                NativeMultiInsert(rich.NativeView, "X");
+                await Task.Delay(40);
+                Equal("abXcd", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(false, layer.TryPublish(request, []));
+                foreach (var run in model.CurrentSnapshot.Nodes.Values.OfType<RichText>())
+                    Equal(false, model.CurrentSnapshot.ResolveCharacter(run.Id).Italic);
+                rich.Undo();
+                Equal("abcd", model.CurrentSnapshot.ProjectText().Text.ToString());
+            }
+            finally { rich.NativeView.Handler?.DisconnectHandler(); rich.Handler?.DisconnectHandler(); }
+        });
         yield return new("structured native review view projects original and final without history", async editor =>
         {
             var model = RichDocument.FromPlainText("original");

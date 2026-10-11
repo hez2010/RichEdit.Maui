@@ -59,6 +59,7 @@ public sealed partial class RichEditor : ContentView
             args.Handled = typed.Handled;
         };
         TextLayout = new(this, _view);
+        Presentation = new(this);
     }
 
     internal NativeEditorView NativeView => _view;
@@ -84,6 +85,8 @@ public sealed partial class RichEditor : ContentView
     public EditorKeyBindingCollection KeyBindings => _view.KeyBindings;
     /// <summary>Gets native geometry using rich text addresses and snapshot-bound captures.</summary>
     public RichEditorLayout TextLayout { get; }
+    /// <summary>Gets view-owned decorations and lazy widgets anchored with typed rich addresses.</summary>
+    public RichEditorPresentation Presentation { get; }
 
     /// <summary>Occurs after authored document content and every view have synchronized.</summary>
     public event EventHandler<RichDocumentChangedEventArgs>? ContentChanged;
@@ -162,6 +165,7 @@ public sealed partial class RichEditor : ContentView
         _view.BindStructuredDocument(document);
         Unsubscribe(before);
         Subscribe(Session);
+        Presentation.Reset();
         OnPropertyChanged(nameof(Session));
         OnSelectionChanged(this, EventArgs.Empty);
         OnStateChanged();
@@ -192,7 +196,7 @@ public sealed partial class RichEditor : ContentView
         session.Document.StateChanged -= _stateObserver;
         _stateObserver = null;
     }
-    private void OnDocumentChanged(object? sender, RichDocumentChangedEventArgs args) { OnStateChanged(); ContentChanged?.Invoke(this, args); UpdateStructureHost(immediate: false); }
+    private void OnDocumentChanged(object? sender, RichDocumentChangedEventArgs args) { Presentation.Changed(args); OnStateChanged(); ContentChanged?.Invoke(this, args); UpdateStructureHost(immediate: false); }
     private void OnSelectionChanged(object? sender, EventArgs args)
     {
         _synchronizingSelection = true;

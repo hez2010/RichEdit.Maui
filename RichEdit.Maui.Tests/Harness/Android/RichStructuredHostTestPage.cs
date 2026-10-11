@@ -26,6 +26,30 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             catch (Exception error) { results[^1] = $"FAIL {name}: {error}"; }
             File.WriteAllLines(report, results);
         }
+        await Test("typed presentation routes to native cells and follows their structural identities", async () =>
+        {
+            var cell = Cell(0, 1);
+            var paragraph = _editor.Document.CurrentSnapshot.Get<RichTableCell>(cell).Blocks[0];
+            var point = new RichTextPoint(_editor.Document.CurrentSnapshot.Body, paragraph, 1);
+            using var decorations = _editor.Presentation.CreateDecorationLayer();
+            using var widgets = _editor.Presentation.CreateWidgetSource(_ => new Label { Text = "hint" });
+            var before = _editor.Document.CurrentSnapshot;
+            Equal(true, decorations.TryPublish(decorations.BeginUpdate(), [new(new(point with { Offset = 0 }, point), new() { Italic = true })]));
+            Equal(true, widgets.TryPublish(widgets.BeginUpdate(), [new("cell-hint", point, new(30, 20))]));
+            await Task.Delay(100);
+            Equal(true, ReferenceEquals(before, _editor.Document.CurrentSnapshot));
+            Equal(1, Surface(cell).Adornments.Count);
+            Equal(0, Surface(Cell(0, 0)).Adornments.Count);
+            Equal(true, Surface(cell).Decorations.Project(Surface(cell).Document.CurrentSnapshot).GetCharacterFormat(0).Italic);
+            _editor.Edit(edit => edit.ReplaceText(point, 0, "X"));
+            await Task.Delay(100);
+            Equal(2, Surface(cell).Adornments.Single().Position);
+            _editor.Edit(edit => edit.InsertRows(_table, 0, 1));
+            await Ready();
+            Equal(1, Surface(cell).Adornments.Count);
+            Equal(2, Surface(cell).Adornments.Single().Position);
+            Equal(true, Surface(cell).Decorations.Project(Surface(cell).Document.CurrentSnapshot).GetCharacterFormat(0).Italic);
+        });
         await Test("native grid cells edit the shared structured document", async () =>
         {
             var grid = NativeViews<NativeGrid>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Single();
@@ -309,6 +333,30 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             Equal(2, selected.Count);
             Equal(PointAt(0, 1, 0), selected[0].Selection.Active);
             Equal(PointAt(1, 1, 0), selected[1].Selection.Active);
+            Equal(false, _editor.CanUndo);
+        });
+        await Test("vertical arrows and Shift retain rich anchors across cell surfaces", async () =>
+        {
+            var snapshot = _editor.Document.CurrentSnapshot;
+            RichTextPoint PointAt(int row, int column, int offset) => new(snapshot.Body,
+                snapshot.Get<RichTableCell>(Cell(row, column)).Blocks[0], offset);
+            var first = PointAt(0, 1, 1);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(first, first);
+            _editor.Focus(); await Task.Delay(40);
+            Equal(true, _editor.MoveSelections(EditorKey.Down, extend: true));
+            var selection = ((RichTextSelectionSet)_editor.Selection).Primary.Selection;
+            Equal(first, selection.Anchor);
+            Equal(PointAt(1, 1, 1), selection.Active);
+            Equal(true, _editor.MoveSelections(EditorKey.Up, extend: true));
+            selection = ((RichTextSelectionSet)_editor.Selection).Primary.Selection;
+            Equal(first, selection.Anchor); Equal(first, selection.Active);
+            first = PointAt(0, 0, 2);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(first, first);
+            Equal(true, _editor.MoveSelections(EditorKey.Right, extend: true));
+            Equal(PointAt(0, 1, 0), ((RichTextSelectionSet)_editor.Selection).Primary.Selection.Active);
+            Equal(true, _editor.MoveSelections(EditorKey.Right, extend: true));
+            selection = ((RichTextSelectionSet)_editor.Selection).Primary.Selection;
+            Equal(first, selection.Anchor); Equal(PointAt(0, 1, 1), selection.Active);
             Equal(false, _editor.CanUndo);
         });
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");

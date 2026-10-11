@@ -7,7 +7,7 @@ using RichEdit.Core;
 namespace RichEdit.Maui.Tests;
 
 [Collection("Native editor")]
-public class RichReviewViewTests
+public partial class RichReviewViewTests
 {
     private static Microsoft.UI.Xaml.Window? _window;
     private static MauiApp? _app;

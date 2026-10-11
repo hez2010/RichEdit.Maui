@@ -5,6 +5,7 @@ namespace RichEdit.Maui;
 public partial class NativeEditorView
 {
     private readonly List<WeakReference<NativeEditorView>> _structuredSurfaces = [];
+    internal event EventHandler? StructuredSurfacesChanged;
     private bool _focusingStructuredSelection;
     private int _structuredSurfaceUpdateDepth;
     // A newly inserted cell may not have a native control yet. Late selection
@@ -60,6 +61,7 @@ public partial class NativeEditorView
         surface.Focused += OnStructuredSurfaceFocused;
         surface.Unfocused += OnStructuredSurfaceUnfocused;
         surface.TextLayout.Changed += OnStructuredSurfaceLayoutChanged;
+        StructuredSurfacesChanged?.Invoke(this, EventArgs.Empty);
     }
     private void UnregisterStructuredSurface(NativeEditorView surface)
     {
@@ -67,6 +69,7 @@ public partial class NativeEditorView
         surface.Focused -= OnStructuredSurfaceFocused;
         surface.Unfocused -= OnStructuredSurfaceUnfocused;
         surface.TextLayout.Changed -= OnStructuredSurfaceLayoutChanged;
+        StructuredSurfacesChanged?.Invoke(this, EventArgs.Empty);
     }
     private void OnStructuredSurfaceFocused(object? sender, FocusEventArgs args)
     {
@@ -129,12 +132,13 @@ public partial class NativeEditorView
         {
             if (rootProjection.GetPoint(selection.Anchor) is not { } anchor || rootProjection.GetPoint(selection.Active) is not { } active) return false;
             var surface = FindStructuredSurface(new RichEdit.Core.RichTextSelection(anchor, active));
-            if (surface?.Handler is not RichEditorHandler handler || surface.Document.StructuredProjection is not { } scoped ||
-                !scoped.ContainsParagraph(anchor.Paragraph)) return false;
-            var local = selection with { Anchor = scoped.GetOffset(anchor), Active = scoped.GetOffset(active) };
+            if (surface?.Handler is not RichEditorHandler handler || surface.Document.StructuredProjection is not { } scoped) return false;
+            var surfaceOffset = surface.CurrentStructuredInputOffset;
+            var local = selection with { Anchor = scoped.ContainsParagraph(anchor.Paragraph) ? scoped.GetOffset(anchor) : scoped.GetOffset(active),
+                Active = scoped.GetOffset(active), PreferredVisualX = selection.PreferredVisualX - surfaceOffset.X };
             if (handler.NavigateSelection(local, direction, extend, byWord) is not { } result || scoped.GetPoint(result.Anchor) is not { } nextAnchor ||
                 scoped.GetPoint(result.Active) is not { } nextActive) return false;
-            if (!extend && local.IsEmpty && result.Active == local.Active && direction is EditorKey.Left or EditorKey.Right &&
+            if ((extend || local.IsEmpty) && result.Active == local.Active && direction is EditorKey.Left or EditorKey.Right &&
                 (local.Active == 0 || local.Active == scoped.Text.Length))
             {
                 var forward = scoped.Text.Length == 0 ? direction == EditorKey.Right : local.Active == scoped.Text.Length;
@@ -148,6 +152,33 @@ public partial class NativeEditorView
                     result = result with { PreferredVisualX = null };
                 }
             }
+            if (direction is EditorKey.Up or EditorKey.Down && handler.GetTextCaretBounds(local.Active, (RichTextCaretAffinity)local.Affinity) is { } previousCaret &&
+                handler.GetTextCaretBounds(result.Active, (RichTextCaretAffinity)result.Affinity) is { } movedCaret && Math.Abs(previousCaret.Center.Y - movedCaret.Center.Y) < 1)
+            {
+                var x = selection.PreferredVisualX ?? previousCaret.X + surfaceOffset.X;
+                var y = previousCaret.Center.Y + surfaceOffset.Y;
+                var forward = direction == EditorKey.Down;
+                var candidates = StructuredSurfaces().Where(view => !ReferenceEquals(view, surface))
+                    .Select(view => (View: view, Handler: view.Handler as RichEditorHandler, Projection: view.Document.StructuredProjection))
+                    .Where(item => item.Handler is not null && item.Projection is not null)
+                    .Select(item => (item.View, Handler: item.Handler!, Projection: item.Projection!,
+                        Caret: item.Handler!.GetTextCaretBounds(forward ? 0 : item.Projection!.Text.Length, forward ? RichTextCaretAffinity.Downstream : RichTextCaretAffinity.Upstream), Offset: item.View.CurrentStructuredInputOffset))
+                    .Where(item => item.Caret is { } caret && (forward ? caret.Center.Y + item.Offset.Y > y + previousCaret.Height / 2 :
+                        caret.Center.Y + item.Offset.Y < y - previousCaret.Height / 2))
+                    .OrderBy(item => Math.Abs(item.Caret!.Value.Center.Y + item.Offset.Y - y))
+                    .ThenBy(item => item.View.StructuredInputBoundsProvider?.Invoke() is { } bounds ? Math.Max(bounds.Left - x, Math.Max(0, x - bounds.Right)) :
+                        Math.Abs(item.Caret!.Value.X + item.Offset.X - x));
+                foreach (var candidate in candidates)
+                {
+                    if (candidate.Handler.HitTestText(new(x - candidate.Offset.X, candidate.Caret!.Value.Center.Y)) is not { } hit ||
+                        candidate.Projection.GetPoint(hit.Position, (CaretAffinity)hit.Affinity) is not { } point) continue;
+                    nextActive = nextAnchor = point;
+                    result = result with { PreferredVisualX = x - surfaceOffset.X };
+                    break;
+                }
+            }
+            if (extend) nextAnchor = anchor;
+            result = result with { PreferredVisualX = result.PreferredVisualX + surfaceOffset.X };
             moved.Add(result with { Anchor = rootProjection.GetOffset(nextAnchor), Active = rootProjection.GetOffset(nextActive) });
         }
         Selections = new(moved, Selections.PrimaryIndex);
