@@ -1,76 +1,49 @@
 ---
-title: Anchored views
-description: Place interactive MAUI views beside or within text without adding source characters.
+title: Widgets and anchored views
+description: Lazy native-flow reservations and transient interactive content.
 ---
 
-# Anchored views
+# Widgets and anchored views
 
-`Adornments` anchors MAUI views to source positions for line actions, inline hints, fold controls, or result panels. The views retain normal input and accessibility behavior without adding document characters or undo entries.
-
-## Add a margin action
+Widgets are view-owned presentation and never enter authored content, undo, or RTF. Use a data-backed source for many hints or actions; its factories run near the viewport and recycle views outside it.
 
 ```csharp
-editor.Adornments.MarginWidth = 32;
-var button = new Button
+using var source = code.Adornments.CreateSource(
+    widget => new Label { Text = (string?)widget.Data },
+    (widget, view) => { /* Return view to a bounded application pool. */ });
+
+source.TryPublish(source.BeginUpdate(), new[]
 {
-    Text = "+",
-    WidthRequest = 24,
-    HeightRequest = 24,
-    Padding = 0,
-};
-SemanticProperties.SetDescription(button, "Add a note on this line");
-
-var adornment = editor.Adornments.Add(
-    editor.SelectionState.Active,
-    button,
-    new RichTextAdornmentOptions
-    {
-        Placement = RichTextAdornmentPlacement.LeftMargin,
-    });
+    new RichTextWidget("hint-1", 12, new Size(60, 20), Data: "parameter:",
+        Options: new() { Placement = RichTextAdornmentPlacement.Inline },
+        AccessibleDescription: "Parameter name"),
+});
 ```
 
-The view must be unparented. Use the returned handle's `Options` to change its placement or `Dispose()` to remove it.
+Stable IDs preserve unchanged live views and measurement. Increment `ContentVersion` when mutable application data changes in place. Estimates must be finite and nonnegative; an explicit inline baseline must fit the estimated height.
 
-## Placement
+Rich widgets use paragraph identities:
 
-| Placement | Layout behavior |
+```csharp
+using var source = editor.Presentation.CreateWidgetSource(
+    widget => new Label { Text = (string?)widget.Data });
+
+source.TryPublish(source.BeginUpdate(), new[]
+{
+    new RichEditorWidget("comment-action", point, new Size(60, 24),
+        Data: "Review", Options: new() { Placement = RichTextAdornmentPlacement.AboveLine }),
+});
+```
+
+The rich anchor's affinity controls insertion behavior. Structural moves, paragraph splits, and table rebuilds route widgets to their current native surface. Deleted anchors disappear. These producers clear on document replacement and reject stale revision/generation requests.
+
+| Placement | Behavior |
 | --- | --- |
-| `Overlay` | Draw over text at the anchor; reserve no text-flow space |
-| `LeftMargin` | Draw in the width reserved by `MarginWidth` |
-| `Inline` | Reserve the view's measured width and height in text flow |
-| `AboveLine` | Reserve a row above the anchor's logical line |
-| `BelowLine` | Reserve a row below the anchor's logical line |
+| Overlay | Overlaps text without reserving space |
+| LeftMargin | Uses the source view's reserved margin |
+| Inline | Reserves space at a native text position |
+| AboveLine / BelowLine | Reserves a block row next to the anchor's logical line |
 
-Overlay and margin placements accept an `Offset`. Inline `Baseline` is measured from the top of the view; a null baseline aligns its bottom. Inline content wider than the viewport occupies its own row.
+`code.Adornments.Add(position, view, options)` is a convenience for a small number of eagerly supplied interactive views. Set `code.Adornments.MarginWidth` or `editor.Presentation.MarginWidth` for margin content. The rich margin applies to each native text surface, including cells.
 
-```csharp
-var hint = editor.Adornments.Add(
-    editor.SelectionState.Active,
-    new Label { Text = "inferred: string", FontSize = 12, TextColor = Colors.Gray },
-    new RichTextAdornmentOptions { Placement = RichTextAdornmentPlacement.Inline });
-```
-
-## Results from background work
-
-When an anchor comes from background analysis, call `TryAdd` with that snapshot's revision:
-
-```csharp
-var snapshot = editor.Document.CurrentSnapshot;
-var label = new Label { Text = "Result" };
-bool added = editor.Adornments.TryAdd(
-    snapshot.Revision,
-    0,
-    label,
-    out var result,
-    new RichTextAdornmentOptions { Placement = RichTextAdornmentPlacement.BelowLine });
-```
-
-Create the view and call `TryAdd` on the UI thread. A stale revision returns `false`; invalid positions or parented views throw.
-
-## Anchor behavior
-
-Anchors follow text edits with `AfterInsertion` affinity by default. Set `Affinity = BeforeInsertion` to keep a view before text inserted at its position. Deletion or replacement containing an anchor removes its view.
-
-Views are clipped to the viewport and hidden when their anchors are folded. Document replacement clears the collection. Undo does not recreate a removed view, so regenerate derived adornments when needed.
-
-`Adornments.Clear()` removes all views from the collection.
+Reservation publication and measurement use elapsed-work scheduling. One expensive factory or indivisible native call can exceed the slice target. A zero-size or unavailable viewport does not cause all widget factories to run. Always provide accessible descriptions for meaningful interactive content.

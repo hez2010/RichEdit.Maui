@@ -1,75 +1,34 @@
 ---
 title: Input, commands, and clipboard
-description: Connect editing commands, customize paste and context menus, and register hardware-key shortcuts.
+description: Native input, composition, checked cut, and transactional source rules.
 ---
 
 # Input, commands, and clipboard
 
-## Use built-in commands
+The native control owns typing, marked text, candidate interaction, primary selection, and touch handles. Hardware key bindings route commands; they do not replace the platform input connection.
 
-Both controls expose `Commands.Undo`, `Redo`, `SelectAll`, `Copy`, `Cut`, and `Paste` as `ICommand` properties. Their `CanExecute` state reflects the editor's current selection, history, and editability.
+Android text-service queries return bounded canonical context. Extracted/surrounding windows contain at most 8,192 UTF-16 units and carry their source offset. Oversized selected-text/extracted requests return no payload, and autofill does not publish document values above 65,536 units. These bounds prevent oversized Binder transactions; they do not truncate authored content, saved files, or clipboard commands.
 
-```csharp
-var copy = new Button { Text = "Copy", Command = editor.Commands.Copy };
-var paste = new Button { Text = "Paste", Command = editor.Commands.Paste };
-```
+Use the control's `Commands`, `KeyBindings`, and `ContextMenuOpening` APIs for application UI. Rich-editor methods include `CopyAsync`, `CutAsync`, `PasteAsync`, `PastePlainTextAsync`, `Undo`, `Redo`, and `SelectAll`. `IsReadOnly` is a session editing policy. Direct document edits are independent of one view's read-only state.
 
-Use `CopyAsync()`, `CutAsync()`, and `PasteAsync()` when your code needs to await completion and observe errors directly. Command and native-menu execution reports operational clipboard failures through `Commands.Failed`; other exceptions still propagate through UI exception handling.
+## Composition
 
-`IsReadOnly` disables editing through the control while leaving reading, selection, and copying available. `MaxLength` is a UTF-16 input limit, with `-1` meaning unlimited. It does not truncate an already loaded document or constrain direct model edits.
+Marked text lives in a provisional session snapshot. The shared committed document does not change until native composition completes. A document permits one composition lease; unrelated mutation is rejected with `CompositionActive`. Other panes may still inspect and display committed content.
 
-## Intercept paste
+With multiple carets, native composition previews at the primary caret. A simple committed replacement is replicated to the other carets in one transaction. Reconversion extending outside the primary range leaves secondary-selection mode. Cancellation restores the pre-composition selection set.
 
-`Pasting` receives a portable fragment before insertion. Set `Cancel` to reject it or replace `Fragment` to transform it:
+Request completion before saving, changing documents, or commands requiring committed input. An unresolved request must remain pending rather than saving text that omits the marked input.
 
-```csharp
-editor.Pasting += (_, args) =>
-{
-    // Paste plain text with tabs replaced by spaces.
-    string text = args.Fragment.Text.Replace("\t", "    ", StringComparison.Ordinal);
-    args.Fragment = RichTextDocumentFragment.FromPlainText(text);
-};
-```
+## Source input rules
 
-RichEditor retains rich fragments for copies within the running application while the clipboard still identifies that copy. Windows and Apple also publish RTF and plain text for other applications. Android imports plain text from other applications. Plain-text paste inherits the destination typing format and respects the editor's input length policy.
+`CodeEditor.InputRules.Register` installs synchronous transaction-planning callbacks in explicit priority and registration order. A `TextInputContext` exposes the before/input snapshots, selections, and input changes. Its replacements address the input candidate; overlapping rule edits are rejected.
 
-CodeEditor copies and pastes plain source. Its `Pasting` event uses the shared fragment type, but accepted content is converted to text.
+Use rules for paired delimiters, completion commit characters, indentation, and linked placeholders. Rules cannot await or mutate the live document. A completion plus commit character belongs to one plan and one undo unit. Async language analysis supplies cached decisions or later revision-checked edits.
 
-## Bind hardware shortcuts
+## Clipboard
 
-```csharp
-var primary = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst()
-    ? EditorKeyModifiers.Meta
-    : EditorKeyModifiers.Control;
+Rich clipboard exchange is self-contained RTF plus ordinary plain-text fallback. Android uses an RTF transport that cooperating applications can read. Unsupported external rich payloads use available plain text; no HTML codec is provided.
 
-editor.KeyBindings.Add(new EditorKeyBinding(
-    EditorKey.A, primary, editor.Commands.SelectAll));
-```
+Cut freezes the selection and snapshot, publishes the clipboard, then checks document revision and selection generation before deleting. An asynchronous stale cut cannot delete newly selected or edited content.
 
-Bindings match exact key and modifier combinations. The last matching binding takes precedence, receives its command parameter, and runs only if `CanExecute` returns true. A disabled binding lets native handling continue. `Meta` represents Command on Apple platforms; `AltGraph` distinguishes AltGr from Control+Alt.
-
-`KeyDown` runs before bindings and default shortcut handling. Set `Handled` to consume an event. Prefer key bindings for shortcut overrides on Apple, where the bindings are registered as native key commands.
-
-`KeyDown` and bindings handle hardware keys. Observe `TextChanged` for input from software keyboards or IMEs. Native composition takes precedence over custom shortcuts.
-
-## Customize context menus
-
-```csharp
-editor.ContextMenuOpening += (_, args) =>
-{
-    args.Items.Add(new MenuFlyoutSeparator());
-    args.Items.Add(new MenuFlyoutItem
-    {
-        Text = "Select all",
-        Command = editor.Commands.SelectAll,
-    });
-};
-```
-
-Each opening gets a new top-level item list. Set `IncludeDefaultItems = false` to replace native actions, or attach a `MenuFlyout` with `FlyoutBase.SetContextFlyout`.
-
-Adapters support text, submenus, separators, enabled state, click handlers, commands, and command parameters. Menu icon sources and menu-item keyboard accelerators are not rendered. Customization is available on Windows, Android, and iOS/Mac Catalyst 16 or later; older Apple versions use their standard menus.
-
-## Configure text entry
-
-RichEditor exposes `Keyboard`, `IsSpellCheckEnabled`, and `IsTextPredictionEnabled` for native text input. `AcceptsTab` enables tab insertion. `ReturnCommand` and `Completed` respond to native editing completion, whose trigger varies by platform.
+In-process multiple-selection metadata can preserve fragment boundaries while clipboard identity matches. Matching fragment/caret counts distribute fragments; otherwise the combined payload is inserted at each selection. External rich interchange remains one RTF payload.

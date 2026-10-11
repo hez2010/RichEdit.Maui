@@ -1,57 +1,34 @@
 ---
-title: Tracked positions and ranges
-description: Keep bookmarks and editable placeholders aligned with text changes, and choose boundary and deletion behavior.
+title: Tracking and persistent annotations
+description: Disposable source anchors and document-owned rich comments and bookmarks.
 ---
 
-# Tracked positions and ranges
+# Tracking and persistent annotations
 
-`Document.Tracking` provides positions and ranges that follow text edits, undo, and redo. Both document types expose this service.
-
-## Track a bookmark
+Use `CodeDocument.Tracking` for temporary source anchors. `TrackPosition` and `TrackRange` return disposable handles that move through edits. Insertion affinity chooses which side of an insertion retains the anchor. Deletion behavior determines whether removed content invalidates the handle or collapses its range.
 
 ```csharp
-using var bookmark = editor.Document.Tracking.TrackPosition(editor.SelectionState.Active);
+using TextEdit.Core;
 
-editor.Selection.ReplaceText("inserted text");
-if (bookmark.Position is int position)
+using var caret = code.Document.Tracking.TrackPosition(
+    3, PositionAffinity.AfterInsertion);
+code.Document.Edit(edit => edit.InsertText(0, "prefix "));
+int? current = caret.Position;
+```
+
+Tracking handles are view/application tools, not persistence. Invalidated handles are not resurrected by undo. Dispose them when a hover, search session, snippet, or other feature ends.
+
+Rich document changes expose `RichAddressMap.Map(point)`. It preserves moved node identities, maps paragraph split/join offsets, and returns null for removed paragraphs. Rich presentation producers apply these maps automatically.
+
+Persistent rich bookmarks and comments belong to the document:
+
+```csharp
+editor.Edit(edit =>
 {
-    editor.SelectionState = new RichTextSelectionState(position, position);
-    editor.ScrollIntoView(new RichTextRange(position, 0));
-}
+    edit.AddBookmark("intro", new RichEdit.Core.RichTextSelection(startPoint, endPoint));
+    edit.AddComment(new RichEdit.Core.RichTextSelection(startPoint, endPoint),
+        "Check this wording.", author: "Reviewer");
+});
 ```
 
-The default position affinity is `AfterInsertion`: text inserted exactly at the anchor moves the anchor after the new text. Use `BeforeInsertion` to keep it before the new text.
-
-Disposing a handle releases its tracking registration.
-
-## Track an editable placeholder
-
-```csharp
-editor.Document = CodeDocument.FromPlainText("name");
-using var placeholder = editor.Document.Tracking.TrackRange(
-    new RichTextRange(0, 4),
-    startAffinity: RichTextTrackingAffinity.BeforeInsertion,
-    endAffinity: RichTextTrackingAffinity.AfterInsertion,
-    deletion: RichTextTrackingDeletionBehavior.Preserve);
-
-editor.SelectedRange = new RichTextRange(0, 4);
-editor.Selection.ReplaceText("customerName");
-
-if (placeholder.Range is RichTextRange range)
-    editor.SelectedRange = range;
-```
-
-These affinities include insertions at both edges, and `Preserve` keeps the range through replacement, as needed for an editable snippet field.
-
-## Choose boundary behavior
-
-| Handle boundary | Default | Alternative |
-| --- | --- | --- |
-| Position | After inserted text | Before inserted text |
-| Range start | After inserted text | Before inserted text to include it |
-| Range end | Before inserted text | After inserted text to include it |
-| Deleted source | Invalidate the handle | Preserve at the replacement boundary according to affinity |
-
-The default range policy excludes boundary insertions and invalidates the range when any of its source is removed. An invalidated or disposed handle's `Position` or `Range` returns `null`. Undo does not revive an invalidated handle.
-
-Handles remain attached to their original document when the editor changes documents. `DocumentChanged` is the place to release bookmarks or snippet state associated with the old document.
+Annotations retain semantic anchors and can become orphaned when their content is removed. `SetAnnotationRange` reattaches them; `SetCommentText` and `RemoveAnnotation` are authored edits. Undo restores their content and anchor state. RTF persistence preserves supported annotation relationships independently of disposable source trackers.

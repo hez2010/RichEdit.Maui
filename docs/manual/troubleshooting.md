@@ -1,40 +1,24 @@
 ---
 title: Troubleshooting
-description: Diagnose handler registration, document ownership, input, persistence, stale results, and layout problems.
+description: Diagnose identity, composition, persistence, and native layout issues.
 ---
 
 # Troubleshooting
 
-| Symptom | Check and fix |
+| Symptom | Check |
 | --- | --- |
-| The editor has no registered handler | Call `UseRichEdit()` or `UseCodeEditor()` before building the MAUI app. `UseCodeEditor()` registers both. |
-| The editor has little height or does not scroll as expected | Give it a bounded Grid row or explicit height. Avoid measuring it with an unbounded parent ScrollView. |
-| Assigning a document fails | A live document can attach to one editor at a time. Create a separate document for another editor. |
-| A binding does not update after loading | Raise `PropertyChanged` for the view-model `Document` property when replacing it. Native typing updates the current document in place. |
-| Offsets select the wrong text | Use normalized LF text and UTF-16 offsets. Code line/column APIs are one-based. |
-| Formatting changes new typing but not nearby text | An empty selection changes typing format. Select the intended text or use an explicit document range. |
-| Syntax highlighting marks the document modified | Use decorations instead of authored formats, including `PreserveHistory` formatting. |
-| Undo is disabled | Close all undo groups, confirm a changed edit was recorded, and check read-only command state. |
-| The document appears saved after a later edit | Capture a save point with the snapshot and mark that point only after its write succeeds. Serialize overlapping saves. |
-| Custom metadata disappears after an RTF reload | Application metadata is model-only. Save it alongside the RTF. |
-| `TryApplyEdits` returns false | The revision may be stale, the editor read-only or composing, or the result too long for `MaxLength`. |
-| Decoration `TrySet` returns false | The revision is stale or belongs to another document. Recompute from a current snapshot. |
-| Decoration `TrySet` throws | Ranges must be ordered, nonempty, in bounds, and non-overlapping within one layer. The layer must not be disposed. |
-| A fold will not expand | Expand an entry from `CollapsedRanges`. A hidden union returned by `GetCollapsedRange` can combine several entries. |
-| Layout queries return null or no bounds | Wait for native layout, recapture after `TextLayout.Changed`, and account for offscreen or folded source. |
-| Geometry becomes wrong after scrolling | Layout has its own version. A source revision alone does not keep geometry current. |
-| An adornment disappears after an edit | Deleting or replacing its anchor removes it. Undo does not recreate a removed view; regenerate it from feature state. |
-| A tracked handle returns null after undo | Invalidated or disposed handles are not revived by undo. Choose a preservation policy before deletion if required. |
-| A keyboard handler misses software input | Hardware keys do not cover software keyboards or IME. Observe committed text and composition instead. |
-| An edit throws from a change event | Do not mutate the same document recursively from its notifications. Schedule work after notification returns. |
-| Formatting looks different on another platform | Check rendering and RTF persistence separately in the [support matrix](../../RTF_SUPPORT.md). |
+| A checked edit returns false or a rejection | Captured document revision, read-only session, active composition, and optional selection generation |
+| A decoration/widget result is rejected without a text change | A newer producer request, clear, disposal, or document replacement invalidated its generation |
+| A rich range addresses the wrong content | Use typed points or the exact snapshot-bound projection; never reuse flattened offsets across structural edits |
+| A save stays modified | The saved capture is older than the current content; acknowledge only the successfully written capture |
+| Undo changes another pane's content | Shared views intentionally have one document-owned history |
+| A native format differs after RTF load | Review import diagnostics and native rendering fidelity separately |
+| Geometry is null | Capture after layout, check composition state, and use a fresh capture for the same view |
+| A widget is not created | Its anchor is outside the native viewport, its paragraph was removed, or its estimate/placement is invalid |
+| Large documents stall | Measure native readback, layout, and reservation publication separately from core storage |
 
-## Inspecting content
+For RTF import, inspect every `RtfDiagnostic`. Set `RequireLossless` when approximation is unacceptable. Do not silently discard diagnostics to make an unsupported file appear lossless.
 
-Compare `CurrentSnapshot.Text`, runs, paragraphs, links, fields, and images before and after the operation. This separates a document change from a rendering problem. `RichTextChangeSet` identifies the origin and affected ranges.
+For rich selections, inspect the selection's concrete type and validate node IDs against its document snapshot. Model IDs are document-local and can change on import. For source text, preserve exact CRLF/LF/CR coordinates and distinguish logical columns from visual positions.
 
-For import/export issues, compare the content represented by the original and exported RTF. The codec normalizes RTF, so byte-for-byte differences are expected.
-
-## Background results
-
-Record the captured and current revisions, request generation, and document replacement events. A request can be outdated even when its source revision still matches, and layout can change without a text edit.
+Do not mutate a document from its public change callback. Dispatch a separate edit or use a source input rule when the dependent operation must be atomic with typing. Complete or cancel native composition before operations that require committed state.

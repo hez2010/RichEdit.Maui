@@ -1,28 +1,20 @@
 ---
 title: User manual
-description: A practical guide to rich-text editing, code editing, document persistence, and editor extensions in .NET MAUI.
+description: Structured rich documents and native source editing.
 ---
 
 # User manual
 
-RichEdit.Maui edits rich text and RTF. CodeEdit.Maui edits plain source text, with line numbers, indentation, and hooks for language tools. Both use native text controls on Windows, Android, iOS, and Mac Catalyst.
+RichEdit.Maui and CodeEdit.Maui provide native editing controls over library-owned documents. The document owns authored content, revision identity, saved state, and shared undo history. Each view owns its selection, composition, presentation, and native resources.
 
-## Choose a control
+| Use case | Control and document |
+| --- | --- |
+| Formatted paragraphs, lists, tables, images, comments, and tracked changes | `RichEditor` with `RichEdit.Core.RichDocument` |
+| Source text, multiple carets, syntax colors, folding, and application language tools | `CodeEditor` with `CodeDocument` |
+| Read-only original or final tracked-change preview | `RichReviewView` with a shared `RichDocument` |
 
-| | RichEdit.Maui | CodeEdit.Maui |
-| --- | --- | --- |
-| Control | <xref:RichEdit.Maui.RichEditor> | <xref:CodeEdit.Maui.CodeEditor> |
-| Live document | <xref:RichEdit.Maui.RichTextDocument> | <xref:CodeEdit.Maui.CodeDocument> |
-| Persistence | RTF or plain text | Plain source text |
-| Built-in editing | Rich character and paragraph formats, lists, links, fields, images | Logical line numbers, indentation, comments, wrapping |
-| Extensions | Decorations, folding, adornments, tracking, layout and input observation | The same shared extension APIs |
+Both editable controls use native text engines on Windows, Android, iOS, and Mac Catalyst. No WebView is used. Multiple controls may share a document on one dispatcher, with independent selections and one undo sequence.
 
-## Documents and views
+Start with [installation](getting-started.md), [documents](documents.md), and [editing](editing.md). See [platform behavior](platforms.md) for rendering and performance boundaries, [RTF support](../../RTF_SUPPORT.md) for persistence fidelity, and the [migration guide](migration-0.5.md) for upgrading an application.
 
-Text, formatting, and undo history belong to the document. Selection, scrolling, decorations, folds, and anchored views belong to the editor. These display features are not saved in the document or added to its undo history.
-
-A live document can attach to one editor at a time. Its immutable snapshots can be read in the background; changes to an attached document run on the editor's UI thread.
-
-## Example conventions
-
-Examples assume the usual MAUI namespaces plus `RichEdit.Maui`. Code-editor examples also use `CodeEdit.Maui`. Unless a snippet creates its own control, `editor` refers to an existing editor on the UI thread.
+Examples use `RichEdit.Core` for rich semantics, `TextEdit.Core` for source coordinates, and the appropriate MAUI control namespace. A rich text projection is a snapshot-bound mapping, not an editable flat document.

@@ -1,44 +1,36 @@
 ---
-title: Platform behavior and RTF
-description: Understand native control differences, portable formatting, clipboard interchange, and RTF preservation limits.
+title: Platform behavior
+description: Native implementation boundaries, feature fidelity, and preview limits.
 ---
 
-# Platform behavior and RTF
+# Platform behavior
 
-RichEdit.Maui stores formatting independently of the native control. A format can remain in the document even when a platform cannot display it fully.
-
-## Native controls
-
-| Platform | Minimum version | Text surface |
+| Platform | Default text engine | Structured content |
 | --- | --- | --- |
-| Windows | Windows 10 1809 | WinUI 3 `RichEditBox` |
-| Android | API 26 | `AppCompatEditText` with editable spans |
-| iOS | 15.0 | `UITextView` with attributed text |
-| Mac Catalyst | 15.0 | `UITextView` with attributed text |
+| Windows | WinUI RichEditBox | Native RichEdit RTF tables, lists, fields, and attachments |
+| Android | Native editable text with spans and InputConnection | Native scroll/container/grid views with editable flows and cells coordinated by one document/session |
+| iOS / Mac Catalyst | UITextView and TextKit | Native attributed text and RTF structures |
 
-CodeEditor uses these same text controls.
+The controls use no WebViews. Small custom regions cover missing native features: secondary selections/carets, source gutters, unsupported decoration strokes, widget positioning, and Android cell-edge borders. Text shaping, ordinary editing, IME, and primary selection remain native.
 
-## Rendering and persistence
+## Fidelity
 
-Android displays several underline styles as a single underline. Apple displays picture bullets as fallback text. General fields show their supplied result without evaluating the instruction. The original format or metadata can still survive editing and RTF export.
+Model retention, editing, rendering, and RTF persistence are separate contracts. A retained property may be approximated by a native engine. See the [RTF matrix](../../RTF_SUPPORT.md) for the supported persistent profile. Native fonts and layout can produce different wrapping on different platforms.
 
-Other properties, such as application metadata and image source identifiers, remain in memory but are not saved to RTF. Rendering and persistence are listed separately in the [RTF support matrix](../../RTF_SUPPORT.md).
+Rich editing includes body paragraphs, semantic lists/tables, inline resources, annotations, and retained revision groups. Original and Final review views are available. Inline redline markup, Word-native revision interchange, pagination, printing, sections, headers/footers, notes, floating objects, and editable equations are outside this preview's feature profile.
 
-## RTF import and export
+## Performance
 
-The editor works with continuous text rather than pages. Import converts some RTF structures and discards others:
+Source storage is persistent and line lookup is indexed. Native controls still keep their own buffers. Windows source readback can inspect the native story, and native formatting/reservations can incur broad layout work.
 
-- Tables are flattened to tab-separated cells and newline-separated rows.
-- Page and section breaks become paragraph breaks; page-layout properties are discarded.
-- Headers, footers, footnotes, comments, tracked revisions, and other unsupported destinations are skipped.
-- OLE objects and drawing content can be flattened to result text, inline pictures, or placeholders; opaque object payloads are not re-emitted.
+Source views avoid rich paragraph metadata, and Android/Apple native replacement notifications restore bounded source edits. Apple source synchronization updates native storage incrementally. Android bounds text-service payloads separately from document size; see [input](input.md).
 
-Paragraph breaks use LF in the model, and soft line breaks use U+2028. RTF stores opaque RGB colors and half-point font sizes, so export rounds higher-precision values and loses color alpha.
+The test suite contains 100-sample dense-presentation and large-source workloads. A rendering callback is a frame opportunity, not proof of GPU presentation. The 50 ms desktop / 100 ms mobile p95 targets and 16 ms publication-slice target are engineering goals, not supported guarantees for this preview. Native 10 MiB split-view load and long-line input can exceed those targets.
 
-PNG and JPEG render on all supported platforms. Some other image formats can be retained without being rendered.
+Android rich tables currently realize their native cell/container structure eagerly. Large table performance is therefore bounded by native view count. Lazy widget realization does not virtualize the table grid itself. Rectangular source gestures currently operate on visible rows and do not retain their rectangle across scrolling.
 
-## Clipboard and menus
+## Accessibility and input
 
-Windows and Apple publish rich RTF and plain text to the system clipboard. Android imports plain text from other applications. Copies within the running application can retain a complete rich fragment while the clipboard still identifies that copy. CodeEditor uses plain source text.
+Native accessibility is retained and adapted for canonical source text, tables, multiple ranges, and widget children where implemented. Automated checks cover provider text and table/selection metadata. Actual Narrator, TalkBack, and VoiceOver operation, minimum-platform behavior, dictation, and mixed-DPI behavior require application/device validation; provider checks alone do not establish that certification.
 
-Custom context and selection menus require iOS/Mac Catalyst 16 or later; earlier Apple versions retain their standard menus. Native menu adapters omit menu-item icons and keyboard-accelerator labels.
+Use native touch handles and menus for the primary selection. Secondary caret and widget behavior should be tested with the application's accessibility settings, fonts, and text scaling.

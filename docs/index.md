@@ -1,25 +1,21 @@
 ---
 title: Native editors for .NET MAUI
-description: Build native rich-text and code editing experiences with RichEdit.Maui and CodeEdit.Maui for .NET MAUI.
+description: Structured RTF documents and native source editing.
 _layout: landing
 ---
 
 # Native editors for .NET MAUI
 
-RichEdit.Maui provides rich-text editing with a live document model, RTF import and export, and document-owned undo history. CodeEdit.Maui builds a plain-text code editor on the same foundation, with line numbers, indentation, and extension APIs for language tools.
+RichEdit.Maui provides structured rich editing with semantic tables and lists, reusable styles, annotations, RTF persistence, shared history, and native review views. CodeEdit.Maui provides plain-source editing with multiple carets, syntax presentation, folding, and transactional input extensions.
 
-Both controls use native text input on Windows, Android, iOS, and Mac Catalyst.
+Both controls use native text engines and input on Windows, Android, iOS, and Mac Catalyst. RTF is the sole rich-document interchange format. The platform-independent document cores support immutable background reads and checked edits.
 
-## Rich-text editing
+[Get started](manual/getting-started.md) · [User manual](manual/index.md) · [API reference](api/index.md) · [Migration to 0.5](manual/migration-0.5.md)
 
-RichEditor supports character and paragraph formatting, lists, links, fields, and inline images. Document edits are atomic and share undo history with native typing.
+Read the [platform profile](manual/platforms.md) for rendering, large-document, and accessibility boundaries of 0.5.0-preview.1.
 
-![RichEdit.Maui rich-text editor with formatting controls](../Assets/rich-editor.png)
+![Native rich editor](../Assets/rich-editor.png)
 
-## Code editing
-
-CodeEditor supports syntax colors through decoration layers, source-range folding, and inline MAUI views. Language analysis and completion are supplied by your code.
-
-![CodeEdit.Maui code editor with syntax highlighting and line numbers](../Assets/code-editor.png)
+![Native source editor](../Assets/code-editor.png)
 
 [Source on GitHub](https://github.com/hez2010/RichEdit.Maui) · [RichEdit.Maui on NuGet](https://www.nuget.org/packages/RichEdit.Maui) · [CodeEdit.Maui on NuGet](https://www.nuget.org/packages/CodeEdit.Maui)

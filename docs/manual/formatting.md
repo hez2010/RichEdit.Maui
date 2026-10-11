@@ -1,79 +1,38 @@
 ---
 title: Character and paragraph formatting
-description: Apply rich formatting, show mixed and inherited selection values, and separate document styles from display defaults.
+description: Authored styles, inheritance, and native rendering.
 ---
 
 # Character and paragraph formatting
 
-Use `Selection.CharacterFormat` and `Selection.ParagraphFormat` for formatting controls. Use a document transaction to format a known range independently of the active selection.
+Authored appearance uses platform-independent `RichCharacterStyle`, `RichParagraphStyle`, `RichColor`, `RichLength`, and `RichFontSize`. Colors are RGB. Lengths are stored in twips (1/20 point), and font sizes in half-points. View geometry uses device-independent display units.
 
-## Format the selection
+Every cascading property is a `StyleValue<T>`:
 
-```csharp
-editor.Document = RichTextDocument.FromPlainText("A heading\nA paragraph.\n");
-editor.SelectedRange = new RichTextRange(0, 9);
-editor.Selection.ToggleBold();
-editor.Selection.ToggleItalic();
-editor.Selection.ToggleUnderline(RichTextUnderlineStyle.Single);
-
-editor.Selection.CharacterFormat.FontFamily = "Georgia";
-editor.Selection.CharacterFormat.FontSize = 20;
-editor.Selection.CharacterFormat.ForegroundColor = Colors.DarkBlue;
-editor.Selection.ParagraphFormat.Alignment = RichTextAlignment.Center;
-```
-
-At an empty selection, character operations change the typing format for subsequent text. Paragraph operations affect intersecting paragraphs, or the caret's paragraph when the selection is empty.
-
-Toggles enable a style if the selection is not uniformly using it; otherwise they disable it. `ToggleScript` supports superscript and subscript, and `ToggleStrikethrough` accepts a chosen strike style.
-
-## Preserve unrelated formatting
-
-`SetCharacterFormat` replaces the format over a range. `UpdateCharacterFormat` transforms each existing run, which preserves properties you do not change:
-
-```csharp
-var document = editor.Document;
-document.Edit(edit =>
-{
-    edit.UpdateCharacterFormat(new RichTextRange(0, document.Length),
-        format => format with { ForegroundColor = Colors.DarkSlateBlue });
-    edit.UpdateParagraphFormat(new RichTextRange(0, document.Length),
-        format => format with { SpaceAfter = 8 });
-}, new RichTextEditOptions(undoDescription: "Style document"));
-```
-
-`SetCharacterFormats` accepts an ordered, non-overlapping batch of runs. For temporary syntax colors or diagnostics, use [decorations](decorations.md).
-
-## Mixed and inherited values
-
-Font family, font size, and foreground color can be inherited. Their selection properties distinguish declared values from the values actually displayed:
-
-| Property example | Meaning |
+| Value | Meaning |
 | --- | --- |
-| `FontFamily` | Declared value, or null for inherited or mixed values |
-| `IsFontFamilyMixed` | The selected content does not share one declared value |
-| `IsFontFamilyInherited` | The selected content inherits this property |
-| `EffectiveFontFamily` | Value after resolving document and editor defaults |
-| `IsEffectiveFontFamilyMixed` | Effective values differ within the selection |
-
-Assign `null` to `FontFamily`, `FontSize`, or `ForegroundColor` to restore inheritance. A font picker can display `EffectiveFontFamily` unless `IsEffectiveFontFamilyMixed` is true. Use `IsFontFamilyInherited` when you also want to distinguish inherited values from explicit formatting.
-
-To inspect formatting without changing selection, use `Document.GetCharacterFormat(range)` or `GetParagraphFormat(range)`. Their summary objects report values across the requested range.
-
-## Document and display defaults
-
-Control properties such as `editor.FontFamily`, `FontSize`, and `TextColor` provide display defaults for inherited text. They are not saved in the document.
-
-Set a document default when the format should be saved:
+| Default / `Inherit` | Use the preceding cascade value |
+| Explicit value | Apply that value, including false, zero, or null where supported |
+| `Initial` | Apply the schema's initial value |
 
 ```csharp
-editor.Document.Edit(edit => edit.SetDefaultCharacterFormat(
-    new RichTextCharacterFormat { FontFamily = "Georgia", FontSize = 12 }));
+editor.ApplyCharacterFormat(new RichCharacterStyle
+{
+    Bold = true,
+    Italic = false,
+    Foreground = new RichColor(30, 60, 120),
+    Underline = RichUnderline.Single,
+});
 ```
 
-`ClearCharacterFormat` resets a range to the document default, leaving font family, size, and foreground color inherited. `ClearParagraphFormat` resets affected paragraphs to the current default paragraph format.
+At an empty text selection, character commands change the session's typing format. For selected content, they create an authored transaction. `ToggleBold`, `ToggleItalic`, and `ToggleUnderline` resolve current formatting before choosing the new value.
 
-## Units and rendering
+## Reusable styles
 
-Document font sizes, indents, and paragraph spacing use points. RTF stores font sizes in half-point increments and colors as opaque 8-bit RGB. Export rounds to those units; fully transparent formatting colors mean reset.
+`RichStyleSheet` contains named paragraph and character definitions with `BasedOn` and `NextStyle` references. Inheritance must be acyclic. The cascade applies document defaults, paragraph styles and overrides, then inline character styles and direct overrides. `ResolveCharacter`, `ResolveParagraph`, and selected-format queries expose resolved values.
 
-Rendering of advanced formats such as underline styles, borders, and character scale varies by platform, as recorded in the [RTF support matrix](../../RTF_SUPPORT.md).
+Use `SetStyles`, `SetParagraphStyle`, `SetCharacterStyle`, `SetCharacterFormat`, and `SetParagraphFormat` inside a rich edit. Set-format operations replace the specified direct record; preserve other direct properties explicitly when modifying only part of it. Style changes do not rewrite every referencing run.
+
+Character support includes bold, italic, underline variants/colors, strike-through, foreground/highlight, shading, baseline/script placement, spacing, horizontal scaling, language, direction, capitals, outline, shadow, and hidden state. Paragraph support includes alignment, direction, indents, before/after spacing, line spacing, tabs/leaders, headings, keep/widow settings, hyphenation, shading, and uniform borders.
+
+`FontFamily`, `FontSize`, and `TextColor` on the view are fallback appearance and do not change saved content. Presentation layers compose afterward. Native engines can approximate some retained properties; see [RTF support](../../RTF_SUPPORT.md).

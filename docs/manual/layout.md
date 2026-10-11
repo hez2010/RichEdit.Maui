@@ -1,62 +1,29 @@
 ---
 title: Layout, hit testing, and composition
-description: Query visible native text geometry, observe pointer activity, and coordinate extensions with IME composition.
+description: Native geometry and snapshot-bound coordinate mapping.
 ---
 
 # Layout, hit testing, and composition
 
-`TextLayout` reports visible text geometry for popup placement, selection overlays, and hit testing. Queries leave selection and scrolling unchanged.
+The platform text engine is the geometry authority. Layout captures describe visible native lines and carry document/layout identity. Stale or foreign captures return no result; geometry queries never move the caret.
 
-## Capture visible geometry
+For source text:
 
 ```csharp
-var layout = editor.TextLayout.Capture();
+var layout = code.TextLayout.Capture();
 if (layout is not null)
 {
-    var caret = editor.TextLayout.GetCaretBounds(layout, editor.SelectionState.Active);
-    var rectangles = editor.TextLayout.GetRangeBounds(layout, editor.SelectedRange);
-
-    foreach (var line in layout.Lines)
-        System.Diagnostics.Debug.WriteLine($"{line.Bounds}, baseline {line.Baseline}");
+    var bounds = code.TextLayout.GetCaretBounds(layout, code.SelectionState.Active);
+    var hit = code.TextLayout.HitTest(layout, new Point(30, 40));
 }
 ```
 
-`Capture()` returns null until native layout is available. A capture contains visible line fragments and source ranges, viewport bounds, the document revision, and a separate layout version. Capture and query it on the UI thread.
+`Capture` describes committed geometry and can return null during composition or before native layout. `CaptureInput` includes provisional input and marks the result `IsProvisional`. Do not interpret provisional coordinates as a committed edit range.
 
-Coordinates use device-independent units relative to the editor, including for CodeEditor. For a popup in a surrounding view, use `CreateRelativeTo(ancestor)` and make both the capture and queries through that returned object.
+For rich text, `editor.TextLayout` uses `RichTextPoint`, typed selections, and a `RichEditorLayoutSnapshot`. Its `TextProjection` binds visible line ranges to the exact rich snapshot. Android captures combine visible native text flows and cells in editor coordinates.
 
-## Geometry and layout changes
+`Changed` signals document, presentation, or viewport invalidation. Capture again after scrolling, resizing, changing fonts, or changing widget reservations. `GetSelectionBounds` returns separate rectangles; it does not assume a bidi selection is one rectangle.
 
-Wrapped and bidirectional text can produce several rectangles for one source range. Hidden and offscreen text can have no visible geometry. At ambiguous caret boundaries, choose `RichTextCaretAffinity.Upstream` or `Downstream`.
+`ScrollIntoView` reveals a source range or rich point using native scrolling. Selection and scroll positions are independent between views. Native table hosts preserve a visible rich anchor across structural relayout where a current anchor is available.
 
-A stale or foreign capture returns no result. Scrolling, resizing, appearance, folds, adornments, and source edits can invalidate layout. Recapture on `TextLayout.Changed`, even if the text revision is unchanged.
-
-## Observe pointers
-
-```csharp
-editor.PointerMoved += (_, args) =>
-{
-    var layout = editor.TextLayout.Capture();
-    if (layout is null)
-        return;
-
-    var hit = editor.TextLayout.HitTest(layout, args.Point);
-    if (hit is not null)
-        System.Diagnostics.Debug.WriteLine($"{hit.Kind} at UTF-16 offset {hit.Position}");
-};
-```
-
-`PointerMoved`, `PointerPressed`, and `PointerExited` expose point, device kind, buttons, and modifiers. Hit testing identifies text, the nearest position in whitespace, or an adornment. Pointer observations cannot suppress native selection or focus behavior.
-
-## IME composition
-
-`Composition` exposes `IsActive` and a nullable marked `Range`. `CompositionChanged` reports transitions after source and selection have been synchronized. Composition can be active with a null range when the native editor cannot report accurate bounds.
-
-| Operation during composition | Behavior |
-| --- | --- |
-| Custom hardware shortcuts | Native composition takes precedence |
-| `TryApplyEdits` | Returns false |
-| Folding mutations | Throw |
-| Decoration publication | Painting is deferred and rechecked for staleness |
-
-Defer completion acceptance and format-on-type until composition ends, then analyze the committed text.
+`PointerPressed`, `PointerMoved`, and `PointerExited` expose observations for application UI. Keep adornment hit testing and document hit testing distinct. All returned rectangles are device-independent control coordinates, not physical pixels.

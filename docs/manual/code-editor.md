@@ -1,91 +1,38 @@
 ---
 title: Code editor
-description: Configure source editing, line numbers, indentation, wrapping, and protocol-independent language integrations.
+description: Native source editing, selections, and application language tools.
 ---
 
 # Code editor
 
-<xref:CodeEdit.Maui.CodeEditor> combines plain-text editing with line numbers, indentation, and wrapping. It uses RichEditor's native text surface and extension APIs.
-
-## Configure editing
+`CodeEditor` is a native source editor over `CodeDocument`, backed by the platform-independent `TextDocument` core. It shares native integration with the rich control and owns plain source semantics.
 
 ```csharp
 var editor = new CodeEditor
 {
-    Document = CodeDocument.FromPlainText("class Example\n{\n    int value;\n}\n"),
-    FontSize = 14,
+    Document = new CodeDocument("first\r\nsecond\n"),
     ShowLineNumbers = true,
     WordWrap = false,
     IndentSize = 4,
+    TabSize = 4,
     UseTabs = false,
     AutoIndent = true,
-    LineCommentPrefix = "//",
+    NewLine = "\r\n",
 };
 ```
 
-| Option | Default and behavior |
-| --- | --- |
-| `ShowLineNumbers` | `true`; numbers logical source lines |
-| `WordWrap` | `false`; long lines scroll horizontally |
-| `IndentSize` | `4`; valid values are 1 through 16 |
-| `UseTabs` | `false`; indentation inserts spaces |
-| `AutoIndent` | `true`; Enter copies the current line's leading whitespace |
-| `LineCommentPrefix` | `//`; must be nonempty with no whitespace |
-| `FontFamily` | Consolas on Windows, monospace on Android, Menlo on Apple |
+`IndentSize` controls inserted indentation; `TabSize` controls native tab display. `NewLine` is an insertion policy. Use an explicit document edit with `NormalizeLineEndings` to change existing terminators.
 
-`IndentSize` controls inserted indentation, not native tab width. Wrapped fragments retain the same logical line number.
+`GetPosition`, `GetOffset`, `GetLineRange`, and snapshot `GetLine` use zero-based UTF-16 coordinates. `CaretPosition` describes the primary caret. Add one for user-facing line/column displays.
 
-## Editing shortcuts
+## Multiple selections
 
-| Hardware shortcut | Action |
-| --- | --- |
-| Tab | Insert indentation at the caret or indent selected logical lines |
-| Shift+Tab | Remove one indentation level from selected lines |
-| Enter | Insert a newline and, if enabled, copy leading whitespace |
-| Control+/ on Windows/Android, Command+/ on Apple | Toggle the configured line-comment prefix |
-| Primary modifier + B, I, U | Suppress rich-text formatting shortcuts |
+`Selections` contains stable directional selections with one primary. `AddCaretAbove`, `AddCaretBelow`, `AddCaret`, and `ReplaceSelections` operate through native geometry and shared history. Virtual space is view-owned and materializes as spaces only when an edit commits.
 
-Indenting selected lines and toggling comments each form one undo unit. These shortcuts are entries in `KeyBindings`; a later binding can override one for a completion popup or snippet session.
+Alt-pointer gestures add carets and derive rectangular selections from visible native visual rows. `SelectRectangle` supports native wrapping, tabs, and variable-width endpoints. The current rectangle API operates on the visible viewport; it does not retain a drag rectangle across scrolling or produce disjoint bidi intervals within one row. Logical columns must not be treated as pixel X positions.
 
-## Read and edit source
+## Language features
 
-```csharp
-editor.Document.Edit(edit =>
-    edit.InsertText(editor.Document.Length, "// End of file\n"));
+Applications own parsing, language servers, completion UI, diagnostics, project systems, and debugging. Use immutable snapshots for background analysis, checked edits for completion/refactoring, input rules for dependent typing, decoration layers for colors, and lazy widget sources for hints and actions. See [background work](background-work.md).
 
-editor.SelectedRange = new RichTextRange(0, 5);
-editor.Selection.ReplaceText("struct");
-string source = editor.Document.Text;
-```
-
-<xref:CodeEdit.Maui.CodeDocument> supports atomic text edits, snapshots, history, undo groups, and save points. `CodeTextSelection` exposes selection and plain-text replacement.
-
-## Convert source positions
-
-```csharp
-var snapshot = editor.Document.CurrentSnapshot;
-var line = snapshot.GetLineRange(2);
-var location = snapshot.GetPosition(line.Start); // Line 2, Column 1.
-int offset = snapshot.GetOffset(new CodePosition(2, 1));
-editor.SelectionState = new RichTextSelectionState(offset, offset);
-editor.ScrollIntoView(new RichTextRange(offset, 0));
-```
-
-Line and column numbers are one-based, and columns count UTF-16 code units. `GetLineRange` excludes the line terminator. A trailing newline contributes an empty final line to `LineCount`. The live editor exposes these conversions too, plus `CaretPosition` for the active selection endpoint.
-
-A language service may use zero-based positions or a different encoding. Convert its positions against the snapshot used for that request.
-
-## Add language features
-
-Language features can use a parser or language server of your choice. The editor supplies these building blocks:
-
-| Feature | Building blocks |
-| --- | --- |
-| Syntax colors and diagnostic underlines | Snapshot analysis and [decoration layers](decorations.md) |
-| Formatting, rename, completion insertion | [Revision-checked edits](background-work.md) |
-| Snippet placeholders and bookmarks | [Tracked ranges and positions](tracking.md) |
-| Fold regions and navigation | [Folding](folding.md), selection, `ScrollIntoView` |
-| Inline hints and line actions | [Adornments](adornments.md) |
-| Hover information or completion popup placement | [Layout and pointer observation](layout.md) |
-
-LSP clients and document sessions live outside the control. The sample's completion UI, snippet navigation, and syntax analysis use these APIs; they are not built-in CodeEditor services.
+Native controls retain their own buffers and layout costs. The managed persistent tree does not make native editing cost independent of file size. Large-file and long-line benchmarks validate correctness and record latency; this preview does not guarantee the proposed desktop/mobile latency budgets. Use a bounded viewport and disable wrapping when it is unsuitable for very long logical lines.

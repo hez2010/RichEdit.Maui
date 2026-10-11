@@ -1,14 +1,17 @@
 ---
 title: API reference
-description: Generated public API reference for RichEdit.Maui and CodeEdit.Maui.
+description: Public document cores and native editor APIs.
 ---
 
 # API reference
 
-| Package | Start here |
+| Package | Entry points |
 | --- | --- |
-| RichEdit.Maui | <xref:RichEdit.Maui.RichEditor>, <xref:RichEdit.Maui.RichTextDocument>, <xref:RichEdit.Maui.RichTextSelection> |
+| TextEdit.Core | <xref:TextEdit.Core.TextDocument>, <xref:TextEdit.Core.TextSnapshot>, <xref:TextEdit.Core.TextEditorSession>, <xref:TextEdit.Core.TextSelectionSet> |
+| RichEdit.Core | <xref:RichEdit.Core.RichDocument>, <xref:RichEdit.Core.RichDocumentSnapshot>, <xref:RichEdit.Core.RichEditorSession>, <xref:RichEdit.Core.Rtf.RtfCodec> |
+| RichEdit.Maui | <xref:RichEdit.Maui.RichEditor>, <xref:RichEdit.Maui.RichReviewView>, <xref:RichEdit.Maui.RichEditorPresentation>, <xref:RichEdit.Maui.RichEditorLayout> |
 | CodeEdit.Maui | <xref:CodeEdit.Maui.CodeEditor>, <xref:CodeEdit.Maui.CodeDocument>, <xref:CodeEdit.Maui.CodeDocumentSnapshot> |
-| Shared extension APIs | <xref:RichEdit.Maui.RichTextDecorations>, <xref:RichEdit.Maui.RichTextFolding>, <xref:RichEdit.Maui.RichTextAdornments>, <xref:RichEdit.Maui.RichTextTracking>, <xref:RichEdit.Maui.RichTextLayout> |
 
-These APIs track the source checkout used to build the site and may be newer than released NuGet packages. Shared document and control APIs apply across platforms; native handler signatures reflect the Windows target. Platform-specific Apple and Android native view types are not included.
+The document cores target ordinary .NET 10 and have no MAUI dependency. Live editor mutations run on the owner dispatcher; immutable snapshots can be inspected on worker threads. Native API signatures use the Windows MAUI target.
+
+Start with the [manual](../manual/index.md) for ownership, persistence, coordinate, and rendering contracts. The [migration guide](../manual/migration-0.5.md) covers application changes for 0.5.0-preview.1.

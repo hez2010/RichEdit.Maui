@@ -20,8 +20,10 @@
       href: formatting.md
     - name: Lists and numbering
       href: lists.md
-    - name: Links, fields, images, and fragments
+    - name: Tables, links, fields, images, and fragments
       href: rich-content.md
+    - name: Tracked revisions and review
+      href: review.md
 - name: Input and commands
   href: input.md
 - name: Code editor
@@ -46,3 +48,5 @@
   href: ../../RTF_SUPPORT.md
 - name: Troubleshooting
   href: troubleshooting.md
+- name: Migrate to 0.5
+  href: migration-0.5.md

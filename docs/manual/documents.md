@@ -1,80 +1,46 @@
 ---
 title: Documents and snapshots
-description: Load text and RTF, inspect immutable snapshots, and understand source offsets and document ownership.
+description: Content ownership, source coordinates, and RTF persistence.
 ---
 
 # Documents and snapshots
 
-<xref:RichEdit.Maui.RichTextDocument> holds the text, formatting, history, and saved state. Native typing and programmatic edits update the same instance.
+`RichDocument` owns an immutable graph of stories, paragraphs, inline content, lists, tables, resources, styles, annotations, and revisions. The supported editable story is the body. Nodes have stable document-local IDs; structural moves retain their identity. RTF import regenerates IDs while preserving relationships.
 
-## Load and export content
+`CodeDocument` owns plain source through `TextDocument`. Its persistent text tree shares unchanged chunks across snapshots and history. Source CRLF, LF, and CR terminators, including mixed endings, are preserved. `GetLine` returns content and terminator lengths. Offsets and line/column coordinates are zero-based UTF-16; visual X and tab-display width are separate concepts.
 
-```csharp
-var plain = RichTextDocument.FromPlainText("First line\r\nSecond line");
-var rich = RichTextDocument.FromRtf(@"{\rtf1\ansi Hello, \b world\b0 !}");
+## Read and write RTF
 
-editor.Document = rich;
-string text = rich.Text;
-string rtf = rich.RtfText;
-```
-
-`FromPlainText(null)` creates an empty document. `FromRtf` throws `FormatException` for invalid RTF.
-
-New documents start with empty history and `IsModified == false`. Assign a new document when opening a file; use `Document.Edit` to insert content into the current document with undo support.
-
-`RtfText` serializes the supported content into canonical RTF, which can differ from the imported file. Serialization is lazy and cached.
-
-## Offsets and line breaks
-
-All positions are zero-based UTF-16 offsets into normalized `Text`. A <xref:RichEdit.Maui.RichTextRange> describes `[Start, End)`, with `End = Start + Length`.
+RTF is the only rich persistence and interchange format.
 
 ```csharp
-var document = RichTextDocument.FromPlainText("A😀B\r\nC");
-// Text is "A😀B\nC", Length is 6.
-var emoji = new RichTextRange(1, 2);
-string selected = document.GetText(emoji); // "😀"
+using RichEdit.Core;
+using RichEdit.Core.Rtf;
+
+var imported = await RtfCodec.ReadAsync(inputStream);
+var document = new RichDocument(imported.Snapshot);
+editor.Document = document;
+// Present imported.Diagnostics to the application's import policy.
+
+var capture = document.CaptureSave();
+await RtfCodec.WriteAsync(capture.Snapshot, outputStream);
 ```
 
-The emoji occupies two UTF-16 code units, so its range has length 2. Offsets refer to the normalized text, after CRLF and CR have become LF.
+Streams belong to the caller. Import validates syntax, references, nesting, text, assets, and retained-revision work. Set `RequireLossless = true` to reject approximated or omitted content. Export assesses fidelity before writing and throws `RtfFidelityException` when the supported model cannot be written losslessly.
 
-| Source value | Meaning |
-| --- | --- |
-| `\n` | Paragraph break; CRLF and CR input are normalized to LF |
-| `\u2028` | Soft line break within a paragraph |
-| `\uFFFC` | Logical placeholder for an inline image |
-| Empty range at `Length` | Caret at the end of the document |
+Async stream APIs support cancellation but do not promise that CPU work runs off the caller thread. For large files, run codec work on a worker and adopt the completed immutable snapshot on the document dispatcher. A canceled write can leave a partial destination; the host owns atomic file replacement.
 
-Document edit methods reject out-of-bounds ranges. Assigning an editor's selection clamps its endpoints to the document length.
+## Inspect content
 
-## Snapshots
-
-Capture `CurrentSnapshot` on the UI thread before starting background work:
+Rich text is an explicit projection:
 
 ```csharp
 var snapshot = editor.Document.CurrentSnapshot;
-string capturedText = snapshot.Text;
-
-foreach (var run in snapshot.Runs)
-{
-    string runText = capturedText.Substring(run.Range.Start, run.Range.Length);
-    System.Diagnostics.Debug.WriteLine($"{runText}: {run.Format.FontWeight}");
-}
+var projection = snapshot.ProjectText();
+string plain = projection.Text.ToString();
+var firstPoint = projection.GetPoint(0);
 ```
 
-Snapshots retain their content after subsequent edits. Besides text and format runs, they expose paragraphs, links, fields, images, list definitions, document defaults, and metadata.
+A projection maps paragraph-local addresses to its own offsets and represents structural separators and inline atoms. Pass rich points to rich editing APIs. Projection offsets from a different snapshot are not interchangeable.
 
-`Version` increases on changes, including undo and redo. `Revision` combines that version with document identity and is the token accepted by `TryApplyEdits` and decoration layers.
-
-## Source documents
-
-<xref:CodeEdit.Maui.CodeDocument> exposes text-only editing with the same history and snapshot model. Its <xref:CodeEdit.Maui.CodeDocumentSnapshot> also converts between offsets and line/column positions:
-
-```csharp
-var source = CodeDocument.FromPlainText("first\nsecond\n");
-var snapshot = source.CurrentSnapshot;
-var secondLine = snapshot.GetLineRange(2);
-var position = snapshot.GetPosition(secondLine.Start); // Line 2, Column 1
-int offset = snapshot.GetOffset(new CodePosition(2, 4));
-```
-
-Line and column numbers are one-based; offsets remain zero-based UTF-16. A trailing LF creates a final empty logical line.
+Source snapshots support bounded `GetText`, indexed line lookup, chunk enumeration, and streaming text output through `TextSnapshot`. Reading `Text` or calling `ToString()` materializes the entire source. Prefer bounded reads for language tools and viewport work.

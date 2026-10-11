@@ -1,48 +1,41 @@
 ---
 title: Decorations and syntax colors
-description: Apply temporary highlights and diagnostic marks through independent revision-checked presentation layers.
+description: Transient appearance with explicit ownership and freshness checks.
 ---
 
 # Decorations and syntax colors
 
-Decorations add temporary colors and underlines for search matches, syntax highlighting, or diagnostics. They leave document content, saved state, and undo history unchanged.
+Decorations change view appearance without changing authored content, RTF, saved state, or history. Higher-priority layers override lower-priority layers. Equal priorities compose in creation order; only specified properties override preceding appearance.
 
-## Create a layer
+Source layers use UTF-16 `TextSpan` values:
 
 ```csharp
-var highlights = editor.Decorations.CreateLayer();
-var snapshot = editor.Document.CurrentSnapshot;
-int start = snapshot.Text.IndexOf("TODO", StringComparison.Ordinal);
+using TextEdit.Core;
+using RichEdit.Maui;
 
-if (start >= 0)
+using var layer = code.Decorations.CreateLayer(priority: 10);
+var request = layer.BeginUpdate();
+layer.TryPublish(request, new[]
 {
-    RichTextDecoration[] matches =
-    [
-        new RichTextDecoration(new RichTextRange(start, 4),
-            new RichTextDecorationStyle { BackgroundColor = Colors.Gold }),
-    ];
-    highlights.TrySet(snapshot.Revision, matches);
-}
+    new RichTextDecoration(new TextSpan(0, 5),
+        new RichTextDecorationStyle { ForegroundColor = Colors.Blue }),
+});
 ```
 
-`TrySet` replaces all entries in the <xref:RichEdit.Maui.RichTextDecorationLayer>. `Clear()` empties it; `Dispose()` removes the layer.
+Keep the layer alive for the feature's lifetime. Source ranges within a layer must be nonempty, ordered, and nonoverlapping. `Clear` removes appearance; `Dispose` releases ownership.
 
-## Combine layers
+Rich layers use typed addresses:
 
-Create one layer for syntax colors, another for diagnostics, and another for search. Layers compose in creation order. A later layer overrides only the properties it supplies, so a search background can coexist with syntax foreground colors and a diagnostic underline.
+```csharp
+using var layer = editor.Presentation.CreateDecorationLayer(priority: 10);
+var request = layer.BeginUpdate();
+layer.TryPublish(request, new[]
+{
+    new RichEditorDecoration(new RichEdit.Core.RichTextSelection(startPoint, endPoint),
+        new RichTextDecorationStyle { BackgroundColor = Colors.Yellow }),
+});
+```
 
-<xref:RichEdit.Maui.RichTextDecorationStyle> supports `ForegroundColor`, `BackgroundColor`, `Underline`, and `UnderlineColor`. A null property leaves the underlying appearance unchanged. Native underline rendering follows the same platform limitations as authored underlines.
+Rich ranges are validated and routed to the native surface containing each paragraph, including table cells. Structural address maps move their endpoints. Removing an anchored paragraph drops its transient presentation; undo does not resurrect dropped items. Replacing the document clears producers.
 
-Within one layer, ranges must be nonempty, in bounds, ordered, and non-overlapping. Overlap between layers is supported.
-
-## Updates and stale results
-
-`TrySet` copies the collection and returns `false` if the supplied revision is no longer current. Invalid ranges throw. For background analysis, pass the revision captured with the source snapshot.
-
-Decoration ranges track edits, but syntax colors or search matches may still need recalculation. Replacing the document clears layer contents while keeping the layers reusable.
-
-During native IME composition, painting is deferred. A deferred publication is discarded if its revision becomes stale before painting, so a successful `TrySet` does not guarantee immediate display during composition.
-
-## Theme changes
-
-A layer uses the colors you supply. When the theme changes, republish the existing classifications with new styles; no new source analysis is needed.
+Native readback separates display overrides from authored formatting. Metric properties such as weight and italic can require native layout; colors ordinarily affect paint. Publication during composition follows the native adapter's deferred presentation boundary. Geometry-dependent diagnostic drawings should use native visible range bounds.

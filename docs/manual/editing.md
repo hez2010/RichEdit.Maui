@@ -1,77 +1,45 @@
 ---
 title: Atomic edits and selection
-description: Make transactional document changes, edit the active selection, and choose the right coordinate system for a batch.
+description: Typed selections, checked transactions, and multiple carets.
 ---
 
 # Atomic edits and selection
 
-`Document.Edit` groups content changes into one transaction. `Selection` applies editing commands to the current selection, and `TryApplyEdits` accepts replacements calculated from a captured revision.
-
-## Edit atomically
+A transaction validates its candidate state before publication. A failed callback leaves the live document unchanged. Sequential builder operations address the result of preceding operations.
 
 ```csharp
-var document = RichTextDocument.FromPlainText("Hello, world!");
-document.Edit(edit =>
+using RichEdit.Core;
+
+var snapshot = editor.Document.CurrentSnapshot;
+var paragraph = snapshot.Get<RichStory>(snapshot.Body).Blocks[0];
+var point = new RichTextPoint(snapshot.Body, paragraph, 0);
+
+editor.Edit(edit =>
 {
-    edit.ReplaceText(new RichTextRange(0, 5), "Welcome");
-    edit.UpdateCharacterFormat(new RichTextRange(0, 7),
-        format => format with { FontWeight = 700 });
-    edit.SetLink(new RichTextRange(0, 7), "https://example.com");
-}, new RichTextEditOptions(undoDescription: "Update greeting"));
+    edit.ReplaceText(point, 0, "Welcome ");
+    edit.SetCharacterFormat(point, 7, new RichCharacterStyle { Bold = true });
+}, new RichEditOptions(Description: "Insert greeting"));
 ```
 
-Ranges refer to the result of preceding operations. Here, replacing `Hello` with `Welcome` changes the range to format from five characters to seven.
+This example starts with a paragraph as the first body block. General tools should inspect node types and use selection/structural commands.
 
-A changed transaction increments `Version`, raises one `Changed` event, and creates one undo unit by default. If the callback throws, its changes are discarded. A transaction that leaves the content unchanged does not increment the version or record history.
+## Rich selections
 
-The callback is synchronous, and the edit builder is valid only within it. Nested transactions are not supported. For work that requires `await`, calculate the result first and apply it with a [revision check](background-work.md).
-
-## Choose edit operations
-
-| Task | Rich document edit methods |
-| --- | --- |
-| Insert, replace, or delete text | `InsertText`, `ReplaceText`, `DeleteText` |
-| Insert rich content | `ReplaceFragment` |
-| Change character formatting | `SetCharacterFormat`, `UpdateCharacterFormat`, `SetCharacterFormats` |
-| Change paragraph formatting | `SetParagraphFormat`, `UpdateParagraphFormat` |
-| Reset formatting to document defaults | `ClearCharacterFormat`, `ClearParagraphFormat` |
-| Set document defaults | `SetDefaultCharacterFormat`, `SetDefaultParagraphFormat` |
-| Manage lists | `CreateList`, `ApplyList`, `UpdateList`, `ChangeListLevel`, `RestartList`, `RemoveList` |
-| Add rich content | `SetLink`, `InsertField`, `InsertImage` |
-
-<xref:CodeEdit.Maui.CodeDocumentEdit> exposes only text insertion, replacement, and deletion. Both document types accept <xref:RichEdit.Maui.RichTextEditOptions> for history behavior, an undo description, and an optional application tag on the change set.
-
-`Document.Edit` bypasses the control's `IsReadOnly` and `MaxLength` settings. Selection editing methods respect `IsReadOnly`, but do not enforce `MaxLength`. `TryApplyEdits` checks both settings and rejects edits during composition.
-
-## Work with the selection
+`RichSelection` distinguishes `RichTextSelection`, `RichTextSelectionSet`, `RichObjectSelection`, `RichCellSelection`, `RichBlockSelection`, and `RichBoundarySelection`. Text points contain story, paragraph, local UTF-16 offset, and affinity.
 
 ```csharp
-editor.Document = RichTextDocument.FromPlainText("Hello, world!");
-editor.SelectedRange = new RichTextRange(0, 5);
-editor.Selection.ReplaceText("Welcome");
-// The selection is now a caret after "Welcome".
-
-editor.SelectionState = new RichTextSelectionState(anchor: 7, active: 0);
-// The same word is selected backwards, with the caret at its beginning.
+editor.Selection = new RichEdit.Core.RichTextSelection(point, point with { Offset = 7 });
+editor.ReplaceSelection("Hello");
 ```
 
-`SelectedRange` stores the span from its lower to upper offset. `SelectionState` also preserves direction, with `Active` at the caret end. Assigning a range selects forwards. Replacing selected text uses the typing format and moves the caret after the insertion.
+A `RichTextSelectionSet` supplies stable selection IDs and one primary selection. Typing, deletion, paste, and history use the whole set. The native control owns primary selection and touch handles; secondary carets use native geometry.
 
-For a custom action with an explicit result selection, use `Selection.Edit`:
+Cell selections expand to include whole merged cells. Replacing selected cell content preserves the grid. Delete rows, columns, or complete blocks with explicit structural operations. Text replacement cannot silently flatten table boundaries.
 
-```csharp
-var range = editor.SelectedRange;
-string replacement = "replacement";
-editor.Selection.Edit(
-    edit => edit.ReplaceText(range, replacement),
-    new RichTextSelectionState(range.Start, range.Start + replacement.Length),
-    new RichTextEditOptions(undoDescription: "Replace and select"));
-```
+## Source selections and batches
 
-`selectionAfter` uses coordinates after the edit. The document records directional selection with history, so undo and redo can restore it.
+`CodeEditor.Selections` is a `TextSelectionSet`; `SelectedRange` and `SelectionState` address its primary selection. `AddCaret`, `ClearSecondarySelections`, and `ReplaceSelections` provide common commands. Selection sets normalize duplicate carets and intersecting ranges while preserving primary identity.
 
-## Batch coordinates
+`CodeDocument.Edit` uses sequential coordinates. `CodeEditor.TryApplyEdits` accepts nonoverlapping replacements in the captured snapshot's original coordinates and validates `DocumentRevision`. Same-position insertions retain caller order. An optional selection generation rejects a completion after the user moves the caret without changing text.
 
-Every replacement in a `TryApplyEdits` batch uses the original snapshot's coordinates. Unlike operations inside `Document.Edit`, later ranges need no adjustment for earlier replacements.
-
-This suits replace-all, rename, or completion results. Use an [undo group](history-and-saving.md#group-separate-operations) when separately committed operations should share a single Undo action.
+Low-level ranges are exact UTF-16 spans. User navigation and deletion use native geometry and grapheme-aware boundaries; callers of raw replacement APIs must choose their intended range.

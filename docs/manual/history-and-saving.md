@@ -1,83 +1,39 @@
 ---
 title: Undo, redo, and saving
-description: Group edits, report modified state, and save a captured document without losing track of later changes.
+description: Shared history, retention limits, and snapshot-bound save acknowledgement.
 ---
 
 # Undo, redo, and saving
 
-The document records native input and programmatic edits in the same undo history, including rich content and directional selection.
+The document owns one global undo sequence. A view's Undo or Redo restores the transaction's saved selection in that view; other views map their independent selections. Native undo commands route to document history. Detaching a native handler does not clear history.
 
-## Connect history to the UI
+Every authored change, including formatting, styles, comments, and revision resolution, participates in history. Decorations and widgets do not. `BeginUndoGroup` combines independently committed operations into one undo unit; nested groups close in reverse order. A group is not rollback for already committed operations.
 
-Bind buttons to `editor.Commands.Undo` and `editor.Commands.Redo`. Use `Document.UndoDescription` and `RedoDescription` for labels, and `Document.IsModified` for the unsaved-change indicator.
+`HistoryLimit` and `HistoryByteLimit` bound retained entries and estimated memory. `RetainedHistoryByteEstimate` is an estimate, not process memory. Application-held snapshots and pending tracked revisions can retain content independently of history. Automatic typing coalescing is session-owned and ends at selection, input-mode, other-view, save, and composition boundaries.
 
-`ClearUndoHistory()` removes undo and redo entries without changing `IsModified`.
+## Save a frozen state
 
-## Choose an undo policy
-
-| `RichTextUndoBehavior` | Effect |
-| --- | --- |
-| `CreateUnit` | Default: one undo unit for a changed transaction |
-| `MergeWithPrevious` | Merge with the preceding compatible unit |
-| `ClearHistory` | Commit the change and clear undo and redo history |
-| `PreserveHistory` | Commit character, paragraph, or default formatting while keeping existing history |
-
-`PreserveHistory` accepts only character, paragraph, and default formatting. These changes still affect document state and RTF, and undo or redo may restore earlier formatting. Use [decorations](decorations.md) for temporary syntax colors and diagnostics.
-
-## Group separate operations
-
-Use a single `Document.Edit` when all changes should commit atomically. If several operations already commit independently, combine their history with an undo group:
+Complete native composition before capturing a save. `TryCompleteComposition()` returns false if the current input cannot be resolved yet.
 
 ```csharp
-using (editor.Document.BeginUndoGroup("Insert section"))
-{
-    editor.Selection.ReplaceText("Heading\n");
-    editor.Selection.ReplaceText("Body text\n");
-}
+using RichEdit.Core.Rtf;
+
+if (!editor.TryCompleteComposition())
+    return;
+
+var document = editor.Document;
+var capture = document.CaptureSave();
+var diagnostics = RtfCodec.Assess(capture.Snapshot);
+if (!diagnostics.IsEmpty)
+    throw new RtfFidelityException(diagnostics);
+
+await RtfCodec.WriteAsync(capture.Snapshot, outputStream);
+// Flush and successfully replace the application's destination first.
+document.MarkSaved(capture);
 ```
 
-Each operation still changes the document and raises its own notifications. A later failure does not roll back earlier commits. Groups can nest and must close in reverse order. Undo and redo are unavailable while any group is open; history-clearing operations are also disallowed inside a group.
+The capture pairs one immutable snapshot with its content-state token. Acknowledging it leaves subsequent edits modified and allows undo back to the saved state to become clean. Do not mark a file saved after a canceled write, failed replacement, or export with unacknowledged loss.
 
-## Save while editing
+The application owns destination selection, temporary files, atomic replacement, and error handling. Streams remain caller-owned. Large codec work can run on a worker using the frozen snapshot, followed by save acknowledgement on the owner dispatcher.
 
-Capture the document, snapshot, and save point together on the UI thread. Serialize the snapshot, then mark that save point after the write succeeds:
-
-```csharp
-// Call from the editor's UI thread and await the returned task.
-static async Task SaveRtfAsync(RichEditor editor, string path)
-{
-    var document = editor.Document;
-    var snapshot = document.CurrentSnapshot;
-    var savePoint = document.CreateSavePoint();
-
-    string rtf = await Task.Run(() => snapshot.RtfText);
-    await File.WriteAllTextAsync(path, rtf);
-    document.MarkSaved(savePoint);
-}
-```
-
-This method starts and resumes on the UI thread. `Task.Run` moves RTF serialization to a worker; `MarkSaved` still runs on the document's owning thread.
-
-The captured document and save point identify what was written. If the user edits while saving, those later edits remain modified. If they open another file, the new document is unaffected.
-
-Calling the parameterless `MarkSaved()` after the write would mark the current state, including any unsaved edits. Serialize overlapping saves to the same path so an older write cannot overwrite a newer one.
-
-## Save source code
-
-Use the same pattern with the code snapshot's text:
-
-```csharp
-static async Task SaveSourceAsync(CodeEditor editor, string path)
-{
-    var document = editor.Document;
-    var snapshot = document.CurrentSnapshot;
-    var savePoint = document.CreateSavePoint();
-
-    await File.WriteAllTextAsync(path, snapshot.Text);
-    document.MarkSaved(savePoint);
-}
-```
-
-Source text uses LF. Convert line endings when writing if the file needs another convention.
-
-Undoing back to the saved state clears `IsModified`, even though `Version` continues to increase.
+Source documents use `CaptureSave` and `MarkSaved(capture)` with ordinary text output. Encoding, BOM, and invalid-byte policy belong to the application's file session; source snapshots preserve UTF-16 content and line endings.
