@@ -7,6 +7,19 @@ namespace RichEdit.Core.Tests;
 public sealed class RtfCodecTests
 {
     [Fact]
+    public async Task NativeRtfTerminatorsAndZeroScalingAreHandledWithoutTruncatingContent()
+    {
+        using var stream = new MemoryStream(Encoding.ASCII.GetBytes("{\\rtf1\\charscalex0 text\\par}\r\n\0 \t"));
+        var imported = await RtfCodec.ReadAsync(stream, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("text", imported.Snapshot.ProjectText().Text.ToString());
+        Assert.Equal(100, imported.Snapshot.ResolveCharacter(Assert.Single(imported.Snapshot.Nodes.Values.OfType<RichText>()).Id).HorizontalScalePercent);
+        Assert.Contains(imported.Diagnostics, diagnostic => diagnostic.Feature == "character-scale");
+        stream.Position = 0;
+        await Assert.ThrowsAsync<RtfFidelityException>(() => RtfCodec.ReadAsync(stream, new() { RequireLossless = true }, TestContext.Current.CancellationToken));
+        using var invalid = new MemoryStream(Encoding.ASCII.GetBytes("{\\rtf1 text}\0unexpected"));
+        await Assert.ThrowsAsync<FormatException>(() => RtfCodec.ReadAsync(invalid, cancellationToken: TestContext.Current.CancellationToken));
+    }
+    [Fact]
     public async Task NumberFormatsAndIndependentNestedRtfLevelsRemainSemanticLists()
     {
         foreach (var numberStyle in Enum.GetValues<RichListNumberingStyle>())

@@ -52,7 +52,13 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
             var token = await _reader.ReadAsync(cancellationToken).ConfigureAwait(false);
             _offset = token.Offset;
             if (token.Kind == RtfTokenKind.End) break;
-            if (_closed) throw Error("Content follows the root RTF group");
+            if (_closed)
+            {
+                // Native clipboard and RichEdit exports may include trailing
+                // transport whitespace and a NUL terminator after the RTF root.
+                if (token.Kind == RtfTokenKind.Text && token.Bytes.Span.IndexOfAnyExcept("\0 \t\r\n"u8) < 0) continue;
+                throw Error("Content follows the root RTF group");
+            }
             if (token.Kind is RtfTokenKind.Text or RtfTokenKind.HexByte)
             {
                 if (_states.Count == 0) throw Error("RTF must begin with a group");

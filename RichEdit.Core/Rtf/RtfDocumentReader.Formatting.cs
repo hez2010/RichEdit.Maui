@@ -34,7 +34,10 @@ internal sealed partial class RtfDocumentReader
                 if (n == int.MinValue) throw Error("Invalid baseline offset");
                 format = format with { VerticalPosition = RichVerticalPosition.Offset(word == "dn" ? -n : n) }; break;
             case "expndtw": format = format with { CharacterSpacing = new RichLength(n) }; break;
-            case "charscalex": if (n <= 0) throw Error("Character scaling must be positive"); format = format with { HorizontalScalePercent = n }; break;
+            case "charscalex":
+                if (n < 0) throw Error("Character scaling cannot be negative");
+                if (n == 0) Report("character-scale", "Zero character scaling was normalized to 100 percent, as used by the native RichEdit exporter.");
+                format = format with { HorizontalScalePercent = n == 0 ? 100 : n }; break;
             case "expnd": format = format with { CharacterSpacing = new RichLength(checked(n * 5)) }; break;
             case "scaps": format = format with { SmallCaps = n != 0 }; break;
             case "caps": format = format with { AllCaps = n != 0 }; break;
