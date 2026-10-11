@@ -8,6 +8,55 @@ internal static partial class EditorContractTests
     private static IEnumerable<Case> StructuredBindingCases()
     {
 #if ANDROID || IOS || MACCATALYST
+        yield return new("structured field decorations paint native results without authoring styles", async editor =>
+        {
+            RichNodeId field = default;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "a");
+                field = edit.InsertField(new(edit.Body, new(2), 1), "MERGEFIELD demo", "VALUE");
+            }));
+            var rich = new RichEditor { Document = model };
+            try
+            {
+                _ = rich.ToPlatform(editor.Handler!.MauiContext!);
+                using var layer = rich.Presentation.CreateDecorationLayer();
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, new(2), 1);
+                Equal(true, layer.TryPublish(layer.BeginUpdate(), new RichEditorDecoration[]
+                { new(new(point, point with { Offset = 2 }), new() { Italic = true }) }));
+                await Task.Delay(40);
+                Equal(true, Italic());
+                Equal(false, model.CanUndo);
+                Equal(false, model.CurrentSnapshot.ResolveCharacter(field).Italic);
+                var start = point with { Offset = 0 };
+                rich.Selection = new RichEdit.Core.RichTextSelection(start, start);
+                NativeMultiInsert(rich.NativeView, "X");
+                await Task.Delay(40);
+                Equal(true, model.CurrentSnapshot.ProjectText().Text.ToString().StartsWith("Xa", StringComparison.Ordinal));
+                Equal(false, model.CurrentSnapshot.ResolveCharacter(field).Italic);
+                Equal(true, Italic());
+                layer.Clear();
+                Equal(false, Italic());
+                rich.Undo();
+                Equal("VALUE", model.CurrentSnapshot.Get<RichField>(field).Result);
+
+                bool Italic()
+                {
+                    var position = NativeText(rich.NativeView).IndexOf("VALUE", StringComparison.Ordinal);
+                    if (position < 0) throw new InvalidOperationException("Native field result missing.");
+#if ANDROID
+                    var text = ((RichEditorHandler)rich.NativeView.Handler!).PlatformView.EditableText!;
+                    return text.GetSpans(position, position + 1, Java.Lang.Class.FromType(typeof(Android.Text.Style.StyleSpan)))!
+                        .OfType<Android.Text.Style.StyleSpan>().Any(span => (span.Style & Android.Graphics.TypefaceStyle.Italic) != 0);
+#else
+                    var storage = ((RichEditorHandler)rich.NativeView.Handler!).PlatformView.TextStorage;
+                    var attributes = new UIKit.UIStringAttributes(storage.GetAttributes(position, out _));
+                    return attributes.Font!.FontDescriptor.SymbolicTraits.HasFlag(UIKit.UIFontDescriptorSymbolicTraits.Italic);
+#endif
+                }
+            }
+            finally { rich.NativeView.Handler?.DisconnectHandler(); rich.Handler?.DisconnectHandler(); }
+        });
         yield return new("structured typed presentation remains transient through native input", async editor =>
         {
             var model = RichDocument.FromPlainText("abcd");

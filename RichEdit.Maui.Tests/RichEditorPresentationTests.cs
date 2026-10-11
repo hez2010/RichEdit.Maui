@@ -6,6 +6,48 @@ namespace RichEdit.Maui.Tests;
 public sealed class RichEditorPresentationTests
 {
     [Fact]
+    public Task NativeTableDecorationsPaintClearAndDoNotAuthorFormatting() => WindowsTestHost.RunAsync(async () =>
+    {
+        RichNodeId paragraph = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            var table = edit.InsertTable(edit.Body, 1, 1, new RichLength[] { new(2400) });
+            paragraph = edit.Snapshot.Get<RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "table text");
+        }));
+        var editor = new RichEditor { Document = document };
+        var handler = new RichEditorHandler();
+        handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
+        editor.NativeView.Handler = handler;
+        try
+        {
+            using var layer = editor.Presentation.CreateDecorationLayer();
+            var point = new RichTextPoint(document.CurrentSnapshot.Body, paragraph, 0);
+            var before = document.CurrentSnapshot;
+            Assert.True(layer.TryPublish(layer.BeginUpdate(), new RichEditorDecoration[]
+            { new(new(point, point with { Offset = 5 }), new() { Italic = true }) }));
+            var native = handler.PlatformView.Document;
+            int Start() { var range = native.GetRange(0, 0); range.SetRange(0, range.StoryLength); return range.Text.IndexOf("table", StringComparison.Ordinal); }
+            var index = Start();
+            Assert.True(index >= 0);
+            Assert.Equal(Microsoft.UI.Text.FormatEffect.On, native.GetRange(index, index + 1).CharacterFormat.Italic);
+            Assert.Same(before, document.CurrentSnapshot);
+            Assert.False(document.CanUndo);
+            editor.Selection = new RichEdit.Core.RichTextSelection(point with { Offset = 5 }, point with { Offset = 5 });
+            native.Selection.TypeText("X");
+            await Task.Delay(50);
+            Assert.Contains("tableX text", document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.All(document.CurrentSnapshot.Nodes.Values.OfType<RichText>(), run => Assert.False(document.CurrentSnapshot.ResolveCharacter(run.Id).Italic));
+            layer.Clear();
+            index = Start();
+            Assert.Equal(Microsoft.UI.Text.FormatEffect.Off, native.GetRange(index, index + 1).CharacterFormat.Italic);
+            editor.Undo();
+            Assert.Contains("table text", document.CurrentSnapshot.ProjectText().Text.ToString());
+        }
+        finally { editor.NativeView.Handler = null; ((IElementHandler)handler).DisconnectHandler(); }
+    });
+
+    [Fact]
     public Task TypedPresentationFollowsStructuralMovesAndRejectsStaleRequests() => WindowsTestHost.RunAsync(async () =>
     {
         var document = RichDocument.FromPlainText("first");

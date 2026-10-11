@@ -32,7 +32,8 @@ public partial class RichEditorHandler
             return false;
         }
         var snapshot = VirtualView.StructuredSession!.Document.CurrentSnapshot;
-        SetStructuredNativeMap(CreateStructuredNativeDocumentCore(snapshot, apply: true));
+        SetStructuredNativeMap(CreateStructuredNativeDocumentCore(snapshot, apply: true), captureFormats: false);
+        ApplyStructuredDecorations();
         _paintedCellSelection = VirtualView.StructuredSession.Selection as RichCellSelection;
         _structuredSelection = StructuredNativeSelection();
         SetNativeSelectionCore(_structuredSelection.Value);
@@ -44,7 +45,8 @@ public partial class RichEditorHandler
     {
         if (_structuredNativeMap is null || !VirtualView.PrepareStructuredComposition()) return;
         var composition = VirtualView.StructuredSession!.Composition!;
-        SetStructuredNativeMap(CreateStructuredNativeDocumentCore(composition.Snapshot, apply: true));
+        SetStructuredNativeMap(CreateStructuredNativeDocumentCore(composition.Snapshot, apply: true), captureFormats: false);
+        ApplyStructuredDecorations();
         var selection = (RichEdit.Core.RichTextSelection)composition.Selection;
         SetNativeSelectionCore(new(_structuredNativeMap!.ToNative(selection.Anchor), _structuredNativeMap.ToNative(selection.Active)));
         _paintedCellSelection = null;
@@ -72,6 +74,22 @@ public partial class RichEditorHandler
         _displayAdornmentVersion = VirtualView.Adornments.Version;
         _displayDecorationVersion = VirtualView.Decorations.Version;
     }
+
+    private void ApplyStructuredDecorations()
+    {
+        if (_structuredNativeMap is not { } map || _displayState is null) return;
+        var before = _displayState.Presentation;
+        var after = VirtualView.Decorations.ProjectStructured(RichTextDisplayProjection.NativeDescription(map), map);
+        _displayState = _displayState with { Presentation = after };
+        if (!ReferenceEquals(before, after)) ApplyStructuredDecorationFormatsCore(before, after);
+        // Native readback compares against what was painted, so a decoration is
+        // never mistaken for newly authored formatting after typing in a table.
+        _structuredFormats = CaptureStructuredFormatsCore(map);
+        _displayDecorationVersion = VirtualView.Decorations.Version;
+        _paintedSnapshot = after;
+    }
+
+    private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after);
 
     private TextSelectionState StructuredNativeSelection()
     {

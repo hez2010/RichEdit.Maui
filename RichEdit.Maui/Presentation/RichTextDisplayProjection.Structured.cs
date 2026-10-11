@@ -9,6 +9,7 @@ internal sealed partial class RichTextDisplayProjection
 
     internal static RichTextDocumentSnapshot NativeDescription(StructuredRichNativeMap map)
     {
+        if (map.AuthoredDisplay is { } authored) return authored;
         if (map.Display is { } display) return display;
         var text = TextSnapshot.FromText(map.NativeText.Replace('\r', '\n').Replace('\v', RichTextDocument.SoftLineBreakCharacter));
         return RichTextDocumentSnapshot.CreateSourceProjection(text.WithRevision(map.Snapshot.Revision));

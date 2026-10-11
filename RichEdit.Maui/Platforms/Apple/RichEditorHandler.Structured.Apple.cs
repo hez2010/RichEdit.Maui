@@ -8,10 +8,12 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map)
+        => CaptureStructuredFormats(PlatformView.TextStorage, map);
+
+    private StructuredNativeFormats CaptureStructuredFormats(NSAttributedString text, StructuredRichNativeMap map)
     {
         var runs = new List<RichTextRun>();
         var paragraphs = new Dictionary<RichNodeId, RichTextParagraphFormat>();
-        var text = PlatformView.TextStorage;
         foreach (var paragraph in map.Paragraphs)
         {
             var prior = RichTextDocumentSnapshot.ToNative(map.Snapshot.ResolveParagraph(paragraph.Id));
@@ -61,7 +63,18 @@ public partial class RichEditorHandler
             }
             finally { _applyingDocument = applying; }
         }
-        return resolved.Map;
+        return resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
+            .With(runs: CaptureStructuredFormats(content, resolved.Map).Characters));
+    }
+
+    private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)
+    {
+        var applying = _applyingDocument;
+        _applyingDocument = true;
+        PlatformView.TextStorage.BeginEditing();
+        try { ApplyCharacterFormatsIncrementally(after, new(0, after.Length), before); }
+        finally { PlatformView.TextStorage.EndEditing(); _applyingDocument = applying; }
+        PlatformView.UndoManager?.RemoveAllActions();
     }
 }
 #endif

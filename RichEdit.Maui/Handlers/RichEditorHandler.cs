@@ -98,6 +98,7 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
 
     void IRichEditorHandler.ApplyDecorations(RichTextChangeSet changes)
     {
+        if (_structuredNativeMap is not null) { ApplyStructuredDecorations(); return; }
         var updating = _updatingDisplayProjection;
         _updatingDisplayProjection = true;
         try

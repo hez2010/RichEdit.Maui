@@ -76,9 +76,11 @@ internal sealed class StructuredRichNativeMap
     private readonly RichTextProjection _text;
     private readonly ImmutableDictionary<RichNodeId, int> _boundaries;
     private StructuredRichNativeMap(RichDocumentSnapshot snapshot, string nativeText, ImmutableArray<Paragraph> paragraphs, ImmutableDictionary<RichNodeId, int> boundaries,
-        RichTextProjection? projection = null, RichTextDocumentSnapshot? display = null)
-    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = projection ?? snapshot.ProjectText(); _boundaries = boundaries; Display = display; }
+        RichTextProjection? projection = null, RichTextDocumentSnapshot? display = null, RichTextDocumentSnapshot? authoredDisplay = null)
+    { Snapshot = snapshot; NativeText = nativeText; _ordered = paragraphs; _paragraphs = paragraphs.ToImmutableDictionary(item => item.Id); _text = projection ?? snapshot.ProjectText(); _boundaries = boundaries; Display = display; AuthoredDisplay = authoredDisplay; }
     internal RichTextDocumentSnapshot? Display { get; }
+    internal RichTextDocumentSnapshot? AuthoredDisplay { get; }
+    internal StructuredRichNativeMap WithAuthoredDisplay(RichTextDocumentSnapshot display) => new(Snapshot, NativeText, _ordered, _boundaries, _text, Display, display);
     internal static StructuredRichNativeMap FromDisplay(RichTextProjection projection, RichTextDocumentSnapshot display, ImmutableArray<Paragraph> paragraphs) =>
         new(projection.Snapshot, display.Text, paragraphs, ImmutableDictionary<RichNodeId, int>.Empty, projection, display);
     internal RichDocumentSnapshot Snapshot { get; }

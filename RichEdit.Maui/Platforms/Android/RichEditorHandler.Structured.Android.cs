@@ -6,6 +6,15 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)
+    {
+        var applying = _applyingDocument;
+        _applyingDocument = true;
+        PlatformView.BeginBatchEdit();
+        try { ApplyCharacterFormatsIncrementally(PlatformView.EditableText!, after, new(0, after.Length), before); }
+        finally { PlatformView.EndBatchEdit(); _applyingDocument = applying; }
+    }
+
     private partial StructuredRichNativeMap CreateStructuredNativeDocumentCore(RichDocumentSnapshot snapshot, bool apply)
     {
         var map = RichTextDocumentSnapshot.CreateExpandedFields(VirtualView.ProjectStructuredInput(snapshot));

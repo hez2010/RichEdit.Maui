@@ -9,10 +9,13 @@ public partial class RichEditorHandler
     private RichEditBox? _structuredScratch;
 
     private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map)
+        => CaptureStructuredFormats(PlatformView.Document, map);
+
+    private StructuredNativeFormats CaptureStructuredFormats(RichEditTextDocument document, StructuredRichNativeMap map)
     {
         var runs = new List<RichTextRun>();
         var paragraphs = new Dictionary<RichNodeId, RichTextParagraphFormat>();
-        var range = PlatformView.Document.GetRange(0, 0);
+        var range = document.GetRange(0, 0);
         foreach (var paragraph in map.Paragraphs)
         {
             range.SetRange(paragraph.Start, paragraph.Start);
@@ -76,7 +79,22 @@ public partial class RichEditorHandler
             }
             finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }
         }
-        return resolved.Map;
+        return resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
+            .With(runs: CaptureStructuredFormats(scratch, resolved.Map).Characters));
+    }
+
+    private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)
+    {
+        var applying = _applyingDocument;
+        var readOnly = PlatformView.IsReadOnly;
+        _applyingDocument = true;
+        try
+        {
+            PlatformView.IsReadOnly = false;
+            ApplyCharacterFormatsIncrementally(after, new(0, after.Length), before);
+            PlatformView.Document.ClearUndoRedoHistory();
+        }
+        finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }
     }
 
     private static void ApplyStructuredCellInsets(RichEditTextDocument native, StructuredRichNativeMap map)

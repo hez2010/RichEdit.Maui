@@ -232,19 +232,29 @@ public sealed class RichTextDecorations
 
     private RichTextDocumentSnapshot ProjectPainted(RichTextDocumentSnapshot snapshot) => Project(snapshot, painted: true);
 
-    internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot, bool painted = false)
+    internal RichTextDocumentSnapshot ProjectStructured(RichTextDocumentSnapshot snapshot, StructuredRichNativeMap map) =>
+        Project(snapshot, map: map);
+
+    internal RichTextDocumentSnapshot Project(RichTextDocumentSnapshot snapshot, bool painted = false, StructuredRichNativeMap? map = null)
     {
         if (painted && _layers.All(static layer => layer.PendingItems.IsDefault))
             painted = false;
-        if (ReferenceEquals(snapshot, _projection))
+        if (map is null && ReferenceEquals(snapshot, _projection))
             return snapshot;
-        if (!painted && ReferenceEquals(snapshot, _projectionSource))
+        if (map is null && !painted && ReferenceEquals(snapshot, _projectionSource))
             return _projection!;
 
         var projected = snapshot;
         foreach (var layer in _layers.OrderBy(static layer => layer.Priority))
         {
             var items = painted && !layer.PendingItems.IsDefault ? layer.PaintedItems : layer.Items;
+            if (map is not null)
+                items = items.Select(item =>
+                {
+                    var start = map.FromSource(item.Range.Start);
+                    var end = map.FromSource(item.Range.End, after: false);
+                    return new RichTextDecoration(new(start, Math.Max(0, end - start)), item.Style);
+                }).Where(item => !item.Range.IsEmpty).ToImmutableArray();
             if (items.IsEmpty)
                 continue;
 
@@ -278,7 +288,7 @@ public sealed class RichTextDecorations
 
             projected = projected.With(runs: runs);
         }
-        if (painted)
+        if (painted || map is not null)
             return projected;
 
         _projectionSource = snapshot;
