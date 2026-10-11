@@ -11,11 +11,11 @@ internal sealed partial class RtfProjectionWriter
     private void CollectSemanticResources()
     {
         Collect(snapshot.DefaultCharacter.Apply(new()));
-        Color(snapshot.DefaultParagraph.Apply(new()).Background);
+        Collect(snapshot.DefaultParagraph.Apply(new()));
         foreach (var style in snapshot.Styles.Definitions.Values)
         {
             Collect(style.Character.Apply(new()));
-            Color(style.Paragraph.Apply(new()).Background);
+            Collect(style.Paragraph.Apply(new()));
         }
         var projection = snapshot.ProjectText();
         foreach (var bookmark in snapshot.Bookmarks.Values.OrderBy(value => value.Id.Value))
@@ -52,7 +52,7 @@ internal sealed partial class RtfProjectionWriter
         await Masks("rec", RtfStyleState.Masks(snapshot.DefaultCharacter));
         await S(@"}{\*\defpap ");
         await ParagraphProperties(snapshot.DefaultParagraph.Apply(new()));
-        await Masks("rep", RtfStyleState.Masks(snapshot.DefaultParagraph));
+        await Masks("rep", RtfStyleState.Masks(snapshot.DefaultParagraph), snapshot.DefaultParagraph.Background.ApplyValue());
         await S("}");
         if (snapshot.Styles.Definitions.Count != 0)
         {
@@ -70,7 +70,7 @@ internal sealed partial class RtfProjectionWriter
                 if (style.Kind == RichStyleKind.Paragraph)
                 {
                     await ParagraphProperties(snapshot.Styles.ResolveParagraph(style.Id));
-                    await Masks("rep", RtfStyleState.Masks(style.Paragraph));
+                    await Masks("rep", RtfStyleState.Masks(style.Paragraph), style.Paragraph.Background.ApplyValue());
                 }
                 await Name(style.Name);
                 await S(";}");
@@ -88,7 +88,7 @@ internal sealed partial class RtfProjectionWriter
         }
     }
 
-    private async Task Masks(string destination, (int Inherit, int Initial, int Null) masks)
+    private async Task Masks(string destination, (int Inherit, int Initial, int Null) masks, RichColor? background = null)
     {
         await S(@"{\*");
         await C(destination);
@@ -96,6 +96,7 @@ internal sealed partial class RtfProjectionWriter
         await C("reinherit", masks.Inherit);
         await C("reinitial", masks.Initial);
         await C("renull", masks.Null);
+        if (background is { } color) await C("rebgcolor", Index(color));
         await S("}");
     }
 
@@ -122,7 +123,13 @@ internal sealed partial class RtfProjectionWriter
         await C("keepn", value.KeepWithNext ? 1 : 0);
         await C(value.WidowControl ? "widctlpar" : "nowidctlpar");
         if (value.HeadingLevel is { } level) await C("outlinelevel", level - 1);
-        if (value.Background is { } background) { await C("shading", 10000); await C("cfpat", _colors[background]); }
+        if (value.Shading is { } shading)
+        {
+            await C("shading", shading.Coverage);
+            await C("cfpat", Index(shading.Foreground));
+            await C("cbpat", Index(shading.Background));
+        }
+        else if (value.Background is { } background) { await C("shading", 10000); await C("cfpat", _colors[background]); }
     }
 
     private async Task Name(string name)

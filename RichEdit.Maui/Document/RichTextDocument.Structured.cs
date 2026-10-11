@@ -178,6 +178,8 @@ public sealed partial class RichTextDocument
             Background = Equals(before.BackgroundColor, after.BackgroundColor) ? default : value.Background,
             Script = Equals(before.Script, after.Script) ? default : value.Script,
             CharacterSpacing = Equals(before.CharacterSpacing, after.CharacterSpacing) ? default : value.CharacterSpacing,
+            Shading = before.Shading == after.Shading && Equals(before.ShadingForegroundColor, after.ShadingForegroundColor) &&
+                Equals(before.ShadingBackgroundColor, after.ShadingBackgroundColor) ? default : value.Shading,
             SmallCaps = Equals(before.SmallCaps, after.SmallCaps) ? default : value.SmallCaps,
             AllCaps = Equals(before.AllCaps, after.AllCaps) ? default : value.AllCaps,
             Outline = Equals(before.Outline, after.Outline) ? default : value.Outline,
@@ -204,6 +206,7 @@ public sealed partial class RichTextDocument
         CharacterSpacing = RichLength.FromPoints(value.CharacterSpacing), SmallCaps = value.SmallCaps, AllCaps = value.AllCaps,
         Outline = value.Outline, Shadow = value.Shadow, Hidden = value.Hidden, Language = value.LanguageTag,
         Direction = Direction(value.Direction),
+        Shading = ToShading(value.Shading, value.ShadingForegroundColor, value.ShadingBackgroundColor),
     };
     internal static RichParagraphStyle ParagraphOverrides(RichTextParagraphFormat before, RichTextParagraphFormat after)
     {
@@ -221,6 +224,8 @@ public sealed partial class RichTextDocument
             LineSpacing = before.LineSpacingRule == after.LineSpacingRule && before.LineSpacing == after.LineSpacing ? default : value.LineSpacing,
             TabStops = before.TabStops.AsSpan().SequenceEqual(after.TabStops.AsSpan()) ? default : value.TabStops,
             Hyphenation = before.Hyphenation == after.Hyphenation ? default : value.Hyphenation,
+            Shading = before.Shading == after.Shading && Equals(before.ShadingForegroundColor, after.ShadingForegroundColor) &&
+                Equals(before.ShadingBackgroundColor, after.ShadingBackgroundColor) ? default : value.Shading,
         };
     }
 
@@ -241,8 +246,11 @@ public sealed partial class RichTextDocument
         TabStops = new RichTabStops(value.TabStops.Select(tab => new RichTabStop(RichLength.FromPoints(tab.Position),
             (RichTabAlignment)tab.Alignment, (RichTabLeader)tab.Leader))),
         Hyphenation = value.Hyphenation,
+        Shading = ToShading(value.Shading, value.ShadingForegroundColor, value.ShadingBackgroundColor),
     };
     private static RichColor? Color(Color? value) => value is null ? null : new((byte)Math.Round(value.Red * 255), (byte)Math.Round(value.Green * 255), (byte)Math.Round(value.Blue * 255));
+    private static RichShading? ToShading(int amount, Color? foreground, Color? background) =>
+        amount == 0 && foreground is null && background is null ? null : new(amount, Color(foreground), Color(background));
     private static RichDirection Direction(RichTextDirection value) => value switch
     { RichTextDirection.LeftToRight => RichDirection.LeftToRight, RichTextDirection.RightToLeft => RichDirection.RightToLeft, _ => RichDirection.Automatic };
 }

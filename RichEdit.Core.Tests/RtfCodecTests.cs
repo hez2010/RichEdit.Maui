@@ -96,6 +96,42 @@ public sealed class RtfCodecTests
         Assert.Throws<ArgumentException>(() => RichDocumentSnapshot.Build(edit => edit.SetParagraphFormat(new(2), new() { TabStops = StyleValue<RichTabStops>.FromValue(null!) })));
     }
 
+    [Fact]
+    public async Task CharacterAndParagraphShadingPreserveCoverageColorsAndIndependentBackgrounds()
+    {
+        foreach (var amount in new[] { 0, 3333, 10000 })
+        {
+            var shading = new RichShading(amount, new(200, 30, 20), new(40, 50, 210));
+            var character = new RichCharacterStyle { Shading = shading, Background = new RichColor(1, 200, 30) };
+            var paragraph = new RichParagraphStyle { Shading = shading, Background = new RichColor(220, 230, 30) };
+            var snapshot = RichDocumentSnapshot.Build(edit =>
+            {
+                edit.SetDefaultCharacterFormat(character);
+                edit.SetDefaultParagraphFormat(paragraph);
+                edit.SetStyles(new([new(new(1), "Shaded", RichStyleKind.Paragraph) { Character = character, Paragraph = paragraph }]));
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "shaded");
+                edit.SetParagraphStyle(new(2), new(1));
+                edit.SetParagraphFormat(new(2), paragraph);
+                edit.SetCharacterFormat(new(edit.Body, new(2), 0), 6, character);
+            });
+            var result = await RoundTrip(snapshot);
+            Assert.Equal(character, result.DefaultCharacter);
+            Assert.Equal(paragraph, result.DefaultParagraph);
+            Assert.Equal(snapshot.Styles.Definitions[new(1)], result.Styles.Definitions[new(1)]);
+            Assert.Equal(character, Assert.Single(result.Nodes.Values.OfType<RichText>()).Format);
+            Assert.Equal(paragraph, Assert.Single(result.Nodes.Values.OfType<RichParagraph>()).Format);
+        }
+        var cleared = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "reset");
+            edit.SetCharacterFormat(new(edit.Body, new(2), 0), 5, new() { Shading = StyleValue<RichShading?>.Initial });
+            edit.SetParagraphFormat(new(2), new() { Shading = StyleValue<RichShading?>.FromValue(null) });
+        });
+        var restored = await RoundTrip(cleared);
+        Assert.Equal(StyleValueKind.Initial, Assert.Single(restored.Nodes.Values.OfType<RichText>()).Format.Shading.Kind);
+        Assert.Equal(StyleValue<RichShading?>.FromValue(null), Assert.Single(restored.Nodes.Values.OfType<RichParagraph>()).Format.Shading);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("one\ntwo\n")]

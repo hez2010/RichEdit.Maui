@@ -86,6 +86,7 @@ internal sealed partial class RtfDocumentReader
             case "snext": _state.NextStyle = n; return;
             case "reinherit": _state.Inherit = n; return;
             case "reprops": if (n is < 1 or > 32) throw Error("Invalid cascade property count"); _state.PropertyCount = n; return;
+            case "rebgcolor": _state.Paragraph = _state.Paragraph with { Background = Color(n) }; return;
             case "reinitial": _state.Initial = n; return;
             case "renull": _state.Null = n; return;
             case "rereverse": _state.Reverse = n != 0; return;
@@ -128,7 +129,7 @@ internal sealed partial class RtfDocumentReader
             case "additive": case "sautoupd": case "slocked": case "shidden": case "slink": case "styrsid":
             case "trgaph": case "trleft": case "trautofit": case "trftsWidth": case "trwWidth": case "clftsWidth": case "clwWidth":
             case "listtemplateid": case "listsimple": case "listoverridecount": case "leveljc": case "leveljcn": case "levelfollow":
-            case "shading": case "chshdng": case "loch": case "hich": case "dbch": case "ltrdoc": case "rtldoc":
+            case "loch": case "hich": case "dbch": case "ltrdoc": case "rtldoc":
                 return;
         }
         if (CharacterControl(word, n) || ParagraphControl(word, n)) return;

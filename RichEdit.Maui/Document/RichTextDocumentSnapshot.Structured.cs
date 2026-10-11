@@ -65,6 +65,8 @@ public sealed partial class RichTextDocumentSnapshot
         CharacterSpacing = value.CharacterSpacing.Points, SmallCaps = value.SmallCaps, AllCaps = value.AllCaps,
         Outline = value.Outline, Shadow = value.Shadow, Hidden = value.Hidden, LanguageTag = value.Language,
         Direction = ToDirection(value.Direction),
+        Shading = value.Shading?.Coverage ?? 0,
+        ShadingForegroundColor = ToColor(value.Shading?.Foreground), ShadingBackgroundColor = ToColor(value.Shading?.Background),
     };
 
     internal static RichTextParagraphFormat ToNative(ResolvedParagraphStyle value) => new()
@@ -81,6 +83,8 @@ public sealed partial class RichTextDocumentSnapshot
         TabStops = value.TabStops.Select(tab => new RichTextTabStop(tab.Position.Points,
             (RichTextTabAlignment)tab.Alignment, (RichTextTabLeader)tab.Leader)).ToImmutableArray(),
         Hyphenation = value.Hyphenation,
+        Shading = value.Shading?.Coverage ?? 0,
+        ShadingForegroundColor = ToColor(value.Shading?.Foreground), ShadingBackgroundColor = ToColor(value.Shading?.Background),
     };
     private static Color? ToColor(RichColor? value) => value is { } color ? Color.FromRgb(color.Red, color.Green, color.Blue) : null;
     private static RichTextDirection ToDirection(RichDirection value) => value switch

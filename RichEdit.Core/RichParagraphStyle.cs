@@ -45,6 +45,8 @@ public sealed record RichParagraphStyle
     public StyleValue<RichTabStops> TabStops { get; init; }
     /// <summary>Whether paragraph hyphenation is requested.</summary>
     public StyleValue<bool> Hyphenation { get; init; }
+    /// <summary>Paragraph shading; null uses the solid background alone.</summary>
+    public StyleValue<RichShading?> Shading { get; init; }
 
     internal RichParagraphStyle Overlay(RichParagraphStyle child) => new()
     {
@@ -63,6 +65,7 @@ public sealed record RichParagraphStyle
         LineSpacing = child.LineSpacing.Kind == StyleValueKind.Inherit ? LineSpacing : child.LineSpacing,
         TabStops = child.TabStops.Kind == StyleValueKind.Inherit ? TabStops : child.TabStops,
         Hyphenation = child.Hyphenation.Kind == StyleValueKind.Inherit ? Hyphenation : child.Hyphenation,
+        Shading = child.Shading.Kind == StyleValueKind.Inherit ? Shading : child.Shading,
     };
 
     internal ResolvedParagraphStyle Apply(ResolvedParagraphStyle inherited) => new()
@@ -82,6 +85,7 @@ public sealed record RichParagraphStyle
         LineSpacing = LineSpacing.Resolve(inherited.LineSpacing, default),
         TabStops = TabStops.Resolve(inherited.TabStops, RichTabStops.Empty),
         Hyphenation = Hyphenation.Resolve(inherited.Hyphenation, false),
+        Shading = Shading.Resolve(inherited.Shading, null),
     };
 }
 
@@ -130,5 +134,7 @@ public sealed record ResolvedParagraphStyle
     public RichTabStops TabStops { get; init; } = RichTabStops.Empty;
     /// <summary>Whether paragraph hyphenation is requested.</summary>
     public bool Hyphenation { get; init; }
+    /// <summary>Paragraph shading; null uses the solid background alone.</summary>
+    public RichShading? Shading { get; init; }
 
 }

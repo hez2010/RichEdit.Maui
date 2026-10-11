@@ -6,6 +6,36 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured shading retains independent colors through native input", async editor =>
+        {
+            var previous = editor.Document;
+            var character = new RichCharacterStyle { Shading = new RichShading(3333, new(200, 30, 20), new(40, 50, 210)), Background = new RichColor(30, 200, 30) };
+            var paragraphFormat = new RichParagraphStyle { Shading = new RichShading(5000, new(180, 20, 10), new(230, 240, 255)), Background = new RichColor(230, 200, 30) };
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "shaded");
+                edit.SetParagraphCharacterFormat(new(2), character);
+                edit.SetParagraphFormat(new(2), paragraphFormat);
+                // Exercise the standard native RTF import path as well as spans.
+                edit.InsertField(new(edit.Body, new(2), 6), "DATE", "today");
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                await Task.Delay(60);
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, new(2), 3);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(point, point);
+                NativeMultiInsert(editor, "!");
+                await Task.Delay(30);
+                Equal("sha!ded\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(paragraphFormat, model.CurrentSnapshot.Get<RichParagraph>(new(2)).Format);
+                Equal(character, model.CurrentSnapshot.Get<RichParagraph>(new(2)).Character);
+                editor.Undo();
+                Equal("shaded\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.Document = previous; }
+        });
         yield return new("structured paragraph tabs use native geometry and persist with hyphenation", async editor =>
         {
             var previous = editor.Document;

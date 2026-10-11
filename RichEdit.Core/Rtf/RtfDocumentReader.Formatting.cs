@@ -24,7 +24,9 @@ internal sealed partial class RtfDocumentReader
             case "strike": if (n != 0 || format.Strike.ApplyValue() != RichStrike.Double) format = format with { Strike = n == 0 ? RichStrike.None : RichStrike.Single }; break;
             case "striked": if (n != 0) format = format with { Strike = RichStrike.Double }; else if (format.Strike.ApplyValue() == RichStrike.Double) format = format with { Strike = RichStrike.None }; break;
             case "cf": format = format with { Foreground = Color(n) }; break;
-            case "highlight": case "chcbpat": format = format with { Background = Color(n) }; break;
+            case "highlight": format = format with { Background = Color(n) }; break;
+            case "chshdng": case "chcfpat": case "chcbpat":
+                format = format with { Shading = ReadShading(format.Shading.ApplyValue(), word, n) }; break;
             case "super": format = format with { Script = RichScript.Superscript }; break;
             case "sub": format = format with { Script = RichScript.Subscript }; break;
             case "nosupersub": format = format with { Script = RichScript.Normal }; break;
@@ -96,7 +98,9 @@ internal sealed partial class RtfDocumentReader
             case "widctlpar": format = format with { WidowControl = n != 0 }; break;
             case "nowidctlpar": format = format with { WidowControl = false }; break;
             case "outlinelevel": if (n is < 0 or > 9) throw Error("Invalid heading level"); format = format with { HeadingLevel = n == 9 ? null : n + 1 }; break;
-            case "cfpat": case "cbpat": format = format with { Background = Color(n) }; break;
+            case "shading": case "cfpat": case "cbpat":
+                var shade = ReadShading(format.Shading.ApplyValue(), word, n);
+                format = format with { Shading = shade, Background = shade.SolidColor }; break;
             default: return false;
         }
         if (_state.Destination == "fldrslt" && _state.Capture is not null && _state.Paragraph != format)
@@ -110,6 +114,18 @@ internal sealed partial class RtfDocumentReader
         if (index == 0) return null;
         if (index < 0 || index >= _colors.Count) { Report("color-reference", $"Color {index} is missing; the default color was used."); return null; }
         return _colors[index];
+    }
+
+    private RichShading ReadShading(RichShading? previous, string control, int value)
+    {
+        var shade = previous ?? default;
+        if (control is "shading" or "chshdng")
+        {
+            if (value is < 0 or > 10000) throw Error("Invalid shading coverage");
+            return new(value, shade.Foreground, shade.Background);
+        }
+        return control is "cfpat" or "chcfpat" ? new(shade.Coverage, Color(value), shade.Background) :
+            new(shade.Coverage, shade.Foreground, Color(value));
     }
 }
 

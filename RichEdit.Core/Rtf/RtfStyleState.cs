@@ -4,8 +4,8 @@ namespace RichEdit.Core.Rtf;
 // properties. They contain no text, resources, or alternate document payload.
 internal static class RtfStyleState
 {
-    internal const int CharacterPropertyCount = 18;
-    internal const int ParagraphPropertyCount = 15;
+    internal const int CharacterPropertyCount = 19;
+    internal const int ParagraphPropertyCount = 16;
     internal static (int Inherit, int Initial, int Null) Masks(RichCharacterStyle style)
     {
         var inherit = 0; var initial = 0; var nil = 0;
@@ -51,6 +51,9 @@ internal static class RtfStyleState
         if (style.Language.Kind == StyleValueKind.Value && style.Language.Value is null) nil |= 1 << 16;
         if (style.Direction.Kind == StyleValueKind.Inherit) inherit |= 1 << 17;
         if (style.Direction.Kind == StyleValueKind.Initial) initial |= 1 << 17;
+        if (style.Shading.Kind == StyleValueKind.Inherit) inherit |= 1 << 18;
+        if (style.Shading.Kind == StyleValueKind.Initial) initial |= 1 << 18;
+        if (style.Shading.Kind == StyleValueKind.Value && style.Shading.Value is null) nil |= 1 << 18;
         return (inherit, initial, nil);
     }
 
@@ -74,6 +77,7 @@ internal static class RtfStyleState
         Hidden = Restore<bool>(15, inherit, initial, value.Hidden),
         Language = Restore<string?>(16, inherit, initial, (nil & (1 << 16)) != 0 ? null : value.Language),
         Direction = Restore<RichDirection>(17, inherit, initial, value.Direction),
+        Shading = Restore<RichShading?>(18, inherit, initial, (nil & (1 << 18)) != 0 ? null : value.Shading),
     };
 
     internal static (int Inherit, int Initial, int Null) Masks(RichParagraphStyle style)
@@ -111,6 +115,9 @@ internal static class RtfStyleState
         if (style.TabStops.Kind == StyleValueKind.Initial) initial |= 1 << 13;
         if (style.Hyphenation.Kind == StyleValueKind.Inherit) inherit |= 1 << 14;
         if (style.Hyphenation.Kind == StyleValueKind.Initial) initial |= 1 << 14;
+        if (style.Shading.Kind == StyleValueKind.Inherit) inherit |= 1 << 15;
+        if (style.Shading.Kind == StyleValueKind.Initial) initial |= 1 << 15;
+        if (style.Shading.Kind == StyleValueKind.Value && style.Shading.Value is null) nil |= 1 << 15;
         return (inherit, initial, nil);
     }
 
@@ -131,6 +138,7 @@ internal static class RtfStyleState
         LineSpacing = Restore<RichLineSpacing>(12, inherit, initial, value.LineSpacing),
         TabStops = Restore<RichTabStops>(13, inherit, initial, value.TabStops),
         Hyphenation = Restore<bool>(14, inherit, initial, value.Hyphenation),
+        Shading = Restore<RichShading?>(15, inherit, initial, (nil & (1 << 15)) != 0 ? null : value.Shading),
     };
 
     private static StyleValue<T> Restore<T>(int index, int inherit, int initial, T value) =>

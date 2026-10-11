@@ -42,7 +42,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         Color(fallbackColor);
         foreach (var paragraph in snapshot.Nodes.Values.OfType<RichParagraph>())
         {
-            Color(snapshot.ResolveParagraph(paragraph.Id).Background);
+            Collect(snapshot.ResolveParagraph(paragraph.Id));
             Collect(snapshot.Styles.ResolveCharacter(paragraph.Style, defaults: snapshot.DefaultCharacter, paragraphDirect: paragraph.Character));
         }
         if (semantic) CollectSemanticResources();
@@ -122,7 +122,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         if (semantic)
         {
             if (paragraph.Style is { } style) await C("s", style.Value);
-            await Masks("rep", RtfStyleState.Masks(paragraph.Format));
+            await Masks("rep", RtfStyleState.Masks(paragraph.Format), paragraph.Format.Background.ApplyValue());
             await Masks("repch", RtfStyleState.Masks(paragraph.Character));
         }
         var position = 0;
@@ -195,6 +195,12 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         await C("striked", format.Strike == RichStrike.Double ? 1 : 0);
         await C("cf", Index(format.Foreground ?? fallbackColor));
         await C("highlight", Index(format.Background));
+        if (format.Shading is { } shading)
+        {
+            await C("chshdng", shading.Coverage);
+            await C("chcfpat", Index(shading.Foreground));
+            await C("chcbpat", Index(shading.Background));
+        }
         await C(format.Script switch { RichScript.Superscript => "super", RichScript.Subscript => "sub", _ => "nosupersub" });
         await C("expndtw", format.CharacterSpacing.Twips);
         await C("scaps", format.SmallCaps ? 1 : 0);
@@ -334,6 +340,15 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         Color(format.Foreground);
         Color(format.Background);
         Color(format.UnderlineColor);
+        Color(format.Shading?.Foreground);
+        Color(format.Shading?.Background);
+    }
+
+    private void Collect(ResolvedParagraphStyle format)
+    {
+        Color(format.Background);
+        Color(format.Shading?.Foreground);
+        Color(format.Shading?.Background);
     }
 
     private async Task Image(RichImage image)

@@ -56,6 +56,8 @@ public sealed record RichCharacterStyle
 
     /// <summary>The authored inline writing direction.</summary>
     public StyleValue<RichDirection> Direction { get; init; }
+    /// <summary>Character shading, independently of highlighting; null disables shading.</summary>
+    public StyleValue<RichShading?> Shading { get; init; }
 
     internal RichCharacterStyle Overlay(RichCharacterStyle child) => new()
     {
@@ -77,6 +79,7 @@ public sealed record RichCharacterStyle
         Hidden = child.Hidden.Kind == StyleValueKind.Inherit ? Hidden : child.Hidden,
         Language = child.Language.Kind == StyleValueKind.Inherit ? Language : child.Language,
         Direction = child.Direction.Kind == StyleValueKind.Inherit ? Direction : child.Direction,
+        Shading = child.Shading.Kind == StyleValueKind.Inherit ? Shading : child.Shading,
     };
 
     internal ResolvedCharacterStyle Apply(ResolvedCharacterStyle inherited) => new()
@@ -99,6 +102,7 @@ public sealed record RichCharacterStyle
         Hidden = Hidden.Resolve(inherited.Hidden, false),
         Language = Language.Resolve(inherited.Language, null),
         Direction = Direction.Resolve(inherited.Direction, RichDirection.Automatic),
+        Shading = Shading.Resolve(inherited.Shading, null),
     };
 }
 
@@ -158,5 +162,7 @@ public sealed record ResolvedCharacterStyle
 
     /// <summary>The authored inline writing direction.</summary>
     public RichDirection Direction { get; init; } = RichDirection.Automatic;
+    /// <summary>Character shading, independently of highlighting; null disables shading.</summary>
+    public RichShading? Shading { get; init; }
 
 }
