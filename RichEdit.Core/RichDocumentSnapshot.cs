@@ -305,6 +305,7 @@ public sealed partial class RichDocumentSnapshot
 
     private void ValidateNode(RichNode node)
     {
+        if (node is RichTableCell cell) { ArgumentNullException.ThrowIfNull(cell.Format); cell.Format.Validate(); }
         if (node is not (RichStory or RichParagraph or RichList or RichListItem or RichTable or RichTableRow or RichTableCell or RichText or RichSoftBreak or RichImage or RichField))
             throw new ArgumentException("Unsupported authored node kind.");
         if (node is RichStory { Blocks: null } or RichParagraph { Inlines: null } or RichList { Items: null } or

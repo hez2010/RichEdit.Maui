@@ -7,6 +7,37 @@ namespace RichEdit.Maui.Tests;
 public class NativeTableContractTests
 {
     [Fact]
+    public Task NativeEngineRetainsAuthoredCellProperties() => WindowsTestHost.RunAsync(async () =>
+    {
+        var format = new RichEdit.Core.RichCellFormat
+        {
+            Padding = new(new(120), new(160), new(200), new(240)),
+            VerticalAlignment = RichEdit.Core.RichCellVerticalAlignment.Bottom,
+            Shading = new(10000, new(80, 120, 160)),
+            Borders = RichEdit.Core.RichCellBorders.Uniform(new(RichEdit.Core.RichBorderStyle.Single, new(20), new(200, 40, 20))),
+        };
+        var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>
+        {
+            var table = edit.InsertTable(edit.Body, 1, 1, (RichEdit.Core.RichLength[])[new(2400), new(2400)]);
+            edit.SetCellFormat(new(table, 0, 0, 1, 1), format);
+            var paragraph = edit.Snapshot.Get<RichEdit.Core.RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "formatted");
+            edit.DeleteBlock(new(2));
+        });
+        var native = new RichEditBox();
+        native.Document.SetText(TextSetOptions.FormatRtf, await StructuredRichProjection.CreateRtfAsync(snapshot));
+        native.Document.GetText(TextGetOptions.FormatRtf, out var saved);
+        using var stream = new MemoryStream(System.Text.Encoding.ASCII.GetBytes(saved));
+        var imported = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(stream);
+        var table = Assert.Single(imported.Snapshot.Nodes.Values.OfType<RichEdit.Core.RichTable>());
+        var actual = imported.Snapshot.Get<RichEdit.Core.RichTableCell>(imported.Snapshot.GetTableGrid(table.Id)[0, 0]).Format;
+        Assert.Equal(format.VerticalAlignment, actual.VerticalAlignment);
+        Assert.Equal(format.Borders, actual.Borders);
+        var fill = actual.Shading is { Coverage: 10000 } shading ? shading.Foreground : actual.Shading?.Background;
+        Assert.Equal(new RichEdit.Core.RichColor(80, 120, 160), fill);
+    });
+
+    [Fact]
     public Task NativeStructuralMapRetainsEmptyCellsLiteralMarkersAndFieldAddresses() => WindowsTestHost.RunAsync(async () =>
     {
         var snapshot = RichEdit.Core.RichDocumentSnapshot.Build(edit =>

@@ -15,8 +15,11 @@ internal sealed partial class RtfDocumentReader
         internal readonly List<CellSpec> Definitions = [];
         internal readonly List<List<Block>> Cells = [];
         internal bool Complete;
+        internal int CellGap;
+        internal RichCellPadding Padding;
+        internal RichBorderSides PaddingUnits;
     }
-    private sealed record CellSpec(int Boundary, bool HorizontalContinue, bool VerticalContinue);
+    private sealed record CellSpec(int Boundary, bool HorizontalContinue, bool VerticalContinue, RichCellFormat Format, RichBorderSides PaddingUnits);
     private sealed class TableFrame(int level, Table table, List<Block> parent)
     {
         internal int Level = level;
@@ -24,6 +27,9 @@ internal sealed partial class RtfDocumentReader
         internal List<Block> Parent = parent;
         internal Row? Row;
         internal bool HorizontalContinue, VerticalContinue;
+        internal RichCellFormat CellFormat = new();
+        internal RichBorderSides CellBorderSide;
+        internal RichBorderSides CellPaddingUnits;
     }
     private sealed class ListBlock(RichNodeId id, int number, bool numbered, int start, RichListNumberingStyle numberStyle) : Block(id)
     {
@@ -61,7 +67,10 @@ internal sealed partial class RtfDocumentReader
             // RTF may repeat row descriptors after cell contents. WinUI needs
             // these final descriptors to retain widths, merges, and shading.
             existing.Definitions.Clear();
+            existing.CellGap = 0; existing.Padding = default; existing.PaddingUnits = RichBorderSides.None;
             frame.HorizontalContinue = frame.VerticalContinue = false;
+            frame.CellFormat = new(); frame.CellBorderSide = RichBorderSides.None;
+            frame.CellPaddingUnits = RichBorderSides.None;
             return;
         }
         _paragraph = null;
@@ -70,6 +79,8 @@ internal sealed partial class RtfDocumentReader
         frame.Row = row;
         frame.Table.Rows.Add(row);
         frame.HorizontalContinue = frame.VerticalContinue = false;
+        frame.CellFormat = new(); frame.CellBorderSide = RichBorderSides.None;
+        frame.CellPaddingUnits = RichBorderSides.None;
         _container = [];
         row.Cells.Add(_container);
     }
@@ -81,8 +92,10 @@ internal sealed partial class RtfDocumentReader
         if (boundary <= 0 || row.Definitions.Count > 0 && boundary <= row.Definitions[^1].Boundary)
             throw Error("Table cell boundaries must increase");
         ChargeResource();
-        row.Definitions.Add(new(boundary, frame.HorizontalContinue, frame.VerticalContinue));
+        row.Definitions.Add(new(boundary, frame.HorizontalContinue, frame.VerticalContinue, frame.CellFormat, frame.CellPaddingUnits));
         frame.HorizontalContinue = frame.VerticalContinue = false;
+        frame.CellFormat = new(); frame.CellBorderSide = RichBorderSides.None;
+        frame.CellPaddingUnits = RichBorderSides.None;
     }
 
     private void EndCell(int level)
@@ -200,6 +213,7 @@ internal sealed partial class RtfDocumentReader
             for (var cellIndex = 0; cellIndex < row.Definitions.Count; cellIndex++)
             {
                 var definition = row.Definitions[cellIndex];
+                var format = ResolveCellFormat(row, definition);
                 var endColumn = Array.BinarySearch(boundaries, definition.Boundary) + 1;
                 RichNodeId id;
                 if (definition.HorizontalContinue && column > 0)
@@ -224,7 +238,7 @@ internal sealed partial class RtfDocumentReader
                 {
                     if (definition.HorizontalContinue || definition.VerticalContinue) throw Error("A continued table merge has no origin");
                     id = Allocate(); cells.Add(id);
-                    nodes.Add(id, new RichTableCell(id, rowId, column, endColumn - column, 1, Materialize(row.Cells[cellIndex], id, nodes)));
+                    nodes.Add(id, new RichTableCell(id, rowId, column, endColumn - column, 1, Materialize(row.Cells[cellIndex], id, nodes)) { Format = format });
                 }
                 for (; column < endColumn; column++) grid[rowIndex, column] = id;
             }

@@ -34,6 +34,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
     private readonly Dictionary<RichTextViewScope, NativeEditorView> _surfaces = [];
     private readonly Dictionary<RichNodeId, Android.Widget.FrameLayout> _cells = [];
     private readonly Dictionary<RichNodeId, GradientDrawable> _cellBackgrounds = [];
+    private readonly Dictionary<RichNodeId, RichCellFormat> _paintedCellFormats = [];
     private HashSet<RichNodeId>? _selectedCells;
     private (int Selection, int Border)? _cellColors;
     private readonly Dictionary<RichNodeId, RichTable> _tables = [];
@@ -71,7 +72,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         _owner.CompositionChanged -= OnCompositionChanged;
         _coordinator.PropertyChanged -= OnAppearanceChanged;
         foreach (var surface in _surfaces.Values) Release(surface);
-        _surfaces.Clear(); _cells.Clear(); _cellBackgrounds.Clear(); _selectedCells = null; _cellColors = null; _tables.Clear();
+        _surfaces.Clear(); ClearCellBackgrounds(); _selectedCells = null; _cellColors = null; _tables.Clear();
         RemoveAllViews(); _body = null; _shape = null; _viewportAnchor = null;
     }
     private void OnContentChanged(object? sender, RichDocumentChangedEventArgs args)
@@ -116,7 +117,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         using var selectionUpdate = _coordinator.BeginStructuredSurfaceUpdate();
         var focused = _coordinator.HasFocusedStructuredSurface;
         var used = new HashSet<RichTextViewScope>();
-        _cells.Clear(); _cellBackgrounds.Clear(); _selectedCells = null; _tables.Clear();
+        ClearCellBackgrounds(); _selectedCells = null; _tables.Clear();
         var body = Container(snapshot.Body, used);
         RemoveAllViews();
         AddView(body, new Android.Widget.ScrollView.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
@@ -163,7 +164,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
                 {
                     var cell = snapshot.Get<RichTableCell>(cellId);
                     var frame = new Android.Widget.FrameLayout(Context!);
-                    var background = new GradientDrawable();
+                    var background = new RichCellDrawable(Resources?.DisplayMetrics?.Density ?? 1);
                     frame.Background = background;
                     _cellBackgrounds.Add(cell.Id, background);
                     frame.AddView(Container(cell.Id, scopes), new Android.Widget.FrameLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
@@ -245,14 +246,35 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         var foreground = new Android.Graphics.Color(nativeText?.CurrentTextColor ?? Android.Graphics.Color.Black.ToArgb());
         var colors = (Selection: nativeText?.HighlightColor ?? Android.Graphics.Color.Transparent.ToArgb(),
             Border: Android.Graphics.Color.Argb(112, foreground.R, foreground.G, foreground.B).ToArgb());
-        if (_selectedCells?.SetEquals(selected) == true && _cellColors == colors) return;
+        var snapshot = _owner.Document.CurrentSnapshot;
+        if (_selectedCells?.SetEquals(selected) == true && _cellColors == colors &&
+            _cells.Keys.All(id => snapshot.Nodes.GetValueOrDefault(id) is RichTableCell cell && _paintedCellFormats.GetValueOrDefault(id) == cell.Format)) return;
         _selectedCells = selected;
         _cellColors = colors;
         foreach (var pair in _cellBackgrounds)
         {
-            pair.Value.SetStroke(Math.Max(1, Pixels(0.5)), new Android.Graphics.Color(colors.Border));
-            pair.Value.SetColor(selected.Contains(pair.Key) ? new Android.Graphics.Color(colors.Selection) : Android.Graphics.Color.Transparent);
+            if (snapshot.Nodes.GetValueOrDefault(pair.Key) is not RichTableCell cell) continue;
+            var format = cell.Format;
+            var frame = _cells[pair.Key];
+            if (_paintedCellFormats.GetValueOrDefault(pair.Key) != format)
+            {
+                frame.SetPadding(Pixels(format.Padding.Left.Points), Pixels(format.Padding.Top.Points), Pixels(format.Padding.Right.Points), Pixels(format.Padding.Bottom.Points));
+                if (frame.GetChildAt(0)?.LayoutParameters is Android.Widget.FrameLayout.LayoutParams parameters)
+                {
+                    parameters.Gravity = format.VerticalAlignment switch
+                    { RichCellVerticalAlignment.Center => GravityFlags.CenterVertical, RichCellVerticalAlignment.Bottom => GravityFlags.Bottom, _ => GravityFlags.Top };
+                    frame.GetChildAt(0)!.LayoutParameters = parameters;
+                }
+            }
+            ((RichCellDrawable)pair.Value).Configure(format, selected.Contains(pair.Key) ? colors.Selection : null, foreground.ToArgb(), colors.Border);
+            _paintedCellFormats[pair.Key] = format;
         }
+    }
+    private void ClearCellBackgrounds()
+    {
+        foreach (var frame in _cells.Values) frame.Background = null;
+        foreach (var background in _cellBackgrounds.Values) background.Dispose();
+        _cells.Clear(); _cellBackgrounds.Clear(); _paintedCellFormats.Clear();
     }
     protected override void OnConfigurationChanged(Android.Content.Res.Configuration? newConfig)
     {

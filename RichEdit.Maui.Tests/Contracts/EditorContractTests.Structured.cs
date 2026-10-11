@@ -6,6 +6,45 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+#if WINDOWS || IOS || MACCATALYST
+        yield return new("structured authored cell formatting survives native text and undo", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId table = default;
+            RichNodeId paragraph = default;
+            var format = new RichCellFormat
+            {
+                Padding = RichCellPadding.Uniform(new(120)), VerticalAlignment = RichCellVerticalAlignment.Center,
+                Shading = new(10000, new(80, 120, 160)), Borders = RichCellBorders.Uniform(new(RichBorderStyle.Double, new(20), new(20, 40, 60))),
+            };
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                table = edit.InsertTable(edit.Body, 1, 1, (RichLength[])[new(2400), new(2400)]);
+                paragraph = edit.Snapshot.Get<RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+                edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "cell");
+                edit.SetCellFormat(new(table, 0, 0, 1, 1), format);
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model); await Task.Delay(60);
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, paragraph, 4);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(point, point);
+#if WINDOWS
+                var nativePadding = ((RichEditorHandler)editor.Handler!).PlatformView.Document.Selection.ParagraphFormat;
+                Equal(6f, nativePadding.LeftIndent); Equal(6f, nativePadding.RightIndent);
+                Equal(6f, nativePadding.SpaceBefore); Equal(6f, nativePadding.SpaceAfter);
+#endif
+                NativeMultiInsert(editor, "!");
+                Equal("cell!", model.CurrentSnapshot.ProjectText(paragraph).Text.ToString());
+                var cell = model.CurrentSnapshot.GetTableGrid(table)[0, 0];
+                Equal(format, model.CurrentSnapshot.Get<RichTableCell>(cell).Format);
+                editor.Undo();
+                Equal("cell", model.CurrentSnapshot.ProjectText(paragraph).Text.ToString());
+                Equal(format, model.CurrentSnapshot.Get<RichTableCell>(cell).Format);
+            }
+            finally { editor.Document = previous; }
+        });
+#endif
         yield return new("structured character scale and baseline placement survive native input", async editor =>
         {
             var previous = editor.Document;

@@ -76,6 +76,41 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             grid = NativeViews<NativeGrid>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Single();
             Equal(4, grid.ChildCount); Equal(cells, _editor.Selection, "after undo");
         });
+        await Test("authored cell fill padding borders and vertical alignment use native containers", async () =>
+        {
+            var cell = Cell(0, 0);
+            var surface = Surface(cell);
+            var format = new RichCellFormat
+            {
+                Padding = new(new(120), new(160), new(200), new(240)), VerticalAlignment = RichCellVerticalAlignment.Bottom,
+                Shading = new(10000, new(80, 120, 160)),
+                Borders = new(new(RichBorderStyle.Dashed, new(40), new(200, 40, 20)), new(RichBorderStyle.Double, new(20)), null,
+                    new(RichBorderStyle.Dotted, new(20))),
+            };
+            _editor.Edit(edit => edit.SetCellFormat(new(_table, 0, 0, 1, 1), format));
+            await Task.Delay(100);
+            Equal(true, ReferenceEquals(surface, Surface(cell)), "cell format keeps native editing surface");
+            var grid = NativeViews<NativeGrid>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Single();
+            var frame = (Android.Widget.FrameLayout)grid.GetChildAt(0)!;
+            var density = frame.Resources!.DisplayMetrics!.Density;
+            Equal((int)Math.Ceiling(6 * density), frame.PaddingLeft);
+            Equal((int)Math.Ceiling(12 * density), frame.PaddingBottom);
+            Equal(Android.Views.GravityFlags.Bottom, ((Android.Widget.FrameLayout.LayoutParams)frame.GetChildAt(0)!.LayoutParameters!).Gravity);
+            Equal(new Android.Graphics.Color(80, 120, 160).ToArgb(), ((Android.Graphics.Drawables.GradientDrawable)frame.Background!).Color!.DefaultColor);
+            using var bitmap = Android.Graphics.Bitmap.CreateBitmap(100, 100, Android.Graphics.Bitmap.Config.Argb8888!)!;
+            using var canvas = new Android.Graphics.Canvas(bitmap);
+            using var drawable = new RichCellDrawable(1);
+            drawable.SetBounds(0, 0, 100, 100);
+            drawable.Configure(format, null, Android.Graphics.Color.Black.ToArgb(), Android.Graphics.Color.Gray.ToArgb());
+            drawable.Draw(canvas);
+            Equal(new Android.Graphics.Color(80, 120, 160).ToArgb(), bitmap.GetPixel(50, 50));
+            Equal(Android.Graphics.Color.Black.ToArgb(), bitmap.GetPixel(50, 0));
+            _editor.Selection = new RichCellSelection(_table, 0, 0, 1, 1);
+            Equal(((RichEditorHandler)surface.Handler!).PlatformView.HighlightColor, ((Android.Graphics.Drawables.GradientDrawable)frame.Background!).Color!.DefaultColor);
+            _editor.Undo(); await Task.Delay(80);
+            Equal(new RichCellFormat(), _editor.Document.CurrentSnapshot.Get<RichTableCell>(cell).Format);
+            Equal(0, frame.PaddingLeft);
+        });
         await Test("retained fields use native wrapped text and atomic rich addresses", async () =>
         {
             var cell = Cell(0, 1);
@@ -232,8 +267,14 @@ internal sealed class RichStructuredHostTestPage : ContentPage
                 await Task.Delay(70);
                 var capture = _editor.TextLayout.Capture()!;
                 var line = capture.Lines.First(line => line.SourceRanges.Count > 0 && line.Bounds.Top >= capture.Viewport.Top);
-                var anchor = capture.TextProjection.GetPoint(line.SourceRanges[0].Start)!.Value;
-                var before = _editor.TextLayout.GetCaretBounds(capture, anchor)!.Value;
+                // A horizontal viewport can clip the logical start of a line.
+                // Anchor a visible glyph instead of assuming its first source
+                // address has visible caret geometry.
+                var hit = _editor.TextLayout.HitTest(capture, new(Math.Max(line.Bounds.Left, capture.Viewport.Left) + 4, line.Bounds.Center.Y))
+                    ?? throw new InvalidOperationException($"No visible table hit in {line.Bounds}; viewport {capture.Viewport}.");
+                var anchor = hit.Point;
+                var before = _editor.TextLayout.GetCaretBounds(capture, anchor)
+                    ?? throw new InvalidOperationException($"No visible caret for {anchor}; line {line.Bounds}; viewport {capture.Viewport}.");
                 _editor.Edit(edit => edit.InsertRows(table, 0));
                 await Task.Delay(180);
                 var afterCapture = _editor.TextLayout.Capture()!;

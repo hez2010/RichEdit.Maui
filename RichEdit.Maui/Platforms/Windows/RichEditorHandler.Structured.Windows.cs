@@ -50,6 +50,7 @@ public partial class RichEditorHandler
         try
         {
             foreach (var removal in resolved.Removals.Reverse()) scratch.GetRange(removal.Start, removal.End).Delete(TextRangeUnit.Character, 0);
+            ApplyStructuredCellInsets(scratch, resolved.Map);
         }
         finally { scratch.ApplyDisplayUpdates(); }
         scratch.ClearUndoRedoHistory();
@@ -76,5 +77,30 @@ public partial class RichEditorHandler
             finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }
         }
         return resolved.Map;
+    }
+
+    private static void ApplyStructuredCellInsets(RichEditTextDocument native, StructuredRichNativeMap map)
+    {
+        // RichEdit's row margin is uniform and its RTF importer ignores clpad*.
+        // Use native paragraph metrics for cell text insets. They are captured
+        // in the presentation baseline, so native readback cannot author them.
+        var snapshot = map.Snapshot;
+        foreach (var cell in snapshot.Nodes.Values.OfType<RichTableCell>())
+        {
+            if (cell.Format.Padding == default) continue;
+            var paragraphs = snapshot.EnumerateParagraphs(cell.Id).ToArray();
+            foreach (var id in paragraphs)
+            {
+                var node = snapshot.Get<RichNode>(id);
+                while (node.Parent is { } parent && snapshot.Get<RichNode>(parent) is not RichTableCell) node = snapshot.Get<RichNode>(parent);
+                if (node.Parent != cell.Id) continue;
+                var position = map.ToNative(new(snapshot.Body, id, 0));
+                var format = native.GetRange(position, position).ParagraphFormat;
+                var padding = cell.Format.Padding;
+                format.SetIndents(format.FirstLineIndent, format.LeftIndent + (float)padding.Left.Points, format.RightIndent + (float)padding.Right.Points);
+                if (id == paragraphs[0]) format.SpaceBefore += (float)padding.Top.Points;
+                if (id == paragraphs[^1]) format.SpaceAfter += (float)padding.Bottom.Points;
+            }
+        }
     }
 }

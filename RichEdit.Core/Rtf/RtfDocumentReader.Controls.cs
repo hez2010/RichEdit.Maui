@@ -138,12 +138,12 @@ internal sealed partial class RtfDocumentReader
             case "deff": case "adeff": case "deflang": case "deflangfe": case "viewkind": case "viewscale": case "fet":
             case "fnil": case "froman": case "fswiss": case "fmodern": case "fscript": case "fdecor": case "ftech": case "fbidi": case "fprq":
             case "additive": case "sautoupd": case "slocked": case "shidden": case "slink": case "styrsid":
-            case "trgaph": case "trleft": case "trautofit": case "trftsWidth": case "trwWidth": case "clftsWidth": case "clwWidth":
+            case "trleft": case "trautofit": case "trftsWidth": case "trwWidth": case "clftsWidth": case "clwWidth":
             case "listtemplateid": case "listsimple": case "listoverridecount": case "leveljc": case "leveljcn": case "levelfollow":
             case "loch": case "hich": case "dbch": case "ltrdoc": case "rtldoc":
                 return;
         }
-        if (CharacterControl(word, n) || ParagraphControl(word, n)) return;
+        if (CellFormatControl(word, n) || CharacterControl(word, n) || ParagraphControl(word, n)) return;
         Report(word, $"The unsupported RTF control '{word}' was ignored.");
     }
 

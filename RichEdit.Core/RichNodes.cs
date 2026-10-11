@@ -61,7 +61,11 @@ public sealed record RichTableRow(RichNodeId Id, RichNodeId? Parent, ImmutableLi
 
 /// <summary>A table cell anchored at a zero-based column and spanning one or more rows and columns.</summary>
 public sealed record RichTableCell(RichNodeId Id, RichNodeId? Parent, int Column, int ColumnSpan, int RowSpan,
-    ImmutableList<RichNodeId> Blocks) : RichNode(Id, Parent);
+    ImmutableList<RichNodeId> Blocks) : RichNode(Id, Parent)
+{
+    /// <summary>Gets authored cell borders, shading, padding, and content alignment.</summary>
+    public RichCellFormat Format { get; init; } = new();
+}
 
 /// <summary>An authored inline within one paragraph.</summary>
 public abstract record RichInline(RichNodeId Id, RichNodeId? Parent) : RichNode(Id, Parent)

@@ -40,6 +40,11 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
             Collect(format);
         }
         Color(fallbackColor);
+        foreach (var cell in snapshot.Nodes.Values.OfType<RichTableCell>())
+        {
+            Color(cell.Format.Shading?.Foreground); Color(cell.Format.Shading?.Background);
+            foreach (var edge in new[] { cell.Format.Borders.Left, cell.Format.Borders.Top, cell.Format.Borders.Right, cell.Format.Borders.Bottom }) Color(edge?.Color);
+        }
         foreach (var paragraph in snapshot.Nodes.Values.OfType<RichParagraph>())
         {
             Collect(snapshot.ResolveParagraph(paragraph.Id));
@@ -279,6 +284,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 if (extent.RowCount > 1) await C(extent.Row == row ? "clvmgf" : "clvmrg");
                 await C("clftsWidth", 3);
                 await C("clwWidth", table.Columns[column].Twips);
+                await CellProperties(snapshot.Get<RichTableCell>(grid[row, column]).Format);
                 if (IsSelectedCell(grid[row, column]))
                 {
                     await C("clshdng", 10000);
@@ -287,6 +293,27 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                 }
                 await C("cellx", boundaries[column]);
             }
+        }
+    }
+
+    private async Task CellProperties(RichCellFormat format)
+    {
+        await C(format.VerticalAlignment switch { RichCellVerticalAlignment.Center => "clvertalc", RichCellVerticalAlignment.Bottom => "clvertalb", _ => "clvertalt" });
+        foreach (var (side, padding, border) in new[]
+        {
+            ("l", format.Padding.Left, format.Borders.Left), ("t", format.Padding.Top, format.Borders.Top),
+            ("r", format.Padding.Right, format.Borders.Right), ("b", format.Padding.Bottom, format.Borders.Bottom),
+        })
+        {
+            await C("clpadf" + side, 3); await C("clpad" + side, padding.Twips);
+            await C("clbrdr" + side);
+            if (border is null) { await C("brdrnil"); continue; }
+            await C(border.Style switch { RichBorderStyle.Double => "brdrdb", RichBorderStyle.Dotted => "brdrdot", RichBorderStyle.Dashed => "brdrdash", _ => "brdrs" });
+            await C("brdrw", border.Width.Twips); await C("brdrcf", Index(border.Color));
+        }
+        if (format.Shading is { } shading)
+        {
+            await C("clshdng", shading.Coverage); await C("clcfpat", Index(shading.Foreground)); await C("clcbpat", Index(shading.Background));
         }
     }
 

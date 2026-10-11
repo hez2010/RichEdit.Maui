@@ -4,6 +4,15 @@ namespace RichEdit.Core;
 
 public sealed partial class RichDocumentEdit
 {
+    /// <summary>Sets authored appearance on a normalized cell rectangle. Merged cells are updated once.</summary>
+    public void SetCellFormat(RichCellSelection selection, RichCellFormat format)
+    {
+        VerifyOpen();
+        ArgumentNullException.ThrowIfNull(format);
+        format.Validate();
+        var grid = Grid(selection.Table);
+        foreach (var id in Cells(grid, grid.Expand(selection))) _nodes[id] = Get<RichTableCell>(id) with { Format = format };
+    }
     /// <summary>Inserts a table whose cells contain empty paragraphs, in the parent document transaction.</summary>
     public RichNodeId InsertTable(RichNodeId parent, int index, int rows, IEnumerable<RichLength> columns)
     {
@@ -84,7 +93,12 @@ public sealed partial class RichDocumentEdit
             var row = Get<RichTableRow>(table.Rows[y]);
             var cells = row.Cells;
             for (var x = extent.Column; x < extent.Column + extent.ColumnCount; x++)
-                if (y != extent.Row || x != extent.Column) cells = cells.Add(CreateCell(row.Id, x));
+                if (y != extent.Row || x != extent.Column)
+                {
+                    var id = CreateCell(row.Id, x);
+                    _nodes[id] = Get<RichTableCell>(id) with { Format = original.Format };
+                    cells = cells.Add(id);
+                }
             _nodes[row.Id] = row with { Cells = SortCells(cells) };
         }
     }
