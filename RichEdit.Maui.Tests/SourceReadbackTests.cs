@@ -63,6 +63,27 @@ public sealed class SourceReadbackTests
     });
 
     [Fact]
+    public Task WidenedNativeSourceReadbackDoesNotMaterializeUnchangedContext() => WindowsTestHost.RunAsync(() =>
+    {
+        var source = new TextDocument(new string('x', 1024 * 1024) + "\r\nlast\rline\n");
+        var view = new NativeEditorView();
+        view.BindSourceDocument(source);
+        var projection = view.Document.SourceLineEndings!;
+        foreach (var position in new[] { 0, source.Length / 2, projection.Display.Length })
+        {
+            var observed = RichTextDocumentSnapshot.CreateSourceProjection(projection.Display.Replace(new(position, 0), "Y"));
+            var allocated = GC.GetAllocatedBytesForCurrentThread();
+            var restored = view.RestoreNativeSource(observed, new(position + 1, position + 1), new(0, source.Length));
+            allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+            Assert.True(allocated < 256 * 1024, $"Widened source readback at {position} allocated {allocated} bytes.");
+            var canonical = projection.ToSource(position);
+            Assert.Equal("Y", restored.Snapshot.GetText(new(canonical, 1)));
+            Assert.Equal(canonical + 1, restored.Selection.Active);
+            Assert.True(source.CurrentSnapshot.Replace(new(canonical, 0), "Y").ContentEquals(restored.Snapshot.TextBuffer));
+        }
+    });
+
+    [Fact]
     public Task KnownNativeReplacementRestoresMixedEndingsWithBoundedAllocation() => WindowsTestHost.RunAsync(() =>
     {
         var text = string.Concat(Enumerable.Repeat(new string('x', 100) + "\r\n", 100_000));

@@ -8,6 +8,25 @@ namespace RichEdit.Maui.Tests;
 
 public partial class CodeEditorTests
 {
+    [Fact]
+    public Task BoundedAccessibilityReadsDoNotMaterializeTheSource() => WithPerformanceSourceSurface(async editor =>
+    {
+        editor.WordWrap = false;
+        editor.ShowLineNumbers = false;
+        editor.Document = new("a\U0001f600 line\r\n" + string.Concat(Enumerable.Repeat(new string('x', 2048) + "\r\n", 512)));
+        await Task.Delay(50);
+        var handler = (RichEditorHandler)editor.TextView.Handler!;
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(handler.PlatformView);
+        var provider = (Microsoft.UI.Xaml.Automation.Provider.ITextProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Text);
+        var range = provider.DocumentRange;
+        var text = range.GetText(2);
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        Assert.Equal("a", text); // The requested limit must not split the surrogate pair.
+        Assert.True(allocated < 256 * 1024, $"A bounded accessible read allocated {allocated} bytes.");
+        Assert.Equal("a\U0001f600 line\r\n", range.GetText(10));
+    });
+
     [Fact(Explicit = true)]
     public Task LargeNativeSourceAndLongLineKeepSplitViewsAndHistoryCoherent() => WithPerformanceSourceSurface(async editor =>
     {

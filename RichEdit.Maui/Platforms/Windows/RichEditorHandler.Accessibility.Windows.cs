@@ -34,7 +34,7 @@ public partial class RichEditorHandler
         private readonly List<SourceImagePeer> _imagePeers = [];
         private NativeEditorView? _eventEditor;
         private readonly List<WeakReference<SourceTextRange>> _provisionalRanges = [];
-        private string _inputText = "";
+        private TextSnapshot _inputText = TextSnapshot.Empty;
 
         internal void TrackCompositionRange(SourceTextRange range) => _provisionalRanges.Add(new(range));
 
@@ -65,7 +65,7 @@ public partial class RichEditorHandler
             _eventEditor.SelectionsChanged += OnSelectionChanged;
             _eventEditor.DocumentChanged += OnDocumentChanged;
             _eventEditor.CompositionChanged += OnCompositionChanged;
-            _inputText = Editor.InputSnapshot.Text;
+            _inputText = Editor.InputSnapshot.TextBuffer;
         }
 
         internal void Disconnect()
@@ -82,7 +82,7 @@ public partial class RichEditorHandler
 
         private void OnTextChanged(object? sender, RichTextTextChangedEventArgs args)
         {
-            TextChanged(_inputText, Editor.InputSnapshot.Text);
+            TextChanged(Editor.InputSnapshot.TextBuffer);
             if (Editor.Composition.IsActive && ListenerExists(AutomationEvents.TextEditTextChanged))
                 RaiseTextEditTextChangedEvent(AutomationTextEditChangeType.Composition, args.Changes.Select(static change => change.InsertedText).ToArray());
         }
@@ -90,23 +90,24 @@ public partial class RichEditorHandler
         private void OnCompositionChanged(object? sender, RichTextCompositionChangedEventArgs args)
         {
             OnSelectionChanged(sender, EventArgs.Empty);
-            var text = Editor.InputSnapshot.Text;
-            if (text != _inputText)
-                TextChanged(_inputText, text);
+            var text = Editor.InputSnapshot.TextBuffer;
+            if (!_inputText.ContentEquals(text))
+                TextChanged(text);
             if (ListenerExists(AutomationEvents.TextEditTextChanged))
                 RaiseTextEditTextChangedEvent(args.Current.IsActive ? AutomationTextEditChangeType.Composition :
-                    AutomationTextEditChangeType.CompositionFinalized, (string[])[text]);
+                    AutomationTextEditChangeType.CompositionFinalized, (string[])[text.ToString()]);
         }
 
-        private void OnDocumentChanged(object? sender, RichTextDocumentReplacedEventArgs args) => TextChanged(args.OldDocument?.Text ?? "", args.NewDocument.Text);
+        private void OnDocumentChanged(object? sender, RichTextDocumentReplacedEventArgs args) => TextChanged(Editor.InputSnapshot.TextBuffer);
 
-        private void TextChanged(string before, string after)
+        private void TextChanged(TextSnapshot after)
         {
+            var before = _inputText;
             _inputText = after;
             if (ListenerExists(AutomationEvents.TextPatternOnTextChanged))
                 RaiseAutomationEvent(AutomationEvents.TextPatternOnTextChanged);
-            if (before != after && ListenerExists(AutomationEvents.PropertyChanged))
-                RaisePropertyChangedEvent(ValuePatternIdentifiers.ValueProperty, before, after);
+            if (ListenerExists(AutomationEvents.PropertyChanged) && !before.ContentEquals(after))
+                RaisePropertyChangedEvent(ValuePatternIdentifiers.ValueProperty, before.ToString(), after.ToString());
         }
 
         private void OnSelectionChanged(object? sender, EventArgs args)
@@ -462,7 +463,7 @@ public partial class RichEditorHandler
         {
             ArgumentException.ThrowIfNullOrEmpty(text);
             var range = Range;
-            var source = _peer.Editor.InputSnapshot.Text.Substring(range.Start, range.Length);
+            var source = _peer.Editor.InputSnapshot.GetText(range);
             var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             var index = backward ? source.LastIndexOf(text, comparison) : source.IndexOf(text, comparison);
             return index < 0 ? null! : _peer.Range(new(range.Start + index, text.Length));
@@ -528,10 +529,10 @@ public partial class RichEditorHandler
 
             var range = Range;
             var length = maxLength < 0 ? range.Length : Math.Min(range.Length, maxLength);
-            if (length > 0 && length < range.Length && char.IsHighSurrogate(_peer.Editor.InputSnapshot.Text[range.Start + length - 1]))
+            if (length > 0 && length < range.Length && char.IsHighSurrogate(_peer.Editor.InputSnapshot.TextBuffer[range.Start + length - 1]))
                 length--;
 
-            return _peer.Editor.InputSnapshot.Text.Substring(range.Start, length);
+            return _peer.Editor.InputSnapshot.GetText(new(range.Start, length));
         }
 
         public int Move(TextUnit unit, int count)

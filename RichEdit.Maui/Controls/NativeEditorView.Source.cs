@@ -54,19 +54,16 @@ public partial class NativeEditorView
             var insertedLength = native.Length - (projection.Display.Length - displayRange.Length);
             if (insertedLength >= 0 && displayRange.Start <= native.Length - insertedLength)
             {
-                var inserted = native.GetText(new(displayRange.Start, insertedLength));
-                var removed = projection.Display.GetText(displayRange);
-                if (removed == inserted)
+                var removed = projection.Display.Slice(displayRange);
+                var inserted = native.TextBuffer.Slice(new(displayRange.Start, insertedLength));
+                var difference = removed.FindDifference(inserted, out _);
+                if (difference is null)
                     return new(before, new(projection.ToSource(selection.Anchor), projection.ToSource(selection.Active)), projection);
                 // Native text storage can widen an edit to include neighboring
                 // attribute repairs. Preserve exact source endings in unchanged
                 // context and report the smallest actual source replacement.
-                var prefix = removed.AsSpan().CommonPrefixLength(inserted);
-                var suffix = 0;
-                var maximum = Math.Min(removed.Length, inserted.Length) - prefix;
-                while (suffix < maximum && removed[^(suffix + 1)] == inserted[^(suffix + 1)]) suffix++;
-                var changed = new TextSpan(displayRange.Start + prefix, removed.Length - prefix - suffix);
-                var replacementText = inserted.Substring(prefix, inserted.Length - prefix - suffix);
+                var changed = new TextSpan(displayRange.Start + difference.Value.Before.Start, difference.Value.Before.Length);
+                var replacementText = inserted.GetText(difference.Value.After);
                 var updated = projection.Source.Replace(projection.ToSource(changed), replacementText.Replace("\n", SourceNewLine, StringComparison.Ordinal));
                 var mapped = new LfTextProjection(updated, native.TextBuffer);
                 return new(RichTextDocumentSnapshot.CreateSourceProjection(updated), new(mapped.ToSource(selection.Anchor), mapped.ToSource(selection.Active)), mapped);

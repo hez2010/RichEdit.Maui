@@ -11,6 +11,10 @@ Android text-service queries return bounded canonical context. Extracted/surroun
 
 Apple accessibility line queries use indexed source ranges, including exact line endings and provisional composition content. Reading one line does not materialize the complete source or its paragraph metadata. Full accessible-document requests remain proportional to document size.
 
+Windows accessibility peers retain persistent source snapshots for change notifications. Bounded text queries materialize only the requested range and preserve surrogate pairs at the requested limit. Full value strings are produced when a subscribed value-change event or an explicit full-value query requires them.
+
+Source readback compares persistent text slices when a native edit includes unchanged surrounding text. Only the changed replacement is materialized, and unchanged CRLF, CR, and LF endings retain their exact source representation.
+
 Use the control's `Commands`, `KeyBindings`, and `ContextMenuOpening` APIs for application UI. Rich-editor methods include `CopyAsync`, `CutAsync`, `PasteAsync`, `PastePlainTextAsync`, `Undo`, `Redo`, and `SelectAll`. `IsReadOnly` is a session editing policy. Direct document edits are independent of one view's read-only state.
 
 ## Composition
