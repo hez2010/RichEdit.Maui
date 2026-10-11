@@ -10,6 +10,7 @@ public sealed partial class RichEditorSession : IDisposable
     private RichSelection _selection;
     private RichComposition? _composition;
     private RichCharacterStyle _typingFormat = new();
+    private RichRevisionInfo? _revisionTracking;
     internal RichEditorSession(RichDocument document)
     {
         Document = document;
@@ -18,6 +19,12 @@ public sealed partial class RichEditorSession : IDisposable
     }
     /// <summary>Gets the shared rich document.</summary>
     public RichDocument Document { get; }
+    /// <summary>Gets or sets the authorship and group for this view's edits, including committed IME input. Null disables tracking.</summary>
+    public RichRevisionInfo? RevisionTracking
+    {
+        get => _revisionTracking;
+        set { VerifyIdle(); VerifyNoComposition(); _revisionTracking = value; }
+    }
     /// <summary>Gets this view's provisional composition, or null outside marked input.</summary>
     public RichComposition? Composition => _composition;
     /// <summary>Gets the generation of this session's selection.</summary>

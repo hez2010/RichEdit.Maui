@@ -7,7 +7,8 @@ public sealed partial class RichDocumentSnapshot
         if (ReferenceEquals(this, other)) return true;
         if (Body != other.Body || DefaultCharacter != other.DefaultCharacter || DefaultParagraph != other.DefaultParagraph ||
             Nodes.Count != other.Nodes.Count || Styles.Definitions.Count != other.Styles.Definitions.Count || Assets.Count != other.Assets.Count ||
-            Comments.Count != other.Comments.Count || Bookmarks.Count != other.Bookmarks.Count) return false;
+            Comments.Count != other.Comments.Count || Bookmarks.Count != other.Bookmarks.Count || Revisions.Count != other.Revisions.Count) return false;
+        foreach (var pair in Revisions) if (!ReferenceEquals(other.Revisions.GetValueOrDefault(pair.Key), pair.Value)) return false;
         foreach (var pair in Styles.Definitions)
             if (other.Styles.Definitions.GetValueOrDefault(pair.Key) != pair.Value) return false;
         foreach (var pair in Assets)
@@ -20,7 +21,7 @@ public sealed partial class RichDocumentSnapshot
         return true;
     }
 
-    private static bool SameNode(RichNode first, RichNode second)
+    internal static bool SameNode(RichNode first, RichNode second)
     {
         if (ReferenceEquals(first, second)) return true;
         if (first.Id != second.Id || first.Parent != second.Parent) return false;

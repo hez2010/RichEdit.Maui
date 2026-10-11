@@ -3,7 +3,8 @@ using TextEdit.Core;
 namespace RichEdit.Core;
 
 /// <summary>Metadata for one authored rich transaction.</summary>
-public readonly record struct RichEditOptions(string? Description = null, object? Tag = null, TextChangeOrigin Origin = TextChangeOrigin.Programmatic);
+public readonly record struct RichEditOptions(string? Description = null, object? Tag = null, TextChangeOrigin Origin = TextChangeOrigin.Programmatic,
+    RichRevisionInfo? Revision = null);
 
 /// <summary>A rich transaction after its immutable state and every attached selection have been synchronized.</summary>
 public sealed class RichDocumentChangedEventArgs : EventArgs
@@ -44,6 +45,7 @@ public sealed partial class RichDocument
     private readonly DocumentAccess _access = new();
     private RichDocumentSnapshot _snapshot;
     private long _nextNode;
+    private long _nextRevision;
     private long _nextState;
     private long _state;
     private long _savedState;
@@ -65,6 +67,13 @@ public sealed partial class RichDocument
         _snapshot = snapshot.WithRevision(new(_identity, 0));
         _nextNode = Math.Max(snapshot.Nodes.Keys.Max(id => id.Value), snapshot.Assets.Keys.Select(id => id.Value).DefaultIfEmpty().Max());
         _nextNode = Math.Max(_nextNode, snapshot.Bookmarks.Keys.Concat(snapshot.Comments.Keys).Select(id => id.Value).DefaultIfEmpty().Max());
+        _nextRevision = snapshot.Revisions.Keys.DefaultIfEmpty().Max();
+        foreach (var retained in snapshot.Revisions.Values)
+        {
+            _nextNode = Math.Max(_nextNode, retained.Nodes.Keys.Select(id => id.Value).DefaultIfEmpty().Max());
+            _nextNode = Math.Max(_nextNode, retained.Assets.Keys.Select(id => id.Value).DefaultIfEmpty().Max());
+            _nextNode = Math.Max(_nextNode, retained.Bookmarks.Keys.Concat(retained.Comments.Keys).Select(id => id.Value).DefaultIfEmpty().Max());
+        }
     }
     /// <summary>Creates a document from semantic paragraphs and soft breaks in plain text.</summary>
     public static RichDocument FromPlainText(string text) => new(RichDocumentSnapshot.FromPlainText(text));
@@ -136,12 +145,13 @@ public sealed partial class RichDocument
         if (!ReferenceEquals(before, CurrentSnapshot)) return new(TextEditRejection.StaleRevision);
         if (requestedSelection is not null && session is null) throw new InvalidOperationException("Resulting selections require an invoking session.");
         if (checkContentEquality && candidate.ContentEquals(before) || ReferenceEquals(candidate.Nodes, before.Nodes) && ReferenceEquals(candidate.Styles, before.Styles) && ReferenceEquals(candidate.Assets, before.Assets) &&
-            ReferenceEquals(candidate.Bookmarks, before.Bookmarks) && ReferenceEquals(candidate.Comments, before.Comments) &&
+            ReferenceEquals(candidate.Bookmarks, before.Bookmarks) && ReferenceEquals(candidate.Comments, before.Comments) && ReferenceEquals(candidate.Revisions, before.Revisions) &&
             candidate.DefaultCharacter == before.DefaultCharacter && candidate.DefaultParagraph == before.DefaultParagraph)
         {
             if (requestedSelection is { } selection) session!.Selection = selection;
             return new(TextEditRejection.None);
         }
+        candidate = TrackRevision(before, candidate, options.Revision ?? session?.RevisionTracking);
         var after = candidate.WithRevision(new(_identity, checked(Revision.Version + 1)));
         var beforeState = _state;
         var afterSelection = session is null ? null : requestedSelection ?? MapSelection(session.Selection, map, after);
@@ -310,6 +320,9 @@ public sealed partial class RichDocument
         estimate += after.Bookmarks.Where(pair => before.Bookmarks.GetValueOrDefault(pair.Key) != pair.Value).Sum(pair => 128L + pair.Value.Name.Length * 2L);
         estimate += before.Comments.Where(pair => after.Comments.GetValueOrDefault(pair.Key) != pair.Value).Sum(pair => 256L + 2L * (pair.Value.Author.Length + (long)pair.Value.Text.Length));
         estimate += after.Comments.Where(pair => before.Comments.GetValueOrDefault(pair.Key) != pair.Value).Sum(pair => 256L + 2L * (pair.Value.Author.Length + (long)pair.Value.Text.Length));
+        foreach (var revision in before.Revisions.Values.Concat(after.Revisions.Values).Distinct()
+            .Where(revision => !ReferenceEquals(before.Revisions.GetValueOrDefault(revision.Id), after.Revisions.GetValueOrDefault(revision.Id))))
+            estimate += revision.Delta.EstimatedBytes;
         return estimate;
     }
     private sealed record HistoryEntry(RichDocumentSnapshot Before, RichDocumentSnapshot After, RichAddressMap Map,

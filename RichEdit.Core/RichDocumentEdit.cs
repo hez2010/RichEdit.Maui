@@ -12,6 +12,7 @@ public sealed partial class RichDocumentEdit
     private readonly ImmutableDictionary<RichAssetId, RichImageAsset>.Builder _assets;
     private readonly ImmutableDictionary<RichAnnotationId, RichBookmark>.Builder _bookmarks;
     private readonly ImmutableDictionary<RichAnnotationId, RichComment>.Builder _comments;
+    private readonly ImmutableDictionary<long, RichRevision>.Builder _revisions;
     private RichCharacterStyle _defaultCharacter;
     private RichParagraphStyle _defaultParagraph;
     private long _nextId;
@@ -21,12 +22,14 @@ public sealed partial class RichDocumentEdit
 
     internal RichDocumentEdit(RichDocumentSnapshot before, long nextId)
     {
+        _resolutionInitial = before;
         _body = before.Body;
         _nodes = before.Nodes.ToBuilder();
         _styles = before.Styles;
         _assets = before.Assets.ToBuilder();
         _bookmarks = before.Bookmarks.ToBuilder();
         _comments = before.Comments.ToBuilder();
+        _revisions = before.Revisions.ToBuilder();
         _defaultCharacter = before.DefaultCharacter;
         _defaultParagraph = before.DefaultParagraph;
         _nextId = nextId;
@@ -382,6 +385,8 @@ public sealed partial class RichDocumentEdit
     {
         VerifyOpen();
         var result = Candidate();
+        if (_resolutionExpected is { } expected && !result.ContentEquals(expected))
+            throw new InvalidOperationException("Revision resolution cannot be combined with other authored changes in one transaction.");
         if (SelectionAfter is { } selection) SelectionAfter = result.NormalizeSelection(selection);
         _open = false;
         return (result, new(_maps), _nextId);
@@ -389,5 +394,5 @@ public sealed partial class RichDocumentEdit
     internal void Close() => _open = false;
     private RichDocumentSnapshot Candidate(bool validate = true) => new(_body, _nodes.ToImmutable(), _styles, validate: validate,
         assets: _assets.ToImmutable(), bookmarks: _bookmarks.ToImmutable(), comments: _comments.ToImmutable(),
-        defaultCharacter: _defaultCharacter, defaultParagraph: _defaultParagraph);
+        defaultCharacter: _defaultCharacter, defaultParagraph: _defaultParagraph, revisions: _revisions.ToImmutable());
 }

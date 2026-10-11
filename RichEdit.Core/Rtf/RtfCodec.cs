@@ -59,6 +59,8 @@ public static class RtfCodec
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var diagnostics = ImmutableArray.CreateBuilder<RtfDiagnostic>();
+        if (!snapshot.Revisions.IsEmpty)
+            diagnostics.Add(new("revisions", "Pending revisions require the revision RTF mapping."));
         if (snapshot.Nodes.Values.OfType<RichList>().Count() > 2000)
             diagnostics.Add(new("lists", "RTF supports at most 2,000 list overrides."));
         return diagnostics.ToImmutable();

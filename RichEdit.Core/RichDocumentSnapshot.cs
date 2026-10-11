@@ -59,7 +59,8 @@ public sealed partial class RichDocumentSnapshot
     internal RichDocumentSnapshot(RichNodeId body, ImmutableDictionary<RichNodeId, RichNode> nodes, RichStyleSheet styles,
         DocumentRevision revision = default, bool validate = true, ImmutableDictionary<RichAssetId, RichImageAsset>? assets = null,
         ImmutableDictionary<RichAnnotationId, RichBookmark>? bookmarks = null, ImmutableDictionary<RichAnnotationId, RichComment>? comments = null,
-        RichCharacterStyle? defaultCharacter = null, RichParagraphStyle? defaultParagraph = null)
+        RichCharacterStyle? defaultCharacter = null, RichParagraphStyle? defaultParagraph = null,
+        ImmutableDictionary<long, RichRevision>? revisions = null)
     {
         Body = body;
         Nodes = nodes;
@@ -67,6 +68,7 @@ public sealed partial class RichDocumentSnapshot
         Assets = assets ?? ImmutableDictionary<RichAssetId, RichImageAsset>.Empty;
         Bookmarks = bookmarks ?? ImmutableDictionary<RichAnnotationId, RichBookmark>.Empty;
         Comments = comments ?? ImmutableDictionary<RichAnnotationId, RichComment>.Empty;
+        Revisions = revisions ?? ImmutableDictionary<long, RichRevision>.Empty;
         DefaultCharacter = defaultCharacter ?? new();
         DefaultParagraph = defaultParagraph ?? new();
         Revision = revision;
@@ -85,6 +87,8 @@ public sealed partial class RichDocumentSnapshot
     public ImmutableDictionary<RichAnnotationId, RichBookmark> Bookmarks { get; }
     /// <summary>Gets persistent comments, including orphaned records.</summary>
     public ImmutableDictionary<RichAnnotationId, RichComment> Comments { get; }
+    /// <summary>Gets pending authored revisions, independent of undo history.</summary>
+    public ImmutableDictionary<long, RichRevision> Revisions { get; }
     /// <summary>Gets authored document character defaults. Unresolved values remain available for a view fallback.</summary>
     public RichCharacterStyle DefaultCharacter { get; }
     /// <summary>Gets authored document paragraph defaults.</summary>
@@ -92,7 +96,10 @@ public sealed partial class RichDocumentSnapshot
     /// <summary>Gets the document revision, or an invalid revision for a standalone builder snapshot.</summary>
     public DocumentRevision Revision { get; }
     internal RichDocumentSnapshot WithRevision(DocumentRevision revision) => new(Body, Nodes, Styles, revision, validate: false,
-        Assets, Bookmarks, Comments, DefaultCharacter, DefaultParagraph) { _tableGrids = _tableGrids };
+        Assets, Bookmarks, Comments, DefaultCharacter, DefaultParagraph, Revisions) { _tableGrids = _tableGrids };
+
+    internal RichDocumentSnapshot WithRevisions(ImmutableDictionary<long, RichRevision> revisions) => new(Body, Nodes, Styles, Revision,
+        validate: false, Assets, Bookmarks, Comments, DefaultCharacter, DefaultParagraph, revisions) { _tableGrids = _tableGrids };
 
     /// <summary>Resolves authored character appearance for one inline without rewriting its style references or direct overrides.</summary>
     public ResolvedCharacterStyle ResolveCharacter(RichNodeId inline)
@@ -230,6 +237,10 @@ public sealed partial class RichDocumentSnapshot
 
     private void Validate()
     {
+        foreach (var pair in Revisions)
+            if (pair.Key <= 0 || pair.Value is null || pair.Value.Id != pair.Key || pair.Value.Delta.IsEmpty ||
+                pair.Value.Dependencies.Any(id => id >= pair.Key || !Revisions.ContainsKey(id)))
+                throw new ArgumentException("Revisions require matching identities and earlier pending dependencies.");
         ArgumentNullException.ThrowIfNull(Styles);
         RichStyleSheet.Validate(DefaultCharacter);
         RichStyleSheet.Validate(DefaultParagraph);
