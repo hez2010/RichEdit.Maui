@@ -61,4 +61,13 @@
         <None Include="..\README.md" Pack="true" PackagePath="README.md" />
     </ItemGroup>
 
+    <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+        <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.360" PrivateAssets="all" />
+        <AdditionalFiles Include="Platforms\Windows\NativeText\NativeMethods.txt" />
+        <AdditionalFiles Include="Platforms\Windows\NativeText\NativeMethods.json" />
+    </ItemGroup>
+    <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+        <CsWin32RunAsBuildTask>true</CsWin32RunAsBuildTask>
+    </PropertyGroup>
+
 </Project>

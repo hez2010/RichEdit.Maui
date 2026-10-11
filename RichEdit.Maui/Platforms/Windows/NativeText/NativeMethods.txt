@@ -1,0 +1,11 @@
+ITextServices2
+ITextDocument2
+ITextRange2
+CHARFORMATW
+PARAFORMAT
+POINT
+CHARRANGE
+TXTBIT_*
+EN_*
+ENM_*
+EM_*
