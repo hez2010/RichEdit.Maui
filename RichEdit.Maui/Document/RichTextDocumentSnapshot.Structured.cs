@@ -1,4 +1,5 @@
 using RichEdit.Core;
+using System.Collections.Immutable;
 
 namespace RichEdit.Maui;
 
@@ -77,6 +78,9 @@ public sealed partial class RichTextDocumentSnapshot
             RichLineSpacingKind.Exactly => RichTextLineSpacingRule.Exactly, RichLineSpacingKind.Multiple => RichTextLineSpacingRule.Multiple,
             _ => RichTextLineSpacingRule.Automatic },
         LineSpacing = value.LineSpacing.Factor ?? value.LineSpacing.Height?.Points ?? 0,
+        TabStops = value.TabStops.Select(tab => new RichTextTabStop(tab.Position.Points,
+            (RichTextTabAlignment)tab.Alignment, (RichTextTabLeader)tab.Leader)).ToImmutableArray(),
+        Hyphenation = value.Hyphenation,
     };
     private static Color? ToColor(RichColor? value) => value is { } color ? Color.FromRgb(color.Red, color.Green, color.Blue) : null;
     private static RichTextDirection ToDirection(RichDirection value) => value switch

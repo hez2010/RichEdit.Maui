@@ -276,6 +276,8 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         internal int? PropertyCount;
         internal int LineSpacing;
         internal bool LineMultiple;
+        internal RichTabAlignment TabAlignment;
+        internal RichTabLeader TabLeader;
         internal bool InTable;
         internal int TableLevel = 1;
         internal int ListId, ListOverride, ListLevel;

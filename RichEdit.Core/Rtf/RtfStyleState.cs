@@ -5,7 +5,7 @@ namespace RichEdit.Core.Rtf;
 internal static class RtfStyleState
 {
     internal const int CharacterPropertyCount = 18;
-    internal const int ParagraphPropertyCount = 13;
+    internal const int ParagraphPropertyCount = 15;
     internal static (int Inherit, int Initial, int Null) Masks(RichCharacterStyle style)
     {
         var inherit = 0; var initial = 0; var nil = 0;
@@ -107,6 +107,10 @@ internal static class RtfStyleState
         if (style.Background.Kind == StyleValueKind.Value && style.Background.Value is null) nil |= 1 << 11;
         if (style.LineSpacing.Kind == StyleValueKind.Inherit) inherit |= 1 << 12;
         if (style.LineSpacing.Kind == StyleValueKind.Initial) initial |= 1 << 12;
+        if (style.TabStops.Kind == StyleValueKind.Inherit) inherit |= 1 << 13;
+        if (style.TabStops.Kind == StyleValueKind.Initial) initial |= 1 << 13;
+        if (style.Hyphenation.Kind == StyleValueKind.Inherit) inherit |= 1 << 14;
+        if (style.Hyphenation.Kind == StyleValueKind.Initial) initial |= 1 << 14;
         return (inherit, initial, nil);
     }
 
@@ -125,6 +129,8 @@ internal static class RtfStyleState
         WidowControl = Restore<bool>(10, inherit, initial, value.WidowControl),
         Background = Restore<RichColor?>(11, inherit, initial, (nil & (1 << 11)) != 0 ? null : value.Background),
         LineSpacing = Restore<RichLineSpacing>(12, inherit, initial, value.LineSpacing),
+        TabStops = Restore<RichTabStops>(13, inherit, initial, value.TabStops),
+        Hyphenation = Restore<bool>(14, inherit, initial, value.Hyphenation),
     };
 
     private static StyleValue<T> Restore<T>(int index, int inherit, int initial, T value) =>

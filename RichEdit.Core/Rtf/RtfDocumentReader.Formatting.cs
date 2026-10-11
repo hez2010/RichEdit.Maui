@@ -61,6 +61,21 @@ internal sealed partial class RtfDocumentReader
             case "qc": format = format with { Alignment = RichAlignment.Center }; break;
             case "qj": format = format with { Alignment = RichAlignment.Justify }; break;
             case "qd": format = format with { Alignment = RichAlignment.Distributed }; break;
+            case "tql": _state.TabAlignment = RichTabAlignment.Left; return true;
+            case "tqc": _state.TabAlignment = RichTabAlignment.Center; return true;
+            case "tqr": _state.TabAlignment = RichTabAlignment.Right; return true;
+            case "tqdec": _state.TabAlignment = RichTabAlignment.Decimal; return true;
+            case "tldot": _state.TabLeader = RichTabLeader.Dots; return true;
+            case "tlhyph": _state.TabLeader = RichTabLeader.Hyphens; return true;
+            case "tlul": _state.TabLeader = RichTabLeader.Underline; return true;
+            case "tlth": _state.TabLeader = RichTabLeader.ThickLine; return true;
+            case "tleq": _state.TabLeader = RichTabLeader.Equals; return true;
+            case "tx":
+                ChargeResource();
+                if (n <= 0) throw Error("Tab positions must be positive");
+                format = format with { TabStops = (format.TabStops.ApplyValue() ?? RichTabStops.Empty).Set(new(new(n), _state.TabAlignment, _state.TabLeader)) };
+                _state.TabAlignment = RichTabAlignment.Left; _state.TabLeader = RichTabLeader.None; break;
+            case "hyphpar": format = format with { Hyphenation = n != 0 }; break;
             case "sl":
                 if (n == int.MinValue) throw Error("Invalid line spacing");
                 _state.LineSpacing = n;

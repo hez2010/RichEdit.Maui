@@ -86,6 +86,7 @@ public partial class RichEditorHandler
                 positions?.ToNativePosition(paragraph.Start) ?? paragraph.Start,
                 positions?.ToNativePosition(end) ?? end);
             nativeRange.ParagraphFormat.SetClone(nativeFormat);
+            ApplyParagraphTabs(nativeRange.ParagraphFormat, paragraph.Format);
         }
     }
 
@@ -189,6 +190,7 @@ public partial class RichEditorHandler
             var nativeParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
             ApplyParagraphFormat(nativeParagraphFormat, paragraphFormat);
             nativeDocument.Selection.ParagraphFormat.SetClone(nativeParagraphFormat);
+            ApplyParagraphTabs(nativeDocument.Selection.ParagraphFormat, paragraphFormat);
         }
         finally
         {
@@ -322,25 +324,6 @@ public partial class RichEditorHandler
         native.SpaceBefore = (float)format.SpaceBefore;
         native.SpaceAfter = (float)format.SpaceAfter;
         native.SetLineSpacing(ToNativeLineSpacing(format.LineSpacingRule), (float)format.LineSpacing);
-        native.ClearAllTabs();
-        var tabCount = 0;
-        foreach (var tab in format.TabStops)
-        {
-            if (!TryConvertWindowsTabPosition(tab.Position, out var position))
-            {
-                continue;
-            }
-
-            native.AddTab(
-                position,
-                ToNativeTabAlignment(tab.Alignment),
-                ToNativeTabLeader(tab.Leader));
-            if (++tabCount == 63)
-            {
-                break;
-            }
-        }
-
         if (format.NativeList is not { } list)
         {
             native.ListType = MarkerType.None;
@@ -363,6 +346,20 @@ public partial class RichEditorHandler
             : ToNativeListStyle(list.Suffix);
         native.ListStart = list.StartAt;
         native.ListLevelIndex = list.Level + 1;
+    }
+
+    private static void ApplyParagraphTabs(ITextParagraphFormat native, RichTextParagraphFormat format)
+    {
+        // WinUI's SetClone does not transfer tab stops. Install them on the
+        // live paragraph after copying its other properties.
+        native.ClearAllTabs();
+        var count = 0;
+        foreach (var tab in format.TabStops)
+        {
+            if (!TryConvertWindowsTabPosition(tab.Position, out var position)) continue;
+            native.AddTab(position, ToNativeTabAlignment(tab.Alignment), ToNativeTabLeader(tab.Leader));
+            if (++count == 63) break;
+        }
     }
 
     private RichTextCharacterFormat ReadCharacterFormat(ITextCharacterFormat native) => new()

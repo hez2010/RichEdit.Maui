@@ -41,6 +41,10 @@ public sealed record RichParagraphStyle
 
     /// <summary>Automatic, fixed, minimum or multiple line height.</summary>
     public StyleValue<RichLineSpacing> LineSpacing { get; init; }
+    /// <summary>Explicit tab stops, ordered by position.</summary>
+    public StyleValue<RichTabStops> TabStops { get; init; }
+    /// <summary>Whether paragraph hyphenation is requested.</summary>
+    public StyleValue<bool> Hyphenation { get; init; }
 
     internal RichParagraphStyle Overlay(RichParagraphStyle child) => new()
     {
@@ -57,6 +61,8 @@ public sealed record RichParagraphStyle
         WidowControl = child.WidowControl.Kind == StyleValueKind.Inherit ? WidowControl : child.WidowControl,
         Background = child.Background.Kind == StyleValueKind.Inherit ? Background : child.Background,
         LineSpacing = child.LineSpacing.Kind == StyleValueKind.Inherit ? LineSpacing : child.LineSpacing,
+        TabStops = child.TabStops.Kind == StyleValueKind.Inherit ? TabStops : child.TabStops,
+        Hyphenation = child.Hyphenation.Kind == StyleValueKind.Inherit ? Hyphenation : child.Hyphenation,
     };
 
     internal ResolvedParagraphStyle Apply(ResolvedParagraphStyle inherited) => new()
@@ -74,6 +80,8 @@ public sealed record RichParagraphStyle
         WidowControl = WidowControl.Resolve(inherited.WidowControl, true),
         Background = Background.Resolve(inherited.Background, null),
         LineSpacing = LineSpacing.Resolve(inherited.LineSpacing, default),
+        TabStops = TabStops.Resolve(inherited.TabStops, RichTabStops.Empty),
+        Hyphenation = Hyphenation.Resolve(inherited.Hyphenation, false),
     };
 }
 
@@ -118,5 +126,9 @@ public sealed record ResolvedParagraphStyle
 
     /// <summary>Automatic, fixed, minimum or multiple line height.</summary>
     public RichLineSpacing LineSpacing { get; init; }
+    /// <summary>Explicit tab stops, ordered by position.</summary>
+    public RichTabStops TabStops { get; init; } = RichTabStops.Empty;
+    /// <summary>Whether paragraph hyphenation is requested.</summary>
+    public bool Hyphenation { get; init; }
 
 }

@@ -6,6 +6,42 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured paragraph tabs use native geometry and persist with hyphenation", async editor =>
+        {
+            var previous = editor.Document;
+            var model = new RichDocument(RichDocumentSnapshot.FromPlainText("\tvalue"));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                var paragraph = model.CurrentSnapshot.Get<RichStory>(model.CurrentSnapshot.Body).Blocks[0];
+                var handler = (RichEditorHandler)editor.Handler!;
+                var stops = new RichTabStops(new[] { new RichTabStop(RichLength.FromPoints(72)) });
+                model.Edit(edit => edit.SetParagraphFormat(paragraph, new() { TabStops = stops, Hyphenation = true }));
+                await Task.Delay(80);
+                var first = handler.GetTextCaretBounds(1, RichTextCaretAffinity.Downstream)!.Value.X;
+                model.Edit(edit => edit.SetParagraphFormat(paragraph, new() { TabStops = new RichTabStops(new[] { new RichTabStop(RichLength.FromPoints(144)) }), Hyphenation = true }));
+                await Task.Delay(80);
+                var second = handler.GetTextCaretBounds(1, RichTextCaretAffinity.Downstream)!.Value.X;
+                var detail = $"model {string.Join(',', model.CurrentSnapshot.ResolveParagraph(paragraph).TabStops.Select(tab => tab.Position.Points))}; " +
+                    $"projection {string.Join(',', editor.Document.CurrentSnapshot.Paragraphs[0].Format.TabStops.Select(tab => tab.Position))}; typing {string.Join(',', editor.TypingParagraphFormat.TabStops.Select(tab => tab.Position))}";
+#if WINDOWS
+                var nativeTabs = handler.PlatformView.Document.GetRange(0, 0).ParagraphFormat;
+                var positions = new List<float>();
+                for (var index = 0; index < nativeTabs.TabCount; index++) { nativeTabs.GetTab(index, out var position, out _, out _); positions.Add(position); }
+                detail += $"; native {string.Join(',', positions)}";
+#endif
+                Equal(true, second > first + 40, $"tab geometry {first} -> {second}; {detail}");
+                editor.Undo();
+                Equal(stops, model.CurrentSnapshot.ResolveParagraph(paragraph).TabStops);
+                Equal(true, model.CurrentSnapshot.ResolveParagraph(paragraph).Hyphenation);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(new(model.CurrentSnapshot.Body, paragraph, 6), new(model.CurrentSnapshot.Body, paragraph, 6));
+                NativeMultiInsert(editor, "!");
+                Equal(stops, model.CurrentSnapshot.ResolveParagraph(paragraph).TabStops);
+                editor.Undo(); editor.Undo();
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.Document = previous; }
+        });
         yield return new("structured line spacing reaches native layout and survives input and undo", async editor =>
         {
             var previous = editor.Document;

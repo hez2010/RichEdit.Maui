@@ -50,6 +50,37 @@ public sealed class RtfCodecTests
         Assert.Equal(RichLineSpacing.Multiple(1.2), imported.Snapshot.ResolveParagraph(imported.Snapshot.Get<RichStory>(imported.Snapshot.Body).Blocks[0]).LineSpacing);
     }
 
+    [Fact]
+    public async Task TabStopsLeadersHyphenationAndExplicitClearingRoundTrip()
+    {
+        var stops = new RichTabStops(Enum.GetValues<RichTabLeader>().Select((leader, index) =>
+            new RichTabStop(new(720 + index * 480), (RichTabAlignment)(index % 4), leader)));
+        Assert.Equal(stops, new RichTabStops(stops.Reverse()));
+        Assert.Equal(stops.GetHashCode(), new RichTabStops(stops.Reverse()).GetHashCode());
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.SetDefaultParagraphFormat(new() { TabStops = stops, Hyphenation = true });
+            edit.SetParagraphFormat(new(2), new() { TabStops = RichTabStops.Empty, Hyphenation = StyleValue<bool>.Initial });
+            var second = edit.InsertParagraph(edit.Body, 1, "a\tb");
+            edit.SetParagraphFormat(second, new() { TabStops = stops, Hyphenation = true });
+        });
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal(snapshot.DefaultParagraph, loaded.DefaultParagraph);
+        var paragraphs = loaded.Get<RichStory>(loaded.Body).Blocks;
+        Assert.Empty(loaded.ResolveParagraph(paragraphs[0]).TabStops);
+        Assert.False(loaded.ResolveParagraph(paragraphs[0]).Hyphenation);
+        Assert.Equal(stops, loaded.ResolveParagraph(paragraphs[1]).TabStops);
+        Assert.True(loaded.ResolveParagraph(paragraphs[1]).Hyphenation);
+        using var external = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\pard\tqr\tldot\tx1440\tqc\tx720\tql\tx720 a\tab b}"));
+        var imported = await RtfCodec.ReadAsync(external, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(imported.Diagnostics);
+        var importedStops = imported.Snapshot.ResolveParagraph(imported.Snapshot.Get<RichStory>(imported.Snapshot.Body).Blocks[0]).TabStops.ToArray();
+        Assert.Equal(new RichTabStop(new(720)), importedStops[0]);
+        Assert.Equal(new RichTabStop(new(1440), RichTabAlignment.Right, RichTabLeader.Dots), importedStops[1]);
+        Assert.Throws<ArgumentException>(() => new RichTabStops([new(new(100)), new(new(100))]));
+        Assert.Throws<ArgumentException>(() => RichDocumentSnapshot.Build(edit => edit.SetParagraphFormat(new(2), new() { TabStops = StyleValue<RichTabStops>.FromValue(null!) })));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("one\ntwo\n")]

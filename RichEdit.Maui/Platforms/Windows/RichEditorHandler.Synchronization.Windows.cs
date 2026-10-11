@@ -136,6 +136,7 @@ public partial class RichEditorHandler
                     var defaultParagraphFormat = nativeDocument.GetDefaultParagraphFormat().GetClone();
                     ApplyParagraphFormat(defaultParagraphFormat, document.DefaultParagraphFormat);
                     fullRange.ParagraphFormat.SetClone(defaultParagraphFormat);
+                    ApplyParagraphTabs(fullRange.ParagraphFormat, document.DefaultParagraphFormat);
                     var paragraphFormats = new Dictionary<RichTextParagraphFormat, ITextParagraphFormat>();
                     foreach (var paragraph in document.Paragraphs)
                     {
@@ -154,6 +155,7 @@ public partial class RichEditorHandler
                         var end = GetParagraphEnd(document.Text, paragraph.Start);
                         formattingRange.SetRange(paragraph.Start, end);
                         formattingRange.ParagraphFormat.SetClone(nativeFormat);
+                        ApplyParagraphTabs(formattingRange.ParagraphFormat, paragraph.Format);
                     }
                 }
 

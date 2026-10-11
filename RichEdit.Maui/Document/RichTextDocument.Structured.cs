@@ -219,6 +219,8 @@ public sealed partial class RichTextDocument
             SpaceAfter = Equals(before.SpaceAfter, after.SpaceAfter) ? default : value.SpaceAfter,
             Background = Equals(before.BackgroundColor, after.BackgroundColor) ? default : value.Background,
             LineSpacing = before.LineSpacingRule == after.LineSpacingRule && before.LineSpacing == after.LineSpacing ? default : value.LineSpacing,
+            TabStops = before.TabStops.AsSpan().SequenceEqual(after.TabStops.AsSpan()) ? default : value.TabStops,
+            Hyphenation = before.Hyphenation == after.Hyphenation ? default : value.Hyphenation,
         };
     }
 
@@ -236,6 +238,9 @@ public sealed partial class RichTextDocument
             RichTextLineSpacingRule.AtLeast => RichLineSpacing.AtLeast(RichLength.FromPoints(value.LineSpacing)),
             RichTextLineSpacingRule.Exactly => RichLineSpacing.Exactly(RichLength.FromPoints(value.LineSpacing)), _ => RichLineSpacing.Automatic,
         },
+        TabStops = new RichTabStops(value.TabStops.Select(tab => new RichTabStop(RichLength.FromPoints(tab.Position),
+            (RichTabAlignment)tab.Alignment, (RichTabLeader)tab.Leader))),
+        Hyphenation = value.Hyphenation,
     };
     private static RichColor? Color(Color? value) => value is null ? null : new((byte)Math.Round(value.Red * 255), (byte)Math.Round(value.Green * 255), (byte)Math.Round(value.Blue * 255));
     private static RichDirection Direction(RichTextDirection value) => value switch

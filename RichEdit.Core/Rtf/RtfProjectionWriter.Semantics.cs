@@ -110,6 +110,14 @@ internal sealed partial class RtfProjectionWriter
         await C("sa", value.SpaceAfter.Twips);
         await C("sl", value.LineSpacing.RtfValue);
         await C("slmult", value.LineSpacing.Kind == RichLineSpacingKind.Multiple ? 1 : 0);
+        await C("hyphpar", value.Hyphenation ? 1 : 0);
+        foreach (var tab in value.TabStops)
+        {
+            await C(tab.Alignment switch { RichTabAlignment.Center => "tqc", RichTabAlignment.Right => "tqr", RichTabAlignment.Decimal => "tqdec", _ => "tql" });
+            if (tab.Leader != RichTabLeader.None)
+                await C(tab.Leader switch { RichTabLeader.Dots => "tldot", RichTabLeader.Hyphens => "tlhyph", RichTabLeader.Underline => "tlul", RichTabLeader.ThickLine => "tlth", _ => "tleq" });
+            await C("tx", tab.Position.Twips);
+        }
         await C("keep", value.KeepTogether ? 1 : 0);
         await C("keepn", value.KeepWithNext ? 1 : 0);
         await C(value.WidowControl ? "widctlpar" : "nowidctlpar");

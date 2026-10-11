@@ -62,6 +62,7 @@ internal sealed partial class RtfDocumentReader
                 _state.Paragraph = RtfStyleState.Restore(new ResolvedParagraphStyle(), 0, 0, 0);
                 _state.ParagraphCharacter = new(); _state.ParagraphStyle = null;
                 _state.LineSpacing = 0; _state.LineMultiple = false;
+                _state.TabAlignment = RichTabAlignment.Left; _state.TabLeader = RichTabLeader.None;
                 _state.InTable = false; _state.ListOverride = _state.ListLevel = 0; return;
             case "s": case "cs":
                 if (_state.Destination == "stylesheet") { _state.StyleId = n; _state.CharacterDefinition = word == "cs"; _state.Capture ??= new(); return; }
@@ -127,7 +128,7 @@ internal sealed partial class RtfDocumentReader
             case "additive": case "sautoupd": case "slocked": case "shidden": case "slink": case "styrsid":
             case "trgaph": case "trleft": case "trautofit": case "trftsWidth": case "trwWidth": case "clftsWidth": case "clwWidth":
             case "listtemplateid": case "listsimple": case "listoverridecount": case "leveljc": case "leveljcn": case "levelfollow":
-            case "tx": case "shading": case "chshdng": case "loch": case "hich": case "dbch": case "ltrdoc": case "rtldoc":
+            case "shading": case "chshdng": case "loch": case "hich": case "dbch": case "ltrdoc": case "rtldoc":
                 return;
         }
         if (CharacterControl(word, n) || ParagraphControl(word, n)) return;
