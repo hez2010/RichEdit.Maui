@@ -31,9 +31,19 @@ jobs:
       run: dotnet workload restore
     - name: Build
       run: dotnet build -c Release
+    - name: Test document cores
+      run: |
+        dotnet run --project TextEdit.Core.Tests -c Release -- -parallelMode none -nocolor
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet run --project RichEdit.Core.Tests -c Release -- -parallelMode none -nocolor
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     - name: Pack
       if: success()
       run: |
+        dotnet pack TextEdit.Core -c Release -o artifacts
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet pack RichEdit.Core -c Release -o artifacts
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         dotnet pack RichEdit.Maui -c Release -o artifacts
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         dotnet pack CodeEdit.Maui -c Release -o artifacts
