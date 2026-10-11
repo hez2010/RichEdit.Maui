@@ -49,6 +49,10 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         _owner = owner; _coordinator = owner.NativeView; _context = mauiContext;
         FillViewport = true;
         SetClipToPadding(true);
+        // A native scroll viewport must contain its child flows even when the
+        // surrounding MAUI layout allows descendants to draw outside its bounds.
+        OutlineProvider = ViewOutlineProvider.Bounds;
+        ClipToOutline = true;
     }
 
     internal void Connect()

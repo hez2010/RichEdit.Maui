@@ -389,6 +389,52 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             Equal(first, selection.Anchor); Equal(PointAt(0, 1, 1), selection.Active);
             Equal(false, _editor.CanUndo);
         });
+        await Test("structured viewport contains native painting after shrinking", async () =>
+        {
+            _editor.Edit(edit =>
+            {
+                for (var index = 0; index < 20; index++)
+                    edit.InsertParagraph(edit.Body, edit.Snapshot.Get<RichStory>(edit.Body).Blocks.Count, "Visible text must stay within its viewport.");
+            });
+            Content = null;
+            var host = new Grid { BackgroundColor = Colors.Magenta };
+            _editor.VerticalOptions = LayoutOptions.Start;
+            _editor.HeightRequest = 300;
+            host.Add(_editor);
+            Content = host;
+            try
+            {
+                await Ready();
+                await Task.Delay(100);
+                _editor.HeightRequest = 160;
+                await Task.Delay(250);
+                var native = (Android.Views.View)_editor.Content!.Handler!.PlatformView!;
+                var location = new int[2];
+                native.GetLocationInWindow(location);
+                var density = native.Resources!.DisplayMetrics!.Density;
+                Equal(true, native.Height <= 162 * density, "finite native viewport");
+                var window = Platform.CurrentActivity!.Window!;
+                using var bitmap = Android.Graphics.Bitmap.CreateBitmap(window.DecorView!.Width, window.DecorView.Height,
+                    Android.Graphics.Bitmap.Config.Argb8888!)!;
+                using var completion = new PixelCapture();
+                using var callbackHandler = new Android.OS.Handler(Android.OS.Looper.MainLooper!);
+                Android.Views.PixelCopy.Request(window, bitmap, completion, callbackHandler);
+                Equal((int)Android.Views.PixelCopyResult.Success, await completion.Result.WaitAsync(TimeSpan.FromSeconds(5)));
+                var y = location[1] + native.Height + (int)(12 * density);
+                var contaminated = 0;
+                for (var row = y; row < Math.Min(bitmap.Height, y + (int)(60 * density)); row++)
+                    for (var column = location[0] + 8; column < location[0] + native.Width - 8; column++)
+                        if (bitmap.GetPixel(column, row) != Android.Graphics.Color.Magenta.ToArgb()) contaminated++;
+                Equal(0, contaminated, "pixels below the editor belong to the surrounding layout");
+            }
+            finally
+            {
+                host.Remove(_editor);
+                _editor.HeightRequest = -1;
+                _editor.VerticalOptions = LayoutOptions.Fill;
+                Content = _editor;
+            }
+        });
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         File.WriteAllLines(report, results);
     }
@@ -432,5 +478,12 @@ internal sealed class RichStructuredHostTestPage : ContentPage
     }
     private static void Equal<T>(T expected, T actual, string? context = null)
     { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{context}: expected {expected}; actual {actual}."); }
+
+    private sealed class PixelCapture : Java.Lang.Object, Android.Views.PixelCopy.IOnPixelCopyFinishedListener
+    {
+        private readonly TaskCompletionSource<int> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal Task<int> Result => _completion.Task;
+        public void OnPixelCopyFinished(int copyResult) => _completion.TrySetResult(copyResult);
+    }
 }
 #endif
