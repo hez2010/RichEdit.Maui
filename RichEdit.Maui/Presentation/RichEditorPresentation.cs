@@ -46,6 +46,7 @@ public sealed class RichEditorPresentation
     private readonly List<RichEditorDecorationLayer> _layers = [];
     private readonly List<RichEditorWidgetSource> _sources = [];
     private bool _queued;
+    private double _marginWidth;
     internal RichEditorPresentation(RichEditor editor)
     {
         _editor = editor;
@@ -53,6 +54,20 @@ public sealed class RichEditorPresentation
     }
     internal RichDocumentSnapshot Snapshot => _editor.Document.CurrentSnapshot;
     internal void Verify() => _editor.NativeView.VerifyAccess();
+
+    /// <summary>Gets or sets the reserved left margin in each native text surface, in device-independent units.</summary>
+    public double MarginWidth
+    {
+        get => _marginWidth;
+        set
+        {
+            Verify();
+            if (!double.IsFinite(value) || value < 0) throw new ArgumentOutOfRangeException(nameof(value));
+            if (_marginWidth == value) return;
+            _marginWidth = value;
+            Refresh();
+        }
+    }
 
     /// <summary>Creates a decoration layer. Higher priorities override lower priorities; ties follow creation order.</summary>
     public RichEditorDecorationLayer CreateDecorationLayer(int priority = 0)
@@ -97,6 +112,7 @@ public sealed class RichEditorPresentation
         Verify();
         var scoped = _editor.NativeView.StructuredSurfaces().ToArray();
         var surfaces = scoped.Length == 0 ? [_editor.NativeView] : scoped;
+        foreach (var surface in surfaces) surface.Adornments.MarginWidth = _marginWidth;
         foreach (var layer in _layers.ToArray()) layer.Render(surfaces);
         foreach (var source in _sources.ToArray()) source.Render(surfaces);
     }

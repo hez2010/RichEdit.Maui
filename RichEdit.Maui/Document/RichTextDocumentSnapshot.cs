@@ -22,6 +22,9 @@ public sealed partial class RichTextDocumentSnapshot
     private readonly ImmutableArray<RichTextField> _fields;
     private readonly ImmutableArray<RichTextImage> _images;
     private string? _cachedRtf;
+    // Native APIs repeatedly request the current contiguous display string.
+    // Keep it on the derived source render cache, never on text-core history roots.
+    private string? _sourceDisplayText;
     private readonly ImmutableDictionary<RichTextListId, RichTextListDefinition> _lists;
     private readonly ImmutableDictionary<string, RichTextListPicture> _listPictures;
     private readonly ImmutableDictionary<string, string> _metadata;
@@ -71,7 +74,7 @@ public sealed partial class RichTextDocumentSnapshot
     public int Length => _text.Length;
 
     /// <summary>Gets the complete normalized plain text.</summary>
-    public string Text => _text.ToString();
+    public string Text => IsSourceProjection ? _sourceDisplayText ??= _text.ToString() : _text.ToString();
 
     /// <summary>Gets the immutable, chunked plain text represented by this rich snapshot.</summary>
     public TextSnapshot TextBuffer => _text;
@@ -541,6 +544,7 @@ public sealed partial class RichTextDocumentSnapshot
         _runs = source._runs;
         _paragraphEntries = source._paragraphEntries;
         _plainParagraphs = source._plainParagraphs;
+        _sourceDisplayText = source._sourceDisplayText;
         _links = source._links;
         _fields = source._fields;
         _images = source._images;

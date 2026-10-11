@@ -396,7 +396,7 @@ public partial class RichEditorHandler
         try
         {
             ApplyCharacterFormatsIncrementally(text, document, range);
-            if (!GetSpans<RichParagraphMetadataSpan>(text, range.Start, range.End)
+            if (VirtualView.SourceSession is null && !GetSpans<RichParagraphMetadataSpan>(text, range.Start, range.End)
                     .Any(span =>
                     {
                         var spanStart = text.GetSpanStart(span);

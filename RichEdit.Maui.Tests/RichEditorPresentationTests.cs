@@ -14,6 +14,9 @@ public sealed class RichEditorPresentationTests
         document.ClearHistory();
         var editor = new RichEditor { Document = document };
         var peer = new RichEditor { Document = document };
+        editor.Presentation.MarginWidth = 24;
+        Assert.Equal(24, editor.NativeView.Adornments.MarginWidth);
+        Assert.Equal(0, peer.NativeView.Adornments.MarginWidth);
         using var layer = editor.Presentation.CreateDecorationLayer(10);
         using var widgets = editor.Presentation.CreateWidgetSource(_ => new Label());
         RichTextPoint Point(int offset) => new(document.CurrentSnapshot.Body, second, offset);
