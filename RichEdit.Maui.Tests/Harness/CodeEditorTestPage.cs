@@ -723,6 +723,11 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             await Test("performance modern source dense", "", () => SourcePerformanceWorkload.RunDense(_editor));
         if (string.Equals(filter, "large", StringComparison.OrdinalIgnoreCase))
             await Test("large native source and long logical line", "", () => SourcePerformanceWorkload.RunLarge(_editor));
+#if IOS || MACCATALYST
+        if (string.Equals(filter, "native-layout", StringComparison.OrdinalIgnoreCase) &&
+            (OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16)))
+            await Test("native-layout UIKit long-line comparison", "", () => SourcePerformanceWorkload.RunAppleNative(_textView));
+#endif
         await RunInputTests((name, source, action) => Test("input " + name, source, action));
         await RunFeatureTests((name, source, action) => Test(name, source, action));
         await RunViewportTests((name, source, action) => Test(name, source, action));
