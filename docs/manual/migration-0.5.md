@@ -29,7 +29,7 @@ The rich control now takes a structured `RichEdit.Core.RichDocument`. Source edi
 | Source `Decorations` / `Adornments` | Retained source presentation concepts, now using text-core coordinates and generation-checked requests |
 | Generic persisted metadata | Supported document semantics such as comments/bookmarks; application metadata remains application-owned |
 
-Internal native render-cache types are not the application document model. Do not construct a second authoritative flat rich document to synchronize with the structured one.
+Use `RichDocument` as the document shared by rich-editor controls.
 
 ## Load existing RTF with diagnostics
 
@@ -116,4 +116,4 @@ document.MarkSaved(capture);
 - Import representative RTF with diagnostics and compare semantic re-export/reload.
 - Exercise multiple views, undo, save during editing, and document replacement.
 - Exercise native composition, clipboard, table navigation, and accessibility on target devices.
-- Benchmark your actual file sizes, dense hints, and longest lines; preview latency targets are not guarantees.
+- Check responsiveness with your application's file sizes, hints, and longest lines.

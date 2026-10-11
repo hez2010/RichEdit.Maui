@@ -31,4 +31,4 @@ Resolution must not share a transaction with unrelated authored edits. It is und
 
 `RichDocumentSnapshot.CreateReviewProjection` provides the same frozen projection for application workflows and supports cancellation. Original reverses pending groups; Final shows their current authored result. There is no inline redline/markup mode.
 
-Pending revisions persist in ignorable RTF semantic destinations containing ordinary RTF before/after contexts and relationship metadata. This codec restores the complete supported revision model. Other readers can ignore that metadata and show the current body; standard Word tracked-change interoperability is not claimed.
+RTF saved by this library preserves pending revision groups. Other RTF readers may show only the current body and omit revision information. Word tracked-change interchange is not supported.

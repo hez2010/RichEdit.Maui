@@ -1,6 +1,6 @@
 ---
 title: Widgets and anchored views
-description: Lazy native-flow reservations and transient interactive content.
+description: Inline hints, block actions, and other transient interactive content.
 ---
 
 # Widgets and anchored views
@@ -35,9 +35,7 @@ source.TryPublish(source.BeginUpdate(), new[]
 });
 ```
 
-The rich anchor's affinity controls insertion behavior. Structural moves, paragraph splits, and table rebuilds route widgets to their current native surface. Deleted anchors disappear. These producers clear on document replacement and reject stale revision/generation requests.
-
-Native RTF table, list, and field surfaces reserve inline and block space with private native attachments. Block placement refers to the containing rich paragraph. The native projection maps these attachments and their block rows back to canonical rich addresses; they do not create authored image resources or paragraphs. Native reservation repair, typing, composition, and undo retain the canonical document.
+The rich anchor's affinity controls insertion behavior. Widgets follow structural moves and paragraph splits. Deleted anchors disappear. These producers clear on document replacement and reject stale revision/generation requests. Block placement refers to the containing rich paragraph, including paragraphs in table cells.
 
 Block widgets in tables measure against the containing cell's width, including column spans and excluding cell padding and paragraph indents. They remeasure when columns, padding, or the available viewport change. Inline widgets retain their intrinsic width. An explicitly fixed widget width can overflow its available space.
 
@@ -50,6 +48,4 @@ Block widgets in tables measure against the containing cell's width, including c
 
 `code.Adornments.Add(position, view, options)` is a convenience for a small number of eagerly supplied interactive views. Set `code.Adornments.MarginWidth` or `editor.Presentation.MarginWidth` for margin content. The rich margin applies to each native text surface, including cells.
 
-Reservation publication and measurement use elapsed-work scheduling. One expensive factory or indivisible native call can exceed the slice target. A zero-size or unavailable viewport does not cause all widget factories to run. Always provide accessible descriptions for meaningful interactive content.
-
-Structured native RTF surfaces reconstruct their derived projection when reservations change. This can require broader native layout than a plain-source reservation update; large rich-widget sets do not have a publication-latency guarantee.
+Keep factories and measurement fast so widget creation does not delay interaction. Factories run only when a usable viewport is available. Provide accessible descriptions for meaningful interactive content. Large sets of rich widgets can reduce responsiveness.

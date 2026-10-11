@@ -6,7 +6,7 @@
 Native rich-text and source editors for .NET MAUI, with separate document models, shared-view history, multiple carets, and native input. The current package version is **0.5.0-preview.1**.
 
 - **RichEdit.Core**: structured paragraphs, styles, lists, tables, images, fields, annotations, retained revision groups, and RTF persistence.
-- **TextEdit.Core**: persistent source storage, exact line endings, immutable snapshots, tracking, transactions, composition, and history without a MAUI dependency.
+- **TextEdit.Core**: source documents, exact line endings, immutable snapshots, tracking, transactions, composition, and history without a MAUI dependency.
 - **RichEdit.Maui**: native rich editing, typed selections, native Original/Final review views, and typed transient presentation.
 - **CodeEdit.Maui**: plain-source editing, multiple carets, folding, input rules, syntax decorations, lazy widgets, and line numbers.
 
@@ -16,7 +16,7 @@ RTF is the only rich-document persistence and interchange format. Source text an
 
 ## Requirements and installation
 
-The libraries target .NET 10. Supported minimums are Android API 26, iOS 15, Mac Catalyst 15, and Windows 10.0.17763. Native text controls are Android editable text, UIKit UITextView, and WinUI RichEditBox.
+The libraries target .NET 10. Supported minimums are Android API 26, iOS 15, Mac Catalyst 15, and Windows 10.0.17763.
 
 ```sh
 dotnet add package RichEdit.Maui --version 0.5.0-preview.1
@@ -94,20 +94,8 @@ Applications provide language servers, completion, diagnostics, project systems,
 
 Rich presentation is available through `editor.Presentation.CreateDecorationLayer` and `CreateWidgetSource`, using typed rich anchors. Source presentation uses `code.Decorations`, `code.Adornments`, and `code.Folding`. Presentation never enters authored RTF or undo history.
 
-Native controls own ordinary editing, primary selection, IME, shaping, scrolling, and accessibility. Small overlays/extensions cover secondary carets, gutters, widget placement, unsupported diagnostic strokes, and Android table edges.
+The editors provide native typing, primary selection, input methods, scrolling, and accessibility alongside multiple carets, line numbers, diagnostics, and widgets.
 
-This preview supports continuous body editing and Original/Final review. It does not provide pagination/printing, additional stories, inline redline markup, or Word-native tracked-change interchange. Native large-document and dense-presentation latency can exceed the proposed engineering targets; Android table containers are eager, and rectangular source gestures cover visible rows. See [platform behavior](docs/manual/platforms.md) for exact boundaries and accessibility validation limits.
-
-## Development
-
-```sh
-dotnet build RichEdit.Maui.slnx
-dotnet run --project TextEdit.Core.Tests -- -parallelMode none -nocolor
-dotnet run --project RichEdit.Core.Tests -- -parallelMode none -nocolor
-```
-
-Build the Windows native test executable with `Platform=x64` and `WindowsPackageType=None`, then run it with `-parallelMode none`. The sample hosts Android and Apple native contract tests. Opt-in `performance` and `large` source workloads write machine-readable measurements to the application's cache; they distinguish input, dispatcher checkpoints, and frame opportunities.
-
-Build the Windows CodeEdit.Maui target in Release with `-p:CopyLocalLockFileAssemblies=true`, then run `dotnet tool restore` and `dotnet docfx docs/docfx.json --warningsAsErrors`. The API reference includes both document cores and both MAUI packages.
+This preview supports continuous body editing and Original/Final review. It does not provide pagination/printing, additional stories, inline redline markup, or Word-native tracked-change interchange. Large files, long lines, many widgets, and large Android tables can reduce responsiveness. See [platform behavior](docs/manual/platforms.md) for supported features and limitations.
 
 [MIT license](LICENSE.txt).

@@ -18,6 +18,6 @@ code.Folding.ExpandAll();
 
 Fold anchors move through source edits. Boundary insertions remain outside a fold; replacing its entire content removes it. Undo does not recreate discarded transient folds. Document replacement clears the set.
 
-Reveal or expand a target before navigating to content hidden by a fold. Layout captures map native display positions back to canonical source, including folded regions and private widget reservations. Geometry queries do not move selection.
+Reveal or expand a target before navigating to content hidden by a fold. Layout queries return source positions, accounting for collapsed folds and visible widgets. Geometry queries do not move selection.
 
 Structured rich editing uses explicit block and cell semantics; the source folding API is exposed by CodeEditor.

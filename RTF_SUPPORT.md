@@ -11,12 +11,12 @@ RTF is the sole persistence and interchange format for `RichEdit.Core.RichDocume
 | Unicode paragraphs and soft breaks | Semantic round trip | Native paragraph/line conventions are mapped to rich points |
 | Font family and half-point size | Retained with inheritance metadata | Native fonts and metrics determine appearance |
 | Bold and italic | Retained | Native attributes |
-| Underline variants and color | Retained | Native style/color fidelity varies; narrow decoration extensions cover supported gaps |
+| Underline variants and color | Retained | Displayed style and color can vary by platform |
 | Single/double strike-through | Retained | Native rendering can approximate double strike |
 | RGB foreground and highlight | Retained | View fallback colors are not authored |
 | Shading | Character and paragraph values retained independently of highlight | Native patterns can be approximated |
 | Superscript, subscript, manual baseline | Retained | Native metrics/rounding vary |
-| Character spacing and horizontal scale | Retained | Native attributes/spans with platform-dependent metrics |
+| Character spacing and horizontal scale | Retained | Displayed metrics can vary by platform |
 | Small caps, all caps, outline, shadow, hidden text | Retained | Some backends retain or approximate these properties |
 | Language and direction | Retained | Native shaping and proofing availability vary |
 | Paragraph alignment and indents | Retained | Native paragraph layout |
@@ -26,8 +26,8 @@ RTF is the sole persistence and interchange format for `RichEdit.Core.RichDocume
 | Paragraph borders | Uniform style across selected sides retained | Mixed external edge styles produce a diagnostic; native visual fidelity varies |
 | Named character/paragraph styles | References, inheritance, next-style, and direct overrides retained | Views resolve the authored cascade |
 | Lists | Semantic items, nested blocks, bullets, start counters, decimal/Roman/alphabetic numbering | Up to nine RTF levels and 2,000 overrides |
-| Tables | Nested blocks, explicit grid, merged cells, row/column edits retained | Windows/Apple native RTF structures; Android native grids/cell editors |
-| Cell formatting | Independent borders, padding, shading, vertical alignment retained | Windows supplements ignored cell padding through native paragraph insets; nested-table-only padding can differ |
+| Tables | Nested blocks, explicit grid, merged cells, row/column edits retained | Table layout can differ between platforms |
+| Cell formatting | Independent borders, padding, shading, vertical alignment retained | Padding around a cell containing only a nested table can differ on Windows |
 | Hyperlinks | Target and tooltip retained | Application activation events and native text mapping |
 | Fields | Instruction/result retained as an atomic inline | Application owns evaluation; native display uses the result |
 | Images | Resource bytes, dimensions, alternative text retained | PNG/JPEG display is broadly available; DIB/EMF/WMF display varies by platform |
@@ -39,13 +39,13 @@ Authored lengths use integer twips and font sizes use half-points. Authored colo
 
 Arbitrary font weights, custom list marker templates/fonts/pictures, extra document stories, section/page settings, floating objects, and editable equations are outside this authored profile. Unknown imported controls/destinations are diagnosed rather than copied as unsafe opaque data.
 
-## Semantic metadata and interoperability
+## Interoperability
 
-The writer emits standard RTF content and ignorable semantic destinations for relationships and distinctions that ordinary RTF readers do not preserve consistently. Document-local IDs can be regenerated when importing. Semantic equality, not byte-identical serialization or cross-file ID identity, defines round-trip correctness.
+Saving and reopening RTF preserves supported document content and relationships. The saved bytes need not be identical, and document-local IDs can change when importing. Other RTF applications may omit metadata they do not support.
 
-Pending revisions use ignorable metadata and retained before/after contexts encoded as ordinary RTF. This codec restores them losslessly. Independent readers can ignore those destinations and show the current body. Standard Word `revised`/`deleted` and formatting-revision interchange is not supported as a revision model; strict import reports unsupported controls.
+Pending revision groups survive saving and reopening with this library. Other readers may show only the current body. Word tracked-change interchange is not supported; strict import rejects unsupported revision controls.
 
-Fragments use this same codec and carry required styles and resources. Insertion remaps identities and conflicting resources. Clipboard RTF must work independently of any in-process fragment cache. Android offers RTF transport for cooperating applications and uses ordinary text when an external application supplies no supported RTF payload.
+Rich fragments carry required styles and resources. Insertion remaps identities and resolves conflicting resources. Android exchanges RTF with cooperating applications and uses ordinary text when an external application supplies no supported RTF payload.
 
 Native readers may normalize fonts, line spacing, list labels, table layout, or unsupported image types. Native appearance is not evidence of codec losslessness, and codec retention does not promise pixel-identical rendering.
 
@@ -57,9 +57,9 @@ Native readers may normalize fonts, line spacing, list labels, table layout, or 
 | MaximumDepth | 128 groups |
 | MaximumAssetBytes | 64 MiB per picture/binary payload |
 | MaximumTextLength | 64 Mi UTF-16 units across content and metadata |
-| MaximumNodes | 1,000,000 allocation records, including parser resources |
+| MaximumNodes | 1,000,000 document and resource records |
 | MaximumRevisionWork | 64,000,000 historical graph/dependency entries |
 
-Retained contexts share parser budgets. Invalid references, identities, table grids, styles, or retained-revision graphs fail import. Cancellation is checked throughout streamed processing and historical validation. Streams remain caller-owned; canceled output may be partial.
+The limits include retained revision content. Invalid references, identities, table grids, styles, or revision relationships fail import. Streams remain caller-owned; canceled output may be partial.
 
 Large imports/exports should run on a worker with cancellation. The host validates diagnostics, chooses the destination, performs atomic replacement, and acknowledges the captured save token only after success.

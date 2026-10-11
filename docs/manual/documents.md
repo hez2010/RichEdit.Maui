@@ -7,7 +7,7 @@ description: Content ownership, source coordinates, and RTF persistence.
 
 `RichDocument` owns an immutable graph of stories, paragraphs, inline content, lists, tables, resources, styles, annotations, and revisions. The supported editable story is the body. Nodes have stable document-local IDs; structural moves retain their identity. RTF import regenerates IDs while preserving relationships.
 
-`CodeDocument` owns plain source through `TextDocument`. Its persistent text tree shares unchanged chunks across snapshots and history. Source CRLF, LF, and CR terminators, including mixed endings, are preserved. `GetLine` returns content and terminator lengths. Offsets and line/column coordinates are zero-based UTF-16; visual X and tab-display width are separate concepts.
+`CodeDocument` owns plain source through `TextDocument`. Source CRLF, LF, and CR terminators, including mixed endings, are preserved. `GetLine` returns content and terminator lengths. Offsets and line/column coordinates are zero-based UTF-16; visual X and tab-display width are separate concepts.
 
 ## Read and write RTF
 

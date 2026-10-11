@@ -1,36 +1,22 @@
 ---
 title: Platform behavior
-description: Native implementation boundaries, feature fidelity, and preview limits.
+description: Platform differences, supported features, and preview limits.
 ---
 
 # Platform behavior
 
-| Platform | Default text engine | Structured content |
-| --- | --- | --- |
-| Windows | WinUI RichEditBox | Native RichEdit RTF tables, lists, fields, and attachments |
-| Android | Native editable text with spans and InputConnection | Native scroll/container/grid views with editable flows and cells coordinated by one document/session |
-| iOS / Mac Catalyst | UITextView and TextKit | Native attributed text, RTF table/paragraph structures, and text attachments for images and widgets |
-
-The controls use no WebViews. Small custom regions cover missing native features: secondary selections/carets, source gutters, unsupported decoration strokes, widget positioning, and Android cell-edge borders. Text shaping, ordinary editing, IME, and primary selection remain native.
+The editors support Windows, Android, iOS, and Mac Catalyst. They provide native text editing, input methods, primary selection, touch handles, and context menus. They do not use WebViews.
 
 ## Fidelity
 
-Model retention, editing, rendering, and RTF persistence are separate contracts. A retained property may be approximated by a native engine. See the [RTF matrix](../../RTF_SUPPORT.md) for the supported persistent profile. Native fonts and layout can produce different wrapping on different platforms.
+Some formatting properties are preserved in saved documents but displayed approximately on a particular platform. Fonts, line wrapping, and table appearance can differ between devices. See [RTF support](../../RTF_SUPPORT.md) for individual features.
 
 Rich editing includes body paragraphs, semantic lists/tables, inline resources, annotations, and retained revision groups. Original and Final review views are available. Inline redline markup, Word-native revision interchange, pagination, printing, sections, headers/footers, notes, floating objects, and editable equations are outside this preview's feature profile.
 
-## Performance
+## Large documents
 
-Source storage is persistent and line lookup is indexed. Native controls still keep their own buffers. Windows source readback can inspect the native story, and native formatting/reservations can incur broad layout work.
-
-Source views avoid rich paragraph metadata, and Android/Apple native replacement notifications restore bounded source edits. Apple source synchronization updates native storage incrementally, and accessibility line queries read indexed source ranges. Android bounds text-service payloads separately from document size and materializes accessibility change-event text only while an accessibility service is active; see [input](input.md).
-
-The test suite contains 100-sample dense-presentation and large-source workloads. A rendering callback is a frame opportunity, not proof of GPU presentation. The 50 ms desktop / 100 ms mobile p95 targets and 16 ms publication-slice target are engineering goals, not supported guarantees for this preview. Native 10 MiB split-view load and long-line input can exceed those targets.
-
-Android rich tables currently realize their native cell/container structure eagerly. Large table performance is therefore bounded by native view count. Lazy widget realization does not virtualize the table grid itself. Rectangular source gestures retain the source anchor and crossed visual rows during autoscroll, including separate ranges for disjoint bidi runs.
+Large files, very long lines, many widgets, and large Android tables can reduce responsiveness. Give the editor a finite viewport with fill alignment, use data-backed widget sources for many hints, and set `WordWrap = false` when wrapping very long source lines is unsuitable. Load and save large documents asynchronously with cancellation.
 
 ## Accessibility and input
 
-Native accessibility is retained and adapted for canonical source text, tables, multiple ranges, and widget children where implemented. Automated checks cover provider text and table/selection metadata. Actual Narrator, TalkBack, and VoiceOver operation, minimum-platform behavior, dictation, and mixed-DPI behavior require application/device validation; provider checks alone do not establish that certification.
-
-Use native touch handles and menus for the primary selection. Secondary caret and widget behavior should be tested with the application's accessibility settings, fonts, and text scaling.
+Use native touch handles and menus for the primary selection. Give meaningful widgets an `AccessibleDescription`, and make their interactive controls keyboard-accessible. Input and accessibility behavior follows the device's language, keyboard, text scaling, and assistive-technology settings. See [input](input.md) for composition and clipboard behavior.

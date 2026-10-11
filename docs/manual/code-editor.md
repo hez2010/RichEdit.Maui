@@ -5,7 +5,7 @@ description: Native source editing, selections, and application language tools.
 
 # Code editor
 
-`CodeEditor` is a native source editor over `CodeDocument`, backed by the platform-independent `TextDocument` core. It shares native integration with the rich control and owns plain source semantics.
+`CodeEditor` edits plain source in a `CodeDocument`. Formatting and language tools are view presentation; they do not alter the source text.
 
 ```csharp
 var editor = new CodeEditor
@@ -37,8 +37,4 @@ Alt-pointer gestures add carets and derive rectangular selections from native vi
 
 Applications own parsing, language servers, completion UI, diagnostics, project systems, and debugging. Use immutable snapshots for background analysis, checked edits for completion/refactoring, input rules for dependent typing, decoration layers for colors, and lazy widget sources for hints and actions. See [background work](background-work.md).
 
-Native controls retain their own buffers and layout costs. The managed persistent tree does not make native editing cost independent of file size. Large-file and long-line benchmarks validate correctness and record latency; this preview does not guarantee the proposed desktop/mobile latency budgets. Use a bounded viewport and disable wrapping when it is unsuitable for very long logical lines.
-
-Give a source editor finite viewport constraints and fill alignment when hosting large files. Android preserves the native incremental layout for an unchanged, bounded, unwrapped viewport; content-sized measurement still measures the requested content. Disjoint edits and grouped undo use one native buffer replacement when no private reservations are present. Source history retains the individual operations and mappings. Native character and paragraph attributes are presentation state and never become authored source formatting.
-
-Managed multi-caret input compares shared text slices and records each replacement without materializing the complete source. Virtual-space corrections use the recorded operations. Grapheme deletion reads bounded forward context or the relevant line prefix when Unicode context is required.
+For large files, give the editor finite viewport constraints and fill alignment. Set `WordWrap = false` when wrapping very long logical lines is unsuitable. Large files and long lines can still reduce responsiveness; see [platform behavior](platforms.md).

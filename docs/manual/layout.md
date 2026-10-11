@@ -5,7 +5,7 @@ description: Native geometry and snapshot-bound coordinate mapping.
 
 # Layout, hit testing, and composition
 
-The platform text engine is the geometry authority. Layout captures describe visible native lines and carry document/layout identity. Stale or foreign captures return no result; geometry queries never move the caret.
+Layout captures describe the editor's visible lines and identify the document and layout they belong to. Stale or foreign captures return no result; geometry queries never move the caret.
 
 For source text:
 

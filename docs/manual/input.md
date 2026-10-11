@@ -7,13 +7,7 @@ description: Native input, composition, checked cut, and transactional source ru
 
 The native control owns typing, marked text, candidate interaction, primary selection, and touch handles. Hardware key bindings route commands; they do not replace the platform input connection.
 
-Android text-service queries return bounded canonical context. Extracted/surrounding windows contain at most 8,192 UTF-16 units and carry their source offset. Oversized selected-text/extracted requests return no payload, and autofill does not publish document values above 65,536 units. These bounds prevent oversized Binder transactions; they do not truncate authored content, saved files, or clipboard commands.
-
-Apple accessibility line queries use indexed source ranges, including exact line endings and provisional composition content. Reading one line does not materialize the complete source or its paragraph metadata. Full accessible-document requests remain proportional to document size.
-
-Windows accessibility peers retain persistent source snapshots for change notifications. Bounded text queries materialize only the requested range and preserve surrogate pairs at the requested limit. Full value strings are produced when a subscribed value-change event or an explicit full-value query requires them.
-
-Source readback compares persistent text slices when a native edit includes unchanged surrounding text. Only the changed replacement is materialized, and unchanged CRLF, CR, and LF endings retain their exact source representation.
+On Android, keyboards receive up to 8,192 UTF-16 units of surrounding text. Autofill is unavailable for document values longer than 65,536 units. These limits do not truncate documents, saved files, or clipboard content.
 
 Use the control's `Commands`, `KeyBindings`, and `ContextMenuOpening` APIs for application UI. Rich-editor methods include `CopyAsync`, `CutAsync`, `PasteAsync`, `PastePlainTextAsync`, `Undo`, `Redo`, and `SelectAll`. `IsReadOnly` is a session editing policy. Direct document edits are independent of one view's read-only state.
 

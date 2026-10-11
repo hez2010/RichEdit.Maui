@@ -31,7 +31,7 @@ At an empty text selection, character commands change the session's typing forma
 
 `RichStyleSheet` contains named paragraph and character definitions with `BasedOn` and `NextStyle` references. Inheritance must be acyclic. The cascade applies document defaults, paragraph styles and overrides, then inline character styles and direct overrides. `ResolveCharacter`, `ResolveParagraph`, and selected-format queries expose resolved values.
 
-Use `SetStyles`, `SetParagraphStyle`, `SetCharacterStyle`, `SetCharacterFormat`, and `SetParagraphFormat` inside a rich edit. Set-format operations replace the specified direct record; preserve other direct properties explicitly when modifying only part of it. Style changes do not rewrite every referencing run.
+Use `SetStyles`, `SetParagraphStyle`, `SetCharacterStyle`, `SetCharacterFormat`, and `SetParagraphFormat` inside a rich edit. Set-format operations replace the specified direct record; preserve other direct properties explicitly when modifying only part of it. Changing a style affects all content that references it.
 
 Character support includes bold, italic, underline variants/colors, strike-through, foreground/highlight, shading, baseline/script placement, spacing, horizontal scaling, language, direction, capitals, outline, shadow, and hidden state. Paragraph support includes alignment, direction, indents, before/after spacing, line spacing, tabs/leaders, headings, keep/widow settings, hyphenation, shading, and uniform borders.
 
