@@ -9,7 +9,8 @@ namespace RichEdit.Core.Rtf;
 internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot, Stream output,
     string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null, bool semantic = false,
     Func<RichNodeId, bool, string?>? marker = null, Func<string, string>? nativeText = null,
-    RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null)
+    RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null,
+    bool includeIdentities = false, IReadOnlySet<RichNodeId>? contextScaffolding = null)
 {
     private readonly RtfOutput _output = new(output);
     private readonly Dictionary<string, int> _fonts = new(StringComparer.Ordinal);
@@ -21,6 +22,8 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
     internal async Task WriteAsync(CancellationToken cancellationToken = default)
     {
         _cancellation = cancellationToken;
+        includeIdentities |= semantic && !snapshot.Revisions.IsEmpty;
+        if (includeIdentities && !semantic) throw new InvalidOperationException("Retained identities require semantic RTF.");
         if (!semantic && selectedCells is { } selection)
         {
             var grid = snapshot.GetTableGrid(selection.Table);
@@ -72,6 +75,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         await ListTables();
         await Blocks(snapshot.Get<RichStory>(snapshot.Body).Blocks, 0, true);
         if (semantic) await OrphanAnnotations();
+        if (semantic) await Revisions();
         await S("}");
         await _output.FlushAsync(_cancellation).ConfigureAwait(false);
     }
@@ -136,6 +140,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         {
             var inline = snapshot.Get<RichInline>(id);
             await S("{");
+            if (includeIdentities && inline is RichText) await S(@"{\*\retext}");
             await Character(SelectionAppearance(paragraph.Id, snapshot.ResolveCharacter(id)));
             if (semantic)
             {

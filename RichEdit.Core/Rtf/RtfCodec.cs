@@ -14,17 +14,20 @@ public sealed record RtfReadOptions
     public int MaximumDepth { get; init; } = 128;
     /// <summary>Maximum bytes in one picture or binary payload.</summary>
     public int MaximumAssetBytes { get; init; } = 64 * 1024 * 1024;
-    /// <summary>Maximum authored UTF-16 text length, including annotation text.</summary>
+    /// <summary>Maximum decoded UTF-16 content and metadata, including annotations and retained revision contexts.</summary>
     public int MaximumTextLength { get; init; } = 64 * 1024 * 1024;
     /// <summary>Maximum allocation records for structural nodes, resource definitions, pending anchors, table descriptors and distinct diagnostics.</summary>
     /// <remarks>Buffered parser records count in addition to their resulting model nodes. Repeated resource definitions also consume this budget.</remarks>
     public int MaximumNodes { get; init; } = 1_000_000;
+    /// <summary>Maximum combined graph and dependency entries examined while validating retained revisions.</summary>
+    /// <remarks>This bounds repeated historical validation independently of serialized byte and node counts.</remarks>
+    public long MaximumRevisionWork { get; init; } = 64_000_000;
     /// <summary>Rejects input when an unsupported feature would be omitted or approximated.</summary>
     public bool RequireLossless { get; init; }
 
     internal void Validate()
     {
-        if (MaximumBytes <= 0 || MaximumDepth is < 1 or > 512 || MaximumAssetBytes <= 0 || MaximumTextLength <= 0 || MaximumNodes <= 0)
+        if (MaximumBytes <= 0 || MaximumDepth is < 1 or > 512 || MaximumAssetBytes <= 0 || MaximumTextLength <= 0 || MaximumNodes <= 0 || MaximumRevisionWork <= 0)
             throw new ArgumentOutOfRangeException(nameof(RtfReadOptions));
     }
 }
@@ -59,15 +62,18 @@ public static class RtfCodec
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var diagnostics = ImmutableArray.CreateBuilder<RtfDiagnostic>();
-        if (!snapshot.Revisions.IsEmpty)
-            diagnostics.Add(new("revisions", "Pending revisions require the revision RTF mapping."));
         if (snapshot.Nodes.Values.OfType<RichList>().Count() > 2000)
             diagnostics.Add(new("lists", "RTF supports at most 2,000 list overrides."));
+        foreach (var entry in RtfRevisionExport.Create(snapshot))
+            if (entry.Before.Content.Nodes.Values.OfType<RichList>().Count() > 2000 || entry.After.Content.Nodes.Values.OfType<RichList>().Count() > 2000)
+                diagnostics.Add(new("revision-lists", $"Revision {entry.Revision.Id} exceeds the RTF capacity of 2,000 list overrides in a retained context."));
         return diagnostics.ToImmutable();
     }
 
     /// <summary>Writes a lossless RTF representation of supported authored state. Assessment completes before any bytes are written.</summary>
-    /// <remarks>Cancellation may leave a partial stream. Atomic file replacement belongs to the host storage service.</remarks>
+    /// <remarks>Pending revisions use retained RTF contexts with ignorable identity and group metadata.
+    /// Readers that omit this metadata receive the current body. Cancellation may leave a partial stream;
+    /// atomic file replacement belongs to the host storage service.</remarks>
     public static Task WriteAsync(RichDocumentSnapshot snapshot, Stream output, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(snapshot);

@@ -22,7 +22,7 @@ internal sealed partial class RtfProjectionWriter
         {
             if (bookmark.Range is not { } range) continue;
             var reverse = projection.GetOffset(range.Anchor) > projection.GetOffset(range.Active);
-            Add(reverse ? range.Active : range.Anchor, () => Marker("bkmkstart", bookmark.Name, range, reverse));
+            Add(reverse ? range.Active : range.Anchor, () => Marker("bkmkstart", bookmark.Name, range, reverse, bookmark.Id));
             Add(reverse ? range.Anchor : range.Active, () => Marker("bkmkend", bookmark.Name));
         }
         foreach (var comment in snapshot.Comments.Values.OrderBy(value => value.Id.Value))
@@ -47,7 +47,18 @@ internal sealed partial class RtfProjectionWriter
 
     private async Task SemanticHeader()
     {
-        await S(@"{\*\remodel1}{\*\defchp ");
+        await S(@"{\*\remodel1}");
+        if (includeIdentities)
+        {
+            await S(@"{\*\reids ");
+            foreach (var node in RtfIdentityMap.Preorder(snapshot))
+            {
+                var identity = contextScaffolding?.Contains(node.Id) == true ? 0 : node.Id.Value;
+                await S(identity.ToString(CultureInfo.InvariantCulture) + "/" + RtfIdentityMap.Kind(node).ToString(CultureInfo.InvariantCulture) + " ");
+            }
+            await S("}");
+        }
+        await S(@"{\*\defchp ");
         await Character(snapshot.DefaultCharacter.Apply(new()));
         await Masks("rec", RtfStyleState.Masks(snapshot.DefaultCharacter));
         await S(@"}{\*\defpap ");
@@ -174,9 +185,11 @@ internal sealed partial class RtfProjectionWriter
         foreach (var write in events) await write();
     }
 
-    private async Task Marker(string destination, string name, RichTextSelection? range = null, bool reverse = false)
+    private async Task Marker(string destination, string name, RichTextSelection? range = null, bool reverse = false, RichAnnotationId? identity = null)
     {
         await S(@"{\*"); await C(destination);
+        if (includeIdentities && identity is { } id)
+        { await S(@"{\*\reanchorid "); await S(id.Value.ToString(CultureInfo.InvariantCulture)); await S("}"); }
         if (range is not null)
         {
             await C("rereverse", reverse ? 1 : 0);
@@ -217,7 +230,7 @@ internal sealed partial class RtfProjectionWriter
     private async Task OrphanAnnotations()
     {
         foreach (var bookmark in snapshot.Bookmarks.Values.Where(value => value.IsOrphaned))
-        { await S(@"{\*\reorphan "); await Marker("bkmkstart", bookmark.Name); await S("}"); }
+        { await S(@"{\*\reorphan "); await Marker("bkmkstart", bookmark.Name, identity: bookmark.Id); await S("}"); }
         foreach (var comment in snapshot.Comments.Values.Where(value => value.IsOrphaned))
         { await S(@"{\*\reorphan "); await Comment(comment, "c" + comment.Id.Value.ToString(CultureInfo.InvariantCulture)); await S("}"); }
     }

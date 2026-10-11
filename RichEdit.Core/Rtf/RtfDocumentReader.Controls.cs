@@ -11,7 +11,7 @@ internal sealed partial class RtfDocumentReader
         if (_state.Destination == "skip") return;
         if (_structuralGap && word != "par") throw Error("A structural RTF gap must be followed by its paragraph mark");
         var n = number ?? (word == "charscalex" ? 100 : word is "up" or "dn" ? 6 : 1);
-        if (Destination(word)) { _state.AtStart = false; return; }
+        if (Destination(word, number)) { _state.AtStart = false; return; }
         if (_state.AtStart && _state.Ignorable && word != "remodel" && !(word == "cs" && _state.Destination == "stylesheet"))
         {
             Report(word, $"The unsupported ignorable destination '{word}' was omitted.");
@@ -23,6 +23,16 @@ internal sealed partial class RtfDocumentReader
         {
             case "rtf": if (_states.Count != 1 || n != 1) throw Error("Unsupported RTF version or misplaced header"); _rtf = true; return;
             case "remodel": if (n != 1) throw Error("Unsupported authored RTF metadata version"); _semantic = true; return;
+            case "redate":
+                if (_state.RevisionRecord is not { Date: null } dated) throw Error("Duplicate or misplaced revision date");
+                dated.Date = n; return;
+            case "recd": case "repd":
+                if (_state.RevisionRecord is not { } defaults || n is not (0 or 1)) throw Error("Invalid retained default-format flag");
+                if (word == "recd")
+                { if (defaults.CharacterDefaults is not null) throw Error("Duplicate retained default-format flag"); defaults.CharacterDefaults = n == 1; }
+                else
+                { if (defaults.ParagraphDefaults is not null) throw Error("Duplicate retained default-format flag"); defaults.ParagraphDefaults = n == 1; }
+                return;
             case "ansi": _state.CodePage = 1252; return;
             case "mac": _state.CodePage = 10000; return;
             case "pc": _state.CodePage = 437; return;
@@ -149,10 +159,22 @@ internal sealed partial class RtfDocumentReader
 
     private int Component(int value) => value is >= 0 and <= 255 ? value : throw Error("Invalid color component");
 
-    private bool Destination(string word)
+    private bool Destination(string word, int? number)
     {
         switch (word)
         {
+            case "rerevisions":
+                if (_retained || number != 1 || _revisionEnvelope) throw Error("Invalid or nested revision envelope");
+                _revisionEnvelope = true; SetDestination(word); _state.Capture = null; return true;
+            case "rerevision":
+                if (_state.Destination != "rerevisions") throw Error("A revision requires its envelope");
+                ChargeResource(); SetDestination(word); _state.Capture = null; _state.RevisionRecord = new(); return true;
+            case "revid": case "regroup": case "reauthor": case "redeps": case "renchanged": case "reschanged":
+            case "reachanged": case "rebchanged": case "recchanged": case "rebeforeblocks": case "reafterblocks":
+                if (_state.RevisionRecord is null) throw Error("Retained revision metadata is outside a revision");
+                SetDestination(word); _state.Capture = new(); return true;
+            case "reids": case "reanchorid": SetDestination(word); _state.Capture = new(); return true;
+            case "retext": SetDestination(word); _state.Capture = null; return true;
             case "remodel": return false;
             case "fonttbl": case "stylesheet":
                 SetDestination(word); _state.Capture = new(); _state.Font = _state.StyleId = -1; return true;
@@ -247,6 +269,13 @@ internal sealed partial class RtfDocumentReader
         if (!child.OwnDestination) return;
         switch (child.Destination)
         {
+            case "revid": case "regroup": case "reauthor": case "redeps": case "renchanged": case "reschanged":
+            case "reachanged": case "rebchanged": case "recchanged": case "rebeforeblocks": case "reafterblocks":
+                ReadRevisionMetadata(child.Destination, child.Capture?.ToString() ?? "", child.RevisionRecord!); break;
+            case "rerevision": _revisionRecords.Add(child.RevisionRecord!); break;
+            case "reids": ReadNodeIdentities(child.Capture?.ToString() ?? ""); break;
+            case "reanchorid": _state.WireAnchor = RtfIdentityMap.Number((child.Capture?.ToString() ?? "").AsSpan()); break;
+            case "retext": _newTextRun = true; break;
             case "rec": _state.Character = RtfStyleState.Restore(child.Character.Apply(new()), InheritMask(child, false), child.Initial, child.Null); break;
             case "rep":
                 _state.Paragraph = RtfStyleState.Restore(child.Paragraph.Apply(new()), InheritMask(child, true), child.Initial, child.Null);

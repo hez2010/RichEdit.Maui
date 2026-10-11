@@ -6,6 +6,36 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured tracked native input survives RTF and cleared undo history", async editor =>
+        {
+            var previous = editor.Document;
+            var model = RichDocument.FromPlainText("review");
+            var info = new RichRevisionInfo("Native editor");
+            try
+            {
+                editor.BindStructuredDocument(model);
+                editor.StructuredSession!.RevisionTracking = info;
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, new(2), 6);
+                editor.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(point, point);
+                await Task.Delay(40);
+                NativeMultiInsert(editor, "!");
+                Equal("review!", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(1, model.CurrentSnapshot.Revisions.Count);
+                model.ClearHistory();
+                using var stream = new MemoryStream();
+                await RichEdit.Core.Rtf.RtfCodec.WriteAsync(model.CurrentSnapshot, stream);
+                stream.Position = 0;
+                var loaded = new RichDocument((await RichEdit.Core.Rtf.RtfCodec.ReadAsync(stream, new() { RequireLossless = true })).Snapshot);
+                editor.BindStructuredDocument(loaded);
+                editor.StructuredSession!.Edit(edit => edit.RejectRevision(info.Group));
+                Equal("review", loaded.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal("review", editor.Document.Text);
+                editor.Undo();
+                Equal("review!", loaded.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(1, loaded.CurrentSnapshot.Revisions.Count);
+            }
+            finally { editor.Document = previous; }
+        });
 #if WINDOWS || IOS || MACCATALYST
         yield return new("structured authored cell formatting survives native text and undo", async editor =>
         {

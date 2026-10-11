@@ -7,6 +7,19 @@ namespace RichEdit.Maui.Tests;
 public class NativeTableContractTests
 {
     [Fact]
+    public Task NativeRtfReadersReceiveCurrentBodyWithoutExposingRetainedRevisionContexts() => WindowsTestHost.RunAsync(async () =>
+    {
+        var document = RichEdit.Core.RichDocument.FromPlainText("old body");
+        document.Edit(edit => edit.ReplaceText(new(edit.Body, new(2), 0), 8, "current body"), new(Revision: new("Author")));
+        using var stream = new MemoryStream();
+        await RichEdit.Core.Rtf.RtfCodec.WriteAsync(document.CurrentSnapshot, stream);
+        var native = new RichEditBox();
+        native.Document.SetText(TextSetOptions.FormatRtf, System.Text.Encoding.ASCII.GetString(stream.ToArray()));
+        native.Document.GetText(TextGetOptions.None, out var text);
+        Assert.Equal("current body", text.TrimEnd('\r', '\n'));
+    });
+
+    [Fact]
     public Task NativeEngineRetainsAuthoredCellProperties() => WindowsTestHost.RunAsync(async () =>
     {
         var format = new RichEdit.Core.RichCellFormat

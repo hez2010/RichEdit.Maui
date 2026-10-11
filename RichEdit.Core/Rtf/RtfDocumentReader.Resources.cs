@@ -78,10 +78,16 @@ internal sealed partial class RtfDocumentReader
         {
             try { RichDocumentSnapshot.ValidateBookmarkName(name); }
             catch (ArgumentException) { Report("bookmark-name", "A bookmark with an unsupported name was omitted."); return; }
-            if (child.Orphan) { _bookmarks.Add(new(new(Allocate().Value), name, null)); return; }
+            if (child.Orphan)
+            {
+                var id = new RichAnnotationId(Allocate().Value);
+                _bookmarks.Add(new(id, name, null));
+                if (child.WireAnchor is { } wire) Identities.Bookmarks.Add(id, wire);
+                return;
+            }
         }
         ChargeResource();
-        anchors.Add(name, new(child.Orphan ? null : Point(), child.Reverse, child.AnchorAffinity, child.ActiveAffinity));
+        anchors.Add(name, new(child.Orphan ? null : Point(), child.Reverse, child.AnchorAffinity, child.ActiveAffinity, child.WireAnchor));
     }
 
     private void EndAnchor(State child, bool bookmark)
@@ -93,7 +99,13 @@ internal sealed partial class RtfDocumentReader
         var end = Point();
         var range = anchor.Reverse ? new RichTextSelection(end with { Affinity = anchor.AnchorAffinity }, start with { Affinity = anchor.ActiveAffinity }) :
             new RichTextSelection(start with { Affinity = anchor.AnchorAffinity }, end with { Affinity = anchor.ActiveAffinity });
-        if (bookmark) _bookmarks.Add(new(new(Allocate().Value), name, range)); else _commentRanges[name] = range;
+        if (bookmark)
+        {
+            var id = new RichAnnotationId(Allocate().Value);
+            _bookmarks.Add(new(id, name, range));
+            if (anchor.WireId is { } wire) Identities.Bookmarks.Add(id, wire);
+        }
+        else _commentRanges[name] = range;
     }
 
     private void FinishAnnotation(State child)
@@ -107,7 +119,13 @@ internal sealed partial class RtfDocumentReader
             if (!annotation.Utc && created is not null) Report("annotation-timezone", "An RTF annotation timestamp without a timezone was interpreted as UTC.");
         }
         _commentRanges.Remove(annotation.Name, out var range);
-        _comments.Add(new(new(Allocate().Value), child.Orphan ? null : range, annotation.Text.ToString(), annotation.Author, created));
+        var id = new RichAnnotationId(Allocate().Value);
+        _comments.Add(new(id, child.Orphan ? null : range, annotation.Text.ToString(), annotation.Author, created));
+        if (_wireNodes is not null)
+        {
+            if (!annotation.Name.StartsWith('c')) throw Error("A retained comment requires its identity");
+            Identities.Comments.Add(id, RtfIdentityMap.Number(annotation.Name.AsSpan(1)));
+        }
     }
 
     private void FinishField(State child)

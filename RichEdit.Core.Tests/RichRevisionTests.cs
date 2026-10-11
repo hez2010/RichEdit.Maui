@@ -131,13 +131,21 @@ public class RichRevisionTests
     }
 
     [Fact]
-    public async Task PendingReviewStateCannotBeSilentlyLostByTheCodec()
+    public async Task PendingReviewStateSurvivesRtfAndCanBeRejectedAfterLoading()
     {
         var document = RichDocument.FromPlainText("a");
-        document.Edit(edit => edit.ReplaceText(new(edit.Body, new(2), 0), 1, "b"), new(Revision: new("One")));
+        var info = new RichRevisionInfo("One");
+        document.Edit(edit => edit.ReplaceText(new(edit.Body, new(2), 0), 1, "b"), new(Revision: info));
         using var output = new MemoryStream();
-        await Assert.ThrowsAsync<RtfFidelityException>(() => RtfCodec.WriteAsync(document.CurrentSnapshot, output, TestContext.Current.CancellationToken));
-        Assert.Equal(0, output.Length);
+        await RtfCodec.WriteAsync(document.CurrentSnapshot, output, TestContext.Current.CancellationToken);
+        output.Position = 0;
+        var read = await RtfCodec.ReadAsync(output, new() { RequireLossless = true }, TestContext.Current.CancellationToken);
+        var loaded = new RichDocument(read.Snapshot);
+        Assert.Equal(info, Assert.Single(loaded.CurrentSnapshot.Revisions.Values).Info);
+        Assert.False(loaded.CanUndo);
+        Assert.Equal("b", loaded.CurrentSnapshot.ProjectText().Text.ToString());
+        loaded.Edit(edit => edit.RejectRevision(info.Group));
+        Assert.Equal("a", loaded.CurrentSnapshot.ProjectText().Text.ToString());
     }
 
     [Fact]

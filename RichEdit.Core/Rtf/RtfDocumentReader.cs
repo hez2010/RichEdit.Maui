@@ -5,9 +5,19 @@ using TextEdit.Core;
 
 namespace RichEdit.Core.Rtf;
 
-internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions options)
+internal sealed partial class RtfDocumentReader
 {
-    private readonly RtfTokenReader _reader = new(input, options.MaximumBytes, options.MaximumDepth, options.MaximumAssetBytes);
+    private readonly RtfTokenReader _reader;
+    private readonly RtfReadOptions options;
+    private readonly RtfReadBudget _budget;
+    private readonly bool _retained;
+    internal RtfDocumentReader(Stream input, RtfReadOptions options) : this(
+        new(input, options.MaximumBytes, options.MaximumDepth, options.MaximumAssetBytes), options, new(), false) { }
+    private RtfDocumentReader(RtfTokenReader reader, RtfReadOptions options, RtfReadBudget budget, bool retained)
+    {
+        _reader = reader; this.options = options; _budget = budget; _retained = retained;
+        ChargeResource(); // Every parsed document has one body story.
+    }
     private readonly List<RtfDiagnostic> _diagnostics = [];
     private readonly HashSet<string> _reported = [];
     private readonly Stack<State> _states = [];
@@ -31,8 +41,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     private readonly List<RichBookmark> _bookmarks = [];
     private readonly List<RichComment> _comments = [];
     private long _nextId = 1;
-    private int _resourceCount = 1; // The body story is always present.
-    private int _textLength;
+    private bool _newTextRun;
     private int _fallback;
     private bool _rtf;
     private bool _semantic;
@@ -89,6 +98,11 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
                     break;
                 case RtfTokenKind.Control:
                     if (_states.Count == 0) throw Error("An RTF control is outside the root group");
+                    if (token.Word is "reold" or "renew" && _state.Destination == "rerevision")
+                    {
+                        await ReadRevisionContextAsync(token.Word, cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
                     Control(token.Word!, token.Number);
                     break;
                 case RtfTokenKind.Symbol:
@@ -106,6 +120,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
                     else if (_state.Destination != "skip") Report("binary", "An unsupported binary payload was omitted.");
                     break;
             }
+            if (_closed && _retained) break;
         }
         FlushBytes();
         if (!_rtf || !_closed) throw Error("Input is not a complete RTF document");
@@ -126,6 +141,8 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
                 defaultCharacter: _defaultCharacter, defaultParagraph: _defaultParagraph);
         }
         catch (ArgumentException error) { throw new FormatException("RTF contains invalid document structure or resource references.", error); }
+        CompleteIdentities(snapshot);
+        snapshot = RestoreRevisions(snapshot);
         var diagnostics = _diagnostics.ToImmutableArray();
         if (options.RequireLossless && !diagnostics.IsEmpty) throw new RtfFidelityException(diagnostics);
         return new(snapshot, diagnostics);
@@ -185,8 +202,8 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     {
         if (_state.Destination == "skip" || text.Length == 0) return;
         if (_structuralGap) throw Error("A structural RTF gap must be followed by its paragraph mark");
-        _textLength = checked(_textLength + text.Length);
-        if (_textLength > options.MaximumTextLength) throw Error("RTF text limit exceeded");
+        _budget.TextLength = checked(_budget.TextLength + text.Length);
+        if (_budget.TextLength > options.MaximumTextLength) throw Error("RTF text limit exceeded");
         if (_state.Capture is { } capture) { capture.Append(text); return; }
         if (_state.Destination is not ("body" or "nesttableprops" or "fldrslt")) return;
         _state.AtStart = false;
@@ -213,9 +230,10 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         var paragraph = EnsureParagraph();
         var format = _state.Character;
         var style = _state.CharacterStyle;
-        if (paragraph.Inlines.LastOrDefault() is RichText run && run.Format == format && run.Style == style && run.Link == _state.Link)
+        if (!_newTextRun && paragraph.Inlines.LastOrDefault() is RichText run && run.Format == format && run.Style == style && run.Link == _state.Link)
             paragraph.Inlines[^1] = run with { Content = run.Content.Concat(TextSnapshot.FromText(text)) };
         else { var id = Allocate(); paragraph.Inlines.Add(new RichText(id, paragraph.Id, TextSnapshot.FromText(text)) { Format = format, Style = style, Link = _state.Link }); }
+        _newTextRun = false;
         paragraph.Length = checked(paragraph.Length + text.Length);
     }
 
@@ -253,8 +271,8 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
     private void ChargeResource()
     {
         _cancellation.ThrowIfCancellationRequested();
-        if (_resourceCount >= options.MaximumNodes) throw Error("RTF node/resource limit exceeded");
-        _resourceCount++;
+        if (_budget.Resources >= options.MaximumNodes) throw Error("RTF node/resource limit exceeded");
+        _budget.Resources++;
     }
     private void Report(string feature, string message)
     {
@@ -274,7 +292,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         internal RichStyleId? Style;
         internal int Length;
     }
-    private sealed record Anchor(RichTextPoint? Point, bool Reverse, CaretAffinity AnchorAffinity, CaretAffinity ActiveAffinity);
+    private sealed record Anchor(RichTextPoint? Point, bool Reverse, CaretAffinity AnchorAffinity, CaretAffinity ActiveAffinity, long? WireId = null);
 
     private sealed class State
     {
@@ -307,6 +325,8 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         internal Picture? Picture;
         internal bool ResourceOnly, Orphan;
         internal bool Reverse;
+        internal long? WireAnchor;
+        internal RevisionRecord? RevisionRecord;
         internal CaretAffinity AnchorAffinity = CaretAffinity.Downstream, ActiveAffinity = CaretAffinity.Downstream;
         internal Annotation? Annotation;
         internal Field? Field;
