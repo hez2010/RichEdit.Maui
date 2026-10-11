@@ -21,8 +21,8 @@ public sealed class RichEditorPresentationTests
         var old = layer.BeginUpdate();
         var latest = layer.BeginUpdate();
         Assert.False(layer.TryPublish(old, []));
-        Assert.True(layer.TryPublish(latest, [new(new(Point(1), Point(4)), new() { Italic = true })]));
-        Assert.True(widgets.TryPublish(widgets.BeginUpdate(), [new("hint", Point(2), new(20, 16))]));
+        Assert.True(layer.TryPublish(latest, (RichEditorDecoration[])[new(new(Point(1), Point(4)), new() { Italic = true })]));
+        Assert.True(widgets.TryPublish(widgets.BeginUpdate(), (RichEditorWidget[])[new("hint", Point(2), new(20, 16))]));
         Assert.Same(captured, document.CurrentSnapshot);
         Assert.False(document.CanUndo);
         Assert.False(peer.NativeView.Decorations.Project(peer.NativeView.Document.CurrentSnapshot).GetCharacterFormat(7).Italic);
@@ -57,7 +57,7 @@ public sealed class RichEditorPresentationTests
         {
             using var layer = editor.Presentation.CreateDecorationLayer();
             var start = new RichTextPoint(document.CurrentSnapshot.Body, new(2), 0);
-            layer.TryPublish(layer.BeginUpdate(), [new(new(start, start with { Offset = 4 }), new() { Italic = true })]);
+            layer.TryPublish(layer.BeginUpdate(), (RichEditorDecoration[])[new(new(start, start with { Offset = 4 }), new() { Italic = true })]);
             var native = handler.PlatformView.Document.GetRange(1, 2);
             Assert.Equal(Microsoft.UI.Text.FormatEffect.On, native.CharacterFormat.Italic);
             editor.Selection = new RichEdit.Core.RichTextSelection(start with { Offset = 2 }, start with { Offset = 2 });

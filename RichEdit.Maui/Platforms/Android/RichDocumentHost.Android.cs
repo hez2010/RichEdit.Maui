@@ -41,7 +41,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
     private LinearLayout? _body;
     private bool _connected;
     private bool _queued;
-    private string? _shape;
+    private RichDocumentSnapshot? _shape;
     private (DocumentRevision Revision, RichTextPoint Point, double Top)? _viewportAnchor;
 
     internal RichDocumentHost(Context context, RichEditor owner, IMauiContext mauiContext) : base(context)
@@ -97,23 +97,31 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         _queued = true;
         Post(() => { _queued = false; if (_connected && _owner.Composition is null) Rebuild(); });
     }
-    private string Shape(RichDocumentSnapshot snapshot) => string.Join(";", snapshot.Nodes.Values.Where(node => node is not (RichParagraph or RichInline))
-        .OrderBy(node => node.Id.Value).Select(node => node switch
-        {
-            RichTable table => $"T{table.Id.Value}:{table.Parent}:{string.Join(',', table.Columns.Select(width => width.Twips))}:{string.Join(',', table.Rows)}",
-            RichTableCell cell => $"C{cell.Id.Value}:{cell.Parent}:{cell.Column}:{cell.ColumnSpan}:{cell.RowSpan}:{string.Join(',', cell.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
-            RichStory story => $"S{story.Id.Value}:{string.Join(',', story.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
-            RichList list => $"L{list.Id.Value}:{list.Parent}:{list.Numbered}:{list.NumberStyle}:{list.StartNumber}:{string.Join(',', list.Items)}",
-            RichListItem item => $"I{item.Id.Value}:{item.Parent}:{string.Join(',', item.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
-            _ => $"{node.Id}:{node.Parent}",
-        }));
+    // Compare only native containers. Inline runs and paragraph text cannot change
+    // the host topology; never sort or stringify the complete document on typing.
+    private static bool SameStructure(RichDocumentSnapshot before, RichDocumentSnapshot after, RichNodeId id)
+    {
+        if (!before.Nodes.TryGetValue(id, out var first) || !after.Nodes.TryGetValue(id, out var second) || first.GetType() != second.GetType()) return false;
+        if (first is RichParagraph) return true;
+        if (first.Parent != second.Parent) return false;
+        if (first is RichTable table && second is RichTable nextTable && !table.Columns.SequenceEqual(nextTable.Columns)) return false;
+        if (first is RichTableCell cell && second is RichTableCell nextCell &&
+            (cell.Column != nextCell.Column || cell.ColumnSpan != nextCell.ColumnSpan || cell.RowSpan != nextCell.RowSpan)) return false;
+        if (first is RichList list && second is RichList nextList &&
+            (list.Numbered != nextList.Numbered || list.NumberStyle != nextList.NumberStyle || list.StartNumber != nextList.StartNumber)) return false;
+        using var oldChildren = RichDocumentSnapshot.Children(first).Where(child => before.Get<RichNode>(child) is not RichParagraph).GetEnumerator();
+        using var newChildren = RichDocumentSnapshot.Children(second).Where(child => after.Get<RichNode>(child) is not RichParagraph).GetEnumerator();
+        while (oldChildren.MoveNext())
+            if (!newChildren.MoveNext() || oldChildren.Current != newChildren.Current || !SameStructure(before, after, oldChildren.Current)) return false;
+        return !newChildren.MoveNext();
+    }
 
     private void Rebuild()
     {
         if (_owner.Composition is not null) return;
         var snapshot = _owner.Document.CurrentSnapshot;
-        var shape = Shape(snapshot);
-        if (_shape == shape) { RequestLayout(); PaintCellSelection(); return; }
+        if (_shape is { } previousShape && previousShape.Body == snapshot.Body && SameStructure(previousShape, snapshot, snapshot.Body))
+        { _shape = snapshot; RequestLayout(); PaintCellSelection(); return; }
         using var selectionUpdate = _coordinator.BeginStructuredSurfaceUpdate();
         var focused = _coordinator.HasFocusedStructuredSurface;
         var used = new HashSet<RichTextViewScope>();
@@ -121,7 +129,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         var body = Container(snapshot.Body, used);
         RemoveAllViews();
         AddView(body, new Android.Widget.ScrollView.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
-        _body = body; _shape = shape;
+        _body = body; _shape = snapshot;
         foreach (var pair in _surfaces.Where(pair => !used.Contains(pair.Key)).ToArray()) { Release(pair.Value); _surfaces.Remove(pair.Key); }
         PaintCellSelection();
         if (focused) Post(() => { if (_connected) _coordinator.FocusStructuredSelection(); });
