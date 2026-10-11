@@ -371,7 +371,7 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
         return new UpdateScope(this);
     }
 
-    private sealed class UpdateScope(RichTextAdornments owner) : IDisposable
+    private sealed partial class UpdateScope(RichTextAdornments owner) : IDisposable
     {
         private bool _closed;
         public void Dispose()

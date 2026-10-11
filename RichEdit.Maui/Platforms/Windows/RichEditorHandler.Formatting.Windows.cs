@@ -171,7 +171,7 @@ public partial class RichEditorHandler
     {
         _nativeTypingFormat = characterFormat;
         _nativeTypingParagraphFormat = paragraphFormat;
-        if (PlatformView is null || PlatformView.Document.Selection.Length != 0)
+        if (PlatformView is null || PlatformView.IsReadOnly || PlatformView.Document.Selection.Length != 0)
         {
             return;
         }

@@ -277,7 +277,9 @@ public partial class RichEditorHandler
 
     private partial void UpdateInputConfiguration(NativeEditorView editor)
     {
+        var wasReadOnly = PlatformView.IsReadOnly;
         PlatformView.IsReadOnly = editor.IsReadOnly;
+        if (wasReadOnly && !editor.IsReadOnly) ApplyTypingFormatCore(_nativeTypingFormat, _nativeTypingParagraphFormat);
         PlatformView.IsSpellCheckEnabled = editor.IsSpellCheckEnabled ?? true;
         PlatformView.IsTextPredictionEnabled = editor.IsTextPredictionEnabled ?? true;
         PlatformView.AcceptsReturn = true;

@@ -1,4 +1,5 @@
 using RichEdit.Core;
+using Microsoft.Maui.Platform;
 
 namespace RichEdit.Maui.Tests;
 
@@ -6,6 +7,37 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+#if ANDROID || IOS || MACCATALYST
+        yield return new("structured native review view projects original and final without history", async editor =>
+        {
+            var model = RichDocument.FromPlainText("original");
+            var group = new RichRevisionInfo("Author");
+            model.Edit(edit => edit.ReplaceText(new(edit.Body, new(2), 0), 8, "current"), new(Revision: group));
+            var review = new RichReviewView { Source = model, Mode = RichReviewMode.Original };
+            var renderer = (RichEditor)review.Content;
+            try
+            {
+                _ = review.ToPlatform(editor.Handler!.MauiContext!);
+                await Task.Delay(40);
+                Equal(true, renderer.IsReadOnly);
+                Equal("original", NativeText(renderer.NativeView));
+                var before = model.CurrentSnapshot;
+                review.Mode = RichReviewMode.Final;
+                Equal("current", NativeText(renderer.NativeView));
+                Equal(true, ReferenceEquals(before, model.CurrentSnapshot));
+                Equal(false, renderer.CanUndo);
+                model.Edit(edit => edit.RejectRevision(group.Group));
+                await Task.Delay(50);
+                Equal("original", NativeText(renderer.NativeView));
+                Equal(false, renderer.CanUndo);
+            }
+            finally
+            {
+                renderer.NativeView.Handler?.DisconnectHandler();
+                review.Handler?.DisconnectHandler();
+            }
+        });
+#endif
         yield return new("structured tracked native input survives RTF and cleared undo history", async editor =>
         {
             var previous = editor.Document;

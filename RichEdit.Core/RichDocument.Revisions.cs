@@ -51,16 +51,26 @@ public sealed partial class RichDocumentSnapshot
     }
 
     /// <summary>Creates a detached original-content projection by rejecting every pending revision without changing the document or history.</summary>
-    public RichDocumentSnapshot CreateOriginalReviewSnapshot()
+    public RichDocumentSnapshot CreateOriginalReviewSnapshot() => CreateReviewProjection(RichReviewMode.Original).Snapshot;
+
+    /// <summary>Captures final or original review content and snapshot-bound address maps without editing the document or history.</summary>
+    public RichReviewProjection CreateReviewProjection(RichReviewMode mode, CancellationToken cancellationToken = default)
     {
-        if (Revisions.IsEmpty) return WithRevision(default);
+        if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (mode == RichReviewMode.Final || Revisions.IsEmpty)
+            return new(this, WithRevisions(ImmutableDictionary<long, RichRevision>.Empty).WithRevision(default), mode, new([]));
         var next = Nodes.Keys.Select(id => id.Value).DefaultIfEmpty().Max();
         var edit = new RichDocumentEdit(this, next);
         try
         {
             while (!edit.Snapshot.Revisions.IsEmpty)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 edit.RejectRevision(edit.Snapshot.Revisions.Values.MinBy(revision => revision.Id)!.Info.Group);
-            return edit.Finish().Snapshot;
+            }
+            var plan = edit.Finish();
+            return new(this, plan.Snapshot, mode, plan.Map);
         }
         finally { edit.Close(); }
     }
