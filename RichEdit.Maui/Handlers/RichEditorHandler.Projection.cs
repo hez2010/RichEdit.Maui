@@ -19,6 +19,8 @@ public partial class RichEditorHandler
     private RichTextDocumentSnapshot? _inputPresentationSource;
     private RichTextDocumentSnapshot? _inputPresentation;
     private RichTextDisplayProjection? _inputPresentationMap;
+    private readonly RichPresentationCostEstimate _nativeReservationCost = new();
+    private int _reservationPublicationCount;
 
     internal RichTextDocumentSnapshot? GetCompositionPresentation()
     {
@@ -73,13 +75,17 @@ public partial class RichEditorHandler
         if (widthChanged || NativeProjection.IsEmpty)
             _displayWidth = Math.Max(1, (CaptureTextLayoutCore()?.TextViewport ?? GetAdornmentViewport()).Width - 1);
 
+        var budget = _presentationBudget ?? new RichPresentationBudget();
         var measured = false;
+        var measurementPending = false;
         foreach (var item in VirtualView.Adornments)
         {
             if (!item.ReservesSpace)
                 continue;
+            if (widthChanged && item.Options.Placement != RichTextAdornmentPlacement.Inline) item.MeasureDirty = true;
             if (item.IsRealized && (item.MeasureDirty || widthChanged && item.Options.Placement != RichTextAdornmentPlacement.Inline))
             {
+                if (!budget.TryStart()) { measurementPending = true; continue; }
                 var size = ((IView)item.View).Measure(item.Options.Placement == RichTextAdornmentPlacement.Inline ? double.PositiveInfinity : _displayWidth, double.PositiveInfinity);
                 if (item.Options.Baseline > size.Height)
                     throw new ArgumentException("The inline baseline cannot exceed the measured content height.");
@@ -98,19 +104,26 @@ public partial class RichEditorHandler
                 item.MeasureDirty = false;
             }
         }
-        // Publish new native objects in bounded batches. Already displayed objects stay
-        // present while the next batch is prepared, including across intervening input.
+        // Use elapsed work and observed native publication cost when admitting
+        // more reservations. Existing reservations remain present between pulses.
         _publishedAdornments.RemoveWhere(static item => !item.IsValid || !item.ReservesSpace);
         var added = 0;
-        _displayPublicationPending = false;
+        _displayPublicationPending = measurementPending;
         foreach (var item in VirtualView.Adornments.OrderByDescending(static item => item.IsRealized))
         {
             if (!item.ReservesSpace || _publishedAdornments.Contains(item))
                 continue;
-            if (added++ < AdornmentBatchSize)
+            if (budget.TryStart((added + 1) * _nativeReservationCost.MillisecondsPerItem))
+            {
                 _publishedAdornments.Add(item);
+                added++;
+            }
             else
                 _displayPublicationPending = true;
+        }
+        if (added > 0)
+        {
+            _reservationPublicationCount = added;
         }
 
         var projection = RichTextDisplayProjection.Create(VirtualView, _displayWidth, _publishedAdornments);
@@ -130,7 +143,9 @@ public partial class RichEditorHandler
     {
         if (TryApplyStructuredNativeDocument()) return;
         PrepareDisplayProjection();
+        var publicationStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         ApplyDisplayDocumentCore(DisplayPresentationSnapshot, selectionStart, selectionLength);
+        RecordNativePublicationCost(publicationStarted);
         CompleteDisplayProjection();
     }
 
@@ -157,7 +172,9 @@ public partial class RichEditorHandler
     {
         if (TryApplyStructuredNativeDocument()) return;
         changes = PrepareDisplayChanges(changes);
+        var publicationStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         ApplyDisplayChangesCore(changes, selection, typingCharacterFormat, typingParagraphFormat);
+        RecordNativePublicationCost(publicationStarted);
         CompleteDisplayProjection();
     }
 
@@ -169,8 +186,19 @@ public partial class RichEditorHandler
         _paintedSnapshot = DisplayPresentationSnapshot;
         WriteDisplayReservationMetadata();
         UpdateDisplayInputLimit();
+        _reservationPublicationCount = 0;
         if (_displayPublicationPending)
             QueueAdornmentLayout();
+    }
+
+    private void RecordNativePublicationCost(long started)
+    {
+        if (_reservationPublicationCount == 0) return;
+        // Measure native application separately. Charging fixed managed
+        // projection construction to every new reservation causes batches to
+        // shrink toward one while repeating that same fixed cost each pulse.
+        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        _nativeReservationCost.Observe(_reservationPublicationCount, elapsed);
     }
 
     private void RefreshDisplayProjection(RichTextNativeLayout? previousLayout)
@@ -195,10 +223,12 @@ public partial class RichEditorHandler
                 if (anchorBounds is { } anchored)
                     PreserveAdornmentScrollAnchor(anchor, anchored.Y);
 
+                var publicationStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 ApplyDisplayChangesCore(new(0, 1, RichTextChangeOrigin.Programmatic, [.. changes], null,
                     beforeSnapshot: before, afterSnapshot: DisplayPresentationSnapshot), VirtualView.SelectedRange,
                     VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
                 ApplyFoldingCore();
+                RecordNativePublicationCost(publicationStarted);
                 if (anchorBounds is { } prior && GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(anchor), RichTextCaretAffinity.Downstream) is { } current &&
                     Math.Abs(current.Y - prior.Y) > 0.5)
                     OffsetAdornmentScroll(current.Y - prior.Y);

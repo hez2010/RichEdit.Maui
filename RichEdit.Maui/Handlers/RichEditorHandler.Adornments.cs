@@ -2,8 +2,10 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private const int AdornmentBatchSize = 24;
     private const int AdornmentPrefetchCharacters = 256;
+    private RichPresentationBudget? _presentationBudget;
+    private Size _adornmentArrangeSize;
+    private double _adornmentArrangeMargin = -1;
     private bool _adornmentsConnected;
     private bool _adornmentLayoutQueued;
     private bool _arrangingAdornments;
@@ -105,8 +107,10 @@ public partial class RichEditorHandler
             return;
 
         _adornmentLayoutQueued = true;
+        var attachment = LayoutAttachment;
         VirtualView.Dispatcher.Dispatch(() =>
         {
+            if (!ReferenceEquals(attachment, LayoutAttachment)) return;
             _adornmentLayoutQueued = false;
             if (_adornmentsConnected)
                 ArrangeAdornments();
@@ -119,6 +123,7 @@ public partial class RichEditorHandler
             return;
 
         _arrangingAdornments = true;
+        _presentationBudget = new();
         try
         {
             var viewport = GetAdornmentViewport();
@@ -127,18 +132,21 @@ public partial class RichEditorHandler
             // A missing native layout is not a viewport spanning the document.
             // Native loaded/size callbacks schedule the first real layout pass.
             if (viewport.Width <= 0 || viewport.Height <= 0 || layout is null) return;
+            var constraintsChanged = _adornmentArrangeSize != viewport.Size || _adornmentArrangeMargin != adornments.MarginWidth;
+            _adornmentArrangeSize = viewport.Size;
+            _adornmentArrangeMargin = adornments.MarginWidth;
             var sourceRanges = layout?.Lines.SelectMany(static line => line.SourceRanges).ToArray() ?? [];
             var visibleStart = sourceRanges.Length == 0 ? HitTestTextCore(new(0, 0))?.Position ?? 0 : sourceRanges.Min(static range => range.Start);
             var visibleEnd = sourceRanges.Length == 0 ? HitTestTextCore(new(viewport.Width, viewport.Height))?.Position ?? VirtualView.Document.Length : sourceRanges.Max(static range => range.End);
-            var realized = 0;
             var pending = false;
             foreach (var item in adornments)
             {
+                if (constraintsChanged && !item.ReservesSpace) item.MeasureDirty = true;
                 // Keep a source margin around the viewport, using cached sizes beyond it.
                 var nearby = item.Position >= Math.Max(0, visibleStart - AdornmentPrefetchCharacters) && item.Position <= visibleEnd + AdornmentPrefetchCharacters;
                 if (!item.IsRealized && nearby)
                 {
-                    if (realized++ >= AdornmentBatchSize)
+                    if (!_presentationBudget.TryStart())
                     {
                         pending = true;
                         continue;
@@ -181,7 +189,13 @@ public partial class RichEditorHandler
                 else if (VirtualView.Folding.FindRange(item.Position) is null && GetAdornmentAnchor(NativeProjection.ToDisplay(item.Position)) is { Height: > 0 } anchor)
                 {
                     var width = item.Options.Placement == RichTextAdornmentPlacement.LeftMargin ? adornments.MarginWidth : viewport.Width;
-                    var size = ((IView)item.View).Measure(width, viewport.Height);
+                    if (item.MeasureDirty)
+                    {
+                        if (!_presentationBudget.TryStart()) { pending = true; continue; }
+                        item.MeasuredSize = ((IView)item.View).Measure(width, viewport.Height);
+                        item.MeasureDirty = false;
+                    }
+                    var size = item.MeasuredSize;
                     var x = item.Options.Placement == RichTextAdornmentPlacement.LeftMargin ? (width - size.Width) / 2 : anchor.X;
                     var proposed = new Rect(x + item.Options.Offset.X, anchor.Y + (anchor.Height - size.Height) / 2 + item.Options.Offset.Y, size.Width, size.Height);
                     if (proposed.IntersectsWith(viewport))
@@ -202,6 +216,7 @@ public partial class RichEditorHandler
         finally
         {
             _arrangingAdornments = false;
+            _presentationBudget = null;
         }
     }
 

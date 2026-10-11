@@ -9,6 +9,28 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> AdornmentCases()
     {
+        yield return new("adornments expensive widget factories yield between UI pulses", async editor =>
+        {
+            editor.Document = RichTextDocument.FromPlainText("widgets");
+            var created = 0;
+            var firstYieldCount = -1;
+            using var source = editor.Adornments.CreateSource(widget =>
+            {
+                // Model an indivisible application callback that exceeds the
+                // library's slice target; later callbacks must wait for a pulse.
+                Thread.Sleep(12);
+                created++;
+                if (created == 1) editor.Dispatcher.Dispatch(() => firstYieldCount = created);
+                return new Label { Text = widget.Id, WidthRequest = 20, HeightRequest = 20 };
+            });
+            Equal(true, source.TryPublish(source.BeginUpdate(), Enumerable.Range(0, 8)
+                .Select(index => new RichTextWidget($"slow-{index}", 0, new(20, 20)))));
+            for (var attempt = 0; attempt < 200 && (created != 8 || firstYieldCount < 0); attempt++) await Task.Delay(10);
+            Equal(8, created, "eventual realization");
+            Equal(true, firstYieldCount is > 0 and < 8, $"factories before first queued callback: {firstYieldCount}");
+            Equal("widgets", editor.Document.Text);
+            Equal(false, editor.CanUndo);
+        });
         yield return new("adornments widget source realizes nearby data and recycles offscreen views", async editor =>
         {
             var text = string.Join('\n', Enumerable.Range(0, 120).Select(index => $"line {index:D3} content"));

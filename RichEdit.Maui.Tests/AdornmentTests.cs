@@ -11,6 +11,10 @@ public class AdornmentTests
     private static Microsoft.UI.Xaml.Window? _window;
 
     [Fact]
+    public Task ExpensiveWidgetFactoriesYieldBetweenNativeUiPulses() => WithNativeEditor(async (editor, _) =>
+        await EditorContractTests.Cases.Single(static test => test.Name == "adornments expensive widget factories yield between UI pulses").Run(editor));
+
+    [Fact]
     public Task WidgetPublicationRejectsStaleOrInvalidSetsAndRetainsMappedIdentities() => WindowsTestHost.RunAsync(() =>
     {
         var editor = new CodeEditor { Document = new("abcdef") };
