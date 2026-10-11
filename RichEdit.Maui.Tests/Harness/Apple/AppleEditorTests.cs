@@ -8,7 +8,9 @@ namespace RichEdit.Maui.Tests;
 
 internal static class AppleEditorTests
 {
-    public static async Task RunAsync(NativeEditorView editor)
+    public static Task RunAsync(NativeEditorView editor) => AppleTestEnvironment.RunAsync(() => RunCoreAsync(editor));
+
+    private static async Task RunCoreAsync(NativeEditorView editor)
     {
         var native = (RichTextView)editor.Handler!.PlatformView!;
         // Exercise native transformations explicitly, regardless of simulator defaults.
@@ -167,6 +169,44 @@ internal static class AppleEditorTests
                     var point = new RichEdit.Core.RichTextPoint(snapshot.Body, paragraph.Id, offset);
                     EditorContractTests.Equal(point, resolved.Map.ToRich(resolved.Map.ToNative(point))!.Value, "structural/native caret round trip");
                 }
+        });
+
+        await Test("structured authored images retain native table attachments", async () =>
+        {
+            RichEdit.Core.RichNodeId paragraph = default;
+            var model = new RichEdit.Core.RichDocument(RichEdit.Core.RichDocumentSnapshot.Build(edit =>
+            {
+                var table = edit.InsertTable(edit.Body, 1, 1, new RichEdit.Core.RichLength[] { new(2400) });
+                paragraph = edit.Snapshot.Get<RichEdit.Core.RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+                var asset = edit.AddImageAsset(RichEdit.Core.RichImageKind.Png, RichTextDisplayProjection.TransparentPixel.AsMemory());
+                edit.InsertImage(new(edit.Body, paragraph, 0), asset, new(640), new(480));
+            }));
+            var previous = editor.Document;
+            try
+            {
+                editor.BindStructuredDocument(model);
+                await Drain();
+                var point = new RichEdit.Core.RichTextPoint(model.CurrentSnapshot.Body, paragraph, 0);
+                var sourceOffset = model.CurrentSnapshot.ProjectText().GetOffset(point);
+                var position = ((RichEditorHandler)editor.Handler!).NativeProjection.ToDisplayCaret(sourceOffset);
+                Equal('\uFFFC', native.Text![position]);
+                using var attributes = native.TextStorage.GetAttributes(position, out _);
+                var attachment = new UIStringAttributes(attributes).TextAttachment ?? throw new InvalidOperationException("Missing native table image attachment.");
+                var glyphs = native.LayoutManager.GetGlyphRange(new NSRange(position, 1));
+                var bounds = native.LayoutManager.GetBoundingRect(glyphs, native.TextContainer);
+                EditorContractTests.Equal(true, Math.Abs(bounds.Width - 32) < 1 && bounds.Height >= 24,
+                    $"table image glyph={bounds}, attachment={attachment.Bounds}, image={attachment.Image?.Size}, attributes={attributes?.Description}");
+                Equal(false, model.CanUndo);
+                editor.SelectedRange = new(sourceOffset + 1, 0);
+                native.InsertText("x");
+                await Drain();
+                Equal("\uFFFCx", model.CurrentSnapshot.ProjectText(paragraph).Text.ToString());
+                editor.Undo();
+                await Drain();
+                Equal("\uFFFC", model.CurrentSnapshot.ProjectText(paragraph).Text.ToString());
+                Equal(1, model.CurrentSnapshot.Assets.Count);
+            }
+            finally { editor.Document = previous; }
         });
 
         await Test("native smart selection transformations remain tracked", async () =>
@@ -341,6 +381,23 @@ internal static class AppleEditorTests
                 native.ContentSize.Height - native.Bounds.Height + native.AdjustedContentInset.Bottom);
             EditorContractTests.Equal(true, native.ContentOffset.Y <= maximum + 2,
                 $"text undo left offset {native.ContentOffset.Y} past the bottom {maximum}");
+        });
+
+        await Test("explicit reveal releases the preserved viewport without moving selection", async () =>
+        {
+            editor.Document = RichTextDocument.FromPlainText(string.Concat(Enumerable.Repeat("line\n", 200)));
+            editor.SelectedRange = new(0, 4);
+            editor.Selection.ToggleBold();
+            await Drain();
+            var selection = editor.SelectionState;
+            editor.ScrollIntoView(new(editor.Document.Length, 0));
+            await Task.Delay(200);
+            Equal(selection, editor.SelectionState);
+            EditorContractTests.Equal(true, native.ContentOffset.Y > 200, "explicit bottom reveal");
+            editor.ScrollIntoView(new(0, 0));
+            await Task.Delay(200);
+            Equal(selection, editor.SelectionState);
+            EditorContractTests.Equal(true, native.ContentOffset.Y < 20, "explicit top reveal");
         });
 
         await Test("field-only changes are undoable", async () =>
@@ -1130,7 +1187,7 @@ internal static class AppleEditorTests
         using var image = renderer.CreateImage(context =>
         {
             context.CGContext.TranslateCTM(-inset.Left - padding - (nfloat)(textIndent - 36), -caret.Y + native.ContentOffset.Y);
-            native.Layer.RenderInContext(context.CGContext);
+            native.DrawViewHierarchy(new CoreGraphics.CGRect(0, 0, native.Bounds.Width, native.Bounds.Height), true);
         });
         using var pixels = image.CGImage!.DataProvider.CopyData()!;
         var data = pixels.ToArray();
@@ -1143,7 +1200,13 @@ internal static class AppleEditorTests
             maximum = Math.Max(maximum, brightness);
         }
         if (maximum - minimum < 40)
-            throw new InvalidOperationException($"No list marker pixels at {position}: brightness={minimum}..{maximum}.");
+        {
+            using var fullRenderer = new UIGraphicsImageRenderer(native.Bounds.Size);
+            using var fullImage = fullRenderer.CreateImage(_ => native.DrawViewHierarchy(new CoreGraphics.CGRect(0, 0, native.Bounds.Width, native.Bounds.Height), true));
+            using var png = fullImage.AsPNG();
+            File.WriteAllBytes(Path.Combine(FileSystem.CacheDirectory, "list-marker-failure.png"), png!.ToArray());
+            throw new InvalidOperationException($"No list marker pixels at {position}: brightness={minimum}..{maximum}, caret={caret}, offset={native.ContentOffset}, bounds={native.Bounds}.");
+        }
 
         return data;
     }

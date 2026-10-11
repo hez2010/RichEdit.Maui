@@ -638,6 +638,11 @@ public partial class RichEditorHandler
             return;
         }
 
+        var logicalSelection = NativeProjection.ToSource(new TextSelectionState((int)textView.SelectedRange.Location,
+            (int)(textView.SelectedRange.Location + textView.SelectedRange.Length)));
+        if (logicalSelection.Range != VirtualView.SelectionState.Range)
+            CancelViewportRestoration();
+
         if (_structuredNativeMap is not null && TryUpdateStructuredSelection(new((int)textView.SelectedRange.Location,
             (int)(textView.SelectedRange.Location + textView.SelectedRange.Length)))) return;
 
@@ -813,6 +818,7 @@ public partial class RichEditorHandler
                 return false;
             }
 
+            target.CancelViewportRestoration();
             target.RecordPendingNativeChange(range);
             return true;
         }
@@ -833,10 +839,16 @@ public partial class RichEditorHandler
             }
         }
 
+        public override void EditingStarted(UITextView textView)
+        {
+            if (_handler.TryGetTarget(out var target)) target.CancelViewportRestoration();
+        }
+
         public override void EditingEnded(UITextView textView)
         {
             if (_handler.TryGetTarget(out var target))
             {
+                target.CancelViewportRestoration();
                 target.OnNativeEditingEnded();
             }
         }

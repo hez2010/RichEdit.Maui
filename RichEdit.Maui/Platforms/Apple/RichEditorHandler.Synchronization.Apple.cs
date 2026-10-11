@@ -184,6 +184,8 @@ public partial class RichEditorHandler
                 PlatformView.SetContentOffset(new CGPoint(
                     Math.Clamp(viewport.X, -inset.Left, maximumX),
                     Math.Clamp(viewport.Y, -inset.Top, maximumY)), false);
+                _adornmentScrollAnchor = null;
+                _explicitViewportReveal = false;
                 _viewportAfterLayout = (VirtualView.Document.Revision, viewport);
                 PlatformView.SetNeedsLayout();
             }

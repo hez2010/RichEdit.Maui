@@ -45,7 +45,12 @@ public partial class RichEditorHandler
     private partial void ConnectAdornmentViewport()
     {
         _adornmentView = PlatformView;
-        _adornmentScrollObservation = _adornmentView.AddObserver("contentOffset", NSKeyValueObservingOptions.New, _ => QueueAdornmentLayout());
+        _adornmentScrollObservation = _adornmentView.AddObserver("contentOffset", NSKeyValueObservingOptions.New, _ =>
+        {
+            OnNativeScrollOffsetChanged();
+            _adornmentView.SetNeedsDisplay();
+            QueueAdornmentLayout();
+        });
         _adornmentBoundsObservation = _adornmentView.AddObserver("bounds", NSKeyValueObservingOptions.New, _ => QueueAdornmentLayout());
         _adornmentContentSizeObservation = _adornmentView.AddObserver("contentSize", NSKeyValueObservingOptions.New, _ => QueueAdornmentLayout());
     }

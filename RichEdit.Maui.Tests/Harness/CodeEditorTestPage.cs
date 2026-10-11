@@ -689,13 +689,15 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(false, _editor.CanUndo);
         });
 #else
-        await Test("accessibility reads indexed source lines without flattening the document", "", () =>
+        await Test("accessibility and placeholder queries avoid flattening the source document", "", () =>
         {
             _editor.Coloring().Enabled = false;
             var native = (UIKit.IUIAccessibilityReadingContent)_textView.Handler!.PlatformView!;
             _ = native.GetAccessibilityContent(0);
             _editor.Document = new(string.Concat(Enumerable.Repeat("alpha\r\nbeta\rchar\n", 10_000)));
             var allocated = GC.GetAllocatedBytesForCurrentThread();
+            for (var pass = 0; pass < 8; pass++)
+                ((RichEdit.Maui.Platforms.Apple.RichTextView)native).UpdatePlaceholderVisibility();
             Equal("alpha\r\n", native.GetAccessibilityContent(29_997));
             Equal("beta\r", native.GetAccessibilityContent(29_998));
             Equal("char\n", native.GetAccessibilityContent(29_999));

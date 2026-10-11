@@ -11,7 +11,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
     Func<RichNodeId, bool, string?>? marker = null, Func<string, string>? nativeText = null,
     RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null,
     bool includeIdentities = false, IReadOnlySet<RichNodeId>? contextScaffolding = null,
-    IReadOnlySet<RichNodeId>? nativePrivateParagraphs = null)
+    IReadOnlySet<RichNodeId>? nativePrivateParagraphs = null, bool nativeImagePlaceholders = false)
 {
     private readonly RtfOutput _output = new(output);
     private readonly Dictionary<string, int> _fonts = new(StringComparer.Ordinal);
@@ -25,6 +25,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         _cancellation = cancellationToken;
         includeIdentities |= semantic && !snapshot.Revisions.IsEmpty;
         if (includeIdentities && !semantic) throw new InvalidOperationException("Retained identities require semantic RTF.");
+        if (semantic && nativeImagePlaceholders) throw new InvalidOperationException("Image placeholders are only valid for native display.");
         if (!semantic && selectedCells is { } selection)
         {
             var grid = snapshot.GetTableGrid(selection.Table);
@@ -172,7 +173,9 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
                     await C("line"); break;
                 case RichImage image:
                     if (semantic) await Anchors(paragraph.Id, position);
-                    await Image(image); break;
+                    if (nativeImagePlaceholders) await T("\uFFFC");
+                    else await Image(image);
+                    break;
                 case RichField field:
                     if (semantic) await Anchors(paragraph.Id, position);
                     await S(@"{\field");

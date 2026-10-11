@@ -9,7 +9,7 @@ description: Native implementation boundaries, feature fidelity, and preview lim
 | --- | --- | --- |
 | Windows | WinUI RichEditBox | Native RichEdit RTF tables, lists, fields, and attachments |
 | Android | Native editable text with spans and InputConnection | Native scroll/container/grid views with editable flows and cells coordinated by one document/session |
-| iOS / Mac Catalyst | UITextView and TextKit | Native attributed text and RTF structures |
+| iOS / Mac Catalyst | UITextView and TextKit | Native attributed text, RTF table/paragraph structures, and text attachments for images and widgets |
 
 The controls use no WebViews. Small custom regions cover missing native features: secondary selections/carets, source gutters, unsupported decoration strokes, widget positioning, and Android cell-edge borders. Text shaping, ordinary editing, IME, and primary selection remain native.
 
@@ -23,7 +23,7 @@ Rich editing includes body paragraphs, semantic lists/tables, inline resources, 
 
 Source storage is persistent and line lookup is indexed. Native controls still keep their own buffers. Windows source readback can inspect the native story, and native formatting/reservations can incur broad layout work.
 
-Source views avoid rich paragraph metadata, and Android/Apple native replacement notifications restore bounded source edits. Apple source synchronization updates native storage incrementally. Android bounds text-service payloads separately from document size and materializes accessibility change-event text only while an accessibility service is active; see [input](input.md).
+Source views avoid rich paragraph metadata, and Android/Apple native replacement notifications restore bounded source edits. Apple source synchronization updates native storage incrementally, and accessibility line queries read indexed source ranges. Android bounds text-service payloads separately from document size and materializes accessibility change-event text only while an accessibility service is active; see [input](input.md).
 
 The test suite contains 100-sample dense-presentation and large-source workloads. A rendering callback is a frame opportunity, not proof of GPU presentation. The 50 ms desktop / 100 ms mobile p95 targets and 16 ms publication-slice target are engineering goals, not supported guarantees for this preview. Native 10 MiB split-view load and long-line input can exceed those targets.
 

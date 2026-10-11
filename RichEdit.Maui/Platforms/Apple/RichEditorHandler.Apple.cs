@@ -77,6 +77,7 @@ public partial class RichEditorHandler
     /// <inheritdoc />
     protected override void DisconnectHandler(RichTextView platformView)
     {
+        CancelViewportRestoration();
         _nativeReadbackQueued = false;
         _queuedDocument = null;
         VirtualView?.Commands.Disconnect();
@@ -172,6 +173,7 @@ public partial class RichEditorHandler
         var current = PlatformView.SelectedRange;
         if (current.Location == range.Start && current.Length == range.Length)
             return;
+        if (!_applyingDocument && !_updatingDisplayProjection) CancelViewportRestoration();
 
         var wasApplying = _applyingSelection;
         _applyingSelection = true;
@@ -187,8 +189,25 @@ public partial class RichEditorHandler
 
     private partial void ScrollIntoViewCore(TextSpan range)
     {
-        _adornmentScrollAnchor = null;
-        _viewportAfterLayout = null;
+        CancelViewportRestoration();
+        if (range.IsEmpty)
+        {
+            using var position = PlatformView.GetDisplayPosition(PlatformView.BeginningOfDocument, range.Start);
+            if (position is not null)
+            {
+                var caret = PlatformView.GetDisplayCaret(position);
+                var inset = PlatformView.AdjustedContentInset;
+                var top = Math.Clamp(caret.Y - PlatformView.ContentOffset.Y, inset.Top,
+                    Math.Max(inset.Top, PlatformView.Bounds.Height - inset.Bottom - caret.Height));
+                _explicitViewportReveal = true;
+                _adornmentScrollAnchor = (VirtualView.Document.Revision, NativeProjection.ToSource(range.Start), top);
+                _restoringViewport = true;
+                try { PlatformView.ScrollRectToVisible(caret, false); }
+                finally { _restoringViewport = false; }
+                PlatformView.SetNeedsLayout();
+                return;
+            }
+        }
         PlatformView.ScrollRangeToVisible(new NSRange(range.Start, range.Length));
     }
 

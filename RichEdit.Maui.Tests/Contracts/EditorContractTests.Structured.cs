@@ -51,7 +51,25 @@ internal static partial class EditorContractTests
             {
                 var deadline = Environment.TickCount64 + 3000;
                 while (!ready() && Environment.TickCount64 < deadline) await Task.Delay(20);
-                Equal(true, ready(), $"cell widget bounds {label?.Bounds}");
+                var details = "";
+#if IOS || MACCATALYST
+                if (!ready())
+                {
+                    var handler = (RichEditorHandler)editor.Handler!;
+                    var native = handler.PlatformView;
+                    details = $"; viewport {native.Bounds}, offset {native.ContentOffset}, native text {native.Text}; " + string.Join("; ",
+                        handler.NativeProjection.Reservations.Select(item =>
+                        {
+                            if (item.ImagePosition < 0 || item.ImagePosition >= native.TextStorage.Length)
+                                return $"{item.Adornment.Key}: source {item.SourcePosition}, image {item.ImagePosition}, size {item.Adornment.MeasuredSize}, outside native storage {native.TextStorage.Length}";
+                            var glyphs = native.LayoutManager.GetGlyphRange(new Foundation.NSRange(item.ImagePosition, 1));
+                            var rect = native.LayoutManager.GetBoundingRect(glyphs, native.TextContainer);
+                            var line = native.LayoutManager.GetLineFragmentRect((nuint)glyphs.Location, out var lineGlyphs);
+                            return $"{item.Adornment.Key}: source {item.SourcePosition}, image {item.ImagePosition}, size {item.Adornment.MeasuredSize}, glyph {rect}, line {line}, location {native.LayoutManager.GetLocationForGlyph((nuint)lineGlyphs.Location)}";
+                        }));
+                }
+#endif
+                Equal(true, ready(), $"cell widget bounds {label?.Bounds}{details}");
             }
         });
 #endif

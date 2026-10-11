@@ -210,7 +210,7 @@ internal sealed class StructuredRichNativeMap
     internal static async Task<Prepared> PrepareAsync(RichDocumentSnapshot snapshot, CancellationToken cancellationToken = default,
         string fallbackFont = "Arial", RichFontSize? fallbackSize = null, RichColor? fallbackColor = null,
         RichCellSelection? selectedCells = null, RichColor? selectionBackground = null, RichColor? selectionForeground = null,
-        IReadOnlySet<RichNodeId>? nativePrivateParagraphs = null)
+        IReadOnlySet<RichNodeId>? nativePrivateParagraphs = null, bool nativeImagePlaceholders = false)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var prefix = "RichMap" + Guid.NewGuid().ToString("N") + ":";
@@ -228,7 +228,8 @@ internal sealed class StructuredRichNativeMap
             markers.Add(marker);
             return marker.Text;
         }, nativeText: NativeLiteralText, selectedCells: selectedCells, selectionBackground: selectionBackground,
-            selectionForeground: selectionForeground, nativePrivateParagraphs: nativePrivateParagraphs).WriteAsync(cancellationToken).ConfigureAwait(false);
+            selectionForeground: selectionForeground, nativePrivateParagraphs: nativePrivateParagraphs,
+            nativeImagePlaceholders: nativeImagePlaceholders).WriteAsync(cancellationToken).ConfigureAwait(false);
         return new(Encoding.ASCII.GetString(stream.GetBuffer(), 0, checked((int)stream.Length)), markers.ToImmutable(), snapshot, prefix);
     }
 

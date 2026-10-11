@@ -21,7 +21,11 @@ namespace RichEdit.Maui
             PlatformView.TextDragDelegate = _sourceDragDelegate;
             PlatformView.CompositionStarting = BeginCompositionOperation;
             PlatformView.CompositionCompleted = EndCompositionOperation;
-            PlatformView.PointerObserved = (args, pressed) => VirtualView.ObservePointer(args, pressed);
+            PlatformView.PointerObserved = (args, pressed) =>
+            {
+                if (pressed) CancelViewportRestoration();
+                return VirtualView.ObservePointer(args, pressed);
+            };
             _pointerHover = new UIHoverGestureRecognizer(recognizer =>
             {
                 if (recognizer.State is UIGestureRecognizerState.Ended or UIGestureRecognizerState.Cancelled)

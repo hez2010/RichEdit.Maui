@@ -43,7 +43,7 @@ public partial class RichEditorHandler
             fallbackColor: new((byte)Math.Round(color.Red * 255), (byte)Math.Round(color.Green * 255), (byte)Math.Round(color.Blue * 255)),
             selectedCells: (VirtualView.StructuredSession!.Composition?.Selection ?? VirtualView.StructuredSession.Selection) as RichCellSelection,
             selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground,
-            nativePrivateParagraphs: presentation?.PrivateParagraphs).GetAwaiter().GetResult();
+            nativePrivateParagraphs: presentation?.PrivateParagraphs, nativeImagePlaceholders: true).GetAwaiter().GetResult();
         using var data = NSData.FromArray(System.Text.Encoding.ASCII.GetBytes(prepared.Rtf));
         using var imported = NSAttributedString.Create(data,
             new NSAttributedStringDocumentAttributes { DocumentType = NSDocumentType.RTF }, out var error);
@@ -52,6 +52,22 @@ public partial class RichEditorHandler
         var resolved = prepared.Resolve(content.Value ?? "");
         foreach (var removal in resolved.Removals.Reverse()) content.Replace(new NSRange(removal.Start, removal.Length), "");
         if (content.Value != resolved.Map.NativeText) throw new InvalidOperationException("Native rich marker removal changed document coordinates.");
+        // Apple's RTF importer can omit pictures inside table cells. Import the
+        // native table/paragraph structure with addressed image characters, then
+        // attach the original resources through NSTextAttachment in that storage.
+        foreach (var segment in resolved.Map.Paragraphs.SelectMany(paragraph => paragraph.Segments))
+            if (segment.Inline is { } id && snapshot.Get<RichInline>(id) is RichImage image)
+            {
+                if (segment.NativeLength != 1) throw new InvalidOperationException("Native image projection must retain one addressed character.");
+                var asset = snapshot.Assets[image.Asset];
+                ApplyImage(content, new RichTextImage
+                {
+                    Position = segment.NativeStart, Data = asset.Data, Width = image.Width.Points, Height = image.Height.Points,
+                    AlternativeText = image.AlternativeText,
+                    MediaType = asset.Kind switch { RichImageKind.Png => "image/png", RichImageKind.Jpeg => "image/jpeg",
+                        RichImageKind.Dib => "image/bmp", RichImageKind.Wmf => "image/wmf", _ => "image/emf" },
+                });
+            }
         if (apply)
         {
             var applying = _applyingDocument;

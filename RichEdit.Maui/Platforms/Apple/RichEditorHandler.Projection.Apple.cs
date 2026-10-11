@@ -8,29 +8,74 @@ public partial class RichEditorHandler
 {
     private (DocumentRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
     private (DocumentRevision Revision, CoreGraphics.CGPoint Offset)? _viewportAfterLayout;
+    private bool _restoringViewport;
+    private bool _explicitViewportReveal;
 
-    partial void PreserveAdornmentScrollAnchor(int position, double top) => _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);
+    private void OnNativeScrollOffsetChanged()
+    {
+        if (!_adornmentsConnected || _applyingDocument || _restoringViewport ||
+            _adornmentScrollAnchor is null && _viewportAfterLayout is null) return;
+        if (PlatformView.Dragging || PlatformView.Decelerating || PlatformView.Tracking)
+        { CancelViewportRestoration(); return; }
+        if (_viewportAfterLayout is not { } saved || saved.Revision != VirtualView.Document.Revision) return;
+        _restoringViewport = true;
+        try { OffsetAdornmentScroll(saved.Offset.Y - PlatformView.ContentOffset.Y); }
+        finally { _restoringViewport = false; }
+    }
+
+    partial void PreserveAdornmentScrollAnchor(int position, double top)
+    {
+        if (_explicitViewportReveal) return;
+        _viewportAfterLayout = null;
+        _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);
+    }
+
+    internal void CancelViewportRestoration()
+    {
+        _explicitViewportReveal = false;
+        _adornmentScrollAnchor = null;
+        _viewportAfterLayout = null;
+    }
+
+    internal void OnExplicitNativeScroll()
+    {
+        if (!_applyingDocument && !_restoringViewport && !_updatingDisplayProjection)
+            CancelViewportRestoration();
+    }
 
     internal void OnNativeLayoutCompleted()
     {
-        if (_applyingDocument)
+        if (!_adornmentsConnected || ((IElementHandler)this).PlatformView is null || _applyingDocument || _restoringViewport)
             return;
         if (PlatformView.Dragging || PlatformView.Decelerating || PlatformView.Tracking)
         {
-            _adornmentScrollAnchor = null;
-            _viewportAfterLayout = null;
+            CancelViewportRestoration();
             return;
         }
 
         var anchor = _adornmentScrollAnchor;
         var viewport = _viewportAfterLayout;
-        _adornmentScrollAnchor = null;
-        _viewportAfterLayout = null;
-        if (anchor is { } source && source.Revision == VirtualView.Document.Revision &&
-            GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(source.Position), RichTextCaretAffinity.Downstream) is { } bounds)
-            OffsetAdornmentScroll(bounds.Y - source.Top);
-        else if (viewport is { } saved && saved.Revision == VirtualView.Document.Revision)
-            OffsetAdornmentScroll(saved.Offset.Y - PlatformView.ContentOffset.Y);
+        if (anchor?.Revision != VirtualView.Document.Revision && viewport?.Revision != VirtualView.Document.Revision)
+        { CancelViewportRestoration(); return; }
+        _restoringViewport = true;
+        try
+        {
+            if (anchor is { } source && source.Revision == VirtualView.Document.Revision &&
+                GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(source.Position), RichTextCaretAffinity.Downstream) is { } bounds)
+            {
+                var inset = PlatformView.AdjustedContentInset;
+                var top = _explicitViewportReveal ? Math.Clamp(source.Top, inset.Top,
+                    Math.Max(inset.Top, PlatformView.Bounds.Height - inset.Bottom - bounds.Height)) : source.Top;
+                OffsetAdornmentScroll(bounds.Y - top);
+            }
+            else if (viewport is { } saved && saved.Revision == VirtualView.Document.Revision)
+                OffsetAdornmentScroll(saved.Offset.Y - PlatformView.ContentOffset.Y);
+        }
+        finally { _restoringViewport = false; }
+
+        // Keep the requested viewport through later UIKit layout/selection
+        // adjustments. A new revision, user navigation, focus, or explicit reveal
+        // releases it; no timer needs to guess when native layout has settled.
     }
 
     private void ApplyReservationChanges(RichTextChangeSet changes, TextSpan selection,
@@ -111,26 +156,21 @@ public partial class RichEditorHandler
     private partial void WriteDisplayReservationMetadata()
     {
         var text = PlatformView.TextStorage;
-        var markers = NativeProjection.Markers.ToArray();
-        var index = 0;
-        var matches = true;
+        var markers = NativeProjection.Markers.ToDictionary(static item => item.Position, static item => item.Marker);
+        var retained = new HashSet<int>();
+        var removed = new List<NSRange>();
         text.EnumerateAttribute(DisplayReservationKey, new(0, text.Length), NSAttributedStringEnumeration.None,
             (NSObject value, NSRange range, ref bool stop) =>
             {
                 if (value is not DisplayReservationMetadata metadata)
                     return;
-                if (index >= markers.Length || range.Location != markers[index].Position || range.Length != 1 || metadata.Marker != markers[index].Marker)
-                {
-                    matches = false;
-                    stop = true;
-                    return;
-                }
-
-                index++;
+                if (range.Length == 1 && markers.TryGetValue((int)range.Location, out var marker) && metadata.Marker == marker)
+                    retained.Add((int)range.Location);
+                else removed.Add(range);
             });
         // NSTextStorage moves these attributes with native edits. Keep matching
         // metadata instead of rewriting every reservation after each keystroke.
-        if (matches && index == markers.Length)
+        if (removed.Count == 0 && retained.Count == markers.Count)
             return;
 
         var applying = _applyingDocument;
@@ -138,9 +178,11 @@ public partial class RichEditorHandler
         text.BeginEditing();
         try
         {
-            text.RemoveAttribute(DisplayReservationKey, new(0, text.Length));
+            foreach (var range in removed)
+                text.RemoveAttribute(DisplayReservationKey, range);
             foreach (var (position, marker) in markers)
-                text.AddAttribute(DisplayReservationKey, new DisplayReservationMetadata(marker), new(position, 1));
+                if (!retained.Contains(position))
+                    text.AddAttribute(DisplayReservationKey, new DisplayReservationMetadata(marker), new(position, 1));
         }
         finally
         {
