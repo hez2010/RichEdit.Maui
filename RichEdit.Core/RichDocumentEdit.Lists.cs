@@ -88,12 +88,14 @@ public sealed partial class RichDocumentEdit
 
     /// <summary>Wraps contiguous blocks in a semantic list, retaining their identities and rich text addresses.</summary>
     /// <remarks>Each item starts with a paragraph. A nonparagraph block receives an empty marker paragraph.</remarks>
-    public RichNodeId WrapInList(RichNodeId parent, int index, int count, bool numbered = false, int startNumber = 1)
+    public RichNodeId WrapInList(RichNodeId parent, int index, int count, bool numbered = false, int startNumber = 1,
+        RichListNumberingStyle numberStyle = RichListNumberingStyle.Decimal)
     {
         VerifyOpen();
         var blocks = Blocks(Get<RichNode>(parent));
         ValidateRemoval(index, count, blocks.Count);
         if (startNumber < 0 || (long)startNumber + count - 1 > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(startNumber));
+        ValidateNumberStyle(numbered, numberStyle);
         var list = Allocate();
         var items = ImmutableList.CreateBuilder<RichNodeId>();
         for (var offset = 0; offset < count; offset++)
@@ -112,7 +114,7 @@ public sealed partial class RichDocumentEdit
             _nodes.Add(item, new RichListItem(item, list, children));
             items.Add(item);
         }
-        _nodes.Add(list, new RichList(list, parent, items.ToImmutable()) { Numbered = numbered, StartNumber = startNumber });
+        _nodes.Add(list, new RichList(list, parent, items.ToImmutable()) { Numbered = numbered, StartNumber = startNumber, NumberStyle = numberStyle });
         SetBlocks(parent, blocks.RemoveRange(index, count).Insert(index, list));
         return list;
     }
@@ -141,11 +143,18 @@ public sealed partial class RichDocumentEdit
     }
 
     /// <summary>Changes a list's marker kind or starting counter without rewriting its item content.</summary>
-    public void SetListNumbering(RichNodeId listId, bool numbered, int startNumber = 1)
+    public void SetListNumbering(RichNodeId listId, bool numbered, int startNumber = 1,
+        RichListNumberingStyle numberStyle = RichListNumberingStyle.Decimal)
     {
         VerifyOpen();
         var list = Get<RichList>(listId);
         if (startNumber < 0 || (long)startNumber + list.Items.Count - 1 > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(startNumber));
-        _nodes[listId] = list with { Numbered = numbered, StartNumber = startNumber };
+        ValidateNumberStyle(numbered, numberStyle);
+        _nodes[listId] = list with { Numbered = numbered, StartNumber = startNumber, NumberStyle = numberStyle };
+    }
+    private static void ValidateNumberStyle(bool numbered, RichListNumberingStyle style)
+    {
+        if (!Enum.IsDefined(style) || !numbered && style != RichListNumberingStyle.Decimal)
+            throw new ArgumentException("Number styles require a numbered list and a supported numbering format.", nameof(style));
     }
 }

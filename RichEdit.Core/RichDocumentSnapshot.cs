@@ -316,7 +316,8 @@ public sealed partial class RichDocumentSnapshot
                 throw new ArgumentException("Fields require a single-line instruction and display result.");
             case RichStory { Blocks.Count: 0 } or RichListItem { Blocks.Count: 0 } or RichTableCell { Blocks.Count: 0 }:
                 throw new ArgumentException("Text containers require at least one block.");
-            case RichList list when list.Items.Count == 0 || list.StartNumber < 0 || (long)list.StartNumber + list.Items.Count - 1 > int.MaxValue:
+            case RichList list when list.Items.Count == 0 || list.StartNumber < 0 || (long)list.StartNumber + list.Items.Count - 1 > int.MaxValue ||
+                !Enum.IsDefined(list.NumberStyle) || !list.Numbered && list.NumberStyle != RichListNumberingStyle.Decimal:
                 throw new ArgumentException("Lists require items and a nonnegative starting number.");
             case RichListItem item when Get<RichNode>(item.Blocks[0]) is not RichParagraph:
                 throw new ArgumentException("A list item starts with a paragraph, followed by any nested blocks.");

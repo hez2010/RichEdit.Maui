@@ -114,11 +114,16 @@ internal sealed partial class RtfDocumentReader
                 if (_state.Destination == "listtable" && _state.List is { } list) { ChargeResource(); _listDefinitions[n] = list; }
                 return;
             case "ls": _state.ListOverride = n; return;
-            case "ilvl": _state.ListLevel = n; return;
+            case "ilvl": if (n is < 0 or > 8) throw Error("RTF list levels must be from zero through eight"); _state.ListLevel = n; return;
             case "levelnfc": case "levelnfcn":
-                if (_state.List is { } definition) definition.Numbered = n != 23;
-                if (n is not (0 or 23)) Report("number-format", "A list numbering format was approximated as decimal numbering."); return;
-            case "levelstartat": if (n < 0) throw Error("Invalid list start"); if (_state.List is { } start) start.Start = n; return;
+                if ((_state.ListLevelDefinition ?? _state.List?.Default) is { } definition)
+                {
+                    definition.Numbered = n != 23;
+                    definition.NumberStyle = n switch { 1 => RichListNumberingStyle.UpperRoman, 2 => RichListNumberingStyle.LowerRoman,
+                        3 => RichListNumberingStyle.UpperLetter, 4 => RichListNumberingStyle.LowerLetter, _ => RichListNumberingStyle.Decimal };
+                }
+                if (n is not (>= 0 and <= 4 or 23)) Report("number-format", "A list numbering format was approximated as decimal numbering."); return;
+            case "levelstartat": if (n < 0) throw Error("Invalid list start"); if ((_state.ListLevelDefinition ?? _state.List?.Default) is { } start) start.Start = n; return;
             case "pngblip": SetPictureKind(RichImageKind.Png); return;
             case "jpegblip": SetPictureKind(RichImageKind.Jpeg); return;
             case "dibitmap": SetPictureKind(RichImageKind.Dib); return;
@@ -156,8 +161,12 @@ internal sealed partial class RtfDocumentReader
             case "rec": case "rep": case "repch":
                 SetDestination(word); _state.Inherit = _state.Initial = _state.Null = 0; _state.PropertyCount = null; _state.Capture = null; return true;
             case "listtable": case "listoverridetable": SetDestination(word); _state.Capture = null; return true;
-            case "list": if (_state.Destination != "listtable") return false; _state.List = new(); return true;
-            case "listlevel": return _state.Destination == "listtable";
+            case "list": if (_state.Destination != "listtable") return false; _state.List = new(); _state.ListLevelDefinition = null; return true;
+            case "listlevel":
+                if (_state.Destination != "listtable" || _state.List is null) return false;
+                if (_state.List.Levels.Count == 9) throw Error("RTF lists support at most nine levels");
+                ChargeResource();
+                _state.ListLevelDefinition = new(); _state.List.Levels.Add(_state.ListLevelDefinition); return true;
             case "listoverride": if (_state.Destination != "listoverridetable") return false; SetDestination(word); return true;
             case "relistbegin": case "relistitem": case "relistend": SetDestination(word); _state.Capture = null; return true;
             case "nesttableprops": SetDestination(word); _state.Capture = null; return true;

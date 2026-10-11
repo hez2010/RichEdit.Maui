@@ -145,8 +145,9 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             var cell = Cell(0, 0);
             RichNodeId list = default;
             var paragraph = _editor.Document.CurrentSnapshot.Get<RichTableCell>(cell).Blocks[0];
-            _editor.Edit(edit => list = edit.WrapInList(cell, 0, 1, numbered: true, startNumber: 3));
+            _editor.Edit(edit => list = edit.WrapInList(cell, 0, 1, numbered: true, startNumber: 3, numberStyle: RichListNumberingStyle.UpperRoman));
             await Task.Delay(120);
+            Equal(true, NativeViews<Android.Widget.TextView>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Any(view => view.Text == "III."));
             var point = new RichTextPoint(_editor.Document.CurrentSnapshot.Body, paragraph, 1);
             _editor.Selection = new RichEdit.Core.RichTextSelection(point, point);
             _editor.Focus(); await Task.Delay(40);
@@ -157,6 +158,7 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             using (var text = new Java.Lang.String("\n")) connection.CommitText(text, 1);
             await Task.Delay(160);
             Equal(2, _editor.Document.CurrentSnapshot.Get<RichList>(list).Items.Count);
+            Equal(true, NativeViews<Android.Widget.TextView>((Android.Views.View)_editor.Content!.Handler!.PlatformView!).Any(view => view.Text == "IV."));
             Equal("a\na", _editor.Document.CurrentSnapshot.ProjectText(cell).Text.ToString());
             var second = _editor.NativeView.FindStructuredSurface(_editor.Selection)!;
             Equal(false, ReferenceEquals(first, second));

@@ -197,7 +197,7 @@ internal static partial class EditorContractTests
             var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
             {
                 edit.ReplaceText(new(edit.Body, new(2), 0), 0, "ab");
-                listId = edit.WrapInList(edit.Body, 0, 1, numbered: true, startNumber: 4);
+                listId = edit.WrapInList(edit.Body, 0, 1, numbered: true, startNumber: 4, numberStyle: RichListNumberingStyle.LowerLetter);
             }));
             try
             {
@@ -210,6 +210,7 @@ internal static partial class EditorContractTests
                 NativeMultiInsert(editor, "\n");
                 await Task.Delay(40);
                 Equal(2, model.CurrentSnapshot.Get<RichList>(listId).Items.Count);
+                Equal(RichListNumberingStyle.LowerLetter, model.CurrentSnapshot.Get<RichList>(listId).NumberStyle);
                 Equal("a\nb", model.CurrentSnapshot.ProjectText().Text.ToString());
                 Equal(true, editor.SendKeyDown(EditorKey.Backspace, EditorKeyModifiers.None));
                 Equal(1, model.CurrentSnapshot.Get<RichList>(listId).Items.Count);

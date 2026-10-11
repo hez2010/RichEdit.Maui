@@ -297,6 +297,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         internal int TableLevel = 1;
         internal int ListId, ListOverride, ListLevel;
         internal ListDefinition? List;
+        internal ListLevelDefinition? ListLevelDefinition;
         internal Picture? Picture;
         internal bool ResourceOnly, Orphan;
         internal bool Reverse;

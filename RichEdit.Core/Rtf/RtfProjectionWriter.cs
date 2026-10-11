@@ -301,8 +301,8 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
             await C("listtemplateid", pair.Value);
             await C("listsimple", 1);
             await S(@"{\listlevel ");
-            await C("levelnfc", list.Numbered ? 0 : 23);
-            await C("levelnfcn", list.Numbered ? 0 : 23);
+            await C("levelnfc", list.Numbered ? (int)list.NumberStyle : 23);
+            await C("levelnfcn", list.Numbered ? (int)list.NumberStyle : 23);
             await C("leveljc", 0);
             await C("leveljcn", 0);
             await C("levelfollow", 0);

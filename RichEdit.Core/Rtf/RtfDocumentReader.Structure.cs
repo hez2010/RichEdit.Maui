@@ -25,15 +25,22 @@ internal sealed partial class RtfDocumentReader
         internal Row? Row;
         internal bool HorizontalContinue, VerticalContinue;
     }
-    private sealed class ListBlock(RichNodeId id, int number, bool numbered, int start) : Block(id)
+    private sealed class ListBlock(RichNodeId id, int number, bool numbered, int start, RichListNumberingStyle numberStyle) : Block(id)
     {
         internal int Number = number;
         internal bool Numbered = numbered;
         internal int Start = start;
+        internal RichListNumberingStyle NumberStyle = numberStyle;
         internal readonly List<(RichNodeId Id, List<Block> Blocks)> Items = [];
     }
     private sealed record ListFrame(ListBlock List, List<Block> Parent, bool External = false, int Level = 0);
-    private sealed class ListDefinition { internal bool Numbered; internal int Start = 1; }
+    private sealed class ListDefinition
+    {
+        internal readonly List<ListLevelDefinition> Levels = [];
+        internal readonly ListLevelDefinition Default = new();
+        internal ListLevelDefinition Level(int level) => level >= 0 && level < Levels.Count ? Levels[level] : Default;
+    }
+    private sealed class ListLevelDefinition { internal bool Numbered; internal int Start = 1; internal RichListNumberingStyle NumberStyle; }
 
     private void BeginRow()
     {
@@ -120,8 +127,8 @@ internal sealed partial class RtfDocumentReader
     {
         _paragraph = null;
         var id = _listOverrides.GetValueOrDefault(number, number);
-        var definition = _listDefinitions.GetValueOrDefault(id) ?? new();
-        var list = new ListBlock(Allocate(), number, definition.Numbered, definition.Start);
+        var definition = (_listDefinitions.GetValueOrDefault(id) ?? new()).Level(external ? level : 0);
+        var list = new ListBlock(Allocate(), number, definition.Numbered, definition.Start, definition.NumberStyle);
         _container.Add(list);
         _listStack.Push(new(list, _container, external, level));
     }
@@ -169,7 +176,7 @@ internal sealed partial class RtfDocumentReader
                 case ListBlock list:
                     foreach (var item in list.Items)
                         nodes.Add(item.Id, new RichListItem(item.Id, list.Id, Materialize(item.Blocks, item.Id, nodes)));
-                    nodes.Add(list.Id, new RichList(list.Id, parent, list.Items.Select(item => item.Id).ToImmutableList()) { Numbered = list.Numbered, StartNumber = list.Start });
+                    nodes.Add(list.Id, new RichList(list.Id, parent, list.Items.Select(item => item.Id).ToImmutableList()) { Numbered = list.Numbered, StartNumber = list.Start, NumberStyle = list.NumberStyle });
                     break;
                 case Table table: MaterializeTable(table, parent, nodes); break;
             }

@@ -7,6 +7,34 @@ namespace RichEdit.Core.Tests;
 public sealed class RtfCodecTests
 {
     [Fact]
+    public async Task NumberFormatsAndIndependentNestedRtfLevelsRemainSemanticLists()
+    {
+        foreach (var numberStyle in Enum.GetValues<RichListNumberingStyle>())
+        {
+            var snapshot = RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "one");
+                edit.InsertParagraph(edit.Body, 1, "two");
+                edit.WrapInList(edit.Body, 0, 2, true, 3, numberStyle);
+            });
+            var loaded = await RoundTrip(snapshot);
+            var list = Assert.Single(loaded.Nodes.Values.OfType<RichList>());
+            Assert.Equal(numberStyle, list.NumberStyle);
+            Assert.Equal(3, list.StartNumber);
+        }
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1{\*\listtable{\list{\listlevel\levelnfc1\levelstartat3}{\listlevel\levelnfc4\levelstartat2}\listid9}}{\*\listoverridetable{\listoverride\listid9\ls1}}\pard\ls1\ilvl0 outer\par\pard\ls1\ilvl1 inner\par\pard\ls1\ilvl0 next\par}"));
+        var imported = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(imported.Diagnostics);
+        var outer = imported.Snapshot.Get<RichList>(imported.Snapshot.Get<RichStory>(imported.Snapshot.Body).Blocks[0]);
+        Assert.Equal(RichListNumberingStyle.UpperRoman, outer.NumberStyle);
+        Assert.Equal(3, outer.StartNumber);
+        Assert.Equal(2, outer.Items.Count);
+        var inner = Assert.Single(imported.Snapshot.Nodes.Values.OfType<RichList>(), list => list.Id != outer.Id);
+        Assert.Equal(RichListNumberingStyle.LowerLetter, inner.NumberStyle);
+        Assert.Equal(2, inner.StartNumber);
+    }
+
+    [Fact]
     public async Task CharacterScaleUsesExactRtfPercentagesAndRetainsResetIntent()
     {
         var snapshot = RichDocumentSnapshot.Build(edit =>

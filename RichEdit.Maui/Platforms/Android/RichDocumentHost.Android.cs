@@ -96,7 +96,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
             RichTable table => $"T{table.Id.Value}:{table.Parent}:{string.Join(',', table.Columns.Select(width => width.Twips))}:{string.Join(',', table.Rows)}",
             RichTableCell cell => $"C{cell.Id.Value}:{cell.Parent}:{cell.Column}:{cell.ColumnSpan}:{cell.RowSpan}:{string.Join(',', cell.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
             RichStory story => $"S{story.Id.Value}:{string.Join(',', story.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
-            RichList list => $"L{list.Id.Value}:{list.Parent}:{list.Numbered}:{list.StartNumber}:{string.Join(',', list.Items)}",
+            RichList list => $"L{list.Id.Value}:{list.Parent}:{list.Numbered}:{list.NumberStyle}:{list.StartNumber}:{string.Join(',', list.Items)}",
             RichListItem item => $"I{item.Id.Value}:{item.Parent}:{string.Join(',', item.Blocks.Where(id => snapshot.Get<RichNode>(id) is not RichParagraph))}",
             _ => $"{node.Id}:{node.Parent}",
         }));
@@ -134,7 +134,8 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
                     for (var index = 0; index < list.Items.Count; index++)
                     {
                         var row = new LinearLayout(Context) { Orientation = Orientation.Horizontal };
-                        var marker = new TextView(Context) { Text = list.Numbered ? $"{list.StartNumber + index}." : "•", Gravity = GravityFlags.Top | GravityFlags.End };
+                        var marker = new TextView(Context) { Text = list.Numbered ? RichTextListFormatter.FormatNumber(list.StartNumber + index,
+                            (RichListNumberStyle)list.NumberStyle) + "." : "•", Gravity = GravityFlags.Top | GravityFlags.End };
                         marker.SetTextSize(Android.Util.ComplexUnitType.Sp, (float)(_owner.FontSize ?? 14));
                         marker.SetPadding(0, Pixels(4), Pixels(4), 0);
                         row.AddView(marker, new LinearLayout.LayoutParams(Pixels(28), LayoutParams.WrapContent));

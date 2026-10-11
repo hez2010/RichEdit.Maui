@@ -23,6 +23,21 @@ public sealed record RichParagraph(RichNodeId Id, RichNodeId? Parent, ImmutableL
     public RichCharacterStyle Character { get; init; } = new();
 }
 
+/// <summary>A standard RTF list counter format.</summary>
+public enum RichListNumberingStyle
+{
+    /// <summary>Decimal digits.</summary>
+    Decimal,
+    /// <summary>Uppercase Roman numerals.</summary>
+    UpperRoman,
+    /// <summary>Lowercase Roman numerals.</summary>
+    LowerRoman,
+    /// <summary>Uppercase alphabetic counters.</summary>
+    UpperLetter,
+    /// <summary>Lowercase alphabetic counters.</summary>
+    LowerLetter,
+}
+
 /// <summary>A list containing items whose content consists of blocks.</summary>
 public sealed record RichList(RichNodeId Id, RichNodeId? Parent, ImmutableList<RichNodeId> Items) : RichBlock(Id, Parent)
 {
@@ -30,6 +45,8 @@ public sealed record RichList(RichNodeId Id, RichNodeId? Parent, ImmutableList<R
     public bool Numbered { get; init; }
     /// <summary>Gets the first displayed number.</summary>
     public int StartNumber { get; init; } = 1;
+    /// <summary>Gets the number format. Bullet lists use the neutral Decimal value.</summary>
+    public RichListNumberingStyle NumberStyle { get; init; }
 }
 
 /// <summary>One list item containing paragraphs and nested blocks.</summary>
