@@ -23,11 +23,11 @@ Rich editing includes body paragraphs, semantic lists/tables, inline resources, 
 
 Source storage is persistent and line lookup is indexed. Native controls still keep their own buffers. Windows source readback can inspect the native story, and native formatting/reservations can incur broad layout work.
 
-Source views avoid rich paragraph metadata, and Android/Apple native replacement notifications restore bounded source edits. Apple source synchronization updates native storage incrementally. Android bounds text-service payloads separately from document size; see [input](input.md).
+Source views avoid rich paragraph metadata, and Android/Apple native replacement notifications restore bounded source edits. Apple source synchronization updates native storage incrementally. Android bounds text-service payloads separately from document size and materializes accessibility change-event text only while an accessibility service is active; see [input](input.md).
 
 The test suite contains 100-sample dense-presentation and large-source workloads. A rendering callback is a frame opportunity, not proof of GPU presentation. The 50 ms desktop / 100 ms mobile p95 targets and 16 ms publication-slice target are engineering goals, not supported guarantees for this preview. Native 10 MiB split-view load and long-line input can exceed those targets.
 
-Android rich tables currently realize their native cell/container structure eagerly. Large table performance is therefore bounded by native view count. Lazy widget realization does not virtualize the table grid itself. Rectangular source gestures currently operate on visible rows and do not retain their rectangle across scrolling.
+Android rich tables currently realize their native cell/container structure eagerly. Large table performance is therefore bounded by native view count. Lazy widget realization does not virtualize the table grid itself. Rectangular source gestures retain the source anchor and crossed visual rows during autoscroll, including separate ranges for disjoint bidi runs.
 
 ## Accessibility and input
 

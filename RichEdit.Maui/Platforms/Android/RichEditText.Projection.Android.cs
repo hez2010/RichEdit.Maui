@@ -15,7 +15,7 @@ public partial class RichEditText
 {
     private ObservedInputConnection? _sourceInputConnection;
     private bool _inputUpdateQueued;
-    private string _accessibleText = "";
+    private TextEdit.Core.TextSnapshot? _accessibleSnapshot;
     private const int MaximumServiceTextLength = 8192;
     private const int MaximumAutofillTextLength = 65536;
 
@@ -65,33 +65,23 @@ public partial class RichEditText
             return;
 
         var editor = handler.VirtualView;
-        var text = editor.InputSnapshot.Text;
+        var snapshot = editor.InputSnapshot.TextBuffer;
+        var previous = _accessibleSnapshot;
+        _accessibleSnapshot = snapshot;
         var accessibilityEnabled = Context?.GetSystemService(Context.AccessibilityService) is AccessibilityManager { IsEnabled: true };
-        if (!accessibilityEnabled) _accessibleText = text;
-        if (_accessibleText != text)
+        // Keep a shared tree root as the event baseline. Neither ordinary caret
+        // movement nor an inactive accessibility service needs contiguous text.
+        if (accessibilityEnabled && (previous ?? TextEdit.Core.TextSnapshot.Empty).FindDifference(snapshot, out _) is { } difference)
         {
-            var start = 0;
-            while (start < _accessibleText.Length && start < text.Length && _accessibleText[start] == text[start])
-                start++;
-
-            var oldEnd = _accessibleText.Length;
-            var newEnd = text.Length;
-            while (oldEnd > start && newEnd > start && _accessibleText[oldEnd - 1] == text[newEnd - 1])
-            {
-                oldEnd--;
-                newEnd--;
-            }
-
             using var changed = CreateSourceEvent(EventTypes.ViewTextChanged);
-            changed.BeforeText = _accessibleText;
-            changed.FromIndex = start;
-            changed.RemovedCount = oldEnd - start;
-            changed.AddedCount = newEnd - start;
-            changed.Text?.Add(new Java.Lang.String(text));
+            changed.BeforeText = previous?.ToString() ?? "";
+            changed.FromIndex = difference.Before.Start;
+            changed.RemovedCount = difference.Before.Length;
+            changed.AddedCount = difference.After.Length;
+            changed.Text?.Add(new Java.Lang.String(snapshot.ToString()));
             changed.SetSource(this);
             changed.ClassName = Class.Name;
             changed.PackageName = Context?.PackageName;
-            _accessibleText = text;
             base.SendAccessibilityEventUnchecked(changed);
         }
         if (_inputUpdateQueued)
