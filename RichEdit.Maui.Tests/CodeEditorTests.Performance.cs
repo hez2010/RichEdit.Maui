@@ -8,6 +8,48 @@ namespace RichEdit.Maui.Tests;
 
 public partial class CodeEditorTests
 {
+    [Fact(Explicit = true)]
+    public Task LargeSplitPanesRenderIndependentViewports() => WithPerformanceSourceSurface(async editor =>
+    {
+        var host = (Microsoft.Maui.Controls.Grid)editor.Parent;
+        host.ColumnDefinitions.Add(new Microsoft.Maui.Controls.ColumnDefinition(Microsoft.Maui.GridLength.Star));
+        host.ColumnDefinitions.Add(new Microsoft.Maui.Controls.ColumnDefinition(Microsoft.Maui.GridLength.Star));
+        var peer = new CodeEditor();
+        Microsoft.Maui.Controls.Grid.SetColumn(peer, 1);
+        host.Children.Add(peer);
+        ((IView)host).Measure(1000, 650);
+        ((IView)host).Arrange(new(0, 0, 1000, 650));
+        try
+        {
+            editor.Coloring().Enabled = false;
+            peer.Coloring().Enabled = false;
+            editor.TextColor = peer.TextColor = Microsoft.Maui.Graphics.Colors.White;
+            editor.BackgroundColor = peer.BackgroundColor = Microsoft.Maui.Graphics.Colors.Black;
+            editor.Document = new(string.Concat(Enumerable.Repeat(new string('x', 105) + "\r\n", 100_000)));
+            peer.Document = editor.Document;
+            await Task.Delay(300);
+            editor.SelectedRange = new(editor.Document.Length, 0);
+            Assert.True(await editor.RevealAsync(editor.Document.Length));
+            await Task.Delay(300);
+            Assert.True(editor.Bounds.Right <= peer.Bounds.Left, "Split panes must not overlap.");
+            var path = Path.Combine(AppContext.BaseDirectory, "split-pane-rendering.png");
+            await WindowsWindowCapture.SaveAsync(_gutterWindow!, path);
+            // Both panes contain the same repeated glyphs, at independent source
+            // positions. Check their text areas, excluding gutters and scrollbars.
+            // Geometry and source-text assertions alone cannot detect blank painting.
+            var startInk = await WindowsWindowCapture.BrightPixelFractionAsync(path, new(0.70, 0.30, 0.20, 0.30));
+            var endInk = await WindowsWindowCapture.BrightPixelFractionAsync(path, new(0.20, 0.30, 0.20, 0.30));
+            Assert.True(startInk > 0.01, $"The first-line pane has no rendered glyphs ({startInk:P2}).");
+            Assert.True(endInk > 0.01, $"The distant-line pane has no rendered glyphs ({endInk:P2}). Capture: {path}");
+        }
+        finally
+        {
+            host.Children.Remove(peer);
+            peer.TextView.Handler?.DisconnectHandler();
+            peer.Handler?.DisconnectHandler();
+        }
+    }, TimeSpan.FromMinutes(2));
+
     [Fact]
     public Task BoundedAccessibilityReadsDoNotMaterializeTheSource() => WithPerformanceSourceSurface(async editor =>
     {
