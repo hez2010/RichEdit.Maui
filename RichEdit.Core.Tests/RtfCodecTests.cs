@@ -6,6 +6,21 @@ namespace RichEdit.Core.Tests;
 
 public sealed class RtfCodecTests
 {
+    [Theory]
+    [InlineData(@"{\rtf1 aaa\qc bbb\par}", RichAlignment.Center)]
+    [InlineData(@"{\rtf1 aaa{\qc bbb}ccc\par}", RichAlignment.Left)]
+    [InlineData(@"{\rtf1 aaa{\qc bbb}\par}", RichAlignment.Left)]
+    [InlineData(@"{\rtf1{\qc aaa}}", RichAlignment.Left)]
+    [InlineData(@"{\rtf1\qc aaa}", RichAlignment.Left)]
+    [InlineData(@"{\rtf1{\qc aaa\par}}", RichAlignment.Center)]
+    public async Task ExternalParagraphPropertiesAreCapturedAtTheParagraphMark(string rtf, RichAlignment alignment)
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(rtf));
+        var imported = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        var paragraph = imported.Snapshot.Get<RichStory>(imported.Snapshot.Body).Blocks[0];
+        Assert.Equal(alignment, imported.Snapshot.ResolveParagraph(paragraph).Alignment);
+    }
+
     [Fact]
     public async Task EveryUnderlineAndDistributedAlignmentRoundTripsWithoutApproximation()
     {
@@ -45,7 +60,7 @@ public sealed class RtfCodecTests
         var old = await RtfCodec.ReadAsync(legacy, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(StyleValueKind.Inherit, old.Snapshot.Get<RichParagraph>(old.Snapshot.Get<RichStory>(old.Snapshot.Body).Blocks[0]).Format.LineSpacing.Kind);
         Assert.Empty(old.Diagnostics);
-        using var external = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\pard\slmult1\sl288 text}"));
+        using var external = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\pard\slmult1\sl288 text\par}"));
         var imported = await RtfCodec.ReadAsync(external, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(RichLineSpacing.Multiple(1.2), imported.Snapshot.ResolveParagraph(imported.Snapshot.Get<RichStory>(imported.Snapshot.Body).Blocks[0]).LineSpacing);
     }
@@ -71,7 +86,7 @@ public sealed class RtfCodecTests
         Assert.False(loaded.ResolveParagraph(paragraphs[0]).Hyphenation);
         Assert.Equal(stops, loaded.ResolveParagraph(paragraphs[1]).TabStops);
         Assert.True(loaded.ResolveParagraph(paragraphs[1]).Hyphenation);
-        using var external = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\pard\tqr\tldot\tx1440\tqc\tx720\tql\tx720 a\tab b}"));
+        using var external = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\pard\tqr\tldot\tx1440\tqc\tx720\tql\tx720 a\tab b\par}"));
         var imported = await RtfCodec.ReadAsync(external, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Empty(imported.Diagnostics);
         var importedStops = imported.Snapshot.ResolveParagraph(imported.Snapshot.Get<RichStory>(imported.Snapshot.Body).Blocks[0]).TabStops.ToArray();

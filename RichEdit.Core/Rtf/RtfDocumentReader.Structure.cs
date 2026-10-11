@@ -86,6 +86,7 @@ internal sealed partial class RtfDocumentReader
         _state.InTable = true;
         _state.TableLevel = level;
         if (_container.Count == 0) EnsureParagraph();
+        if (_paragraph is not null) CaptureParagraphProperties();
         _paragraph = null;
         _container = [];
         row.Cells.Add(_container);

@@ -65,7 +65,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         await S("}\n");
         if (semantic) await SemanticHeader();
         await ListTables();
-        await Blocks(snapshot.Get<RichStory>(snapshot.Body).Blocks, 0, false);
+        await Blocks(snapshot.Get<RichStory>(snapshot.Body).Blocks, 0, true);
         if (semantic) await OrphanAnnotations();
         await S("}");
         await _output.FlushAsync(_cancellation).ConfigureAwait(false);

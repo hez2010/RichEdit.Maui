@@ -73,7 +73,13 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
                     var child = _state;
                     _state = _states.Pop();
                     EndGroup(child);
-                    if (_states.Count == 0) _closed = true;
+                    if (_states.Count == 0)
+                    {
+                        // Without a paragraph mark, the native RTF reader uses
+                        // the restored outer paragraph state for the final line.
+                        if (!_semantic && _paragraph is not null) CaptureParagraphProperties();
+                        _closed = true;
+                    }
                     break;
                 case RtfTokenKind.Control:
                     if (_states.Count == 0) throw Error("An RTF control is outside the root group");
@@ -218,7 +224,13 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         return _paragraph = paragraph;
     }
 
-    private void EndParagraph() { EnsureParagraph(); _paragraph = null; }
+    private void CaptureParagraphProperties()
+    {
+        var paragraph = EnsureParagraph();
+        paragraph.Format = _state.Paragraph;
+        paragraph.Style = _state.ParagraphStyle;
+    }
+    private void EndParagraph() { CaptureParagraphProperties(); _paragraph = null; }
     private void SoftBreak()
     {
         var paragraph = EnsureParagraph();
