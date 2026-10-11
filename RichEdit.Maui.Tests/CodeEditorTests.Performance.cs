@@ -32,10 +32,18 @@ public partial class CodeEditorTests
     {
         var host = (Microsoft.Maui.Controls.Grid)editor.Parent;
         var peer = new CodeEditor();
+        host.ColumnDefinitions.Add(new Microsoft.Maui.Controls.ColumnDefinition(Microsoft.Maui.GridLength.Star));
+        host.ColumnDefinitions.Add(new Microsoft.Maui.Controls.ColumnDefinition(Microsoft.Maui.GridLength.Star));
+        Microsoft.Maui.Controls.Grid.SetColumn(peer, 1);
         host.Children.Add(peer);
         ((IView)host).Measure(660, 350);
         ((IView)host).Arrange(new(0, 0, 660, 350));
-        try { await SourcePerformanceWorkload.RunLarge(editor, peer); }
+        try
+        {
+            Assert.True(editor.Width > 0 && peer.Width > 0 && editor.Bounds.Right <= peer.Bounds.Left,
+                $"Split panes overlap: {editor.Bounds}; {peer.Bounds}.");
+            await SourcePerformanceWorkload.RunLarge(editor, peer);
+        }
         finally
         {
             host.Children.Remove(peer);
@@ -106,7 +114,8 @@ public partial class CodeEditorTests
         window.Content = host.ToPlatform(new MauiContext(app.Services));
         try
         {
-            window.Activate();
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1040, 720));
+            window.AppWindow.Show(activateWindow: false);
             ((IView)host).Measure(660, 350);
             ((IView)host).Arrange(new(0, 0, 660, 350));
             await action(editor);
