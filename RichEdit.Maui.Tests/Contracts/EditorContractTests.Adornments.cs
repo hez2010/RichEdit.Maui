@@ -60,11 +60,13 @@ internal static partial class EditorContractTests
             var view = first.CreatedView;
             Equal(true, source.TryPublish(source.BeginUpdate(), data));
             Equal(true, ReferenceEquals(view, first.CreatedView), "stable identities retain views");
+            var selectionBeforeReveal = editor.SelectionState;
             editor.ScrollIntoView(new(text.Length, 0));
             for (var attempt = 0; attempt < 100 && (editor.Adornments[^1].CreatedView is null || recycled == 0); attempt++) await Task.Delay(30);
             Equal(true, editor.Adornments[^1].CreatedView is not null,
                 $"last visible widget is created; created {created}, recycled {recycled}, last anchor {editor.Adornments[^1].Position}, " +
                 $"visible {string.Join(';', editor.TextLayout.Capture()?.Lines.SelectMany(line => line.SourceRanges) ?? [])}, {handler.PresentationSchedulingState}");
+            Equal(selectionBeforeReveal, editor.SelectionState, "revealing a widget does not move selection");
             Equal(true, recycled > 0, $"offscreen widgets recycle; created {created}, live {editor.Adornments.Count(item => item.CreatedView is not null)}, first visible {editor.TextLayout.Capture()?.Lines.FirstOrDefault()?.SourceRanges[0]}");
             Equal(true, editor.Adornments.Count(item => item.CreatedView is not null) < 100);
             Equal(text, editor.Document.Text);

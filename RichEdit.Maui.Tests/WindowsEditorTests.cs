@@ -627,7 +627,7 @@ internal static class WindowsTestHost
         await completion.Task.WaitAsync(timeout ?? TimeSpan.FromSeconds(30));
     }
 
-    public static Task RunClipboardAsync(Func<Task> action) => RunAsync(async () =>
+    public static Task RunClipboardAsync(Func<Task> action, TimeSpan? timeout = null) => RunAsync(async () =>
     {
         var previous = Clipboard.GetContent();
         var backup = new DataPackage();
@@ -656,7 +656,7 @@ internal static class WindowsTestHost
                 return Task.CompletedTask;
             });
         }
-    });
+    }, timeout);
 
     private static Task<DispatcherQueue> Start()
     {

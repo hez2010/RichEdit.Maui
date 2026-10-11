@@ -11,6 +11,47 @@ public partial class RichEditorHandler
             new global::Android.Graphics.Color(PlatformView.HighlightColor).ToColor());
 
     private (DocumentRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
+    private (DocumentRevision Revision, int Position, TextSelectionState Selection, long Generation)? _requestedReveal;
+    private int _revealGeneration;
+    private long RevealSelectionGeneration => VirtualView.SourceSession?.SelectionGeneration ?? VirtualView.StructuredSession?.SelectionGeneration ?? 0;
+
+    internal void CancelRequestedReveal()
+    {
+        _requestedReveal = null;
+        _revealGeneration++;
+    }
+
+    private bool RevealIsCurrent => _requestedReveal is { } reveal && _adornmentsConnected &&
+        !VirtualView.Composition.IsActive &&
+        VirtualView.Document.Revision == reveal.Revision && VirtualView.SelectionState == reveal.Selection && RevealSelectionGeneration == reveal.Generation;
+
+    private void FinishRequestedReveal(int generation)
+    {
+        if (generation != _revealGeneration) return;
+        if (!RevealIsCurrent) { CancelRequestedReveal(); return; }
+        if (PlatformView.Height <= 0 || VirtualView.Folding.FindRange(_requestedReveal!.Value.Position) is not null)
+        { CancelRequestedReveal(); return; }
+        var position = NativeProjection.ToDisplayCaret(_requestedReveal!.Value.Position);
+        _adornmentScrollAnchor = null;
+        PlatformView.BringPointIntoView(position);
+        if (PlatformView.IsLayoutRequested || _adornmentLayoutQueued || _displayPublicationPending || _arrangingAdornments ||
+            PlatformView.Layout is not { } layout || !Visible(layout))
+        {
+            PlatformView.PostDelayed(() => FinishRequestedReveal(generation), 32);
+            return;
+        }
+        // Pending reservation measurement has settled. Ordinary native scrolling
+        // resumes; later pointer input or selection changes also cancel the request.
+        CancelRequestedReveal();
+        QueueAdornmentLayout();
+
+        bool Visible(global::Android.Text.Layout layout)
+        {
+            var line = layout.GetLineForOffset(position);
+            return layout.GetLineBottom(line) > PlatformView.ScrollY &&
+                layout.GetLineTop(line) < PlatformView.ScrollY + PlatformView.Height - PlatformView.CompoundPaddingTop - PlatformView.CompoundPaddingBottom;
+        }
+    }
 
     partial void PreserveAdornmentScrollAnchor(int position, double top) => _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);
 
@@ -125,8 +166,17 @@ public partial class RichEditorHandler
 
     internal void OnNativeLayoutCompleted()
     {
-        if (_applyingDocument || _adornmentScrollAnchor is not { } anchor)
+        if (_applyingDocument)
             return;
+
+        if (RevealIsCurrent)
+        {
+            _adornmentScrollAnchor = null;
+            PlatformView.BringPointIntoView(NativeProjection.ToDisplayCaret(_requestedReveal!.Value.Position));
+            QueueAdornmentLayout();
+            return;
+        }
+        if (_adornmentScrollAnchor is not { } anchor) return;
 
         _adornmentScrollAnchor = null;
         if (anchor.Revision == VirtualView.Document.Revision && GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(anchor.Position), RichTextCaretAffinity.Downstream) is { } bounds)

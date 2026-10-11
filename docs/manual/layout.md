@@ -26,4 +26,6 @@ For rich text, `editor.TextLayout` uses `RichTextPoint`, typed selections, and a
 
 `ScrollIntoView` reveals a source range or rich point using native scrolling. Selection and scroll positions are independent between views. Native table hosts preserve a visible rich anchor across structural relayout where a current anchor is available.
 
+Android keeps an explicit reveal pending while native widget reservations finish relayout, so native caret scrolling cannot overwrite the requested target. Pointer input, selection changes, composition, document changes, or completed layout release that request.
+
 `PointerPressed`, `PointerMoved`, and `PointerExited` expose observations for application UI. Keep adornment hit testing and document hit testing distinct. All returned rectangles are device-independent control coordinates, not physical pixels.

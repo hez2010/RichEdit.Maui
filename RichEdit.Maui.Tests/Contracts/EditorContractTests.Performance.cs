@@ -63,7 +63,7 @@ internal static partial class EditorContractTests
             var submitted = timer.Elapsed.TotalMilliseconds;
             // Dispatcher checkpoints measure scheduling delay while native presentation settles.
             var longestDelay = 0d;
-            for (var pass = 0; pass < 400; pass++)
+            for (var pass = 0; timer.Elapsed < TimeSpan.FromMinutes(2); pass++)
             {
                 var queue = Stopwatch.StartNew();
                 var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

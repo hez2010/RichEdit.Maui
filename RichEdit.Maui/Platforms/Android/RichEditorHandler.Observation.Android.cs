@@ -78,7 +78,10 @@ namespace RichEdit.Maui
         private bool OnObservedPointer(MotionEvent e)
         {
             if (e.ActionMasked is MotionEventActions.Down or MotionEventActions.Move)
+            {
                 _adornmentScrollAnchor = null;
+                CancelRequestedReveal();
+            }
             if (e.ActionMasked == MotionEventActions.HoverExit)
             {
                 VirtualView.ObservePointerExit();

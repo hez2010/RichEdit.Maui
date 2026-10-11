@@ -207,7 +207,10 @@ public partial class RichEditorHandler
     private partial void ScrollIntoViewCore(TextSpan range)
     {
         _adornmentScrollAnchor = null;
+        _requestedReveal = (VirtualView.Document.Revision, NativeProjection.ToSource(range.Start), VirtualView.SelectionState, RevealSelectionGeneration);
+        var generation = ++_revealGeneration;
         PlatformView.BringPointIntoView(range.Start);
+        PlatformView.PostDelayed(() => FinishRequestedReveal(generation), 32);
     }
 
     // Android's public TextView API does not expose its internal undo manager or

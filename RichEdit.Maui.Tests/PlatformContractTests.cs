@@ -86,7 +86,7 @@ public class PlatformContractTests
             editor.Handler = null;
             ((IElementHandler)handler).DisconnectHandler();
         }
-    });
+    }, name.StartsWith("performance", StringComparison.Ordinal) ? TimeSpan.FromMinutes(3) : null);
 }
 
 [CollectionDefinition("Native editor", DisableParallelization = true)]
