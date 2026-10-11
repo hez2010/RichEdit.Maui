@@ -172,7 +172,7 @@ public partial class NativeEditorView
     private bool DeleteSourceVirtualSelections(bool backward)
     {
         if (IsReadOnly || Composition.IsActive) return false;
-        var text = Document.Text;
+        var text = Document.CurrentSnapshot.TextBuffer;
         var targets = Selections.Select(item =>
         {
             if (!item.IsEmpty) return item;
@@ -182,7 +182,7 @@ public partial class NativeEditorView
                 return item with { AnchorVirtualSpaces = spaces, ActiveVirtualSpaces = spaces };
             }
             return backward ? item with { Anchor = PreviousTextElement(text, item.Active) } :
-                item with { Active = item.Active == text.Length ? item.Active : item.Active + System.Globalization.StringInfo.GetNextTextElementLength(text.AsSpan(item.Active)) };
+                item with { Active = item.Active == text.Length ? item.Active : item.Active + NextTextElementLength(text, item.Active) };
         });
         var selections = new TextSelectionSet(targets, Selections.PrimaryIndex);
         var plan = TextSelectionReplacement.Plan(Document.CurrentSnapshot.TextBuffer, selections, selections.Select(_ => "").ToArray());

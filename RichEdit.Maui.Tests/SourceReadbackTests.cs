@@ -5,6 +5,52 @@ namespace RichEdit.Maui.Tests;
 public sealed class SourceReadbackTests
 {
     [Fact]
+    public Task NativeMultipleCaretDeletionKeepsUnicodeGraphemeBoundaries() => WindowsTestHost.RunAsync(() =>
+    {
+        var source = new TextDocument("\u0600x\n\u0600x");
+        var view = new NativeEditorView();
+        view.BindSourceDocument(source);
+        view.Selections = new((TextSelection[])[new(2, 2), new(5, 5)]);
+        view.UpdateDocumentFromPlatform(RichTextDocumentSnapshot.CreateSourceProjection(source.CurrentSnapshot.Replace(new(0, 2), "")),
+            0, 0, new object());
+        Assert.Equal("\n", source.CurrentSnapshot.ToString());
+        view.Undo();
+        Assert.Equal("\u0600x\n\u0600x", source.CurrentSnapshot.ToString());
+
+        var cluster = "a" + new string('\u0301', 80);
+        source = new TextDocument(cluster + "X\n" + cluster + "X");
+        view.BindSourceDocument(source);
+        view.Selections = new((TextSelection[])[new(0, 0), new(cluster.Length + 2, cluster.Length + 2)]);
+        view.UpdateDocumentFromPlatform(RichTextDocumentSnapshot.CreateSourceProjection(source.CurrentSnapshot.Replace(new(0, cluster.Length), "")),
+            0, 0, new object());
+        Assert.Equal("X\nX", source.CurrentSnapshot.ToString());
+        view.Undo();
+        Assert.Equal(cluster + "X\n" + cluster + "X", source.CurrentSnapshot.ToString());
+    });
+
+    [Fact]
+    public Task MultipleCaretSourceInputDoesNotMaterializeTheDocument() => WindowsTestHost.RunAsync(() =>
+    {
+        var source = new TextDocument(new string('x', 10 * 1024 * 1024));
+        var view = new NativeEditorView();
+        view.BindSourceDocument(source);
+        var before = source.CurrentSnapshot;
+        view.Selections = new((TextSelection[])[new(4, 4), new(before.Length - 4, before.Length - 4)]);
+        var observed = RichTextDocumentSnapshot.CreateSourceProjection(before.Replace(new(4, 0), "Y"));
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        view.UpdateDocumentFromPlatform(observed, 5, 0, new object());
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        Assert.Equal(before.Length + 2, source.Length);
+        Assert.Equal("Y", source.CurrentSnapshot.GetText(new(4, 1)));
+        Assert.Equal("Y", source.CurrentSnapshot.GetText(new(before.Length - 3, 1)));
+        Assert.Equal(2, view.Selections.Count);
+        Assert.True(allocated < 512 * 1024, $"Two local source insertions allocated {allocated} bytes.");
+        view.Undo();
+        Assert.True(before.ContentEquals(source.CurrentSnapshot));
+        Assert.False(source.CanUndo);
+    });
+
+    [Fact]
     public Task WidenedNativeEditPreservesUntouchedCarriageReturnsAndLineFeeds() => WindowsTestHost.RunAsync(() =>
     {
         var source = new TextDocument("a\r\nb\rc\n");
