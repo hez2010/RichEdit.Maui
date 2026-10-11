@@ -132,12 +132,11 @@ public partial class RichEditorHandler
         UpdateCompositionState();
         if (_structuredNativeMap is not null && TryReadStructuredNativeChange(editable.ToString() ?? "",
             new(Math.Max(0, PlatformView.SelectionStart), Math.Max(0, PlatformView.SelectionEnd)))) return;
-        var previousText = previousDocument.Text;
-        var removedStart = Math.Clamp(eventArgs.Start, 0, previousText.Length);
+        var removedStart = Math.Clamp(eventArgs.Start, 0, previousDocument.Length);
         var removedLength = Math.Clamp(
             eventArgs.BeforeCount,
             0,
-            previousText.Length - removedStart);
+            previousDocument.Length - removedStart);
         var nativeLength = editable.Length();
         var insertedStart = Math.Clamp(eventArgs.Start, 0, nativeLength);
         var insertedLength = Math.Clamp(eventArgs.AfterCount, 0, nativeLength - insertedStart);
@@ -146,8 +145,8 @@ public partial class RichEditorHandler
             insertedStart,
             insertedStart + insertedLength);
 
-        var paragraphStructureChanged = previousText
-            .AsSpan(removedStart, removedLength)
+        var paragraphStructureChanged = previousDocument.GetText(new(removedStart, removedLength))
+            .AsSpan()
             .ContainsAny('\n', RichTextDocument.SoftLineBreakCharacter) ||
             insertedText.AsSpan().ContainsAny('\n', RichTextDocument.SoftLineBreakCharacter);
 
@@ -170,11 +169,11 @@ public partial class RichEditorHandler
                 insertedLength == 0 ? null : _nativeTypingFormat);
         }
 
-        insertedStart = Math.Clamp(insertedStart, 0, document.Text.Length);
-        insertedLength = Math.Clamp(insertedLength, 0, document.Text.Length - insertedStart);
+        insertedStart = Math.Clamp(insertedStart, 0, document.Length);
+        insertedLength = Math.Clamp(insertedLength, 0, document.Length - insertedStart);
         // Keep native metadata bounded by the painted runs. Normalizing against an
         // authored run spanning the whole document would rebuild every decorated run.
-        var presentation = PreserveNativePresentation(document);
+        var presentation = PreserveNativePresentation(document, new(removedStart, removedLength));
 
         if (!requiresNativeSnapshot && insertedLength > 0)
         {
@@ -207,8 +206,8 @@ public partial class RichEditorHandler
             try { RefreshSourceTabStops(editable, document, new(insertedStart, insertedLength)); }
             finally { _applyingDocument = false; }
         }
-        var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Text.Length);
-        var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Text.Length);
+        var start = Math.Clamp(Math.Min(PlatformView.SelectionStart, PlatformView.SelectionEnd), 0, document.Length);
+        var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, document.Length);
         UpdateDocumentFromDisplay(document, start, end - start, _sourceToken, selectionState: new TextSelectionState(
             Math.Clamp(PlatformView.SelectionStart, 0, document.Length), Math.Clamp(PlatformView.SelectionEnd, 0, document.Length)), presentation: presentation,
             nativeReplacement: new(removedStart, removedLength));
@@ -295,14 +294,6 @@ public partial class RichEditorHandler
         }
         if (TryUpdateStructuredSelection(new(Math.Max(0, eventArgs.Start), Math.Max(0, eventArgs.End)))) return;
 
-        var start = Math.Clamp(
-            Math.Min(eventArgs.Start, eventArgs.End),
-            0,
-            DisplaySourceSnapshot.Text.Length);
-        var end = Math.Clamp(
-            Math.Max(eventArgs.Start, eventArgs.End),
-            start,
-            DisplaySourceSnapshot.Text.Length);
         UpdateSelectionFromDisplay(new TextSelectionState(
             Math.Clamp(eventArgs.Start, 0, DisplaySourceSnapshot.Length), Math.Clamp(eventArgs.End, 0, DisplaySourceSnapshot.Length)));
         UpdateTypingFormatsFromPlatform();
@@ -317,6 +308,8 @@ public partial class RichEditorHandler
         {
             return;
         }
+
+        if (UpdateSourceTypingFormats()) return;
 
         if (editable.Length() == 0)
         {

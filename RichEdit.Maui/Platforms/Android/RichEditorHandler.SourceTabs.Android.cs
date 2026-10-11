@@ -15,12 +15,12 @@ public partial class RichEditorHandler
         // The common tab-free source needs no paragraph descriptors or JNI
         // substring calls. Clear existing stops once, then inspect bounded text.
         RemoveIntersectingParagraphSpans<TabStopSpanStandard>(text, first, last);
-        var source = snapshot.Text;
-        if (source.AsSpan(first, last - first).IndexOf('\t') < 0) return;
-        for (var start = first; start < last;)
+        var source = buffer.GetText(new(first, last - first));
+        if (source.AsSpan().IndexOf('\t') < 0) return;
+        for (var start = 0; start < source.Length;)
         {
             var end = GetParagraphEnd(source, start);
-            if (source.AsSpan(start, end - start).IndexOf('\t') >= 0) ApplySourceTabStops(text, start, end);
+            if (source.AsSpan(start, end - start).IndexOf('\t') >= 0) ApplySourceTabStops(text, first + start, first + end);
             if (end <= start) break;
             start = end;
         }

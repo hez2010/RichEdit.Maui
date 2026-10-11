@@ -60,7 +60,7 @@ public partial class RichEditorHandler
         {
             NativeGeometryQueryCount++;
             var preceding = layout.GetLineForOffset(position - 1);
-            if (preceding < index && DisplaySourceSnapshot.Text[position - 1] is not ('\n' or '\u2028'))
+            if (preceding < index && DisplaySourceSnapshot.TextBuffer[position - 1] is not ('\n' or '\u2028'))
             {
                 NativeGeometryQueryCount += 2;
                 index = preceding;

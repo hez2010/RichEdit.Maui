@@ -9,6 +9,7 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    internal int NativeDocumentReplacementCount { get; private set; }
     private partial void ApplyDisplayDocumentCore(
         RichTextDocumentSnapshot document,
         int selectionStart,
@@ -121,6 +122,7 @@ public partial class RichEditorHandler
                 : allLeftToRight
                     ? TextDirection.Ltr
                     : TextDirection.FirstStrong;
+            NativeDocumentReplacementCount++;
             PlatformView.SetText(builder, TextView.BufferType.Spannable);
             WatchNativeFormats();
             SetSelectionCore(selectionStart, selectionLength);
@@ -172,7 +174,18 @@ public partial class RichEditorHandler
         try
         {
             editable.SetFilters([]);
-            foreach (var textChange in changes.Changes.OfType<RichTextTextChange>())
+            var textChanges = changes.Changes.OfType<RichTextTextChange>().ToArray();
+            if (VirtualView.SourceSession is not null && NativeProjection.Reservations.IsEmpty && textChanges.Length > 1 &&
+                changes.BeforeSnapshot is { } before && changes.AfterSnapshot is { } after)
+            {
+                // Android's batch-edit API delays selection notifications, but
+                // DynamicLayout still reflows for every Editable.Replace. Apply
+                // a disjoint source batch/undo as one native replacement; the
+                // document retains its original operations and position maps.
+                textChanges = before.TextBuffer.FindDifference(after.TextBuffer, out _) is { } difference
+                    ? [new(difference.Before, after.GetText(difference.After))] : [];
+            }
+            foreach (var textChange in textChanges)
             {
                 using var replacement = new Java.Lang.String(textChange.InsertedText);
                 editable.Replace(
@@ -190,7 +203,7 @@ public partial class RichEditorHandler
                 ApplyCharacterFormatsIncrementally(editable, snapshot, characterRange, previousSnapshot);
             }
 
-            var paragraphRange = GetAffectedParagraphRange(changes, snapshot.Text);
+            var paragraphRange = VirtualView.SourceSession is null ? GetAffectedParagraphRange(changes, snapshot.Text) : characterRange;
             if (VirtualView.SourceSession is null && changes.Changes.Any(static change => change.Kind is
                     RichTextChangeKind.Text or
                     RichTextChangeKind.ParagraphFormat or

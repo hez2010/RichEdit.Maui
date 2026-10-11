@@ -47,7 +47,7 @@ public partial class RichEditorHandler
         }
         // A caret's typographic top can differ from its line fragment's top.
         // Only an empty trailing paragraph owns an additional visual row.
-        if ((DisplaySourceSnapshot.Length == 0 || DisplaySourceSnapshot.Text[^1] == '\n') &&
+        if ((DisplaySourceSnapshot.Length == 0 || DisplaySourceSnapshot.TextBuffer[DisplaySourceSnapshot.Length - 1] == '\n') &&
             GetTextCaretBoundsCore(DisplaySourceSnapshot.Length, RichTextCaretAffinity.Downstream) is { } end &&
             end.IntersectsWith(textViewport) && (lines.Count == 0 || Math.Abs(lines[^1].Bounds.Y - end.Y) > 0.5))
         {
@@ -69,7 +69,7 @@ public partial class RichEditorHandler
 
         NativeGeometryQueryCount++;
         var rect = PlatformView.GetDisplayCaret(native);
-        var text = DisplaySourceSnapshot.Text;
+        var text = DisplaySourceSnapshot.TextBuffer;
         if (position == text.Length && (position == 0 || text[^1] == '\n'))
         {
             // Catalyst can return its empty-view caret for an unselected trailing

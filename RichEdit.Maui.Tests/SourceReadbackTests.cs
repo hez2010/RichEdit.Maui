@@ -5,6 +5,18 @@ namespace RichEdit.Maui.Tests;
 public sealed class SourceReadbackTests
 {
     [Fact]
+    public Task WidenedNativeEditPreservesUntouchedCarriageReturnsAndLineFeeds() => WindowsTestHost.RunAsync(() =>
+    {
+        var source = new TextDocument("a\r\nb\rc\n");
+        var view = new NativeEditorView { SourceNewLine = "\n" };
+        view.BindSourceDocument(source);
+        var observed = RichTextDocumentSnapshot.CreateSourceProjection(TextSnapshot.FromText("a\nbXY\nc\n"));
+        var restored = view.RestoreNativeSource(observed, new(5, 5), new(3, 2));
+        Assert.Equal("a\r\nbXY\rc\n", restored.Snapshot.Text);
+        Assert.Equal(6, restored.Selection.Active);
+    });
+
+    [Fact]
     public Task KnownNativeReplacementRestoresMixedEndingsWithBoundedAllocation() => WindowsTestHost.RunAsync(() =>
     {
         var text = string.Concat(Enumerable.Repeat(new string('x', 100) + "\r\n", 100_000));

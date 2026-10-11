@@ -20,6 +20,7 @@ public partial class RichEditorHandler
         }
 
         _pendingNativeChange = null;
+        _sourceStorageChange = null;
         var wasApplying = _applyingDocument;
         _applyingDocument = true;
         _projectionGeneration++;
@@ -154,6 +155,7 @@ public partial class RichEditorHandler
         if (_updatingDisplayProjection || VirtualView.SourceSession is not null && !changes.Changes.Any(change => change.Kind == RichTextChangeKind.Reset))
         {
             _pendingNativeChange = null;
+            _sourceStorageChange = null;
             ApplyReservationChanges(changes, selection, typingCharacterFormat, typingParagraphFormat);
             return;
         }

@@ -328,8 +328,8 @@ public partial class RichEditorHandler
         long? projectedVersion = null, TextSelectionState? selectionState = null, RichTextDocumentSnapshot? presentation = null,
         TextSpan? nativeReplacement = null)
     {
-        var nativePresentation = presentation ?? PreserveNativePresentation(snapshot);
-        var map = ReadDisplayReservationMetadata(snapshot.Text);
+        var nativePresentation = presentation ?? PreserveNativePresentation(snapshot, nativeReplacement);
+        var map = NativeProjection.Reservations.IsEmpty ? RichTextDisplayProjection.Empty : ReadDisplayReservationMetadata(snapshot.Text);
         var selection = map.ToSource(selectionState ?? TextSelectionState.FromRange(new(selectionStart, selectionLength)));
         var source = map.Unproject(snapshot);
         if (VirtualView.SourceSession is not null)
@@ -357,27 +357,24 @@ public partial class RichEditorHandler
         QueueAdornmentLayout();
     }
 
-    private RichTextDocumentSnapshot PreserveNativePresentation(RichTextDocumentSnapshot observed)
+    private RichTextDocumentSnapshot PreserveNativePresentation(RichTextDocumentSnapshot observed, TextSpan? replacement = null)
     {
-        if (NativeProjection.IsEmpty || _paintedSnapshot is not { } painted || painted.Text == observed.Text)
+        if (NativeProjection.IsEmpty || _paintedSnapshot is not { } painted)
             return observed;
         // Incremental native readers reuse authored runs outside the edit. Those runs are
         // not a report that native decorations disappeared: retain the last painted state.
-        var hint = NativeProjection.ToDisplay(VirtualView.SelectedRange);
         int start, insertedLength;
-        if (RichTextDocumentSnapshot.TryGetReplacement(painted.Text, observed.Text, hint, out var inserted))
+        if (replacement is { } known && known.End <= painted.Length && observed.Length - painted.Length + known.Length >= 0)
         {
-            start = hint.Start;
-            insertedLength = inserted.Length;
+            start = known.Start;
+            insertedLength = observed.Length - painted.Length + known.Length;
+            if (painted.TextBuffer.Slice(known).ContentEquals(observed.TextBuffer.Slice(new(start, insertedLength)))) return observed;
         }
         else
         {
-            start = painted.Text.AsSpan().CommonPrefixLength(observed.Text);
-            var suffix = 0;
-            while (suffix < Math.Min(painted.Length, observed.Length) - start && painted.Text[^(suffix + 1)] == observed.Text[^(suffix + 1)])
-                suffix++;
-
-            insertedLength = observed.Length - start - suffix;
+            if (painted.TextBuffer.FindDifference(observed.TextBuffer, out _) is not { } difference) return observed;
+            start = difference.Before.Start;
+            insertedLength = difference.After.Length;
         }
 
         var end = start + insertedLength;

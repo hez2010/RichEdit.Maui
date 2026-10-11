@@ -270,7 +270,8 @@ public partial class RichEditorHandler
         }
 
         _hasNativeLinks = document.Links.Length != 0;
-        var sourceLength = ReadDisplayReservationMetadata(document.Text).ToSource(document.Length);
+        var sourceLength = VirtualView.MaxLength < 0 || NativeProjection.Reservations.IsEmpty ? document.Length :
+            ReadDisplayReservationMetadata(document.Text).ToSource(document.Length);
         if (VirtualView.MaxLength >= 0 && sourceLength > VirtualView.MaxLength && sourceLength > VirtualView.Document.Length)
         {
             // WinUI interprets MaxLength=0 as unlimited; the portable API uses -1.
@@ -555,6 +556,7 @@ public partial class RichEditorHandler
             return;
         }
 
+        if (UpdateSourceTypingFormats()) return;
         var previousCharacter = VirtualView.TypingCharacterFormat;
         var nativeCharacter = ReadCharacterFormat(PlatformView.Document.Selection.CharacterFormat);
         var defaultCharacter = VirtualView.Document.DefaultCharacterFormat;

@@ -9,6 +9,14 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
+    private PendingNativeChange? _sourceStorageChange;
+    private int _sourceStorageLength;
+
+    private bool NativeTextMatchesDisplay => VirtualView.SourceSession is not null
+        ? _readNativeGeneration == _nativeEditGeneration && _sourceStorageChange is null &&
+            PlatformView.TextStorage.Length == DisplaySourceSnapshot.Length
+        : PlatformView.TextStorage.Value == DisplaySourceSnapshot.Text;
+
     private RichTextDocumentSnapshot ReadDocumentFromPlatform()
     {
         var attributed = PlatformView.TextStorage;
@@ -245,7 +253,7 @@ public partial class RichEditorHandler
     private RichTextDocumentSnapshot? TryReadIncrementalNativeChange(UITextView textView, out TextSpan? replacement)
     {
         replacement = null;
-        if (_pendingNativeChange is not { } pending || VirtualView is null)
+        if ((_sourceStorageChange ?? _pendingNativeChange) is not { } pending || VirtualView is null)
         {
             return null;
         }
@@ -314,7 +322,7 @@ public partial class RichEditorHandler
             using var prefix = attributed.Substring(
                 pending.Start - prefixLength,
                 prefixLength);
-            if (!previous.Text.AsSpan(pending.Start - prefixLength, prefixLength)
+            if (!previous.GetText(new(pending.Start - prefixLength, prefixLength)).AsSpan()
                 .SequenceEqual((prefix.Value ?? string.Empty).AsSpan()))
             {
                 return false;
@@ -330,7 +338,7 @@ public partial class RichEditorHandler
         }
 
         using var suffix = attributed.Substring(newSuffixStart, suffixLength);
-        return previous.Text.AsSpan(oldSuffixStart, suffixLength)
+        return previous.GetText(new(oldSuffixStart, suffixLength)).AsSpan()
             .SequenceEqual((suffix.Value ?? string.Empty).AsSpan());
     }
 
@@ -452,17 +460,51 @@ public partial class RichEditorHandler
         if (_observedTextStorage is { } previous)
             previous.DidProcessEditing -= OnTextStorageProcessed;
 
+        _sourceStorageChange = null;
         _observedTextStorage = storage;
         storage.DidProcessEditing += OnTextStorageProcessed;
     }
 
     private void OnTextStorageProcessed(object? sender, NSTextStorageEventArgs args)
     {
+        if (((IElementHandler)this).VirtualView is not NativeEditorView) return;
         _inputProjection = null;
+        if (VirtualView.SourceSession is not null && (!_applyingDocument || _applyingTypingFormat))
+        {
+            if ((args.EditedMask & NSTextStorageEditActions.Characters) != 0)
+                RecordSourceStorageChange(args);
+            else if (NativeProjection.Reservations.IsEmpty)
+                return; // Attributes cannot author source text.
+        }
         if (!_applyingDocument || _applyingTypingFormat)
             _nativeEditGeneration++;
 
         QueueNativeReadback();
+    }
+
+    private void RecordSourceStorageChange(NSTextStorageEventArgs args)
+    {
+        var previous = DisplaySourceSnapshot;
+        var length = checked((int)PlatformView.TextStorage.Length);
+        var delta = checked((int)args.Delta);
+        var start = checked((int)args.EditedRange.Location);
+        var removed = checked((int)args.EditedRange.Length - delta);
+        if (start < 0 || removed < 0 || start > length - delta - removed)
+        { _sourceStorageChange = null; return; }
+        if (_sourceStorageChange is { } pending && pending.Version == previous.Version && _sourceStorageLength == length - delta)
+        {
+            var inserted = _sourceStorageLength - previous.Length + pending.RemovedLength;
+            var end = Math.Max(pending.Start + pending.RemovedLength, Original(start + removed, after: true));
+            start = Math.Min(pending.Start, Original(start, after: false));
+            removed = end - start;
+            int Original(int position, bool after) => position < pending.Start ? position :
+                position > pending.Start + inserted ? position + pending.RemovedLength - inserted :
+                pending.Start + (after ? pending.RemovedLength : 0);
+        }
+        else if (previous.Length != length - delta)
+        { _sourceStorageChange = null; return; }
+        _sourceStorageChange = new(start, removed, previous.Version);
+        _sourceStorageLength = length;
     }
 
     private void QueueNativeReadback()
@@ -497,7 +539,7 @@ public partial class RichEditorHandler
             // wait until their selection and smart-spacing edits are finished.
             if (!_applyingDocument && ReferenceEquals(editor.Document, _queuedDocument) &&
                 _queuedProjectionGeneration == _projectionGeneration && _observedTextStorage is not null &&
-                (_readNativeGeneration != _nativeEditGeneration || _observedTextStorage.Value != DisplaySourceSnapshot.Text))
+                (_readNativeGeneration != _nativeEditGeneration || !NativeTextMatchesDisplay))
             {
                 OnNativeDocumentChanged(PlatformView, mergeWithPrevious: _queuedNativeContinuation || _queuedDocument!.Version != _queuedVersion);
             }
@@ -548,16 +590,18 @@ public partial class RichEditorHandler
         finally
         {
             _pendingNativeChange = null;
+            _sourceStorageChange = null;
         }
 
         _readNativeGeneration = generation;
 
-        var start = Math.Clamp((int)textView.SelectedRange.Location, 0, document.Text.Length);
+        var start = Math.Clamp((int)textView.SelectedRange.Location, 0, document.Length);
         var length = Math.Clamp(
             (int)textView.SelectedRange.Length,
             0,
-            document.Text.Length - start);
-        var sourceLength = ReadDisplayReservationMetadata(document.Text).ToSource(document.Length);
+            document.Length - start);
+        var sourceLength = VirtualView.MaxLength < 0 || NativeProjection.Reservations.IsEmpty ? document.Length :
+            ReadDisplayReservationMetadata(document.Text).ToSource(document.Length);
         if (VirtualView.StructuredSession is null && VirtualView.MaxLength >= 0 && sourceLength > VirtualView.MaxLength && sourceLength > VirtualView.Document.Length)
         {
             ApplyCurrentDocument(previousSelection.Start, previousSelection.Length);
@@ -589,7 +633,7 @@ public partial class RichEditorHandler
 
         // UIKit may move the caret before delivering Changed. Keep the
         // pre-edit range available so that callback can remap semantic ranges.
-        if (!string.Equals(textView.Text, DisplaySourceSnapshot.Text, StringComparison.Ordinal))
+        if (!NativeTextMatchesDisplay)
         {
             return;
         }
@@ -600,11 +644,11 @@ public partial class RichEditorHandler
         var start = Math.Clamp(
             (int)textView.SelectedRange.Location,
             0,
-            DisplaySourceSnapshot.Text.Length);
+            DisplaySourceSnapshot.Length);
         var length = Math.Clamp(
             (int)textView.SelectedRange.Length,
             0,
-            DisplaySourceSnapshot.Text.Length - start);
+            DisplaySourceSnapshot.Length - start);
         UpdateSelectionFromDisplay(InferDisplaySelectionState(new TextSpan(start, length)));
         UpdateTypingFormatsFromPlatform();
         _pendingNativeChange = null;
@@ -633,6 +677,7 @@ public partial class RichEditorHandler
             return;
         }
 
+        if (UpdateSourceTypingFormats()) return;
         var attributes = PlatformView.TypingAttributes2 ?? new NSDictionary();
         _nativeTypingFormat = ReadCharacterFormat(
             attributes,
@@ -725,8 +770,8 @@ public partial class RichEditorHandler
         int selectionStart,
         int selectionLength) =>
             selectionLength == 0 &&
-            (selectionStart == 0 || snapshot.Text[selectionStart - 1] == '\n') &&
-            (selectionStart == snapshot.Length || snapshot.Text[selectionStart] == '\n');
+            (selectionStart == 0 || snapshot.TextBuffer[selectionStart - 1] == '\n') &&
+            (selectionStart == snapshot.Length || snapshot.TextBuffer[selectionStart] == '\n');
 
     private void OnNativeEditingEnded() => VirtualView?.RaiseCompleted();
 

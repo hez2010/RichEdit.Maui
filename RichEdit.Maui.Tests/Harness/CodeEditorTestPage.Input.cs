@@ -5,6 +5,74 @@ internal sealed partial class CodeEditorTestPage
 {
     private async Task RunInputTests(Func<string, string, Func<Task>, Task> test)
     {
+#if ANDROID
+        await test("native source grouped undo publishes one editable replacement", string.Concat(Enumerable.Repeat("0123456789\n", 30)), async () =>
+        {
+            var original = _editor.Document.Text;
+            var native = (Android.Widget.EditText)_textView.Handler!.PlatformView!;
+            _editor.Coloring().Enabled = false;
+            using (_editor.Document.BeginUndoGroup("Disjoint edits"))
+                for (var i = 0; i < 20; i++)
+                    Equal(true, _editor.TryApplyEdits(_editor.Document.Revision,
+                        (TextEdit.Core.TextReplacement[])[new(new(i * 11, 0), "X")]));
+            var notifications = 0;
+            void Changed(object? sender, Android.Text.TextChangedEventArgs args) => notifications++;
+            native.TextChanged += Changed;
+            try
+            {
+                _editor.Undo();
+                await Task.Delay(100);
+                Equal(original, _editor.Document.Text);
+                Equal(1, notifications, "native replacements for a grouped undo");
+            }
+            finally { native.TextChanged -= Changed; }
+        });
+        await test("local native source edits retain incremental layout", string.Concat(Enumerable.Repeat("line of source\n", 2000)), async () =>
+        {
+            var native = (Android.Widget.EditText)_textView.Handler!.PlatformView!;
+            _editor.Coloring().Enabled = false;
+            await Task.Delay(100);
+            var layout = native.Layout!;
+            var handler = (RichEditorHandler)_textView.Handler;
+            var replacements = handler.NativeDocumentReplacementCount;
+            _editor.SelectedRange = new(3, 0);
+            EditorContractTests.NativeReplace(_textView, "X");
+            await Task.Delay(100);
+            Equal(true, layout.Equals(native.Layout),
+                "native layout identity after a local edit and a frame");
+            Equal(replacements, handler.NativeDocumentReplacementCount, "native buffer replacement count");
+            Equal('X', _editor.Document.CurrentSnapshot.TextBuffer[3]);
+            _editor.FontSize += 2;
+            await Task.Delay(100);
+            Equal(false, layout.Equals(native.Layout), "font changes invalidate native metrics");
+            var unwrapped = native.Layout;
+            _editor.WordWrap = true;
+            await Task.Delay(100);
+            Equal(false, unwrapped!.Equals(native.Layout), "wrapping invalidates native layout");
+        });
+#endif
+#if IOS || MACCATALYST
+        await test("native storage batch preserves disjoint same-length source replacements", "0123456789abcdefghij", async () =>
+        {
+            var native = (UIKit.UITextView)_textView.Handler!.PlatformView!;
+            var changes = 0;
+            void Changed(object? sender, TextEdit.Core.TextDocumentChangedEventArgs args) => changes++;
+            _editor.ContentChanged += Changed;
+            try
+            {
+                native.TextStorage.BeginEditing();
+                native.TextStorage.Replace(new Foundation.NSRange(2, 2), "XY");
+                native.TextStorage.Replace(new Foundation.NSRange(15, 2), "PQ");
+                native.TextStorage.EndEditing();
+                await Task.Delay(80);
+                Equal("01XY456789abcdePQhij", _editor.Document.Text);
+                Equal(1, changes, "one source transaction for the storage batch");
+                _editor.Undo();
+                Equal("0123456789abcdefghij", _editor.Document.Text);
+            }
+            finally { _editor.ContentChanged -= Changed; }
+        });
+#endif
         var defaults = _editor.KeyBindings.ToArray();
         async Task Test(string name, Func<Task> action) => await test(name, "text", async () =>
         {

@@ -10,6 +10,7 @@ namespace RichEdit.Maui
         private RichTextDisplayProjection? _inputProjection;
 
         internal RichTextDisplayProjection InputProjection => _applyingDocument || _updatingDisplayProjection ? NativeProjection :
+            NativeProjection.Reservations.IsEmpty ? RichTextDisplayProjection.Empty :
             _inputProjection ??= ReadDisplayReservationMetadata(PlatformView.TextStorage.Value ?? "");
     }
 }

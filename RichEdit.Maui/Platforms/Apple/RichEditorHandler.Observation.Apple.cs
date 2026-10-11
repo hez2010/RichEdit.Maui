@@ -68,7 +68,7 @@ namespace RichEdit.Maui
 
         private partial void ReconcileCompositionSource()
         {
-            if (_nativeEditGeneration != _readNativeGeneration || PlatformView.TextStorage.Value != DisplaySourceSnapshot.Text)
+            if (_nativeEditGeneration != _readNativeGeneration || !NativeTextMatchesDisplay)
                 OnNativeDocumentChanged(PlatformView);
 
             OnNativeSelectionChanged(PlatformView);

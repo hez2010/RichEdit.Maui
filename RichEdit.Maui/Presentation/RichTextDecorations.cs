@@ -297,6 +297,9 @@ public sealed class RichTextDecorations
 
     internal RichTextDocumentSnapshot RestoreAuthoredSnapshot(RichTextDocumentSnapshot observed, TextSpan replacement)
     {
+        // Source has no authored character formats to recover from highlighting.
+        // Its text core and native presentation retain independent state.
+        if (_editor.SourceSession is not null) return observed;
         var source = _editor.Document.CurrentSnapshot;
         var projected = ProjectPainted(source);
         if (ReferenceEquals(source, projected))
