@@ -134,10 +134,24 @@ public partial class NativeEditorView
             var local = selection with { Anchor = scoped.GetOffset(anchor), Active = scoped.GetOffset(active) };
             if (handler.NavigateSelection(local, direction, extend, byWord) is not { } result || scoped.GetPoint(result.Anchor) is not { } nextAnchor ||
                 scoped.GetPoint(result.Active) is not { } nextActive) return false;
+            if (!extend && local.IsEmpty && result.Active == local.Active && direction is EditorKey.Left or EditorKey.Right &&
+                (local.Active == 0 || local.Active == scoped.Text.Length))
+            {
+                var forward = scoped.Text.Length == 0 ? direction == EditorKey.Right : local.Active == scoped.Text.Length;
+                var index = 0;
+                while (index < rootProjection.Paragraphs.Length && rootProjection.Paragraphs[index].Paragraph != active.Paragraph) index++;
+                index += forward ? 1 : -1;
+                if (index >= 0 && index < rootProjection.Paragraphs.Length && !scoped.ContainsParagraph(rootProjection.Paragraphs[index].Paragraph))
+                {
+                    var paragraph = rootProjection.Paragraphs[index];
+                    nextActive = nextAnchor = new RichTextPoint(active.Story, paragraph.Paragraph, forward ? 0 : paragraph.Range.Length);
+                    result = result with { PreferredVisualX = null };
+                }
+            }
             moved.Add(result with { Anchor = rootProjection.GetOffset(nextAnchor), Active = rootProjection.GetOffset(nextActive) });
         }
         Selections = new(moved, Selections.PrimaryIndex);
-        FocusStructuredSelection();
+        RequestStructuredFocus();
         return true;
     }
 

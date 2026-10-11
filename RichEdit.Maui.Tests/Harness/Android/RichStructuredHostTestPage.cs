@@ -243,6 +243,33 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             }
             finally { _editor.TextLayout.Changed -= OnChanged; }
         });
+        await Test("horizontal arrows move all carets across native cell boundaries", async () =>
+        {
+            var snapshot = _editor.Document.CurrentSnapshot;
+            RichTextPoint PointAt(int row, int column, int offset) => new(snapshot.Body,
+                snapshot.Get<RichTableCell>(Cell(row, column)).Blocks[0], offset);
+            var first = PointAt(0, 0, 2);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(first, first);
+            _editor.Focus(); await Task.Delay(30);
+            Equal(true, Surface(Cell(0, 0)).SendKeyDown(EditorKey.Right, EditorKeyModifiers.None));
+            await Task.Delay(40);
+            var selected = (RichTextSelectionSet)_editor.Selection;
+            Equal(PointAt(0, 1, 0), selected.Primary.Selection.Active);
+            Equal(true, ((RichEditorHandler)Surface(Cell(0, 1)).Handler!).PlatformView.IsFocused);
+            Equal(true, _editor.MoveSelections(EditorKey.Left));
+            Equal(first, ((RichTextSelectionSet)_editor.Selection).Primary.Selection.Active);
+            var other = PointAt(1, 0, 2);
+            _editor.Selection = new RichTextSelectionSet(snapshot, new[]
+            {
+                new RichTextSelectionItem(new(first, first)), new RichTextSelectionItem(new(other, other)),
+            });
+            Equal(true, _editor.MoveSelections(EditorKey.Right));
+            selected = (RichTextSelectionSet)_editor.Selection;
+            Equal(2, selected.Count);
+            Equal(PointAt(0, 1, 0), selected[0].Selection.Active);
+            Equal(PointAt(1, 1, 0), selected[1].Selection.Active);
+            Equal(false, _editor.CanUndo);
+        });
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         File.WriteAllLines(report, results);
     }

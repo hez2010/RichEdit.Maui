@@ -81,7 +81,8 @@ public partial class NativeEditorView
         }
         if (modifiers == (EditorKeyModifiers.Control | EditorKeyModifiers.Alt) && key is EditorKey.Up or EditorKey.Down)
             return key == EditorKey.Up ? AddCaretAbove() : AddCaretBelow();
-        if (Selections.Count < 2 && !SourceVirtualSpaceEnabled && Selections.Primary.ActiveVirtualSpaces == 0)
+        if (Selections.Count < 2 && !SourceVirtualSpaceEnabled && Selections.Primary.ActiveVirtualSpaces == 0 &&
+            (StructuredSession is null || _structuredSurfaces.Count == 0))
             return false;
         var wordModifier = OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() ? EditorKeyModifiers.Alt : EditorKeyModifiers.Control;
         if ((modifiers & ~EditorKeyModifiers.Shift) == wordModifier && key is EditorKey.Left or EditorKey.Right)
