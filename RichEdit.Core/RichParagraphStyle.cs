@@ -39,6 +39,9 @@ public sealed record RichParagraphStyle
     /// <summary>The paragraph background, or null for no fill.</summary>
     public StyleValue<RichColor?> Background { get; init; }
 
+    /// <summary>Automatic, fixed, minimum or multiple line height.</summary>
+    public StyleValue<RichLineSpacing> LineSpacing { get; init; }
+
     internal RichParagraphStyle Overlay(RichParagraphStyle child) => new()
     {
         Alignment = child.Alignment.Kind == StyleValueKind.Inherit ? Alignment : child.Alignment,
@@ -53,6 +56,7 @@ public sealed record RichParagraphStyle
         KeepTogether = child.KeepTogether.Kind == StyleValueKind.Inherit ? KeepTogether : child.KeepTogether,
         WidowControl = child.WidowControl.Kind == StyleValueKind.Inherit ? WidowControl : child.WidowControl,
         Background = child.Background.Kind == StyleValueKind.Inherit ? Background : child.Background,
+        LineSpacing = child.LineSpacing.Kind == StyleValueKind.Inherit ? LineSpacing : child.LineSpacing,
     };
 
     internal ResolvedParagraphStyle Apply(ResolvedParagraphStyle inherited) => new()
@@ -69,6 +73,7 @@ public sealed record RichParagraphStyle
         KeepTogether = KeepTogether.Resolve(inherited.KeepTogether, false),
         WidowControl = WidowControl.Resolve(inherited.WidowControl, true),
         Background = Background.Resolve(inherited.Background, null),
+        LineSpacing = LineSpacing.Resolve(inherited.LineSpacing, default),
     };
 }
 
@@ -110,5 +115,8 @@ public sealed record ResolvedParagraphStyle
 
     /// <summary>The paragraph background, or null for no fill.</summary>
     public RichColor? Background { get; init; } = null;
+
+    /// <summary>Automatic, fixed, minimum or multiple line height.</summary>
+    public RichLineSpacing LineSpacing { get; init; }
 
 }

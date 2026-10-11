@@ -61,6 +61,7 @@ internal sealed partial class RtfDocumentReader
             case "pard":
                 _state.Paragraph = RtfStyleState.Restore(new ResolvedParagraphStyle(), 0, 0, 0);
                 _state.ParagraphCharacter = new(); _state.ParagraphStyle = null;
+                _state.LineSpacing = 0; _state.LineMultiple = false;
                 _state.InTable = false; _state.ListOverride = _state.ListLevel = 0; return;
             case "s": case "cs":
                 if (_state.Destination == "stylesheet") { _state.StyleId = n; _state.CharacterDefinition = word == "cs"; _state.Capture ??= new(); return; }
@@ -71,12 +72,19 @@ internal sealed partial class RtfDocumentReader
                 {
                     var sheet = new RichStyleSheet(_styles.Values);
                     _state.Character = RtfStyleState.Restore(sheet.ResolveCharacter(_state.ParagraphStyle, _state.CharacterStyle), 0, 0, 0);
-                    if (word == "s") _state.Paragraph = RtfStyleState.Restore(sheet.ResolveParagraph(style.Id), 0, 0, 0);
+                    if (word == "s")
+                    {
+                        var paragraph = sheet.ResolveParagraph(style.Id);
+                        _state.Paragraph = RtfStyleState.Restore(paragraph, 0, 0, 0);
+                        _state.LineSpacing = paragraph.LineSpacing.RtfValue;
+                        _state.LineMultiple = paragraph.LineSpacing.Kind == RichLineSpacingKind.Multiple;
+                    }
                 }
                 return;
             case "sbasedon": _state.BasedOn = n; return;
             case "snext": _state.NextStyle = n; return;
             case "reinherit": _state.Inherit = n; return;
+            case "reprops": if (n is < 1 or > 32) throw Error("Invalid cascade property count"); _state.PropertyCount = n; return;
             case "reinitial": _state.Initial = n; return;
             case "renull": _state.Null = n; return;
             case "rereverse": _state.Reverse = n != 0; return;
@@ -138,7 +146,7 @@ internal sealed partial class RtfDocumentReader
             case "colortbl": SetDestination(word); _state.Capture = null; _state.Red = _state.Green = _state.Blue = 0; _state.ColorSpecified = false; return true;
             case "defchp": case "defpap": SetDestination(word); _state.Character = new(); _state.Paragraph = new(); _state.Capture = null; return true;
             case "rec": case "rep": case "repch":
-                SetDestination(word); _state.Inherit = _state.Initial = _state.Null = 0; _state.Capture = null; return true;
+                SetDestination(word); _state.Inherit = _state.Initial = _state.Null = 0; _state.PropertyCount = null; _state.Capture = null; return true;
             case "listtable": case "listoverridetable": SetDestination(word); _state.Capture = null; return true;
             case "list": if (_state.Destination != "listtable") return false; _state.List = new(); return true;
             case "listlevel": return _state.Destination == "listtable";
@@ -221,14 +229,14 @@ internal sealed partial class RtfDocumentReader
         if (!child.OwnDestination) return;
         switch (child.Destination)
         {
-            case "rec": _state.Character = RtfStyleState.Restore(child.Character.Apply(new()), child.Inherit, child.Initial, child.Null); break;
+            case "rec": _state.Character = RtfStyleState.Restore(child.Character.Apply(new()), InheritMask(child, false), child.Initial, child.Null); break;
             case "rep":
-                _state.Paragraph = RtfStyleState.Restore(child.Paragraph.Apply(new()), child.Inherit, child.Initial, child.Null);
+                _state.Paragraph = RtfStyleState.Restore(child.Paragraph.Apply(new()), InheritMask(child, true), child.Initial, child.Null);
                 if (_state.Destination == "body")
                 { var paragraph = EnsureParagraph(); paragraph.Format = _state.Paragraph; paragraph.Style = _state.ParagraphStyle; }
                 break;
             case "repch":
-                _state.ParagraphCharacter = RtfStyleState.Restore(child.Character.Apply(new()), child.Inherit, child.Initial, child.Null);
+                _state.ParagraphCharacter = RtfStyleState.Restore(child.Character.Apply(new()), InheritMask(child, false), child.Initial, child.Null);
                 if (_state.Destination == "body") EnsureParagraph().Character = _state.ParagraphCharacter;
                 break;
             case "defchp": _defaultCharacter = child.Character; break;
@@ -256,5 +264,13 @@ internal sealed partial class RtfDocumentReader
             case "fldinst": if (child.Field is { } field) field.Instruction = child.Capture?.ToString() ?? ""; break;
             case "field": FinishField(child); break;
         }
+    }
+
+    private int InheritMask(State state, bool paragraph)
+    {
+        var count = state.PropertyCount ?? (paragraph ? 12 : 18);
+        if (count > (paragraph ? RtfStyleState.ParagraphPropertyCount : RtfStyleState.CharacterPropertyCount))
+            Report("cascade-properties", "The document declares additional unsupported cascade properties.");
+        return state.Inherit | (count == 32 ? 0 : unchecked((int)(uint.MaxValue << count)));
     }
 }

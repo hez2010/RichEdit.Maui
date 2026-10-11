@@ -53,6 +53,9 @@ public sealed partial class RichTextDocumentSnapshot
         FontFamily = value.FontFamily, FontSize = value.FontSize?.Points, FontWeight = value.Bold ? 700 : 400, Italic = value.Italic,
         Underline = value.Underline switch { RichUnderline.None => RichTextUnderlineStyle.None, RichUnderline.Double => RichTextUnderlineStyle.Double,
             RichUnderline.Dotted => RichTextUnderlineStyle.Dotted, RichUnderline.Dashed => RichTextUnderlineStyle.Dash,
+            RichUnderline.DashDot => RichTextUnderlineStyle.DashDot, RichUnderline.DashDotDot => RichTextUnderlineStyle.DashDotDot,
+            RichUnderline.Thick => RichTextUnderlineStyle.Thick, RichUnderline.DoubleWave => RichTextUnderlineStyle.DoubleWave,
+            RichUnderline.HeavyWave => RichTextUnderlineStyle.HeavyWave, RichUnderline.LongDash => RichTextUnderlineStyle.LongDash,
             RichUnderline.Wave => RichTextUnderlineStyle.Wave, RichUnderline.Words => RichTextUnderlineStyle.Words, _ => RichTextUnderlineStyle.Single },
         UnderlineColor = ToColor(value.UnderlineColor), Strikethrough = value.Strike switch { RichStrike.Single => RichTextStrikethroughStyle.Single,
             RichStrike.Double => RichTextStrikethroughStyle.Double, _ => RichTextStrikethroughStyle.None },
@@ -66,10 +69,14 @@ public sealed partial class RichTextDocumentSnapshot
     internal static RichTextParagraphFormat ToNative(ResolvedParagraphStyle value) => new()
     {
         Alignment = value.Alignment switch { RichAlignment.Center => RichTextAlignment.Center, RichAlignment.Right => RichTextAlignment.Right,
-            RichAlignment.Justify => RichTextAlignment.Justified, _ => RichTextAlignment.Left },
+            RichAlignment.Justify => RichTextAlignment.Justified, RichAlignment.Distributed => RichTextAlignment.Distributed, _ => RichTextAlignment.Left },
         Direction = ToDirection(value.Direction), LeadingIndent = value.LeadingIndent.Points, TrailingIndent = value.TrailingIndent.Points,
         FirstLineIndent = value.FirstLineIndent.Points, SpaceBefore = value.SpaceBefore.Points, SpaceAfter = value.SpaceAfter.Points,
         BackgroundColor = ToColor(value.Background),
+        LineSpacingRule = value.LineSpacing.Kind switch { RichLineSpacingKind.AtLeast => RichTextLineSpacingRule.AtLeast,
+            RichLineSpacingKind.Exactly => RichTextLineSpacingRule.Exactly, RichLineSpacingKind.Multiple => RichTextLineSpacingRule.Multiple,
+            _ => RichTextLineSpacingRule.Automatic },
+        LineSpacing = value.LineSpacing.Factor ?? value.LineSpacing.Height?.Points ?? 0,
     };
     private static Color? ToColor(RichColor? value) => value is { } color ? Color.FromRgb(color.Red, color.Green, color.Blue) : null;
     private static RichTextDirection ToDirection(RichDirection value) => value switch

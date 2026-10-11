@@ -92,6 +92,7 @@ internal sealed partial class RtfProjectionWriter
     {
         await S(@"{\*");
         await C(destination);
+        await C("reprops", destination == "rep" ? RtfStyleState.ParagraphPropertyCount : RtfStyleState.CharacterPropertyCount);
         await C("reinherit", masks.Inherit);
         await C("reinitial", masks.Initial);
         await C("renull", masks.Null);
@@ -100,13 +101,15 @@ internal sealed partial class RtfProjectionWriter
 
     private async Task ParagraphProperties(ResolvedParagraphStyle value)
     {
-        await C(value.Alignment switch { RichAlignment.Center => "qc", RichAlignment.Right => "qr", RichAlignment.Justify => "qj", _ => "ql" });
+        await C(value.Alignment switch { RichAlignment.Center => "qc", RichAlignment.Right => "qr", RichAlignment.Justify => "qj", RichAlignment.Distributed => "qd", _ => "ql" });
         if (value.Direction != RichDirection.Automatic) await C(value.Direction == RichDirection.RightToLeft ? "rtlpar" : "ltrpar");
         await C("li", value.LeadingIndent.Twips);
         await C("ri", value.TrailingIndent.Twips);
         await C("fi", value.FirstLineIndent.Twips);
         await C("sb", value.SpaceBefore.Twips);
         await C("sa", value.SpaceAfter.Twips);
+        await C("sl", value.LineSpacing.RtfValue);
+        await C("slmult", value.LineSpacing.Kind == RichLineSpacingKind.Multiple ? 1 : 0);
         await C("keep", value.KeepTogether ? 1 : 0);
         await C("keepn", value.KeepWithNext ? 1 : 0);
         await C(value.WidowControl ? "widctlpar" : "nowidctlpar");

@@ -20,6 +20,18 @@ public enum RichUnderline
     Wave,
     /// <summary>Underline words while leaving intervening spaces undecorated.</summary>
     Words,
+    /// <summary>Alternating dashes and dots.</summary>
+    DashDot,
+    /// <summary>A dash followed by two dots.</summary>
+    DashDotDot,
+    /// <summary>A thick continuous underline.</summary>
+    Thick,
+    /// <summary>Two wavy underline strokes.</summary>
+    DoubleWave,
+    /// <summary>A heavy wavy underline.</summary>
+    HeavyWave,
+    /// <summary>A long-dashed underline.</summary>
+    LongDash,
 }
 
 /// <summary>An authored strike-through supported by RTF.</summary>
@@ -66,6 +78,8 @@ public enum RichAlignment
     Center,
     /// <summary>Justify the paragraph.</summary>
     Justify,
+    /// <summary>Distribute character spacing across the full line width.</summary>
+    Distributed,
 }
 
 /// <summary>The kind of content that can reference a style.</summary>

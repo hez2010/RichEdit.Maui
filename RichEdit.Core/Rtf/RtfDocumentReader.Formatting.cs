@@ -14,8 +14,12 @@ internal sealed partial class RtfDocumentReader
             case "i": format = format with { Italic = n != 0 }; break;
             case "ulnone": format = format with { Underline = RichUnderline.None }; break;
             case "ul": case "uldb": case "uld": case "uldash": case "ulwave": case "ulw":
+            case "uldashd": case "uldashdd": case "ulth": case "ululdbwave": case "ulhwave": case "ulldash":
                 format = format with { Underline = n == 0 ? RichUnderline.None : word switch { "uldb" => RichUnderline.Double, "uld" => RichUnderline.Dotted,
-                    "uldash" => RichUnderline.Dashed, "ulwave" => RichUnderline.Wave, "ulw" => RichUnderline.Words, _ => RichUnderline.Single } }; break;
+                    "uldash" => RichUnderline.Dashed, "ulwave" => RichUnderline.Wave, "ulw" => RichUnderline.Words,
+                    "uldashd" => RichUnderline.DashDot, "uldashdd" => RichUnderline.DashDotDot, "ulth" => RichUnderline.Thick,
+                    "ululdbwave" => RichUnderline.DoubleWave, "ulhwave" => RichUnderline.HeavyWave, "ulldash" => RichUnderline.LongDash,
+                    _ => RichUnderline.Single } }; break;
             case "ulc": format = format with { UnderlineColor = Color(n) }; break;
             case "strike": if (n != 0 || format.Strike.ApplyValue() != RichStrike.Double) format = format with { Strike = n == 0 ? RichStrike.None : RichStrike.Single }; break;
             case "striked": if (n != 0) format = format with { Strike = RichStrike.Double }; else if (format.Strike.ApplyValue() == RichStrike.Double) format = format with { Strike = RichStrike.None }; break;
@@ -56,6 +60,15 @@ internal sealed partial class RtfDocumentReader
             case "qr": format = format with { Alignment = RichAlignment.Right }; break;
             case "qc": format = format with { Alignment = RichAlignment.Center }; break;
             case "qj": format = format with { Alignment = RichAlignment.Justify }; break;
+            case "qd": format = format with { Alignment = RichAlignment.Distributed }; break;
+            case "sl":
+                if (n == int.MinValue) throw Error("Invalid line spacing");
+                _state.LineSpacing = n;
+                format = format with { LineSpacing = RichLineSpacing.FromRtf(n, _state.LineMultiple) }; break;
+            case "slmult":
+                _state.LineMultiple = n != 0;
+                if (_state.LineMultiple && _state.LineSpacing < 0) Report("line-spacing", "A negative multiple line height was normalized to a positive factor.");
+                format = format with { LineSpacing = RichLineSpacing.FromRtf(_state.LineSpacing, _state.LineMultiple) }; break;
             case "rtlpar": format = format with { Direction = RichDirection.RightToLeft }; break;
             case "ltrpar": format = format with { Direction = RichDirection.LeftToRight }; break;
             case "li": case "lin": format = format with { LeadingIndent = new RichLength(n) }; break;

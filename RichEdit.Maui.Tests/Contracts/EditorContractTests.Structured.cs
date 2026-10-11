@@ -6,6 +6,35 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured line spacing reaches native layout and survives input and undo", async editor =>
+        {
+            var previous = editor.Document;
+            var model = new RichDocument(RichDocumentSnapshot.FromPlainText("first\u2028second"));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                var paragraph = model.CurrentSnapshot.Get<RichStory>(model.CurrentSnapshot.Body).Blocks[0];
+                var handler = (RichEditorHandler)editor.Handler!;
+                await Task.Delay(50);
+                double Height() => handler.GetTextCaretBounds(6, RichTextCaretAffinity.Downstream)!.Value.Y -
+                    handler.GetTextCaretBounds(0, RichTextCaretAffinity.Downstream)!.Value.Y;
+                var automatic = Height();
+                var spacing = RichLineSpacing.Exactly(RichLength.FromPoints(40));
+                editor.StructuredSession!.Edit(edit => edit.SetParagraphFormat(paragraph, new() { LineSpacing = spacing, Alignment = RichAlignment.Distributed }));
+                await Task.Delay(80);
+                Equal(true, Height() > automatic + 10, $"native line height {automatic} -> {Height()}");
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, paragraph, 5);
+                editor.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(point, point);
+                NativeMultiInsert(editor, "!");
+                Equal(spacing, model.CurrentSnapshot.ResolveParagraph(paragraph).LineSpacing);
+                Equal(RichAlignment.Distributed, model.CurrentSnapshot.ResolveParagraph(paragraph).Alignment);
+                editor.Undo(); editor.Undo();
+                await Task.Delay(60);
+                Equal(true, Math.Abs(Height() - automatic) < 2, "line height restores on undo");
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.Document = previous; }
+        });
         yield return new("structured table Tab traverses merged cells and appends one undoable row", async editor =>
         {
             var previous = editor.Document;

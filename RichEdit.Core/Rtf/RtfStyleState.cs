@@ -4,6 +4,8 @@ namespace RichEdit.Core.Rtf;
 // properties. They contain no text, resources, or alternate document payload.
 internal static class RtfStyleState
 {
+    internal const int CharacterPropertyCount = 18;
+    internal const int ParagraphPropertyCount = 13;
     internal static (int Inherit, int Initial, int Null) Masks(RichCharacterStyle style)
     {
         var inherit = 0; var initial = 0; var nil = 0;
@@ -103,6 +105,8 @@ internal static class RtfStyleState
         if (style.Background.Kind == StyleValueKind.Inherit) inherit |= 1 << 11;
         if (style.Background.Kind == StyleValueKind.Initial) initial |= 1 << 11;
         if (style.Background.Kind == StyleValueKind.Value && style.Background.Value is null) nil |= 1 << 11;
+        if (style.LineSpacing.Kind == StyleValueKind.Inherit) inherit |= 1 << 12;
+        if (style.LineSpacing.Kind == StyleValueKind.Initial) initial |= 1 << 12;
         return (inherit, initial, nil);
     }
 
@@ -120,6 +124,7 @@ internal static class RtfStyleState
         KeepTogether = Restore<bool>(9, inherit, initial, value.KeepTogether),
         WidowControl = Restore<bool>(10, inherit, initial, value.WidowControl),
         Background = Restore<RichColor?>(11, inherit, initial, (nil & (1 << 11)) != 0 ? null : value.Background),
+        LineSpacing = Restore<RichLineSpacing>(12, inherit, initial, value.LineSpacing),
     };
 
     private static StyleValue<T> Restore<T>(int index, int inherit, int initial, T value) =>

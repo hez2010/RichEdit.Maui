@@ -194,6 +194,9 @@ public sealed partial class RichTextDocument
         Bold = value.Bold, Italic = value.Italic,
         Underline = value.Underline switch { RichTextUnderlineStyle.Single => RichUnderline.Single, RichTextUnderlineStyle.Double => RichUnderline.Double,
             RichTextUnderlineStyle.Dotted => RichUnderline.Dotted, RichTextUnderlineStyle.Dash => RichUnderline.Dashed,
+            RichTextUnderlineStyle.DashDot => RichUnderline.DashDot, RichTextUnderlineStyle.DashDotDot => RichUnderline.DashDotDot,
+            RichTextUnderlineStyle.Thick => RichUnderline.Thick, RichTextUnderlineStyle.DoubleWave => RichUnderline.DoubleWave,
+            RichTextUnderlineStyle.HeavyWave => RichUnderline.HeavyWave, RichTextUnderlineStyle.LongDash => RichUnderline.LongDash,
             RichTextUnderlineStyle.Wave => RichUnderline.Wave, RichTextUnderlineStyle.Words => RichUnderline.Words, _ => RichUnderline.None },
         UnderlineColor = Color(value.UnderlineColor), Foreground = Color(value.ForegroundColor), Background = Color(value.BackgroundColor),
         Strike = value.Strikethrough switch { RichTextStrikethroughStyle.Single => RichStrike.Single, RichTextStrikethroughStyle.Double => RichStrike.Double, _ => RichStrike.None },
@@ -215,16 +218,24 @@ public sealed partial class RichTextDocument
             SpaceBefore = Equals(before.SpaceBefore, after.SpaceBefore) ? default : value.SpaceBefore,
             SpaceAfter = Equals(before.SpaceAfter, after.SpaceAfter) ? default : value.SpaceAfter,
             Background = Equals(before.BackgroundColor, after.BackgroundColor) ? default : value.Background,
+            LineSpacing = before.LineSpacingRule == after.LineSpacingRule && before.LineSpacing == after.LineSpacing ? default : value.LineSpacing,
         };
     }
 
     internal static RichParagraphStyle ToStructured(RichTextParagraphFormat value) => new()
     {
         Alignment = value.Alignment switch { RichTextAlignment.Center => RichAlignment.Center, RichTextAlignment.Right => RichAlignment.Right,
-            RichTextAlignment.Justified => RichAlignment.Justify, _ => RichAlignment.Left },
+            RichTextAlignment.Justified => RichAlignment.Justify, RichTextAlignment.Distributed => RichAlignment.Distributed, _ => RichAlignment.Left },
         Direction = Direction(value.Direction), LeadingIndent = RichLength.FromPoints(value.LeadingIndent), TrailingIndent = RichLength.FromPoints(value.TrailingIndent),
         FirstLineIndent = RichLength.FromPoints(value.FirstLineIndent), SpaceBefore = RichLength.FromPoints(value.SpaceBefore), SpaceAfter = RichLength.FromPoints(value.SpaceAfter),
         Background = Color(value.BackgroundColor),
+        LineSpacing = value.LineSpacingRule switch
+        {
+            RichTextLineSpacingRule.Single => RichLineSpacing.Multiple(1), RichTextLineSpacingRule.OneAndHalf => RichLineSpacing.Multiple(1.5),
+            RichTextLineSpacingRule.Double => RichLineSpacing.Multiple(2), RichTextLineSpacingRule.Multiple => RichLineSpacing.Multiple(value.LineSpacing),
+            RichTextLineSpacingRule.AtLeast => RichLineSpacing.AtLeast(RichLength.FromPoints(value.LineSpacing)),
+            RichTextLineSpacingRule.Exactly => RichLineSpacing.Exactly(RichLength.FromPoints(value.LineSpacing)), _ => RichLineSpacing.Automatic,
+        },
     };
     private static RichColor? Color(Color? value) => value is null ? null : new((byte)Math.Round(value.Red * 255), (byte)Math.Round(value.Green * 255), (byte)Math.Round(value.Blue * 255));
     private static RichDirection Direction(RichTextDirection value) => value switch

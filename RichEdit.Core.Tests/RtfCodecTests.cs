@@ -6,6 +6,50 @@ namespace RichEdit.Core.Tests;
 
 public sealed class RtfCodecTests
 {
+    [Fact]
+    public async Task EveryUnderlineAndDistributedAlignmentRoundTripsWithoutApproximation()
+    {
+        foreach (var underline in Enum.GetValues<RichUnderline>())
+        {
+            var snapshot = RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "underlined words");
+                edit.SetCharacterFormat(new(edit.Body, new(2), 0), 16, new() { Underline = underline });
+                edit.SetParagraphFormat(new(2), new() { Alignment = RichAlignment.Distributed });
+            });
+            var result = await RoundTrip(snapshot);
+            Assert.Equal(underline, result.ResolveCharacter(Assert.Single(result.Nodes.Values.OfType<RichText>()).Id).Underline);
+            Assert.Equal(RichAlignment.Distributed, result.ResolveParagraph(result.Get<RichStory>(result.Body).Blocks[0]).Alignment);
+        }
+    }
+
+    [Fact]
+    public async Task LineSpacingRetainsAbsoluteMultipleAndCascadeIntent()
+    {
+        foreach (var spacing in new[] { RichLineSpacing.Automatic, RichLineSpacing.Multiple(1), RichLineSpacing.Multiple(1.5),
+            RichLineSpacing.Multiple(2), RichLineSpacing.Multiple(1.2), RichLineSpacing.AtLeast(new(271)), RichLineSpacing.Exactly(new(319)) })
+        {
+            var snapshot = RichDocumentSnapshot.Build(edit =>
+            {
+                edit.SetDefaultParagraphFormat(new() { LineSpacing = RichLineSpacing.Multiple(2) });
+                edit.SetParagraphFormat(new(2), new() { LineSpacing = spacing });
+            });
+            var loaded = await RoundTrip(snapshot);
+            Assert.Equal(snapshot.DefaultParagraph, loaded.DefaultParagraph);
+            Assert.Equal(spacing, loaded.ResolveParagraph(loaded.Get<RichStory>(loaded.Body).Blocks[0]).LineSpacing);
+        }
+        var reset = RichDocumentSnapshot.Build(edit => edit.SetParagraphFormat(new(2), new() { LineSpacing = StyleValue<RichLineSpacing>.Initial }));
+        var restored = await RoundTrip(reset);
+        Assert.Equal(StyleValueKind.Initial, restored.Get<RichParagraph>(restored.Get<RichStory>(restored.Body).Blocks[0]).Format.LineSpacing.Kind);
+        using var legacy = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1{\*\remodel1}\pard{\*\rep\reinherit4095\reinitial0\renull0}old}"));
+        var old = await RtfCodec.ReadAsync(legacy, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(StyleValueKind.Inherit, old.Snapshot.Get<RichParagraph>(old.Snapshot.Get<RichStory>(old.Snapshot.Body).Blocks[0]).Format.LineSpacing.Kind);
+        Assert.Empty(old.Diagnostics);
+        using var external = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\pard\slmult1\sl288 text}"));
+        var imported = await RtfCodec.ReadAsync(external, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(RichLineSpacing.Multiple(1.2), imported.Snapshot.ResolveParagraph(imported.Snapshot.Get<RichStory>(imported.Snapshot.Body).Blocks[0]).LineSpacing);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("one\ntwo\n")]

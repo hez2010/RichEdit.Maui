@@ -113,19 +113,10 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         await C("pard");
         if (tableLevel > 0) { await C("intbl"); await C("itap", tableLevel); }
         var format = snapshot.ResolveParagraph(paragraph.Id);
-        await C(format.Alignment switch { RichAlignment.Center => "qc", RichAlignment.Right => "qr", RichAlignment.Justify => "qj", _ => "ql" });
-        if (format.Direction != RichDirection.Automatic) await C(format.Direction == RichDirection.RightToLeft ? "rtlpar" : "ltrpar");
+        await ParagraphProperties(format);
         var listIndent = list is null || semantic ? 0 : ListDepth(list) * 720;
-        await C("li", checked(format.LeadingIndent.Twips + listIndent));
-        await C("ri", format.TrailingIndent.Twips);
-        await C("fi", firstInItem && list is not null && !semantic ? -360 : format.FirstLineIndent.Twips);
-        await C("sb", format.SpaceBefore.Twips);
-        await C("sa", format.SpaceAfter.Twips);
-        await C("keep", format.KeepTogether ? 1 : 0);
-        await C("keepn", format.KeepWithNext ? 1 : 0);
-        await C(format.WidowControl ? "widctlpar" : "nowidctlpar");
-        if (format.HeadingLevel is { } heading) await C("outlinelevel", heading - 1);
-        if (format.Background is { } background) { await C("shading", 10000); await C("cfpat", _colors[background]); }
+        if (listIndent != 0) await C("li", checked(format.LeadingIndent.Twips + listIndent));
+        if (firstInItem && list is not null && !semantic) await C("fi", -360);
         if (firstInItem && list is not null) { await C("ls", _lists[list.Id]); await C("ilvl", 0); }
         await Character(SelectionAppearance(paragraph.Id, snapshot.Styles.ResolveCharacter(paragraph.Style, defaults: snapshot.DefaultCharacter, paragraphDirect: paragraph.Character)));
         if (semantic)
@@ -195,7 +186,9 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         await C(format.Underline switch
         {
             RichUnderline.Single => "ul", RichUnderline.Double => "uldb", RichUnderline.Dotted => "uld",
-            RichUnderline.Dashed => "uldash", RichUnderline.Wave => "ulwave", RichUnderline.Words => "ulw", _ => "ulnone",
+            RichUnderline.Dashed => "uldash", RichUnderline.Wave => "ulwave", RichUnderline.Words => "ulw",
+            RichUnderline.DashDot => "uldashd", RichUnderline.DashDotDot => "uldashdd", RichUnderline.Thick => "ulth",
+            RichUnderline.DoubleWave => "ululdbwave", RichUnderline.HeavyWave => "ulhwave", RichUnderline.LongDash => "ulldash", _ => "ulnone",
         });
         await C("ulc", Index(format.UnderlineColor));
         await C("strike", format.Strike == RichStrike.Single ? 1 : 0);

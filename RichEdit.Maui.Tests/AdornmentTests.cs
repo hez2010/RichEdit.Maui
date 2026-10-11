@@ -30,13 +30,13 @@ public class AdornmentTests
         Assert.Same(view, first.CreatedView);
         Assert.Equal(3, first.Position);
         var current = source.BeginUpdate();
-        Assert.Throws<ArgumentException>(() => source.TryPublish(current, [descriptors[0], descriptors[0]]));
+        Assert.Throws<ArgumentException>(() => source.TryPublish(current, (RichTextWidget[])[descriptors[0], descriptors[0]]));
         Assert.Equal(2, editor.Adornments.Count);
         editor.Document = new("new");
         Assert.Empty(editor.Adornments);
         Assert.Equal(1, recycled);
         Assert.False(source.TryPublish(current, []));
-        Assert.True(source.TryPublish(source.BeginUpdate(), [new("one", 1, new(20, 20))]));
+        Assert.True(source.TryPublish(source.BeginUpdate(), (RichTextWidget[])[new("one", 1, new(20, 20))]));
         Assert.Single(editor.Adornments);
         Assert.Null(editor.Adornments[0].CreatedView);
         Assert.False(editor.CanUndo);
