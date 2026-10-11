@@ -21,6 +21,8 @@ editor.Selection = new RichCellSelection(table, 0, 0, 1, 2);
 
 `InsertRows`, `DeleteRows`, `InsertColumns`, `DeleteColumns`, `MergeCells`, `SplitCell`, and cell-content operations validate the resulting grid. `GetTableGrid` resolves spanning cells. `SetCellFormat` authors independent edge borders, padding, shading, and vertical alignment. Merged-cell selections expand to whole cells.
 
+`SetColumnWidths` resizes the existing columns in one undoable transaction. Supply one positive `RichLength` per column. Cells, merged spans, content, and selections keep their identities. The total width must fit an RTF cell-boundary value; invalid dimensions are rejected before commit. Widths persist through the RTF codec.
+
 `MoveToAdjacentCell` navigates row order; forward navigation can append a row as one undo unit. Android uses native cell editors coordinated by one session. Up/Down and Shift-arrow navigation use the cells' native geometry and rich anchors.
 
 ## Inline content

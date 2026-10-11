@@ -39,6 +39,8 @@ The rich anchor's affinity controls insertion behavior. Structural moves, paragr
 
 Native RTF table, list, and field surfaces reserve inline and block space with private native attachments. Block placement refers to the containing rich paragraph. The native projection maps these attachments and their block rows back to canonical rich addresses; they do not create authored image resources or paragraphs. Native reservation repair, typing, composition, and undo retain the canonical document.
 
+Block widgets in tables measure against the containing cell's width, including column spans and excluding cell padding and paragraph indents. They remeasure when columns, padding, or the available viewport change. Inline widgets retain their intrinsic width. An explicitly fixed widget width can overflow its available space.
+
 | Placement | Behavior |
 | --- | --- |
 | Overlay | Overlaps text without reserving space |

@@ -333,8 +333,9 @@ public sealed partial class RichDocumentSnapshot
                 throw new ArgumentException("Lists require items and a nonnegative starting number.");
             case RichListItem item when Get<RichNode>(item.Blocks[0]) is not RichParagraph:
                 throw new ArgumentException("A list item starts with a paragraph, followed by any nested blocks.");
-            case RichTable table when table.Columns.IsDefaultOrEmpty || table.Rows.Count == 0 || table.Columns.Any(width => width.Twips <= 0):
-                throw new ArgumentException("Tables require rows and positive column widths.");
+            case RichTable table when table.Columns.IsDefaultOrEmpty || table.Rows.Count == 0 || table.Columns.Any(width => width.Twips <= 0) ||
+                table.Columns.Sum(width => (long)width.Twips) > int.MaxValue:
+                throw new ArgumentException("Tables require rows and positive column widths whose total fits an RTF cell boundary.");
             case RichText text:
                 ArgumentNullException.ThrowIfNull(text.Content);
                 foreach (var chunk in text.Content.GetChunks(new(0, text.Content.Length)))

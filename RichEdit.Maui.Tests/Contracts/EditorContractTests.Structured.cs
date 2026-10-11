@@ -7,6 +7,54 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+#if WINDOWS || IOS || MACCATALYST
+        yield return new("structured block widgets follow resized table columns", async editor =>
+        {
+            var previous = editor.Document;
+            RichNodeId table = default, paragraph = default;
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                table = edit.InsertTable(edit.Body, 1, 1, new RichLength[] { new(2400), new(2400) });
+                paragraph = edit.Snapshot.Get<RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+                edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "cell text");
+                edit.SetCellFormat(new(table, 0, 0, 1, 1), new() { Padding = RichCellPadding.Uniform(new(120)) });
+            }));
+#if WINDOWS
+            const double narrowWidth = 144, wideWidth = 304;
+#else
+            const double narrowWidth = 108, wideWidth = 228;
+#endif
+            Label? label = null;
+            try
+            {
+                editor.BindStructuredDocument(model);
+                await Task.Delay(60);
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, paragraph, 0);
+                using var widgets = editor.Adornments.CreateSource(_ => label = new Label
+                { Text = "A table annotation wraps within its cell and follows column resizing.", FontSize = 16 });
+                Equal(true, widgets.TryPublish(widgets.BeginUpdate(), new RichTextWidget[]
+                { new("cell-note", model.CurrentSnapshot.ProjectText().GetOffset(point), new(narrowWidth, 30), Options: new() { Placement = RichTextAdornmentPlacement.AboveLine }) }));
+                await WaitFor(() => label is { Bounds.Width: > 0, Bounds.Height: > 30 } && label.Bounds.Width <= narrowWidth);
+                var narrowHeight = label!.Bounds.Height;
+                Equal(false, model.CanUndo);
+                model.Edit(edit => edit.SetColumnWidths(table, new RichLength[] { new(4800), new(2400) }));
+                await WaitFor(() => label.Bounds.Width > narrowWidth && label.Bounds.Height < narrowHeight);
+                Equal(true, label.Bounds.Width <= wideWidth, "resized cell content width");
+                editor.Undo();
+                await WaitFor(() => label.Bounds.Width <= narrowWidth && label.Bounds.Height >= narrowHeight - 1);
+                Equal(0, model.CurrentSnapshot.Assets.Count);
+                Equal("cell text\t", model.CurrentSnapshot.ProjectText(table).Text.ToString());
+            }
+            finally { editor.Document = previous; }
+
+            async Task WaitFor(Func<bool> ready)
+            {
+                var deadline = Environment.TickCount64 + 3000;
+                while (!ready() && Environment.TickCount64 < deadline) await Task.Delay(20);
+                Equal(true, ready(), $"cell widget bounds {label?.Bounds}");
+            }
+        });
+#endif
         yield return new("structured widgets reserve native inline and block space without authored nodes", async editor =>
         {
             var previous = editor.Document;

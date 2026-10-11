@@ -26,6 +26,36 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             catch (Exception error) { results[^1] = $"FAIL {name}: {error}"; }
             File.WriteAllLines(report, results);
         }
+        await Test("column resize preserves cells and reflows native block widgets", async () =>
+        {
+            var cell = Cell(0, 0);
+            var paragraph = _editor.Document.CurrentSnapshot.Get<RichTableCell>(cell).Blocks[0];
+            var point = new RichTextPoint(_editor.Document.CurrentSnapshot.Body, paragraph, 0);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(point, point);
+            Label? label = null;
+            using var widgets = _editor.Presentation.CreateWidgetSource(_ => label = new Label
+            { Text = "A cell annotation wraps and follows column resizing.", FontSize = 16 });
+            Equal(true, widgets.TryPublish(widgets.BeginUpdate(), [new("cell-note", point, new(70, 30),
+                Options: new() { Placement = RichTextAdornmentPlacement.AboveLine })]));
+            await WaitFor(() => label is { Bounds.Width: > 0, Bounds.Height: > 30 });
+            var width = label!.Bounds.Width;
+            var height = label.Bounds.Height;
+            var columns = _editor.Document.CurrentSnapshot.Get<RichTable>(_table).Columns;
+            _editor.Edit(edit => edit.SetColumnWidths(_table, columns.SetItem(0, new(columns[0].Twips * 2))));
+            await WaitFor(() => label.Bounds.Width > width && label.Bounds.Height < height);
+            Equal(cell, Cell(0, 0));
+            Equal(new RichEdit.Core.RichTextSelection(point, point), _editor.Selection);
+            _editor.Undo();
+            await WaitFor(() => Math.Abs(label.Bounds.Width - width) < 1 && label.Bounds.Height >= height - 1);
+            Equal(0, _editor.Document.CurrentSnapshot.Assets.Count);
+
+            async Task WaitFor(Func<bool> ready)
+            {
+                var deadline = Environment.TickCount64 + 3000;
+                while (!ready() && Environment.TickCount64 < deadline) await Task.Delay(20);
+                Equal(true, ready());
+            }
+        });
         await Test("typed presentation routes to native cells and follows their structural identities", async () =>
         {
             var cell = Cell(0, 1);

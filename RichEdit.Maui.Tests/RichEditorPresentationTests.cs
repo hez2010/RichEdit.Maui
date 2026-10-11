@@ -13,6 +13,57 @@ public sealed partial class RichEditorPresentationTests
     private sealed partial class PresentationApplication : Application;
 
     [Fact]
+    public Task BlockWidgetsReflowWithinTheirTableCellAfterColumnResize() => WindowsTestHost.RunAsync(async () =>
+    {
+        RichNodeId table = default, paragraph = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            table = edit.InsertTable(edit.Body, 1, 1, new RichLength[] { new(2400), new(2400) });
+            paragraph = edit.Snapshot.Get<RichTableCell>(edit.Snapshot.GetTableGrid(table)[0, 0]).Blocks[0];
+            edit.ReplaceText(new(edit.Body, paragraph, 0), 0, "cell text");
+            edit.SetCellFormat(new(table, 0, 0, 1, 1), new() { Padding = RichCellPadding.Uniform(new(120)) });
+        }));
+        var rich = new RichEditor { Document = document, FontSize = 16 };
+        var app = _app ??= MauiApp.CreateBuilder().UseMauiApp<PresentationApplication>().UseRichEdit().Build();
+        var window = _window ??= new Microsoft.UI.Xaml.Window();
+        window.Content = rich.ToPlatform(new MauiContext(app.Services));
+        window.Activate();
+        Label? label = null;
+        try
+        {
+            await Task.Delay(100);
+            var point = new RichTextPoint(document.CurrentSnapshot.Body, paragraph, 0);
+            rich.Selection = new RichEdit.Core.RichTextSelection(point, point);
+            using var widgets = rich.Presentation.CreateWidgetSource(_ => label = new Label
+            {
+                Text = "A table annotation wraps within its cell and follows column resizing.", FontSize = 16,
+            });
+            Assert.True(widgets.TryPublish(widgets.BeginUpdate(), new RichEditorWidget[]
+            { new("cell-note", point, new(140, 30), Options: new() { Placement = RichTextAdornmentPlacement.AboveLine }) }));
+            await WaitFor(() => label is { Bounds.Width: > 0, Bounds.Height: > 30 } && label.Bounds.Width <= 144);
+            var narrowHeight = label!.Bounds.Height;
+            Assert.False(document.CanUndo);
+            Assert.Empty(document.CurrentSnapshot.Assets);
+            document.Edit(edit => edit.SetColumnWidths(table, new RichLength[] { new(4800), new(2400) }));
+            await WaitFor(() => label.Bounds.Width > 200 && label.Bounds.Height < narrowHeight);
+            Assert.InRange(label.Bounds.Width, 200, 304);
+            Assert.Equal(new RichEdit.Core.RichTextSelection(point, point), rich.Selection);
+            rich.Undo();
+            await WaitFor(() => label.Bounds.Width <= 144 && label.Bounds.Height >= narrowHeight - 1);
+            Assert.Empty(document.CurrentSnapshot.Assets);
+            Assert.Equal("cell text\t", document.CurrentSnapshot.ProjectText(table).Text.ToString());
+        }
+        finally { window.Content = null; rich.NativeView.Handler?.DisconnectHandler(); rich.Handler?.DisconnectHandler(); }
+
+        async Task WaitFor(Func<bool> ready)
+        {
+            var deadline = Environment.TickCount64 + 3000;
+            while (!ready() && Environment.TickCount64 < deadline) await Task.Delay(20);
+            Assert.True(ready(), $"Widget bounds {label?.Bounds}; " + string.Join("; ", rich.NativeView.Adornments.Select(item => $"size {item.MeasuredSize}, constraint {item.MeasuredWidthConstraint}, realized {item.IsRealized}")));
+        }
+    });
+
+    [Fact]
     public Task InlineWidgetReservesNativeTableLayoutWithoutChangingTheRichDocument() => WindowsTestHost.RunAsync(async () =>
     {
         RichNodeId paragraph = default;

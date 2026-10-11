@@ -63,17 +63,21 @@ public partial class RichEditorHandler
     {
         if (UsesStructuredNativeDocument)
         {
-            _displayWidth = Math.Max(1, GetAdornmentViewport().Width);
+            _displayWidth = Math.Max(1, (CaptureTextLayoutCore()?.TextViewport ?? GetAdornmentViewport()).Width - 1);
             var changed = _structuredNativeMap is null || _displayAdornmentVersion != VirtualView.Adornments.Version;
             var structuredBudget = _presentationBudget ?? new RichPresentationBudget();
             var pending = false;
             foreach (var item in VirtualView.Adornments)
             {
-                if (!item.ReservesSpace || !item.IsRealized || !item.MeasureDirty) continue;
+                if (!item.ReservesSpace || !item.IsRealized) continue;
+                var constraint = item.Options.Placement == RichTextAdornmentPlacement.Inline ? double.PositiveInfinity : StructuredWidgetWidth(item, _displayWidth);
+                if (item.MeasuredWidthConstraint != constraint) item.MeasureDirty = true;
+                if (!item.MeasureDirty) continue;
                 if (!structuredBudget.TryStart()) { pending = true; continue; }
-                var size = ((IView)item.View).Measure(item.Options.Placement == RichTextAdornmentPlacement.Inline ? double.PositiveInfinity : _displayWidth, double.PositiveInfinity);
+                var size = ((IView)item.View).Measure(constraint, double.PositiveInfinity);
                 if (item.Options.Baseline > size.Height) throw new ArgumentException("The inline baseline cannot exceed the measured content height.");
                 item.MeasuredSize = size;
+                item.MeasuredWidthConstraint = constraint;
                 item.MeasureDirty = false;
                 changed = true;
             }

@@ -4,6 +4,21 @@ namespace RichEdit.Core;
 
 public sealed partial class RichDocumentEdit
 {
+    /// <summary>Resizes the existing table columns without changing cells, spans, content, or selections.</summary>
+    /// <param name="tableId">The table to resize.</param>
+    /// <param name="columns">One positive width per existing column; the total must fit an RTF cell boundary.</param>
+    public void SetColumnWidths(RichNodeId tableId, IEnumerable<RichLength> columns)
+    {
+        VerifyOpen();
+        ArgumentNullException.ThrowIfNull(columns);
+        var table = Get<RichTable>(tableId);
+        var widths = columns.ToImmutableArray();
+        if (widths.Length != table.Columns.Length || widths.Any(width => width.Twips <= 0) ||
+            widths.Sum(width => (long)width.Twips) > int.MaxValue)
+            throw new ArgumentException("Supply one positive width per column, with a total no greater than Int32.MaxValue twips.", nameof(columns));
+        if (!widths.SequenceEqual(table.Columns)) _nodes[tableId] = table with { Columns = widths };
+    }
+
     /// <summary>Sets authored appearance on a normalized cell rectangle. Merged cells are updated once.</summary>
     public void SetCellFormat(RichCellSelection selection, RichCellFormat format)
     {

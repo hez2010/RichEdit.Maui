@@ -5,6 +5,39 @@ namespace RichEdit.Core.Tests;
 public class RichTableEditTests
 {
     [Fact]
+    public async Task ColumnResizePreservesMergedCellsSelectionsHistoryAndRtfWidths()
+    {
+        var (snapshot, table) = Table(2, 2);
+        var document = new RichDocument(snapshot);
+        document.Edit(edit => edit.MergeCells(new(table, 0, 0, 1, 2)));
+        document.ClearHistory();
+        var before = document.CurrentSnapshot;
+        using var session = document.CreateSession();
+        var selection = new RichCellSelection(table, 0, 0, 1, 2);
+        session.Selection = selection;
+        var widths = new RichLength[] { new(1200), new(3600) };
+        session.Edit(edit => edit.SetColumnWidths(table, widths));
+        Assert.Equal(selection, session.Selection);
+        Assert.Equal(before.GetTableGrid(table)[0, 0], document.CurrentSnapshot.GetTableGrid(table)[0, 1]);
+        Assert.Equal(widths, document.CurrentSnapshot.Get<RichTable>(table).Columns);
+        using var stream = new MemoryStream();
+        await Rtf.RtfCodec.WriteAsync(document.CurrentSnapshot, stream, cancellationToken: TestContext.Current.CancellationToken);
+        stream.Position = 0;
+        var loaded = await Rtf.RtfCodec.ReadAsync(stream, new() { RequireLossless = true }, TestContext.Current.CancellationToken);
+        Assert.Equal(widths, Assert.Single(loaded.Snapshot.Nodes.Values.OfType<RichTable>()).Columns);
+        session.Undo();
+        Assert.Equal(before.Get<RichTable>(table).Columns, document.CurrentSnapshot.Get<RichTable>(table).Columns);
+        session.Redo();
+        Assert.Equal(widths, document.CurrentSnapshot.Get<RichTable>(table).Columns);
+        var revision = document.Revision;
+        document.Edit(edit => edit.SetColumnWidths(table, widths));
+        Assert.Equal(revision, document.Revision);
+        Assert.Throws<ArgumentException>(() => document.Edit(edit => edit.SetColumnWidths(table, [new(1)])));
+        Assert.Throws<ArgumentException>(() => document.Edit(edit => edit.SetColumnWidths(table, [new(int.MaxValue), new(1)])));
+        Assert.Throws<ArgumentException>(() => RichDocumentSnapshot.Build(edit => edit.InsertTable(edit.Body, 1, 1, [new(int.MaxValue), new(1)])));
+    }
+
+    [Fact]
     public void ClearingCellContentRetainsParagraphDefaultsAndStyleInheritance()
     {
         RichNodeId table = default, cell = default;

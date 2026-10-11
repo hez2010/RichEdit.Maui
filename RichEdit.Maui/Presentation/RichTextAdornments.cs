@@ -103,6 +103,7 @@ public sealed partial class RichTextAdornment : IDisposable
 
     internal bool ReservesSpace => Options.Placement is RichTextAdornmentPlacement.Inline or RichTextAdornmentPlacement.AboveLine or RichTextAdornmentPlacement.BelowLine;
     internal Size MeasuredSize { get; set; }
+    internal double? MeasuredWidthConstraint { get; set; }
     internal bool MeasureDirty { get; set; } = true;
     internal bool IsRealized { get; set; }
     internal double NativeReservationSpace { get; set; }
