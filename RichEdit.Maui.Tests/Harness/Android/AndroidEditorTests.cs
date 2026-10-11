@@ -1,4 +1,4 @@
-#if DEBUG && ANDROID
+#if (DEBUG || EDITOR_TESTS) && ANDROID
 using Android.Text;
 using Android.Text.Style;
 using RichEdit.Maui.Platforms.Android;
@@ -23,7 +23,7 @@ internal static class AndroidEditorTests
             try { previousRtf = await RtfClipboardProvider.ReadAsync(native.Context!.ContentResolver!, previousUri); }
             catch (Exception error) when (error is IOException or Java.Lang.SecurityException or Java.IO.FileNotFoundException) { }
         }
-        var output = Path.Combine(FileSystem.CacheDirectory, "editor-tests.txt");
+        var output = Path.Combine(EditorTestOutput.Directory, "editor-tests.txt");
         void Save() => File.WriteAllText(output,
             $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; Android {Android.OS.Build.VERSION.Release} API {Android.OS.Build.VERSION.SdkInt}\n" +
             $"Started {started:O}; library {typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId}\n" +

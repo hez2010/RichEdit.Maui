@@ -1,4 +1,4 @@
-#if DEBUG && (IOS || MACCATALYST)
+#if (DEBUG || EDITOR_TESTS) && (IOS || MACCATALYST)
 using Foundation;
 using ObjCRuntime;
 using RichEdit.Maui.Platforms.Apple;
@@ -17,7 +17,7 @@ internal static class AppleEditorTests
         native.SmartInsertDeleteType = UITextSmartInsertDeleteType.Yes;
         var results = new List<string>();
         var started = DateTimeOffset.UtcNow;
-        var output = Path.Combine(FileSystem.CacheDirectory, "apple-editor-tests.txt");
+        var output = Path.Combine(EditorTestOutput.Directory, "apple-editor-tests.txt");
         var pasteboard = UIPasteboard.General;
         // Use only test-owned clipboard data; reading another app's clipboard at
         // startup prompts for paste permission before the test UI can load.
@@ -100,7 +100,7 @@ internal static class AppleEditorTests
                 using var exported = view.AttributedText!.GetData(new(0, view.AttributedText.Length), options, out var exportError);
                 if (exportError is not null) throw new InvalidOperationException(exportError.Description);
                 var rtf = System.Text.Encoding.UTF8.GetString(exported!.ToArray());
-                File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "native-table-probe.txt"),
+                File.WriteAllText(Path.Combine(EditorTestOutput.Directory, "native-table-probe.txt"),
                     $"text={text.Replace("\n", "\\n")}\nalpha={alphaRect}; beta={betaRect}; gamma={gammaRect}\nattributes={imported.Description}\nrtf={rtf}");
                 EditorContractTests.Equal(2, rtf.Split(@"\trowd", StringSplitOptions.None).Length - 1, "native RTF retains both table rows");
                 EditorContractTests.Equal(true, Math.Abs(betaRect.X - alphaRect.X - 72) < 1, "preferred RTF cell widths use typographic points");
@@ -729,7 +729,7 @@ internal static class AppleEditorTests
             using var renderer = new UIGraphicsImageRenderer(new CoreGraphics.CGSize(native.Bounds.Width, height));
             using var image = renderer.CreateImage(context => native.Layer.RenderInContext(context.CGContext));
             using var png = image.AsPNG()!;
-            png.Save(Path.Combine(FileSystem.CacheDirectory, "apple-list-switching.png"), false, out _);
+            png.Save(Path.Combine(EditorTestOutput.Directory, "apple-list-switching.png"), false, out _);
 
             void CheckItems(double indent)
             {
@@ -1204,7 +1204,7 @@ internal static class AppleEditorTests
             using var fullRenderer = new UIGraphicsImageRenderer(native.Bounds.Size);
             using var fullImage = fullRenderer.CreateImage(_ => native.DrawViewHierarchy(new CoreGraphics.CGRect(0, 0, native.Bounds.Width, native.Bounds.Height), true));
             using var png = fullImage.AsPNG();
-            File.WriteAllBytes(Path.Combine(FileSystem.CacheDirectory, "list-marker-failure.png"), png!.ToArray());
+            File.WriteAllBytes(Path.Combine(EditorTestOutput.Directory, "list-marker-failure.png"), png!.ToArray());
             throw new InvalidOperationException($"No list marker pixels at {position}: brightness={minimum}..{maximum}, caret={caret}, offset={native.ContentOffset}, bounds={native.Bounds}.");
         }
 

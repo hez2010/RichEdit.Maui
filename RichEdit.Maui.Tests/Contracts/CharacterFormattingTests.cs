@@ -82,7 +82,7 @@ internal static class CharacterFormattingTests
                 timer.Restart();
                 layer.Clear();
                 var clear = timer.Elapsed.TotalMilliseconds;
-                File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "formatting-projection-performance.txt"),
+                File.WriteAllText(Path.Combine(EditorTestOutput.Directory, "formatting-projection-performance.txt"),
                     $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; {DeviceInfo.Platform}\n" +
                     $"2000 lines, 4000 decorations: initial {initial:F1} ms; recolor {recolor:F1} ms; clear {clear:F1} ms\n");
                 await Task.Delay(100);

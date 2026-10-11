@@ -1,4 +1,4 @@
-#if DEBUG && (ANDROID || IOS || MACCATALYST)
+#if (DEBUG || EDITOR_TESTS) && (ANDROID || IOS || MACCATALYST)
 using Microsoft.Maui.Platform;
 using CodeEdit.Maui;
 using RichEdit.Maui.TestApp;
@@ -48,7 +48,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
     {
         var results = new List<string>();
         var started = DateTimeOffset.UtcNow;
-        var output = Path.Combine(FileSystem.CacheDirectory, "code-editor-tests.txt");
+        var output = Path.Combine(EditorTestOutput.Directory, "code-editor-tests.txt");
         void Save() => File.WriteAllText(output,
             $"{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; {DeviceInfo.Platform} {DeviceInfo.VersionString}\n" +
             $"Started {started:O}; library {typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId}; code {typeof(CodeEditor).Assembly.ManifestModule.ModuleVersionId}\n" +
@@ -813,7 +813,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             }
 
         using var png = image.AsPNG()!;
-        png.Save(Path.Combine(FileSystem.CacheDirectory, "code-gutter-failure.png"), false, out _);
+        png.Save(Path.Combine(EditorTestOutput.Directory, "code-gutter-failure.png"), false, out _);
         throw new InvalidOperationException("The laid-out line-number gutter contains no text pixels.");
     }
 #endif

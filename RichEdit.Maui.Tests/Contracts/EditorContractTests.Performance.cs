@@ -16,7 +16,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
             var progressPath = Path.Combine(AppContext.BaseDirectory, "editor-primitives-performance-progress.txt");
 #else
-            var progressPath = Path.Combine(FileSystem.CacheDirectory, "editor-primitives-performance-progress.txt");
+            var progressPath = Path.Combine(EditorTestOutput.Directory, "editor-primitives-performance-progress.txt");
 #endif
             File.WriteAllText(progressPath, DateTimeOffset.UtcNow.ToString("O") + " start\n");
             void Progress(string phase) => File.AppendAllText(progressPath, DateTimeOffset.UtcNow.ToString("O") + " " + phase + "\n");
@@ -96,7 +96,7 @@ internal static partial class EditorContractTests
 #if WINDOWS
             File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "editor-primitives-performance.json"), report);
 #else
-            File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "editor-primitives-performance.json"), report);
+            File.WriteAllText(Path.Combine(EditorTestOutput.Directory, "editor-primitives-performance.json"), report);
 #endif
             foreach (var widget in widgets)
                 widget.Dispose();

@@ -1,4 +1,4 @@
-#if DEBUG && ANDROID
+#if (DEBUG || EDITOR_TESTS) && ANDROID
 using RichEdit.Core;
 using NativeGrid = Android.Widget.GridLayout;
 
@@ -17,7 +17,7 @@ internal sealed class RichStructuredHostTestPage : ContentPage
     }
     private async Task RunAsync()
     {
-        var report = Path.Combine(FileSystem.CacheDirectory, "rich-structure-tests.txt");
+        var report = Path.Combine(EditorTestOutput.Directory, "rich-structure-tests.txt");
         var results = new List<string>();
         async Task Test(string name, Func<Task> action)
         {

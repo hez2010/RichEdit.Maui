@@ -10,6 +10,11 @@ namespace RichEdit.Maui.Tests;
 // and a second frame opportunity. A frame callback is not a GPU-present timestamp.
 internal static partial class SourcePerformanceWorkload
 {
+#if DEBUG
+    private const string BuildConfiguration = "Debug";
+#else
+    private const string BuildConfiguration = "Release";
+#endif
     internal static async Task RunLarge(CodeEditor editor, CodeEditor? peer = null)
     {
         var colorizer = editor.Coloring();
@@ -19,7 +24,7 @@ internal static partial class SourcePerformanceWorkload
 #if WINDOWS
         var progressPath = Path.Combine(AppContext.BaseDirectory, "source-editor-large-progress.txt");
 #else
-        var progressPath = Path.Combine(FileSystem.CacheDirectory, "source-editor-large-progress.txt");
+        var progressPath = Path.Combine(EditorTestOutput.Directory, "source-editor-large-progress.txt");
 #endif
         File.WriteAllText(progressPath, "");
         void Progress(string text) => File.AppendAllText(progressPath, $"{DateTimeOffset.UtcNow:O} {text}\n");
@@ -58,12 +63,14 @@ internal static partial class SourcePerformanceWorkload
                 measurements.Add(new(workload.Name, frozen.Length, frozen.LineCount, load, samples, history, GC.GetTotalAllocatedBytes(true) - allocation));
             }
             var report = new LargeReport(DateTimeOffset.UtcNow, System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
-                System.Runtime.InteropServices.RuntimeInformation.OSDescription, peer is not null, measurements.ToArray());
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, BuildConfiguration, DeviceInfo.Model,
+                typeof(CodeEditor).Assembly.ManifestModule.ModuleVersionId, typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId,
+                peer is not null, measurements.ToArray());
             var json = JsonSerializer.Serialize(report, new ReportJsonContext(new() { WriteIndented = true }).LargeReport);
 #if WINDOWS
             File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "source-editor-large-performance.json"), json);
 #else
-            File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "source-editor-large-performance.json"), json);
+            File.WriteAllText(Path.Combine(EditorTestOutput.Directory, "source-editor-large-performance.json"), json);
 #endif
         }
         finally { colorizer.Enabled = enabled; }
@@ -78,7 +85,7 @@ internal static partial class SourcePerformanceWorkload
 #if WINDOWS
         var progressPath = Path.Combine(AppContext.BaseDirectory, "source-editor-performance-progress.txt");
 #else
-        var progressPath = Path.Combine(FileSystem.CacheDirectory, "source-editor-performance-progress.txt");
+        var progressPath = Path.Combine(EditorTestOutput.Directory, "source-editor-performance-progress.txt");
 #endif
         File.WriteAllText(progressPath, DateTimeOffset.UtcNow.ToString("O") + " start\n");
         void Progress(string message) => File.AppendAllText(progressPath, DateTimeOffset.UtcNow.ToString("O") + " " + message + "\n");
@@ -144,14 +151,14 @@ internal static partial class SourcePerformanceWorkload
             Progress("publication complete");
             var dense = await MeasureInput(editor, samples, Progress);
             var report = new Report(DateTimeOffset.UtcNow, System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
-                System.Runtime.InteropServices.RuntimeInformation.OSDescription, Environment.ProcessorCount,
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, BuildConfiguration, DeviceInfo.Model, Environment.ProcessorCount,
                 typeof(CodeEditor).Assembly.ManifestModule.ModuleVersionId, typeof(NativeEditorView).Assembly.ManifestModule.ModuleVersionId,
                 lines, 4000, lines, baseline, publication, dense, editor.Document.RetainedHistoryByteEstimate);
             var json = JsonSerializer.Serialize(report, new ReportJsonContext(new() { WriteIndented = true }).Report);
 #if WINDOWS
             File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "source-editor-performance.json"), json);
 #else
-            File.WriteAllText(Path.Combine(FileSystem.CacheDirectory, "source-editor-performance.json"), json);
+            File.WriteAllText(Path.Combine(EditorTestOutput.Directory, "source-editor-performance.json"), json);
 #endif
         }
         finally { colorizer.Enabled = wasEnabled; }
@@ -220,7 +227,7 @@ internal static partial class SourcePerformanceWorkload
 #else
         using var link = CoreAnimation.CADisplayLink.Create(() => { if (++frames == 2) ready.TrySetResult(); });
         link.AddToRunLoop(Foundation.NSRunLoop.Main, Foundation.NSRunLoopMode.Common);
-        try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+        try { await ready.Task.WaitAsync(timeout ?? TimeSpan.FromSeconds(5)); }
         finally { link.Invalidate(); }
 #endif
     }
@@ -237,10 +244,11 @@ internal static partial class SourcePerformanceWorkload
     private sealed record Distribution(double P50, double P95, double P99, double Maximum);
     private sealed record InputMeasurements(InputSample[] Samples, Distribution NativeInput, Distribution DispatcherCheckpoint, Distribution SecondFrameOpportunity);
     private sealed record Publication(double SubmitMs, double CompletionMs, double LongestQueueDelayMs, long AllocatedBytes, int CreatedViews, int RecycledViews, int LiveViews);
-    private sealed record Report(DateTimeOffset Timestamp, string Runtime, string OS, int LogicalProcessors, Guid CodeAssembly, Guid NativeAssembly,
+    private sealed record Report(DateTimeOffset Timestamp, string Runtime, string OS, string Configuration, string Device, int LogicalProcessors, Guid CodeAssembly, Guid NativeAssembly,
         int Lines, int Decorations, int Widgets, InputMeasurements Baseline, Publication Initial, InputMeasurements Dense, long RetainedHistoryBytes);
     private sealed record LargeCase(string Name, int Length, int Lines, double LoadMs, InputMeasurements Input, long RetainedHistoryBytes, long AllocatedBytes);
-    private sealed record LargeReport(DateTimeOffset Timestamp, string Runtime, string OS, bool SplitViews, LargeCase[] Workloads);
+    private sealed record LargeReport(DateTimeOffset Timestamp, string Runtime, string OS, string Configuration, string Device,
+        Guid CodeAssembly, Guid NativeAssembly, bool SplitViews, LargeCase[] Workloads);
     [JsonSerializable(typeof(Report))]
     [JsonSerializable(typeof(LargeReport))]
     private partial class ReportJsonContext : JsonSerializerContext;

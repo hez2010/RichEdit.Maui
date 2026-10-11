@@ -7,7 +7,7 @@ namespace RichEdit.Maui.TestApp;
 [Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 public class MainActivity : MauiAppCompatActivity
 {
-#if DEBUG
+#if DEBUG || EDITOR_TESTS
     private bool _testsStarted;
 
     protected override void OnPostResume()

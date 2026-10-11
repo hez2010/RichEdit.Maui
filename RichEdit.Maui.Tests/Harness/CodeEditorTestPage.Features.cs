@@ -1,4 +1,4 @@
-#if DEBUG && (ANDROID || IOS || MACCATALYST)
+#if (DEBUG || EDITOR_TESTS) && (ANDROID || IOS || MACCATALYST)
 using CodeEdit.Maui;
 using RichEdit.Maui.TestApp;
 

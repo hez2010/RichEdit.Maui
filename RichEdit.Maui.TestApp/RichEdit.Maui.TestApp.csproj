@@ -87,7 +87,11 @@
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
     </ItemGroup>
 
-    <ItemGroup Condition="'$(Configuration)' == 'Debug' and ('$(TargetPlatformIdentifier)' == 'android' or '$(TargetPlatformIdentifier)' == 'ios' or '$(TargetPlatformIdentifier)' == 'maccatalyst')">
+    <PropertyGroup Condition="'$(EnableEditorTestHarness)' == 'true'">
+        <DefineConstants>$(DefineConstants);EDITOR_TESTS</DefineConstants>
+    </PropertyGroup>
+
+    <ItemGroup Condition="('$(Configuration)' == 'Debug' or '$(EnableEditorTestHarness)' == 'true') and ('$(TargetPlatformIdentifier)' == 'android' or '$(TargetPlatformIdentifier)' == 'ios' or '$(TargetPlatformIdentifier)' == 'maccatalyst')">
         <Compile Include="..\RichEdit.Maui.Tests\Contracts\*.cs" Link="Tests\Contracts\%(Filename)%(Extension)" />
         <Compile Include="..\RichEdit.Maui.Tests\Harness\**\*.cs" Link="Tests\Harness\%(RecursiveDir)%(Filename)%(Extension)" />
     </ItemGroup>

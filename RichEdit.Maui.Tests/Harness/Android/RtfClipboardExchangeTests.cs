@@ -1,11 +1,11 @@
-#if DEBUG && ANDROID
+#if (DEBUG || EDITOR_TESTS) && ANDROID
 namespace RichEdit.Maui.Tests;
 
 internal static class RtfClipboardExchangeTests
 {
     internal static async Task RunAsync(string action)
     {
-        var output = Path.Combine(FileSystem.CacheDirectory, "rtf-clipboard-exchange.txt");
+        var output = Path.Combine(EditorTestOutput.Directory, "rtf-clipboard-exchange.txt");
         try
         {
             if (action == "publish")

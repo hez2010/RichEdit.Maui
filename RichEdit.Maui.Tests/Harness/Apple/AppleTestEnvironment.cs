@@ -1,4 +1,4 @@
-#if DEBUG && (IOS || MACCATALYST)
+#if (DEBUG || EDITOR_TESTS) && (IOS || MACCATALYST)
 using UIKit;
 
 namespace RichEdit.Maui.Tests;
