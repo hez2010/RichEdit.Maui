@@ -50,8 +50,9 @@ public sealed partial class CodeEditor
     private void InitializeObservation()
     {
         TextLayout = TextView.TextLayout.CreateRelativeTo(this);
+        TextView.Unfocused += (_, _) => { CancelRectangle(); CancelScrollRequest(); };
         TextView.SourcePointerInput = ObserveSelectionPointer;
-        TextLayout.Changed += (_, _) => InvalidateGutter();
+        TextLayout.Changed += (_, _) => { InvalidateGutter(); PublishViewport(); UpdateRectangleGesture(); };
         TextView.CompositionChanged += (_, args) =>
         {
             OnPropertyChanged(nameof(CompositionSnapshot));

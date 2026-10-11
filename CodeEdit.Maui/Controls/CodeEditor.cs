@@ -187,7 +187,7 @@ public sealed partial class CodeEditor : ContentView
         TextView.BindSourceDocument(_document.Source);
         Selection = new CodeTextSelection(this);
         InitializeSelections();
-        TextView.Folding.Changed += (_, _) => InvalidateGutter();
+        TextView.Folding.Changed += (_, _) => { CancelRectangle(); InvalidateGutter(); };
         Commands = new CodeEditorCommands(this);
         _gutter = new GraphicsView { Drawable = new LineNumberDrawable(this), InputTransparent = true };
         TextView.BackgroundColor = BackgroundColor;
@@ -199,7 +199,7 @@ public sealed partial class CodeEditor : ContentView
         InitializeObservation();
         _document.Source.Changed += OnContentChanged;
         TextView.ContentChanged += (_, _) => { NativeAdapter?.UpdateConfiguration(); UpdateLines(); };
-        TextView.KeyDown += (_, args) => KeyDown?.Invoke(this, args);
+        TextView.KeyDown += (_, args) => { CancelScrollRequest(); CancelRectangle(); KeyDown?.Invoke(this, args); };
         InitializeKeyBindings();
         TextView.InputRules.Register(PlanNativeAutoIndent);
         TextView.ContextMenuOpening += (_, args) =>
@@ -235,6 +235,8 @@ public sealed partial class CodeEditor : ContentView
         };
         TextView.HandlerChanging += (_, _) =>
         {
+            CancelScrollRequest();
+            CancelRectangle();
             NativeAdapter?.Dispose();
             NativeAdapter = null;
         };
@@ -390,7 +392,13 @@ public sealed partial class CodeEditor : ContentView
 
     /// <summary>Reveals source without changing the selection.</summary>
     /// <param name="range">The source range to reveal.</param>
-    public void ScrollIntoView(TextSpan range) => TextView.ScrollIntoView(range);
+    public void ScrollIntoView(TextSpan range)
+    {
+        VerifyAccess();
+        range.Validate(Document.Length, nameof(range));
+        CancelScrollRequest();
+        TextView.ScrollIntoView(range);
+    }
 
     /// <summary>Copies the selection through the native clipboard.</summary>
     /// <returns>The clipboard operation.</returns>
@@ -406,6 +414,9 @@ public sealed partial class CodeEditor : ContentView
 
     private void SetDocument(CodeDocument? previous, CodeDocument document)
     {
+        CancelScrollRequest();
+        CancelRectangle();
+        _lastViewport = null;
         if (!ReferenceEquals(previous, document))
         {
             if (previous is not null) previous.Source.Changed -= OnContentChanged;
@@ -485,6 +496,7 @@ public sealed partial class CodeEditor : ContentView
 
     private void UpdateAppearance()
     {
+        CancelRectangle();
         TextView.FontFamily = FontFamily;
         TextView.FontSize = FontSize;
         NativeAdapter?.UpdateConfiguration();

@@ -97,6 +97,8 @@ For async colors/widgets, call `BeginUpdate` before background work and `TryPubl
 
 Create separate controls with the same document. Each control owns its session, selection, presentation, and viewport. Undo is global to the document and navigates the invoking view; applications expecting pane-local undo must adjust their UI.
 
+For linked source panes, use `CaptureScrollAnchor` and `RestoreScrollAnchorAsync` instead of copying native pixel offsets. Anchors follow edits and dispose independently of the control. Use `RevealAsync` for explicit reveal alignment, and forward `ViewportChanged.CauseToken` to suppress linked-scroll feedback. Keep `ScrollIntoView` for simple range visibility. Rectangle gestures use visual glyph intervals, so a bidi row can contribute more than one source selection.
+
 During IME, the document snapshot is committed content and the session composition is provisional. Resolve native composition before saving or switching documents. Respect `CompositionActive` rejection instead of bypassing the session.
 
 ```csharp

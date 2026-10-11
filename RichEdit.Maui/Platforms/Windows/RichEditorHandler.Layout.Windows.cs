@@ -100,51 +100,18 @@ public partial class RichEditorHandler
         var padding = PlatformView.Padding;
         var visible = new Rect(padding.Left, padding.Top, Math.Max(0, viewport.Width - padding.Left - padding.Right),
             Math.Max(0, viewport.Height - padding.Top - padding.Bottom));
-        var native = PlatformView.Document.GetRange(0, 0);
-        var text = DisplaySourceSnapshot.Text;
-        if (range.IsEmpty)
-            return result;
-
-        // Prune whole offscreen subranges and subdivide the rest down to one grapheme.
-        // Bounding boxes are only a rejection test: visible leaves still retain disjoint
-        // bidi rectangles, and every split is on a text-element boundary.
-        var elements = StringInfo.ParseCombiningCharacters(text.Substring(range.Start, range.Length));
-        var pending = new Stack<(int First, int Last)>();
-        pending.Push((0, elements.Length));
-        while (pending.TryPop(out var part))
+        // The caller bounds each request to one native visual row. Directional
+        // items preserve bidi gaps without querying every visible grapheme.
+        foreach (var part in NativeDirectionalRanges(range))
         {
-            var bounds = Bounds(Offset(part.First), Offset(part.Last));
-            if (part.Last - part.First == 1)
-            {
-                if (bounds.IntersectsWith(visible))
-                    AddFragment(result, bounds);
-                continue;
-            }
-
-            // An unavailable rectangle is not evidence that its characters are
-            // offscreen. Subdivide it so visible leaves can still be queried.
-            if (bounds.Width > 0 && bounds.Height > 0 && double.IsFinite(bounds.X) && double.IsFinite(bounds.Y) &&
-                double.IsFinite(bounds.Right) && double.IsFinite(bounds.Bottom) && !bounds.IntersectsWith(visible))
-                continue;
-
-            var middle = part.First + (part.Last - part.First) / 2;
-            pending.Push((middle, part.Last));
-            pending.Push((part.First, middle));
-        }
-
-        return result;
-
-        int Offset(int index) => index < elements.Length ? range.Start + elements[index] : range.End;
-
-        Rect Bounds(int start, int end)
-        {
-            native.SetRange(NativePositionFromDisplay(start), NativePositionFromDisplay(end));
             NativeGeometryQueryCount++;
-            native.GetRect(PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var rect, out _);
-            return new(rect.X + origin.X, rect.Y + origin.Y, rect.Width, rect.Height);
+            PlatformView.Document.GetRange(NativePositionFromDisplay(part.Start), NativePositionFromDisplay(part.End)).GetRect(
+                PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var native, out _);
+            var bounds = new Rect(native.X + origin.X, native.Y + origin.Y, native.Width, native.Height);
+            if (bounds.IntersectsWith(visible)) AddFragment(result, bounds);
         }
+        return result;
     }
-
     private partial RichTextHit? HitTestTextCore(Point point)
     {
         if (!PlatformView.IsLoaded)

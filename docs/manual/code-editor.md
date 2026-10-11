@@ -29,7 +29,9 @@ var editor = new CodeEditor
 
 `Selections` contains stable directional selections with one primary. `AddCaretAbove`, `AddCaretBelow`, `AddCaret`, and `ReplaceSelections` operate through native geometry and shared history. Virtual space is view-owned and materializes as spaces only when an edit commits.
 
-Alt-pointer gestures add carets and derive rectangular selections from visible native visual rows. `SelectRectangle` supports native wrapping, tabs, and variable-width endpoints. The current rectangle API operates on the visible viewport; it does not retain a drag rectangle across scrolling or produce disjoint bidi intervals within one row. Logical columns must not be treated as pixel X positions.
+Alt-pointer gestures add carets and derive rectangular selections from native visual rows. A drag retains its source anchor and scrolls when the pointer leaves the text viewport; rows already traversed remain selected. Native glyph bounds determine disjoint selections within bidi rows, including tabs, wrapping, and variable-width text. `SelectRectangle` applies the same geometry rules to the currently visible rows. Virtual space begins at logical line ends, never at a soft wrap. Logical columns must not be treated as pixel X positions.
+
+`RevealAsync` supports nearest-edge, top, center, and bottom alignment without moving selection or focus. `CaptureScrollAnchor` creates a disposable position that follows document edits and can be restored in another view of the same document. `ViewportChanged` includes source coordinates and a caller-supplied cause token for linked scrolling. See [layout](layout.md).
 
 ## Language features
 

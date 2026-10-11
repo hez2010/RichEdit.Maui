@@ -30,7 +30,10 @@ public partial class RichEditorHandler
 
     private partial void ReconcileCompositionSource() => ReadNativeDocumentChange();
 
-    private void OnObservedPointerExited(object sender, PointerRoutedEventArgs args) => VirtualView.ObservePointerExit();
+    private void OnObservedPointerExited(object sender, PointerRoutedEventArgs args)
+    {
+        if (_adornmentsConnected) VirtualView.ObservePointerExit();
+    }
 
     private bool ObservePointer(PointerRoutedEventArgs args, bool pressed)
     {
@@ -56,6 +59,14 @@ public partial class RichEditorHandler
 
     private sealed partial class SourceRichEditBox
     {
+        protected override void OnPointerCaptureLost(PointerRoutedEventArgs args)
+        {
+            if (handler._adornmentsConnected)
+                handler.VirtualView.ObservePointer(new(Point.Zero, RichTextPointerDeviceKind.Mouse,
+                    RichTextPointerButtons.None, EditorKeyModifiers.None), false);
+            base.OnPointerCaptureLost(args);
+        }
+
         protected override void OnPointerPressed(PointerRoutedEventArgs args)
         {
             if (handler.ObservePointer(args, true))

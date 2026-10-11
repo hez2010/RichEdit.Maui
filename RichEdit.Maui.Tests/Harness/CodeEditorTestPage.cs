@@ -702,6 +702,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             await Test("large native source and long logical line", "", () => SourcePerformanceWorkload.RunLarge(_editor));
         await RunInputTests((name, source, action) => Test("input " + name, source, action));
         await RunFeatureTests((name, source, action) => Test(name, source, action));
+        await RunViewportTests((name, source, action) => Test(name, source, action));
 
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         Save();
