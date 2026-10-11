@@ -4,7 +4,7 @@ namespace RichEdit.Core.Rtf;
 // properties. They contain no text, resources, or alternate document payload.
 internal static class RtfStyleState
 {
-    internal const int CharacterPropertyCount = 19;
+    internal const int CharacterPropertyCount = 20;
     internal const int ParagraphPropertyCount = 17;
     internal static (int Inherit, int Initial, int Null) Masks(RichCharacterStyle style)
     {
@@ -54,6 +54,8 @@ internal static class RtfStyleState
         if (style.Shading.Kind == StyleValueKind.Inherit) inherit |= 1 << 18;
         if (style.Shading.Kind == StyleValueKind.Initial) initial |= 1 << 18;
         if (style.Shading.Kind == StyleValueKind.Value && style.Shading.Value is null) nil |= 1 << 18;
+        if (style.HorizontalScalePercent.Kind == StyleValueKind.Inherit) inherit |= 1 << 19;
+        if (style.HorizontalScalePercent.Kind == StyleValueKind.Initial) initial |= 1 << 19;
         return (inherit, initial, nil);
     }
 
@@ -68,7 +70,7 @@ internal static class RtfStyleState
         Strike = Restore<RichStrike>(6, inherit, initial, value.Strike),
         Foreground = Restore<RichColor?>(7, inherit, initial, (nil & (1 << 7)) != 0 ? null : value.Foreground),
         Background = Restore<RichColor?>(8, inherit, initial, (nil & (1 << 8)) != 0 ? null : value.Background),
-        Script = Restore<RichScript>(9, inherit, initial, value.Script),
+        VerticalPosition = Restore<RichVerticalPosition>(9, inherit, initial, value.VerticalPosition),
         CharacterSpacing = Restore<RichLength>(10, inherit, initial, value.CharacterSpacing),
         SmallCaps = Restore<bool>(11, inherit, initial, value.SmallCaps),
         AllCaps = Restore<bool>(12, inherit, initial, value.AllCaps),
@@ -78,6 +80,7 @@ internal static class RtfStyleState
         Language = Restore<string?>(16, inherit, initial, (nil & (1 << 16)) != 0 ? null : value.Language),
         Direction = Restore<RichDirection>(17, inherit, initial, value.Direction),
         Shading = Restore<RichShading?>(18, inherit, initial, (nil & (1 << 18)) != 0 ? null : value.Shading),
+        HorizontalScalePercent = Restore<int>(19, inherit, initial, value.HorizontalScalePercent),
     };
 
     internal static (int Inherit, int Initial, int Null) Masks(RichParagraphStyle style)

@@ -6,6 +6,34 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured character scale and baseline placement survive native input", async editor =>
+        {
+            var previous = editor.Document;
+            var format = new RichCharacterStyle { HorizontalScalePercent = 125, VerticalPosition = RichVerticalPosition.Offset(7) };
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "shifted");
+                edit.SetParagraphCharacterFormat(new(2), format);
+                edit.InsertField(new(edit.Body, new(2), 7), "DATE", "today");
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                await Task.Delay(50);
+                var projected = editor.Document.CurrentSnapshot.GetCharacterFormat(0);
+                Equal(1.25, projected.HorizontalScale);
+                Equal(3.5, projected.BaselineOffset);
+                Equal(RichTextScript.Normal, projected.Script);
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, new(2), 7);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(point, point);
+                NativeMultiInsert(editor, "!");
+                Equal(format, model.CurrentSnapshot.Get<RichParagraph>(new(2)).Character);
+                editor.Undo();
+                Equal("shifted\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.Document = previous; }
+        });
         yield return new("structured paragraph borders retain sides widths and colors through input", async editor =>
         {
             var previous = editor.Document;

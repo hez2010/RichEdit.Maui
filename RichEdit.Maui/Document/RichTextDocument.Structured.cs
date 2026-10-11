@@ -176,8 +176,9 @@ public sealed partial class RichTextDocument
             Strike = Equals(before.Strikethrough, after.Strikethrough) ? default : value.Strike,
             Foreground = Equals(before.ForegroundColor, after.ForegroundColor) ? default : value.Foreground,
             Background = Equals(before.BackgroundColor, after.BackgroundColor) ? default : value.Background,
-            Script = Equals(before.Script, after.Script) ? default : value.Script,
+            VerticalPosition = before.Script == after.Script && before.BaselineOffset == after.BaselineOffset ? default : value.VerticalPosition,
             CharacterSpacing = Equals(before.CharacterSpacing, after.CharacterSpacing) ? default : value.CharacterSpacing,
+            HorizontalScalePercent = before.HorizontalScale == after.HorizontalScale ? default : value.HorizontalScalePercent,
             Shading = before.Shading == after.Shading && Equals(before.ShadingForegroundColor, after.ShadingForegroundColor) &&
                 Equals(before.ShadingBackgroundColor, after.ShadingBackgroundColor) ? default : value.Shading,
             SmallCaps = Equals(before.SmallCaps, after.SmallCaps) ? default : value.SmallCaps,
@@ -202,8 +203,10 @@ public sealed partial class RichTextDocument
             RichTextUnderlineStyle.Wave => RichUnderline.Wave, RichTextUnderlineStyle.Words => RichUnderline.Words, _ => RichUnderline.None },
         UnderlineColor = Color(value.UnderlineColor), Foreground = Color(value.ForegroundColor), Background = Color(value.BackgroundColor),
         Strike = value.Strikethrough switch { RichTextStrikethroughStyle.Single => RichStrike.Single, RichTextStrikethroughStyle.Double => RichStrike.Double, _ => RichStrike.None },
-        Script = value.Script switch { RichTextScript.Subscript => RichScript.Subscript, RichTextScript.Superscript => RichScript.Superscript, _ => RichScript.Normal },
+        VerticalPosition = value.BaselineOffset != 0 ? RichVerticalPosition.Offset(checked((int)Math.Round(value.BaselineOffset * 2, MidpointRounding.AwayFromZero))) :
+            value.Script switch { RichTextScript.Subscript => RichVerticalPosition.Subscript, RichTextScript.Superscript => RichVerticalPosition.Superscript, _ => RichVerticalPosition.Normal },
         CharacterSpacing = RichLength.FromPoints(value.CharacterSpacing), SmallCaps = value.SmallCaps, AllCaps = value.AllCaps,
+        HorizontalScalePercent = Math.Max(1, checked((int)Math.Round(value.HorizontalScale * 100, MidpointRounding.AwayFromZero))),
         Outline = value.Outline, Shadow = value.Shadow, Hidden = value.Hidden, Language = value.LanguageTag,
         Direction = Direction(value.Direction),
         Shading = ToShading(value.Shading, value.ShadingForegroundColor, value.ShadingBackgroundColor),

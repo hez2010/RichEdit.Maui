@@ -202,7 +202,10 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
             await C("chcbpat", Index(shading.Background));
         }
         await C(format.Script switch { RichScript.Superscript => "super", RichScript.Subscript => "sub", _ => "nosupersub" });
+        if (format.VerticalPosition.Kind == RichVerticalPositionKind.Offset)
+            await C(format.VerticalPosition.HalfPoints < 0 ? "dn" : "up", Math.Abs(format.VerticalPosition.HalfPoints));
         await C("expndtw", format.CharacterSpacing.Twips);
+        await C("charscalex", format.HorizontalScalePercent);
         await C("scaps", format.SmallCaps ? 1 : 0);
         await C("caps", format.AllCaps ? 1 : 0);
         await C("outl", format.Outline ? 1 : 0);

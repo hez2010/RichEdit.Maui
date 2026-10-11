@@ -201,7 +201,7 @@ public sealed class RichStyleSheet
     {
         var value = style.Apply(new());
         if (value.FontSize is { HalfPoints: <= 0 } || value.FontFamily is { } family && (string.IsNullOrWhiteSpace(family) || family.ContainsAny('\r', '\n', '\0')) ||
-            !Enum.IsDefined(value.Underline) || !Enum.IsDefined(value.Strike) || !Enum.IsDefined(value.Script) || !Enum.IsDefined(value.Direction))
+            !Enum.IsDefined(value.Underline) || !Enum.IsDefined(value.Strike) || !Enum.IsDefined(value.Script) || !Enum.IsDefined(value.Direction) || value.HorizontalScalePercent <= 0)
             throw new ArgumentException("Invalid authored character properties.", nameof(style));
         if (value.Language is { } language)
         {

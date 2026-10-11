@@ -10,7 +10,7 @@ internal sealed partial class RtfDocumentReader
     {
         if (_state.Destination == "skip") return;
         if (_structuralGap && word != "par") throw Error("A structural RTF gap must be followed by its paragraph mark");
-        var n = number ?? 1;
+        var n = number ?? (word == "charscalex" ? 100 : word is "up" or "dn" ? 6 : 1);
         if (Destination(word)) { _state.AtStart = false; return; }
         if (_state.AtStart && _state.Ignorable && word != "remodel" && !(word == "cs" && _state.Destination == "stylesheet"))
         {

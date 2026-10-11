@@ -6,6 +6,45 @@ namespace RichEdit.Core.Tests;
 
 public sealed class RtfCodecTests
 {
+    [Fact]
+    public async Task CharacterScaleUsesExactRtfPercentagesAndRetainsResetIntent()
+    {
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.SetDefaultCharacterFormat(new() { HorizontalScalePercent = 125 });
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "wide normal narrow");
+            edit.SetCharacterFormat(new(edit.Body, new(2), 5), 6, new() { HorizontalScalePercent = StyleValue<int>.Initial });
+            edit.SetCharacterFormat(new(edit.Body, new(2), 12), 6, new() { HorizontalScalePercent = 83 });
+        });
+        var loaded = await RoundTrip(snapshot);
+        Assert.Equal(snapshot.DefaultCharacter, loaded.DefaultCharacter);
+        Assert.Equal(snapshot.Nodes.Values.OfType<RichText>().OrderBy(run => run.Content.ToString()).Select(run => run.Format),
+            loaded.Nodes.Values.OfType<RichText>().OrderBy(run => run.Content.ToString()).Select(run => run.Format));
+        Assert.Throws<ArgumentException>(() => RichDocumentSnapshot.Build(edit => edit.SetDefaultCharacterFormat(new() { HorizontalScalePercent = 0 })));
+    }
+
+    [Fact]
+    public async Task VerticalPlacementHasOneCascadingModeAndExactHalfPointOffsets()
+    {
+        foreach (var position in new[] { RichVerticalPosition.Normal, RichVerticalPosition.Superscript, RichVerticalPosition.Subscript,
+            RichVerticalPosition.Offset(7), RichVerticalPosition.Offset(-13) })
+        {
+            var snapshot = RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "placed");
+                edit.SetCharacterFormat(new(edit.Body, new(2), 0), 6, new() { VerticalPosition = position });
+            });
+            var loaded = await RoundTrip(snapshot);
+            Assert.Equal(position, loaded.ResolveCharacter(Assert.Single(loaded.Nodes.Values.OfType<RichText>()).Id).VerticalPosition);
+        }
+        var style = new RichCharacterStyle { Script = RichScript.Superscript, VerticalPosition = RichVerticalPosition.Offset(3) };
+        Assert.Equal(RichScript.Normal, style.Script.Value);
+        Assert.Equal(RichVerticalPosition.Superscript, (style with { Script = RichScript.Superscript }).VerticalPosition.Value);
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\up raised\par}"));
+        var imported = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(RichVerticalPosition.Offset(6), imported.Snapshot.ResolveCharacter(Assert.Single(imported.Snapshot.Nodes.Values.OfType<RichText>()).Id).VerticalPosition);
+    }
+
     [Theory]
     [InlineData(@"{\rtf1 aaa\qc bbb\par}", RichAlignment.Center)]
     [InlineData(@"{\rtf1 aaa{\qc bbb}ccc\par}", RichAlignment.Left)]

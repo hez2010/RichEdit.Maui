@@ -31,7 +31,15 @@ public sealed record RichCharacterStyle
     public StyleValue<RichColor?> Background { get; init; }
 
     /// <summary>Superscript or subscript presentation.</summary>
-    public StyleValue<RichScript> Script { get; init; }
+    public StyleValue<RichScript> Script
+    {
+        get => VerticalPosition.Kind switch { StyleValueKind.Inherit => default, StyleValueKind.Initial => StyleValue<RichScript>.Initial,
+            _ => VerticalPosition.Value.Script };
+        init => VerticalPosition = value.Kind switch { StyleValueKind.Inherit => default, StyleValueKind.Initial => StyleValue<RichVerticalPosition>.Initial,
+            _ => RichVerticalPosition.FromScript(value.Value) };
+    }
+    /// <summary>Normal, script or manual baseline placement. Assigning Script sets this same cascading property.</summary>
+    public StyleValue<RichVerticalPosition> VerticalPosition { get; init; }
 
     /// <summary>Additional character spacing in typographic points.</summary>
     public StyleValue<RichLength> CharacterSpacing { get; init; }
@@ -58,6 +66,8 @@ public sealed record RichCharacterStyle
     public StyleValue<RichDirection> Direction { get; init; }
     /// <summary>Character shading, independently of highlighting; null disables shading.</summary>
     public StyleValue<RichShading?> Shading { get; init; }
+    /// <summary>Horizontal glyph scaling as a positive integer percentage; 100 is natural width.</summary>
+    public StyleValue<int> HorizontalScalePercent { get; init; }
 
     internal RichCharacterStyle Overlay(RichCharacterStyle child) => new()
     {
@@ -70,7 +80,7 @@ public sealed record RichCharacterStyle
         Strike = child.Strike.Kind == StyleValueKind.Inherit ? Strike : child.Strike,
         Foreground = child.Foreground.Kind == StyleValueKind.Inherit ? Foreground : child.Foreground,
         Background = child.Background.Kind == StyleValueKind.Inherit ? Background : child.Background,
-        Script = child.Script.Kind == StyleValueKind.Inherit ? Script : child.Script,
+        VerticalPosition = child.VerticalPosition.Kind == StyleValueKind.Inherit ? VerticalPosition : child.VerticalPosition,
         CharacterSpacing = child.CharacterSpacing.Kind == StyleValueKind.Inherit ? CharacterSpacing : child.CharacterSpacing,
         SmallCaps = child.SmallCaps.Kind == StyleValueKind.Inherit ? SmallCaps : child.SmallCaps,
         AllCaps = child.AllCaps.Kind == StyleValueKind.Inherit ? AllCaps : child.AllCaps,
@@ -80,6 +90,7 @@ public sealed record RichCharacterStyle
         Language = child.Language.Kind == StyleValueKind.Inherit ? Language : child.Language,
         Direction = child.Direction.Kind == StyleValueKind.Inherit ? Direction : child.Direction,
         Shading = child.Shading.Kind == StyleValueKind.Inherit ? Shading : child.Shading,
+        HorizontalScalePercent = child.HorizontalScalePercent.Kind == StyleValueKind.Inherit ? HorizontalScalePercent : child.HorizontalScalePercent,
     };
 
     internal ResolvedCharacterStyle Apply(ResolvedCharacterStyle inherited) => new()
@@ -93,7 +104,7 @@ public sealed record RichCharacterStyle
         Strike = Strike.Resolve(inherited.Strike, RichStrike.None),
         Foreground = Foreground.Resolve(inherited.Foreground, null),
         Background = Background.Resolve(inherited.Background, null),
-        Script = Script.Resolve(inherited.Script, RichScript.Normal),
+        VerticalPosition = VerticalPosition.Resolve(inherited.VerticalPosition, default),
         CharacterSpacing = CharacterSpacing.Resolve(inherited.CharacterSpacing, default),
         SmallCaps = SmallCaps.Resolve(inherited.SmallCaps, false),
         AllCaps = AllCaps.Resolve(inherited.AllCaps, false),
@@ -103,6 +114,7 @@ public sealed record RichCharacterStyle
         Language = Language.Resolve(inherited.Language, null),
         Direction = Direction.Resolve(inherited.Direction, RichDirection.Automatic),
         Shading = Shading.Resolve(inherited.Shading, null),
+        HorizontalScalePercent = HorizontalScalePercent.Resolve(inherited.HorizontalScalePercent, 100),
     };
 }
 
@@ -137,7 +149,9 @@ public sealed record ResolvedCharacterStyle
     public RichColor? Background { get; init; } = null;
 
     /// <summary>Superscript or subscript presentation.</summary>
-    public RichScript Script { get; init; } = RichScript.Normal;
+    public RichScript Script { get => VerticalPosition.Script; init => VerticalPosition = RichVerticalPosition.FromScript(value); }
+    /// <summary>Normal, script or manual baseline placement.</summary>
+    public RichVerticalPosition VerticalPosition { get; init; }
 
     /// <summary>Additional character spacing in typographic points.</summary>
     public RichLength CharacterSpacing { get; init; } = default;
@@ -164,5 +178,7 @@ public sealed record ResolvedCharacterStyle
     public RichDirection Direction { get; init; } = RichDirection.Automatic;
     /// <summary>Character shading, independently of highlighting; null disables shading.</summary>
     public RichShading? Shading { get; init; }
+    /// <summary>Horizontal glyph scaling as a percentage; 100 is natural width.</summary>
+    public int HorizontalScalePercent { get; init; } = 100;
 
 }
