@@ -9,6 +9,87 @@ namespace RichEdit.Maui.Tests;
 public partial class CodeEditorTests
 {
     [Fact]
+    public Task NativeTextFormatAdaptersRetainTOMSemantics() => WindowsTestHost.RunAsync(() =>
+    {
+        var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
+        using var engine = new WindowsTextServices(new NativeTextTestSite(WinRT.Interop.WindowNative.GetWindowHandle(window)));
+        SetText(engine, "first\r\nsecond");
+        VerifyNativeFormats(engine);
+    });
+
+    private static unsafe void VerifyNativeFormats(WindowsTextServices engine)
+    {
+        var iid = new Guid("C241F5E0-7206-11D8-A2C7-00A0D1D6C6B3");
+        var document = (global::Windows.Win32.UI.Controls.RichEdit.ITextDocument2*)engine.QueryInterface(in iid);
+        global::Windows.Win32.UI.Controls.RichEdit.ITextRange2* range = null;
+        try
+        {
+            document->Range2(0, 5, &range);
+            global::Windows.Win32.UI.Controls.RichEdit.ITextFont2* font;
+            global::Windows.Win32.UI.Controls.RichEdit.ITextPara2* paragraph;
+            range->GetFont2(&font);
+            range->GetPara2(&paragraph);
+            using var characters = new WindowsTextFont(engine, (nint)font);
+            using var paragraphs = new WindowsTextParagraph(engine, (nint)paragraph);
+            characters.Bold = Microsoft.UI.Text.FormatEffect.On;
+            characters.Italic = Microsoft.UI.Text.FormatEffect.Off;
+            characters.Size = 18;
+            characters.ForegroundColor = global::Windows.UI.Color.FromArgb(255, 20, 40, 80);
+            characters.LanguageTag = "ja-JP";
+            characters.Underline = Microsoft.UI.Text.UnderlineType.Wave;
+            characters.FontStretch = global::Windows.UI.Text.FontStretch.SemiCondensed;
+            characters.FontStyle = global::Windows.UI.Text.FontStyle.Oblique;
+            Assert.Equal(Microsoft.UI.Text.FormatEffect.On, characters.Bold);
+            Assert.Equal(Microsoft.UI.Text.FormatEffect.Off, characters.Italic);
+            Assert.Equal(18, characters.Size);
+            Assert.Equal(global::Windows.UI.Color.FromArgb(255, 20, 40, 80), characters.ForegroundColor);
+            Assert.Equal("ja-JP", characters.LanguageTag);
+            Assert.Equal(Microsoft.UI.Text.UnderlineType.Wave, characters.Underline);
+            Assert.Equal(global::Windows.UI.Text.FontStyle.Oblique, characters.FontStyle);
+            using var clone = (WindowsTextFont)characters.GetClone();
+            Assert.Equal(global::Windows.UI.Text.FontStyle.Oblique, clone.FontStyle);
+            Assert.True(characters.IsEqual(clone));
+            characters.Bold = Microsoft.UI.Text.FormatEffect.Off;
+            Assert.False(characters.IsEqual(clone));
+            characters.SetClone(clone);
+            Assert.Equal(Microsoft.UI.Text.FormatEffect.On, characters.Bold);
+            Assert.Equal(global::Windows.UI.Text.FontStretch.SemiCondensed, characters.FontStretch);
+            Assert.Equal(global::Windows.UI.Text.FontStyle.Oblique, characters.FontStyle);
+            paragraphs.Alignment = Microsoft.UI.Text.ParagraphAlignment.Center;
+            paragraphs.RightToLeft = Microsoft.UI.Text.FormatEffect.On;
+            paragraphs.SetIndents(2, 3, 4);
+            paragraphs.SetLineSpacing(Microsoft.UI.Text.LineSpacingRule.Multiple, 1.5f);
+            paragraphs.ListType = Microsoft.UI.Text.MarkerType.Arabic;
+            paragraphs.ListStyle = Microsoft.UI.Text.MarkerStyle.Period;
+            paragraphs.AddTab(80, Microsoft.UI.Text.TabAlignment.Center, Microsoft.UI.Text.TabLeader.Dots);
+            Assert.Equal(Microsoft.UI.Text.ParagraphAlignment.Center, paragraphs.Alignment);
+            Assert.Equal(Microsoft.UI.Text.FormatEffect.On, paragraphs.RightToLeft);
+            Assert.Equal(3, paragraphs.LeftIndent);
+            Assert.Equal(1.5f, paragraphs.LineSpacing);
+            Assert.Equal(Microsoft.UI.Text.LineSpacingRule.Multiple, paragraphs.LineSpacingRule);
+            Assert.Equal(Microsoft.UI.Text.MarkerType.Arabic, paragraphs.ListType);
+            Assert.Equal(Microsoft.UI.Text.MarkerStyle.Period, paragraphs.ListStyle);
+            Assert.Equal(1, paragraphs.TabCount);
+            paragraphs.GetTab(0, out var position, out var alignment, out var leader);
+            Assert.Equal(80, position);
+            Assert.Equal(Microsoft.UI.Text.TabAlignment.Center, alignment);
+            Assert.Equal(Microsoft.UI.Text.TabLeader.Dots, leader);
+            BSTR rtf; range->GetText2(8192, &rtf);
+            var bytes = WindowsTextValues.TakeBytes(rtf);
+            var text = System.Text.Encoding.Latin1.GetString(bytes);
+            Assert.Contains("\\ulwave", text);
+            Assert.Contains("\\tqc", text);
+            Assert.Contains("\\rtlpar", text);
+            using var encoded = new WindowsTextValues.Bytes(bytes);
+            range->SetText2(8192, encoded.Value);
+            BSTR plain;
+            range->GetText2(0, &plain);
+            Assert.Equal("first", WindowsTextValues.TakeString(plain));
+        }
+        finally { if (range is not null) range->Release(); document->Release(); }
+    }
+
+    [Fact]
     public Task NativeTextServicesOwnTextAndReleaseTheirHost() => WindowsTestHost.RunAsync(() =>
     {
         var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();

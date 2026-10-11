@@ -119,7 +119,9 @@ internal sealed unsafe partial class WindowsTextServices : IWindowsTextHost2, ID
         return result;
     }
 
-    private void VerifyAccess()
+    internal DispatcherQueue Dispatcher => _site.Dispatcher;
+
+    internal void VerifyAccess()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_thread != Environment.CurrentManagedThreadId) throw new InvalidOperationException("Native text services belong to their UI thread.");
