@@ -301,6 +301,18 @@ public partial class RichEditorHandler
     {
         replacement = null;
         var previous = DisplaySourceSnapshot;
+        if (VirtualView.SourceSession is not null)
+        {
+            var raw = ReadNativeStoryText(PlatformView.Document);
+            var nativeLength = raw.EndsWith('\r') ? raw.Length - 1 : raw.Length;
+            var change = FindNativeSourceReplacement(previous.TextBuffer, raw, NativeProjection.ToDisplay(VirtualView.SelectedRange));
+            selectionStart = Math.Clamp(nativeSelectionStart, 0, nativeLength);
+            selectionEnd = Math.Clamp(nativeSelectionEnd, selectionStart, nativeLength);
+            replacement = change.Range;
+            document = change.Range.IsEmpty && change.Text.Length == 0 ? previous :
+                previous.Replace(change.Range.Start..change.Range.End, change.Text, _nativeTypingFormat);
+            return true;
+        }
         var text = ReadNativePlainText();
         selectionStart = Math.Clamp(nativeSelectionStart, 0, text.Length);
         selectionEnd = Math.Clamp(nativeSelectionEnd, selectionStart, text.Length);
@@ -336,12 +348,6 @@ public partial class RichEditorHandler
         document = textChanged
             ? previous.Replace(prefixLength..oldEnd, insertedText, _nativeTypingFormat)
             : previous;
-
-        // Source input has no authored character or paragraph formatting.
-        // Keep the render cache's private reservations until Unproject removes
-        // them; reading them into a rich schema would mistake spacing slots for
-        // authored images and can reject an otherwise valid native insertion.
-        if (VirtualView.SourceSession is not null) { replacement = new(prefixLength, oldEnd - prefixLength); return true; }
 
         // A content callback with unchanged text can represent a native formatting
         // command. In that case inspect only the current selection (or its caret
@@ -541,8 +547,8 @@ public partial class RichEditorHandler
             end = snapshot.ToLogicalPosition(nativeEnd);
         }
 
-        start = Math.Clamp(start, 0, DisplaySourceSnapshot.Text.Length);
-        end = Math.Clamp(end, start, DisplaySourceSnapshot.Text.Length);
+        start = Math.Clamp(start, 0, DisplaySourceSnapshot.Length);
+        end = Math.Clamp(end, start, DisplaySourceSnapshot.Length);
         var length = end - start;
         UpdateSelectionFromDisplay((selection.Options & SelectionOptions.StartActive) != 0 ?
             new TextSelectionState(end, start) : new TextSelectionState(start, end));

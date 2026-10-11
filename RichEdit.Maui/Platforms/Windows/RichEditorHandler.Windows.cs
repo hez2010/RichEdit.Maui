@@ -571,7 +571,12 @@ public partial class RichEditorHandler
         if (_hasCompletedInitialLoad)
         {
             _nativeTextSnapshot = null;
-            if (string.Equals(
+            if (VirtualView.SourceSession is not null)
+            {
+                var change = FindNativeSourceReplacement(DisplaySourceSnapshot.TextBuffer, ReadNativeStoryText(PlatformView.Document), TextSpan.Empty);
+                if (change.Range.IsEmpty && change.Text.Length == 0) return;
+            }
+            else if (string.Equals(
                 GetNativeTextSnapshot().Text,
                 DisplaySourceSnapshot.Text,
                 StringComparison.Ordinal))

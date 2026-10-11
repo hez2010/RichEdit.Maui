@@ -37,7 +37,7 @@ public partial class RichEditorHandler
                 targetLine.Expand(TextRangeUnit.Line);
                 var lineStart = DisplayPositionFromNative(targetLine.StartPosition);
                 var lineEnd = DisplayPositionFromNative(targetLine.EndPosition);
-                var text = DisplaySourceSnapshot.Text;
+                var text = DisplaySourceSnapshot.TextBuffer;
                 if (lineEnd > lineStart && text[lineEnd - 1] is '\n' or '\u2028')
                     lineEnd--;
                 var hit = PlatformView.Document.GetRangeFromPoint(new(targetX - origin.X, target.Y + target.Height / 2 - origin.Y), PointOptions.ClientCoordinates);

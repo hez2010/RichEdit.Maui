@@ -31,7 +31,7 @@ public partial class RichEditorHandler
                 return null;
             if (direction is EditorKey.Home or EditorKey.End)
             {
-                var text = DisplaySourceSnapshot.Text;
+                var text = DisplaySourceSnapshot.TextBuffer;
                 if (text.Length != 0 && !(position == text.Length && text[^1] == '\n'))
                 {
                     var manager = PlatformView.LayoutManager;

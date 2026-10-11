@@ -5,6 +5,42 @@ namespace RichEdit.Maui.Tests;
 public sealed class SourceReadbackTests
 {
     [Fact]
+    public void WindowsNativeSourceComparisonDoesNotCopyTheUnchangedStory()
+    {
+        var text = string.Concat(Enumerable.Repeat(new string('x', 99) + "\n", 100_000));
+        var before = TextSnapshot.FromText(text);
+        var native = text.Replace('\n', '\r') + "\r";
+        foreach (var position in new[] { 0, text.Length / 2, text.Length })
+        {
+            var observed = native.Insert(position, "Y");
+            var allocated = GC.GetAllocatedBytesForCurrentThread();
+            var change = RichEditorHandler.FindNativeSourceReplacement(before, observed, new(position, 0));
+            allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+            Assert.Equal(new TextSpan(position, 0), change.Range);
+            Assert.Equal("Y", change.Text);
+            Assert.True(allocated < 64 * 1024, $"Source comparison allocated {allocated} bytes.");
+        }
+    }
+
+    [Fact]
+    public void WindowsNativeSourceComparisonHandlesUnpredictedAndDisjointEdits()
+    {
+        var random = new Random(721);
+        var text = string.Concat(Enumerable.Repeat("abc\n\u2028日本😀", 400));
+        var before = TextSnapshot.FromText(text);
+        for (var index = 0; index < 80; index++)
+        {
+            var start = random.Next(text.Length - 20);
+            var candidate = text.Remove(start, 10).Insert(start, "native\n\u2028");
+            candidate = candidate.Remove(candidate.Length - 5, 2).Insert(candidate.Length - 5, "X");
+            var raw = candidate.Replace('\n', '\r').Replace('\u2028', '\v') + "\r";
+            var change = RichEditorHandler.FindNativeSourceReplacement(before, raw, new(0, 0));
+            Assert.Equal(candidate, before.Replace(change.Range, change.Text).ToString());
+        }
+        Assert.Equal(new TextSpan(2, 0), RichEditorHandler.FindNativeSourceReplacement(TextSnapshot.FromText("aaaa"), "aaaaa\r", new(2, 0)).Range);
+    }
+
+    [Fact]
     public Task NativeMultipleCaretDeletionKeepsUnicodeGraphemeBoundaries() => WindowsTestHost.RunAsync(() =>
     {
         var source = new TextDocument("\u0600x\n\u0600x");

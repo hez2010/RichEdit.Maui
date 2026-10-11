@@ -6,6 +6,24 @@ namespace TextEdit.Core.Tests;
 public class TextSnapshotTests
 {
     [Fact]
+    public void ChunkTraversalKeepsOrderAndBoundedAllocationInBothDirections()
+    {
+        var text = string.Concat(Enumerable.Repeat("a\r\n日本😀", 200_000));
+        var snapshot = TextSnapshot.FromText(text).Replace(new(2040, 20), "replaced");
+        var range = new TextSpan(13, snapshot.Length - 29);
+        var expected = snapshot.GetText(range);
+        Assert.Equal(expected, string.Concat(snapshot.GetChunksReverse(range).Reverse().Select(chunk => chunk.ToString())));
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var count = 0;
+        foreach (var chunk in snapshot.GetChunks(range)) count += chunk.Length;
+        foreach (var chunk in snapshot.GetChunksReverse(range)) count -= chunk.Length;
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        Assert.Equal(0, count);
+        Assert.True(allocated < 16 * 1024, $"Chunk traversal allocated {allocated} bytes.");
+        Assert.Empty(snapshot.GetChunksReverse(new(snapshot.Length, 0)));
+    }
+
+    [Fact]
     public void ConcatenationSharesRootsAndCountsCrLfAcrossTheirBoundary()
     {
         var first = new TextDocument(new string('a', 100_000) + "\r").CurrentSnapshot;

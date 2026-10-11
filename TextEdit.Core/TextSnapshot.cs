@@ -174,6 +174,12 @@ public sealed partial class TextSnapshot
         return Chunks(_root, range.Start, range.Length);
     }
 
+    internal IEnumerable<ReadOnlyMemory<char>> GetChunksReverse(TextSpan range)
+    {
+        range.Validate(Length);
+        return Chunks(_root, range.Start, range.Length, reverse: true);
+    }
+
     /// <summary>Enumerates logical lines in one forward pass without materializing the complete text.</summary>
     public IEnumerable<TextLine> GetLines()
     {
@@ -304,28 +310,35 @@ public sealed partial class TextSnapshot
         return builder.ToString();
     }
 
-    private static IEnumerable<ReadOnlyMemory<char>> Chunks(Node? node, int start, int length)
+    private static IEnumerable<ReadOnlyMemory<char>> Chunks(Node? node, int start, int length, bool reverse = false)
     {
         if (node is null || length == 0)
             yield break;
-        if (node is Leaf leaf)
+        // One traversal stack avoids allocating an iterator for every branch.
+        var pending = new Stack<(Node Node, int Start, int Length)>();
+        pending.Push((node, start, length));
+        while (pending.TryPop(out var part))
         {
-            yield return leaf.Text.AsMemory(start, length);
-            yield break;
+            if (part.Node is Leaf leaf)
+            {
+                yield return leaf.Text.AsMemory(part.Start, part.Length);
+                continue;
+            }
+            var branch = (Branch)part.Node;
+            var leftLength = Math.Min(part.Length, Math.Max(0, branch.Left.Length - part.Start));
+            var rightLength = part.Length - leftLength;
+            var rightStart = Math.Max(0, part.Start - branch.Left.Length);
+            if (reverse)
+            {
+                if (leftLength != 0) pending.Push((branch.Left, part.Start, leftLength));
+                if (rightLength != 0) pending.Push((branch.Right, rightStart, rightLength));
+            }
+            else
+            {
+                if (rightLength != 0) pending.Push((branch.Right, rightStart, rightLength));
+                if (leftLength != 0) pending.Push((branch.Left, part.Start, leftLength));
+            }
         }
-        var branch = (Branch)node;
-        if (start < branch.Left.Length)
-        {
-            var count = Math.Min(length, branch.Left.Length - start);
-            foreach (var chunk in Chunks(branch.Left, start, count))
-                yield return chunk;
-            length -= count;
-            start = 0;
-        }
-        else
-            start -= branch.Left.Length;
-        foreach (var chunk in Chunks(branch.Right, start, length))
-            yield return chunk;
     }
 
     private static Node Build(IReadOnlyList<Node> nodes, int start, int count)
