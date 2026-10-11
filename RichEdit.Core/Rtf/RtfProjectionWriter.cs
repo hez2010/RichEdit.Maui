@@ -349,6 +349,7 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         Color(format.Background);
         Color(format.Shading?.Foreground);
         Color(format.Shading?.Background);
+        Color(format.Border?.Color);
     }
 
     private async Task Image(RichImage image)

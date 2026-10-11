@@ -83,6 +83,9 @@ public sealed partial class RichTextDocumentSnapshot
         TabStops = value.TabStops.Select(tab => new RichTextTabStop(tab.Position.Points,
             (RichTextTabAlignment)tab.Alignment, (RichTextTabLeader)tab.Leader)).ToImmutableArray(),
         Hyphenation = value.Hyphenation,
+        Border = value.Border is { } border ? new((RichTextBorderSides)border.Sides,
+            border.Style switch { RichBorderStyle.Double => RichTextBorderStyle.Double, RichBorderStyle.Dotted => RichTextBorderStyle.Dotted,
+                RichBorderStyle.Dashed => RichTextBorderStyle.Dashed, _ => RichTextBorderStyle.Single }, border.Width.Points, ToColor(border.Color)) : null,
         Shading = value.Shading?.Coverage ?? 0,
         ShadingForegroundColor = ToColor(value.Shading?.Foreground), ShadingBackgroundColor = ToColor(value.Shading?.Background),
     };

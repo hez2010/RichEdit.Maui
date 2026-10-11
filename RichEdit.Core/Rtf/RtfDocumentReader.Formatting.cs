@@ -55,6 +55,7 @@ internal sealed partial class RtfDocumentReader
 
     private bool ParagraphControl(string word, int n)
     {
+        if (BorderControl(word, n)) return true;
         var format = _state.Paragraph;
         switch (word)
         {

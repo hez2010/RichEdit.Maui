@@ -224,6 +224,7 @@ public sealed partial class RichTextDocument
             LineSpacing = before.LineSpacingRule == after.LineSpacingRule && before.LineSpacing == after.LineSpacing ? default : value.LineSpacing,
             TabStops = before.TabStops.AsSpan().SequenceEqual(after.TabStops.AsSpan()) ? default : value.TabStops,
             Hyphenation = before.Hyphenation == after.Hyphenation ? default : value.Hyphenation,
+            Border = before.Border == after.Border ? default : value.Border,
             Shading = before.Shading == after.Shading && Equals(before.ShadingForegroundColor, after.ShadingForegroundColor) &&
                 Equals(before.ShadingBackgroundColor, after.ShadingBackgroundColor) ? default : value.Shading,
         };
@@ -246,6 +247,10 @@ public sealed partial class RichTextDocument
         TabStops = new RichTabStops(value.TabStops.Select(tab => new RichTabStop(RichLength.FromPoints(tab.Position),
             (RichTabAlignment)tab.Alignment, (RichTabLeader)tab.Leader))),
         Hyphenation = value.Hyphenation,
+        Border = value.Border is { Sides: not RichTextBorderSides.None, Style: not RichTextBorderStyle.None } border ?
+            new RichBorder((RichBorderSides)border.Sides, border.Style switch
+            { RichTextBorderStyle.Double => RichBorderStyle.Double, RichTextBorderStyle.Dotted => RichBorderStyle.Dotted,
+                RichTextBorderStyle.Dashed => RichBorderStyle.Dashed, _ => RichBorderStyle.Single }, RichLength.FromPoints(border.Width), Color(border.Color)) : null,
         Shading = ToShading(value.Shading, value.ShadingForegroundColor, value.ShadingBackgroundColor),
     };
     private static RichColor? Color(Color? value) => value is null ? null : new((byte)Math.Round(value.Red * 255), (byte)Math.Round(value.Green * 255), (byte)Math.Round(value.Blue * 255));

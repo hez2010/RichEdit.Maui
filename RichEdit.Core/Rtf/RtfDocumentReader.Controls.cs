@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.Immutable;
 using System.Text;
 
 namespace RichEdit.Core.Rtf;
@@ -63,6 +64,7 @@ internal sealed partial class RtfDocumentReader
                 _state.ParagraphCharacter = new(); _state.ParagraphStyle = null;
                 _state.LineSpacing = 0; _state.LineMultiple = false;
                 _state.TabAlignment = RichTabAlignment.Left; _state.TabLeader = RichTabLeader.None;
+                _state.BorderSide = RichBorderSides.None; _state.Borders = _state.Borders.Clear();
                 _state.InTable = false; _state.ListOverride = _state.ListLevel = 0; return;
             case "s": case "cs":
                 if (_state.Destination == "stylesheet") { _state.StyleId = n; _state.CharacterDefinition = word == "cs"; _state.Capture ??= new(); return; }
@@ -79,6 +81,10 @@ internal sealed partial class RtfDocumentReader
                         _state.Paragraph = RtfStyleState.Restore(paragraph, 0, 0, 0);
                         _state.LineSpacing = paragraph.LineSpacing.RtfValue;
                         _state.LineMultiple = paragraph.LineSpacing.Kind == RichLineSpacingKind.Multiple;
+                        _state.Borders = paragraph.Border is { } border
+                            ? BorderEdges.Where(side => (border.Sides & side) != 0).ToImmutableDictionary(side => side, side => border with { Sides = side })
+                            : _state.Borders.Clear();
+                        _state.BorderSide = RichBorderSides.None;
                     }
                 }
                 return;
@@ -212,6 +218,7 @@ internal sealed partial class RtfDocumentReader
                 _state.Red = _state.Green = _state.Blue = 0; _state.ColorSpecified = false; return;
             case "stylesheet":
                 if (_state.StyleId < 0) return;
+                ReportBorderFidelity(_state);
                 var id = _state.StyleId == 0 ? short.MaxValue : _state.StyleId;
                 var styleName = _state.Capture?.ToString().Trim();
                 if (string.IsNullOrWhiteSpace(styleName)) throw Error("Empty style name");

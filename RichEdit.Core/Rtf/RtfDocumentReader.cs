@@ -226,6 +226,7 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
 
     private void CaptureParagraphProperties()
     {
+        ReportBorderFidelity(_state);
         var paragraph = EnsureParagraph();
         paragraph.Format = _state.Paragraph;
         paragraph.Style = _state.ParagraphStyle;
@@ -290,6 +291,8 @@ internal sealed partial class RtfDocumentReader(Stream input, RtfReadOptions opt
         internal bool LineMultiple;
         internal RichTabAlignment TabAlignment;
         internal RichTabLeader TabLeader;
+        internal RichBorderSides BorderSide;
+        internal ImmutableDictionary<RichBorderSides, RichBorder> Borders = ImmutableDictionary<RichBorderSides, RichBorder>.Empty;
         internal bool InTable;
         internal int TableLevel = 1;
         internal int ListId, ListOverride, ListLevel;

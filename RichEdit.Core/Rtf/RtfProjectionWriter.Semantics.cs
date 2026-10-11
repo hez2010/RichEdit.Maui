@@ -130,6 +130,15 @@ internal sealed partial class RtfProjectionWriter
             await C("cbpat", Index(shading.Background));
         }
         else if (value.Background is { } background) { await C("shading", 10000); await C("cfpat", _colors[background]); }
+        if (value.Border is { } border)
+            foreach (var (side, control) in new[] { (RichBorderSides.Left, "brdrl"), (RichBorderSides.Top, "brdrt"), (RichBorderSides.Right, "brdrr"), (RichBorderSides.Bottom, "brdrb") })
+                if ((border.Sides & side) != 0)
+                {
+                    await C(control);
+                    await C(border.Style switch { RichBorderStyle.Double => "brdrdb", RichBorderStyle.Dotted => "brdrdot", RichBorderStyle.Dashed => "brdrdash", _ => "brdrs" });
+                    await C("brdrw", border.Width.Twips);
+                    await C("brdrcf", Index(border.Color));
+                }
     }
 
     private async Task Name(string name)

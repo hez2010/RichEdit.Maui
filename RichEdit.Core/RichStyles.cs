@@ -218,6 +218,7 @@ public sealed class RichStyleSheet
         if (!Enum.IsDefined(value.Alignment) || !Enum.IsDefined(value.Direction) || value.HeadingLevel is < 1 or > 9 ||
             value.SpaceBefore.Twips < 0 || value.SpaceAfter.Twips < 0 || value.TabStops is null)
             throw new ArgumentException("Invalid authored paragraph properties.", nameof(style));
+        value.Border?.Validate();
     }
 }
 

@@ -132,6 +132,39 @@ public sealed class RtfCodecTests
         Assert.Equal(StyleValue<RichShading?>.FromValue(null), Assert.Single(restored.Nodes.Values.OfType<RichParagraph>()).Format.Shading);
     }
 
+    [Fact]
+    public async Task ParagraphBordersRoundTripAndMixedSideImportsReportTheirApproximation()
+    {
+        foreach (var style in Enum.GetValues<RichBorderStyle>())
+        {
+            var border = new RichBorder(RichBorderSides.All, style, new(37), new(14, 81, 212));
+            var snapshot = RichDocumentSnapshot.Build(edit =>
+            {
+                edit.SetDefaultParagraphFormat(new() { Border = border });
+                edit.SetParagraphFormat(new(2), new() { Border = border with { Sides = RichBorderSides.Left | RichBorderSides.Bottom } });
+                var clear = edit.InsertParagraph(edit.Body, 1, "clear");
+                edit.SetParagraphFormat(clear, new() { Border = StyleValue<RichBorder?>.FromValue(null) });
+            });
+            var loaded = await RoundTrip(snapshot);
+            Assert.Equal(snapshot.DefaultParagraph, loaded.DefaultParagraph);
+            var paragraphs = loaded.Get<RichStory>(loaded.Body).Blocks;
+            Assert.Equal(border with { Sides = RichBorderSides.Left | RichBorderSides.Bottom }, loaded.ResolveParagraph(paragraphs[0]).Border);
+            Assert.Null(loaded.ResolveParagraph(paragraphs[1]).Border);
+        }
+        using var external = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\pard\brdrl\brdrs\brdrw20\brdrr\brdrdb\brdrw30 mixed\par}"));
+        var imported = await RtfCodec.ReadAsync(external, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains(imported.Diagnostics, item => item.Feature == "paragraph-border-sides");
+        external.Position = 0;
+        await Assert.ThrowsAsync<RtfFidelityException>(() => RtfCodec.ReadAsync(external, new() { RequireLossless = true }, TestContext.Current.CancellationToken));
+        using var styled = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1{\stylesheet{\s1\brdrl\brdrs\brdrw20 Left;}}\pard\s1\brdrr\brdrs\brdrw20 text\par}"));
+        var inherited = await RtfCodec.ReadAsync(styled, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(inherited.Diagnostics);
+        Assert.Equal(RichBorderSides.Left | RichBorderSides.Right,
+            inherited.Snapshot.ResolveParagraph(inherited.Snapshot.Get<RichStory>(inherited.Snapshot.Body).Blocks[0]).Border!.Sides);
+        Assert.Throws<ArgumentException>(() => RichDocumentSnapshot.Build(edit => edit.SetParagraphFormat(new(2), new()
+        { Border = new RichBorder(RichBorderSides.All, RichBorderStyle.Single, new(256)) })));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("one\ntwo\n")]

@@ -6,6 +6,33 @@ internal static partial class EditorContractTests
 {
     private static IEnumerable<Case> StructuredBindingCases()
     {
+        yield return new("structured paragraph borders retain sides widths and colors through input", async editor =>
+        {
+            var previous = editor.Document;
+            var border = new RichBorder(RichBorderSides.All, RichBorderStyle.Double, new(30), new(200, 20, 30));
+            var model = new RichDocument(RichDocumentSnapshot.Build(edit =>
+            {
+                edit.ReplaceText(new(edit.Body, new(2), 0), 0, "bordered");
+                edit.SetParagraphFormat(new(2), new() { Border = border });
+                edit.InsertField(new(edit.Body, new(2), 8), "DATE", "today");
+            }));
+            try
+            {
+                editor.BindStructuredDocument(model);
+                await Task.Delay(50);
+                var nativeBorder = editor.Document.CurrentSnapshot.Paragraphs[0].Format.Border!;
+                Equal(RichTextBorderSides.All, nativeBorder.Sides);
+                Equal(1.5, nativeBorder.Width);
+                var point = new RichTextPoint(model.CurrentSnapshot.Body, new(2), 8);
+                editor.StructuredSession!.Selection = new RichEdit.Core.RichTextSelection(point, point);
+                NativeMultiInsert(editor, "!");
+                Equal(border, model.CurrentSnapshot.ResolveParagraph(new(2)).Border);
+                editor.Undo();
+                Equal("bordered\uFFFC", model.CurrentSnapshot.ProjectText().Text.ToString());
+                Equal(false, model.CanUndo);
+            }
+            finally { editor.Document = previous; }
+        });
         yield return new("structured shading retains independent colors through native input", async editor =>
         {
             var previous = editor.Document;
