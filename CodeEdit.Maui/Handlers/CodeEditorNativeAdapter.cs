@@ -49,4 +49,12 @@ internal sealed partial class CodeEditorNativeAdapter : IDisposable
 
     private partial void UpdateConfigurationCore();
 
+    internal bool UpdateLineLabels(AbsoluteLayout gutter, VisibleCodeLine[] lines, Color color)
+    {
+        var handled = false;
+        UpdateNativeLineLabels(gutter, lines, color, ref handled);
+        return handled;
+    }
+    partial void UpdateNativeLineLabels(AbsoluteLayout gutter, VisibleCodeLine[] lines, Color color, ref bool handled);
+
 }

@@ -1,4 +1,5 @@
 #if (DEBUG || EDITOR_TESTS) && (ANDROID || IOS || MACCATALYST)
+using CodeEdit.Maui;
 namespace RichEdit.Maui.Tests;
 
 internal sealed partial class CodeEditorTestPage
@@ -44,6 +45,28 @@ internal sealed partial class CodeEditorTestPage
         });
 #endif
 #if IOS || MACCATALYST
+        await test("native source typing keeps the caret in its visible line", string.Join("\n", Enumerable.Repeat("public class Sample { int value = 123; }", 200)), async () =>
+        {
+            var native = ((RichEditorHandler)_textView.Handler!).PlatformView;
+            _editor.SelectedRange = new(_editor.GetLineRange(100).Start + 26, 0);
+            _editor.Focus();
+            await _editor.RevealAsync(_editor.SelectedRange.Start, CodeRevealAlignment.Center);
+            await Task.Delay(700);
+            var originalOffset = native.ContentOffset;
+            var offsets = new List<double>();
+            using var observation = native.AddObserver("contentOffset", Foundation.NSKeyValueObservingOptions.New, _ => offsets.Add(native.ContentOffset.Y));
+            for (var character = 0; character < 4; character++)
+            {
+                native.InsertText("x");
+                for (var frame = 0; frame < 25; frame++)
+                {
+                    offsets.Add(native.ContentOffset.Y);
+                    await Task.Delay(10);
+                }
+            }
+            Equal(true, offsets.All(offset => Math.Abs(offset - originalOffset.Y) < 2),
+                $"typing offsets from {originalOffset.Y}: {string.Join(",", offsets.Distinct())}");
+        });
         await test("native storage batch preserves disjoint same-length source replacements", "0123456789abcdefghij", async () =>
         {
             var native = (UIKit.UITextView)_textView.Handler!.PlatformView!;

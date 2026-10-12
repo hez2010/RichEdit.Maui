@@ -522,6 +522,8 @@ public sealed partial class CodeEditor : ContentView
     private void UpdateLineLabels()
     {
         var visible = ShowLineNumbers ? GetVisibleLines().ToArray() : [];
+        var color = TextColor ?? TextView.TextColor ?? NativeAdapter?.GetTextColor() ?? Colors.Black;
+        if (NativeAdapter?.UpdateLineLabels(_gutter, visible, color) == true) return;
         while (_lineLabels.Count < visible.Length)
         {
             var label = new Label { InputTransparent = true, HorizontalTextAlignment = TextAlignment.End,
@@ -536,7 +538,6 @@ public sealed partial class CodeEditor : ContentView
             last.Handler?.DisconnectHandler();
             _lineLabels.RemoveAt(_lineLabels.Count - 1);
         }
-        var color = TextColor ?? TextView.TextColor ?? NativeAdapter?.GetTextColor() ?? Colors.Black;
         for (var index = 0; index < visible.Length; index++)
         {
             var line = visible[index];
