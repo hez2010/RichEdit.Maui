@@ -64,6 +64,7 @@ public partial class RichEditorHandler
         _formatWatcher = new NativeFormatWatcher(this);
         WatchNativeFormats();
         platformView.TextChanged += OnNativeDocumentChanged;
+        platformView.FocusChange += OnNativeFocusChanged;
         platformView.NativeSelectionChanged += OnNativeSelectionChanged;
         platformView.EditingCompleted += OnNativeEditingCompleted;
         platformView.PasteRequested = OnPlatformPasteAsync;
@@ -90,7 +91,9 @@ public partial class RichEditorHandler
         _formatWatcher?.Dispose();
         _formatWatcher = null;
         platformView.TextChanged -= OnNativeDocumentChanged;
+        platformView.FocusChange -= OnNativeFocusChanged;
         _nativeTextChangeDepth = 0;
+        _pendingNativeTextChange = null;
         platformView.NativeSelectionChanged -= OnNativeSelectionChanged;
         DisconnectFolding();
         platformView.EditingCompleted -= OnNativeEditingCompleted;
@@ -110,6 +113,9 @@ public partial class RichEditorHandler
         _contextMenuCallback = null;
         base.DisconnectHandler(platformView);
     }
+
+    private void OnNativeFocusChanged(object? sender, global::Android.Views.View.FocusChangeEventArgs args) =>
+        ((IView)VirtualView).IsFocused = args.HasFocus;
 
     private Task OnPlatformPasteAsync(bool asPlainText) =>
         VirtualView is null || VirtualView.IsReadOnly

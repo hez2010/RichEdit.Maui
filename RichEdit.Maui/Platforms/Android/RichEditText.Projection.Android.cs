@@ -412,8 +412,10 @@ public partial class RichEditText
 
             var nativeStart = Math.Min(owner.SelectionStart, owner.SelectionEnd);
             var nativeEnd = Math.Max(owner.SelectionStart, owner.SelectionEnd);
-            return base.DeleteSurroundingText(start == range.Start ? 0 : Math.Max(0, nativeStart - handler.NativeProjection.ToDisplay(start)),
-                end == range.End ? 0 : Math.Max(0, handler.NativeProjection.ToDisplay(end, false) - nativeEnd));
+            // A source boundary can be inside a CRLF pair represented by one
+            // native LF. Include that character at either edge of the deletion.
+            return base.DeleteSurroundingText(start == range.Start ? 0 : Math.Max(0, nativeStart - handler.NativeProjection.ToDisplay(start, false)),
+                end == range.End ? 0 : Math.Max(0, handler.NativeProjection.ToDisplay(end) - nativeEnd));
         }
     }
 }

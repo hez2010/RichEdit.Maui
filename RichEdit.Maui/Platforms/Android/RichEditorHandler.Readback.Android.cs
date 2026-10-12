@@ -114,11 +114,19 @@ public partial class RichEditorHandler
     }
 
     internal void BeginNativeTextChange() => _nativeTextChangeDepth++;
+    private global::Android.Text.TextChangedEventArgs? _pendingNativeTextChange;
 
     internal void EndNativeTextChange()
     {
         if (_nativeTextChangeDepth > 0 && --_nativeTextChangeDepth == 0)
+        {
+            if (_pendingNativeTextChange is { } change)
+            {
+                _pendingNativeTextChange = null;
+                OnNativeDocumentChanged(PlatformView, change);
+            }
             UpdateCompositionState();
+        }
     }
 
     private void OnNativeDocumentChanged(object? sender, Android.Text.TextChangedEventArgs eventArgs)
@@ -127,6 +135,11 @@ public partial class RichEditorHandler
         {
             return;
         }
+        // TextWatcher callbacks run inside Editable.Replace, before Android's
+        // remaining watchers (including EmojiCompat) finish their indexed work.
+        // Reconcile at the end of the native replacement so multi-caret repairs
+        // cannot mutate the buffer underneath those watchers.
+        if (_nativeTextChangeDepth != 0) { _pendingNativeTextChange = eventArgs; return; }
 
         var previousDocument = DisplaySourceSnapshot;
         UpdateCompositionState();
