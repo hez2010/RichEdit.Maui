@@ -22,7 +22,7 @@ public partial class RichReviewViewTests
         var window = _window ??= new Microsoft.UI.Xaml.Window();
         var app = _app ??= MauiApp.CreateBuilder().UseMauiApp<ReviewApplication>().UseRichEdit().Build();
         window.Content = review.ToPlatform(new MauiContext(app.Services));
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(80);

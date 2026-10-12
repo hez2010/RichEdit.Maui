@@ -377,7 +377,7 @@ public class AdornmentTests
         var panel = new Microsoft.UI.Xaml.Controls.Grid();
         panel.Children.Add(handler.ContainerView ?? handler.PlatformView);
         _window.Content = panel;
-        _window.Activate();
+        _window.AppWindow.Show(activateWindow: false);
         try
         {
             await test(editor, handler);

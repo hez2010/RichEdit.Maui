@@ -258,7 +258,7 @@ public class FoldingTests
         editor.Handler = handler;
         _window ??= new Microsoft.UI.Xaml.Window();
         _window.Content = handler.ContainerView ?? handler.PlatformView;
-        _window.Activate();
+        _window.AppWindow.Show(activateWindow: false);
         try
         {
             await test(editor, handler);

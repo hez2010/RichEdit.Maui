@@ -11,7 +11,7 @@ public partial class CodeEditorTests
         var editor = fixture.Editor;
         var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(100);
@@ -35,7 +35,7 @@ public partial class CodeEditorTests
         var editor = fixture.Editor;
         var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(100);
@@ -72,7 +72,7 @@ public partial class CodeEditorTests
         var editor = fixture.Editor;
         var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(100);

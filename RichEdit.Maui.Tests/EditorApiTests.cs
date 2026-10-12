@@ -98,7 +98,7 @@ public partial class EditorApiTests
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             await Task.Delay(60);
             fixture.Handler.PlatformView.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
             fixture.Editor.SelectionState = new(5, 1);

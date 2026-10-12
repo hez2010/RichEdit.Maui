@@ -37,7 +37,7 @@ public partial class WindowsEditorTests
         window.Content = grid;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             await Task.Delay(100);
             var snapshot = editor.Document.CurrentSnapshot;
             for (var index = 0; index < 2; index++)
@@ -91,7 +91,7 @@ public partial class WindowsEditorTests
         fixture.Handler.PlatformView.TextChanging += (_, args) => notifications.Add($"IsContentChanging={args.IsContentChanging}, version={editor.Document.Version}");
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             focusTarget.Focus(FocusState.Programmatic);
             await Task.Delay(100);
             editor.ClearUndoHistory();
@@ -263,7 +263,7 @@ public partial class WindowsEditorTests
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             fixture.Handler.PlatformView.Focus(FocusState.Programmatic);
             await Task.Delay(50);
             Assert.Equal(text, fixture.NativeText);

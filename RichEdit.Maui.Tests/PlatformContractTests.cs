@@ -70,7 +70,7 @@ public class PlatformContractTests
             grid.Children.Add(handler.ContainerView ?? handler.PlatformView);
             grid.Children.Add(focusTarget);
             _window.Content = grid;
-            _window.Activate();
+            _window.AppWindow.Show(activateWindow: false);
             if (name.StartsWith("focus", StringComparison.Ordinal))
                 focusTarget.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
             else

@@ -27,7 +27,7 @@ public partial class CodeEditorTests
         window.Content = host.ToPlatform(new MauiContext(app.Services));
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             ((IView)host).Measure(660, 350);
             ((IView)host).Arrange(new(0, 0, 660, 350));
             using var features = new CodeEditorFeatures(editor, host);
@@ -415,7 +415,7 @@ public partial class CodeEditorTests
         window.Content = grid;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             await fixture.Editor.Coloring().RefreshAsync();
             await Task.Delay(100);
             var version = fixture.Editor.Document.Version;
@@ -552,7 +552,7 @@ public partial class CodeEditorTests
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             await fixture.Editor.Coloring().RefreshAsync();
             await Task.Delay(150);
             var lines = fixture.Editor.GetVisibleLines();
@@ -584,7 +584,7 @@ public partial class CodeEditorTests
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             fixture.Editor.Folding.Collapse(new(0, 5));
             await Task.Delay(80);
             Assert.Equal(new[] { 1, 2, 3 }, fixture.Editor.GetVisibleLines().Select(line => line.Number));
@@ -627,7 +627,7 @@ public partial class CodeEditorTests
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             editor.Document.Edit(edit => edit.InsertText(editor.Document.Length, "!"));
             editor.Undo();
             await editor.Coloring().RefreshAsync();
@@ -699,7 +699,7 @@ public partial class CodeEditorTests
         window.Content = native;
         try
         {
-            window.Activate();
+            window.AppWindow.Show(activateWindow: false);
             ((IView)editor).Measure(660, 350);
             ((IView)editor).Arrange(new Microsoft.Maui.Graphics.Rect(0, 0, 660, 350));
             await editor.Coloring().RefreshAsync();

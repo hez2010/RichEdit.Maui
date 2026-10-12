@@ -33,7 +33,7 @@ public sealed class StructuredBindingTests
         view.Handler = handler;
         var window = _window ??= new Microsoft.UI.Xaml.Window();
         window.Content = handler.ContainerView ?? handler.PlatformView;
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(100);

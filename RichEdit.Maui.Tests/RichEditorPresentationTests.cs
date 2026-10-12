@@ -27,7 +27,7 @@ public sealed partial class RichEditorPresentationTests
         var app = _app ??= MauiApp.CreateBuilder().UseMauiApp<PresentationApplication>().UseRichEdit().Build();
         var window = _window ??= new Microsoft.UI.Xaml.Window();
         window.Content = rich.ToPlatform(new MauiContext(app.Services));
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         Label? label = null;
         try
         {
@@ -77,7 +77,7 @@ public sealed partial class RichEditorPresentationTests
         var app = _app ??= MauiApp.CreateBuilder().UseMauiApp<PresentationApplication>().UseRichEdit().Build();
         var window = _window ??= new Microsoft.UI.Xaml.Window();
         window.Content = rich.ToPlatform(new MauiContext(app.Services));
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(80);
