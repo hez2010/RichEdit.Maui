@@ -43,7 +43,7 @@ namespace RichEdit.Maui
         private void UpdateVirtualPrimaryCaret(bool hidden)
         {
 #if WINDOWS
-            PlatformView.Document.CaretType = hidden ? Microsoft.UI.Text.CaretType.Null : Microsoft.UI.Text.CaretType.Normal;
+            PlatformView.HideVirtualCaret = hidden;
 #elif ANDROID
             PlatformView.SetCursorVisible(!hidden && !VirtualView.IsReadOnly);
 #else

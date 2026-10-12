@@ -48,7 +48,25 @@ internal sealed unsafe partial class WindowsTextServices : IWindowsTextHost2, ID
     private readonly CHARFORMATW* _character;
     private readonly PARAFORMAT* _paragraph;
     private ITextServices2* _services;
+    private nint _host;
     private bool _disposed;
+    private int _operationDepth;
+    internal event Action? OperationCompleted;
+
+    internal Operation BeginOperation()
+    {
+        VerifyAccess();
+        _operationDepth++;
+        return new(this);
+    }
+
+    internal readonly struct Operation(WindowsTextServices owner) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (--owner._operationDepth == 0) owner.OperationCompleted?.Invoke();
+        }
+    }
 
     internal WindowsTextServices(IWindowsTextSite site)
     {
@@ -63,6 +81,7 @@ internal sealed unsafe partial class WindowsTextServices : IWindowsTextHost2, ID
         _paragraph->dwMask = PARAFORMAT_MASK.PFM_ALIGNMENT;
         _paragraph->wAlignment = PARAFORMAT_ALIGNMENT.PFA_LEFT;
         var host = ComInterfaceMarshaller<IWindowsTextHost2>.ConvertToUnmanaged(this);
+        _host = (nint)host;
         nint unknown = 0;
         try
         {
@@ -77,16 +96,33 @@ internal sealed unsafe partial class WindowsTextServices : IWindowsTextHost2, ID
         finally
         {
             if (unknown != 0) Marshal.Release(unknown);
-            ComInterfaceMarshaller<IWindowsTextHost2>.Free(host);
         }
     }
 
     internal nint Send(uint message, nuint wParam = 0, nint lParam = 0)
     {
-        VerifyAccess();
+        using var operation = BeginOperation();
         LRESULT result;
         _services->TxSendMessage(message, new(wParam), new(lParam), &result);
         return result.Value;
+    }
+
+    internal void SetFocus(bool focused)
+    {
+        using var operation = BeginOperation();
+        if (focused) _services->OnTxUIActivate();
+        Send(focused ? 0x7u : 0x8u);
+        if (!focused) _services->OnTxUIDeactivate();
+    }
+
+    internal (int Maximum, int Position, int Page) GetScroll(bool vertical)
+    {
+        VerifyAccess();
+        int minimum, maximum, position, page;
+        BOOL enabled;
+        if (vertical) _services->TxGetVScroll(&minimum, &maximum, &position, &page, &enabled);
+        else _services->TxGetHScroll(&minimum, &maximum, &position, &page, &enabled);
+        return (maximum, position, page);
     }
 
     internal void PropertyChanged(uint mask, uint bits)
@@ -108,7 +144,7 @@ internal sealed unsafe partial class WindowsTextServices : IWindowsTextHost2, ID
         VerifyAccess();
         var client = _site.Client;
         var bounds = new RECTL { left = client.left, top = client.top, right = client.right, bottom = client.bottom };
-        _services->TxDrawD2D((ID2D1RenderTarget*)renderTarget, &bounds, &client, 1);
+        _services->TxDrawD2D((ID2D1RenderTarget*)renderTarget, &bounds, &client, 0);
     }
 
     // The returned reference is owned by the caller, as with ordinary QueryInterface.
@@ -137,8 +173,14 @@ internal sealed unsafe partial class WindowsTextServices : IWindowsTextHost2, ID
         if (_services is not null)
         {
             shutdown = ShutdownTextServices((nint)_services);
-            _services->Release();
+            // ShutdownTextServices consumes our reference. Outstanding TOM
+            // ranges keep their own references and may be released afterward.
             _services = null;
+        }
+        if (_host != 0)
+        {
+            ComInterfaceMarshaller<IWindowsTextHost2>.Free((void*)_host);
+            _host = 0;
         }
         _site.DestroyCaret();
         NativeMemory.Free(_character);

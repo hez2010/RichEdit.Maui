@@ -49,7 +49,7 @@ internal sealed unsafe partial class WindowsTextRange(WindowsTextServices owner,
     {
         int character; Pointer->GetChar2(&character, offset); value = (uint)character;
     }
-    public void SetRange(int start, int end) => Pointer->SetRange(start, end);
+    public void SetRange(int start, int end) { using var operation = Owner.BeginOperation(); Pointer->SetRange(start, end); }
     public void Collapse(bool value) => Pointer->Collapse(value ? (int)tomConstants.tomStart : (int)tomConstants.tomEnd);
     public void SetIndex(TextRangeUnit unit, int index, bool extend) => Pointer->SetIndex(Unit(unit), index, extend ? 1 : 0);
     public int GetIndex(TextRangeUnit unit) { int value; Pointer->GetIndex(Unit(unit), &value); return value; }
@@ -74,7 +74,7 @@ internal sealed unsafe partial class WindowsTextRange(WindowsTextServices owner,
         SetRange(selection.StartPosition, selection.EndPosition);
     }
     public void ScrollIntoView(PointOptions options) => Pointer->ScrollIntoView((int)options);
-    public void TypeText(string value) { using var text = new WindowsTextValues.Text(value); Pointer->TypeText(text.Value); }
+    public void TypeText(string value) { using var operation = Owner.BeginOperation(); using var text = new WindowsTextValues.Text(value); Pointer->TypeText(text.Value); }
     public int FindText(string value, int length, FindOptions options)
     {
         using var text = new WindowsTextValues.Text(value);
@@ -117,6 +117,7 @@ internal sealed unsafe partial class WindowsTextRange(WindowsTextServices owner,
     }
     public void SetText(TextSetOptions options, string value)
     {
+        using var operation = Owner.BeginOperation();
         if (options.HasFlag(TextSetOptions.FormatRtf))
         {
             if (value.Any(character => character > 255)) throw new ArgumentException("RTF must encode Unicode with its Unicode escape controls.", nameof(value));
@@ -126,6 +127,7 @@ internal sealed unsafe partial class WindowsTextRange(WindowsTextServices owner,
     }
     private void SetBytes(TextSetOptions options, byte[] value)
     {
+        using var operation = Owner.BeginOperation();
         using var bytes = new WindowsTextValues.Bytes(value); Pointer->SetText2((int)options, bytes.Value);
     }
     public void GetTextViaStream(TextGetOptions options, IRandomAccessStream stream)

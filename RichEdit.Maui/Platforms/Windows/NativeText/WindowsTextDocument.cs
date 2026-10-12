@@ -55,8 +55,21 @@ internal sealed unsafe partial class WindowsTextDocument : WindowsTextObject<ITe
         using var range = (WindowsTextRange)GetRange(0, int.MaxValue);
         range.GetTextViaStream(options, stream);
     }
-    internal int BatchDisplayUpdates() { int value; Pointer->Freeze(&value); return value; }
-    internal int ApplyDisplayUpdates() { int value; Pointer->Unfreeze(&value); return value; }
+    internal bool CanUndo() => Owner.Send(global::Windows.Win32.PInvoke.EM_CANUNDO) != 0;
+    // The host schedules one canvas draw after a transaction. Keep layout live:
+    // TOM Freeze allows stale line offsets to escape through geometry queries
+    // while text/formatting/selection are changed in the same batch.
+    private readonly Stack<WindowsTextServices.Operation> _displayUpdates = new();
+    internal int BatchDisplayUpdates()
+    {
+        _displayUpdates.Push(Owner.BeginOperation());
+        return _displayUpdates.Count;
+    }
+    internal int ApplyDisplayUpdates()
+    {
+        _displayUpdates.Pop().Dispose();
+        return _displayUpdates.Count;
+    }
     internal void BeginUndoGroup() => Pointer->BeginEditCollection();
     internal void EndUndoGroup() => Pointer->EndEditCollection();
     internal void ClearUndoRedoHistory() => Owner.Send(global::Windows.Win32.PInvoke.EM_EMPTYUNDOBUFFER);

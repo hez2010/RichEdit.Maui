@@ -95,6 +95,8 @@ For async colors/widgets, call `BeginUpdate` before background work and `TryPubl
 
 ## Shared views, composition, and saving
 
+Windows handler property customizations use `Microsoft.UI.Xaml.Controls.Control`. Remove casts to `RichEditBox` and subscriptions to its editing events. Use the editor's document, selection, input, and viewport events for editing behavior, and adornments for content attached to text.
+
 Create separate controls with the same document. Each control owns its session, selection, presentation, and viewport. Undo is global to the document and navigates the invoking view; applications expecting pane-local undo must adjust their UI.
 
 For linked source panes, use `CaptureScrollAnchor` and `RestoreScrollAnchorAsync` instead of copying native pixel offsets. Anchors follow edits and dispose independently of the control. Use `RevealAsync` for explicit reveal alignment, and forward `ViewportChanged.CauseToken` to suppress linked-scroll feedback. Keep `ScrollIntoView` for simple range visibility. Rectangle gestures use visual glyph intervals, so a bidi row can contribute more than one source selection.

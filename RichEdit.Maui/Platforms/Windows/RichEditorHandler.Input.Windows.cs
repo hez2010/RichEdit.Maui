@@ -10,7 +10,7 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private readonly Dictionary<TextCommandBarFlyout, (ICommandBarElement[] Primary, ICommandBarElement[] Secondary)> _textFlyoutContents = [];
+    private readonly Dictionary<CommandBarFlyout, (ICommandBarElement[] Primary, ICommandBarElement[] Secondary)> _textFlyoutContents = [];
 
     private static EditorKey GetEditorKey(Windows.System.VirtualKey key) =>
         Enum.IsDefined((EditorKey)key) ? (EditorKey)key : EditorKey.None;
@@ -32,7 +32,7 @@ public partial class RichEditorHandler
         return modifiers;
     }
 
-    private void CustomizeTextFlyout(TextCommandBarFlyout flyout)
+    private void CustomizeTextFlyout(CommandBarFlyout flyout)
     {
         var menu = VirtualView.CreateContextMenu();
         if (menu.IncludeDefaultItems && menu.Items.Count == 0)
@@ -106,14 +106,14 @@ public partial class RichEditorHandler
         return button;
     }
 
-    [DynamicWindowsRuntimeCast(typeof(TextCommandBarFlyout))]
+    [DynamicWindowsRuntimeCast(typeof(CommandBarFlyout))]
     private void OnTextFlyoutClosed(object? sender, object args)
     {
-        if (sender is TextCommandBarFlyout flyout)
+        if (sender is CommandBarFlyout flyout)
             RestoreTextFlyout(flyout);
     }
 
-    private void RestoreTextFlyout(TextCommandBarFlyout flyout)
+    private void RestoreTextFlyout(CommandBarFlyout flyout)
     {
         if (!_textFlyoutContents.Remove(flyout, out var contents))
             return;

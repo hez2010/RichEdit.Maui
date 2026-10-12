@@ -1,3 +1,4 @@
+using RichEdit.Maui.Platforms.Windows.NativeText;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Controls;
 using RichEdit.Core;
@@ -6,12 +7,12 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private RichEditBox? _structuredScratch;
+    private WindowsRichEditView? _structuredScratch;
 
     private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map)
         => CaptureStructuredFormats(PlatformView.Document, map);
 
-    private StructuredNativeFormats CaptureStructuredFormats(RichEditTextDocument document, StructuredRichNativeMap map)
+    private StructuredNativeFormats CaptureStructuredFormats(WindowsTextDocument document, StructuredRichNativeMap map)
     {
         var runs = new List<RichTextRun>();
         var paragraphs = new Dictionary<RichNodeId, RichTextParagraphFormat>();
@@ -49,7 +50,7 @@ public partial class RichEditorHandler
             selectedCells: (VirtualView.StructuredSession!.Composition?.Selection ?? VirtualView.StructuredSession.Selection) as RichCellSelection,
             selectionBackground: selectionColors.Background, selectionForeground: selectionColors.Foreground,
             nativePrivateParagraphs: presentation?.PrivateParagraphs).GetAwaiter().GetResult();
-        var scratch = (_structuredScratch ??= new RichEditBox()).Document;
+        var scratch = (_structuredScratch ??= new WindowsRichEditView()).Document;
         scratch.SetText(TextSetOptions.FormatRtf | TextSetOptions.ApplyRtfDocumentDefaults, prepared.Rtf);
         var text = ReadNativeStoryText(scratch);
         var resolved = prepared.Resolve(text);
@@ -116,7 +117,7 @@ public partial class RichEditorHandler
         finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }
     }
 
-    private static void ApplyStructuredCellInsets(RichEditTextDocument native, StructuredRichNativeMap map)
+    private static void ApplyStructuredCellInsets(WindowsTextDocument native, StructuredRichNativeMap map)
     {
         // RichEdit's row margin is uniform and its RTF importer ignores clpad*.
         // Use native paragraph metrics for cell text insets. They are captured

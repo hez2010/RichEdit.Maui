@@ -1,3 +1,4 @@
+using RichEdit.Maui.Platforms.Windows.NativeText;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -13,9 +14,9 @@ public partial class RichEditorHandler
         (ResolveTextColor() ?? Colors.Black, PlatformView.SelectionHighlightColor.Color.ToColor().WithAlpha(0.3f));
 
     private partial void OffsetAdornmentScroll(double verticalDelta) =>
-        _adornmentScroller?.ChangeView(null, Math.Max(0, _adornmentScroller.VerticalOffset + verticalDelta), null, true);
+        PlatformView.ScrollBy(0, verticalDelta);
 
-    private RichEditBox _adornmentView = null!;
+    private WindowsRichEditView _adornmentView = null!;
     private (int Position, double X, double Y)? _observedNativeViewport;
     private ScrollViewer? _adornmentScroller;
     private double _appliedAdornmentMargin;
@@ -86,8 +87,7 @@ public partial class RichEditorHandler
         if (!_adornmentView.IsLoaded)
             return null;
 
-        var origin = (_adornmentScroller?.Content as UIElement)?.TransformToVisual(_adornmentView).TransformPoint(new(0, 0))
-            ?? new Windows.Foundation.Point(_adornmentView.Padding.Left, _adornmentView.Padding.Top);
+        var origin = Point.Zero;
         var nativePosition = NativePositionFromDisplay(position);
         NativeGeometryQueryCount++;
         _adornmentView.Document.GetRange(nativePosition, nativePosition).GetRect(

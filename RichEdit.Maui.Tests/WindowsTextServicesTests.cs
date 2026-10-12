@@ -9,6 +9,48 @@ namespace RichEdit.Maui.Tests;
 public partial class CodeEditorTests
 {
     [Fact]
+    public Task NativeCompositionNotificationsKeepSharedSourceProvisionalUntilCommit() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new CodeEditorFixture("a b");
+        var editor = fixture.Editor;
+        editor.Selections = new((TextSelection[])[new(1, 1), new(3, 3)]);
+        var native = fixture.Handler.PlatformView;
+        var site = (IWindowsTextSite)native;
+        site.Notify(0x713, 0);
+        await Task.Delay(20);
+        Assert.True(editor.Composition.IsActive);
+        native.Document.Selection.TypeText("中");
+        Assert.Equal("a b", editor.Document.Text);
+        Assert.True(editor.Composition.IsActive);
+        site.Notify(0x714, 0);
+        await Task.Delay(20);
+        Assert.False(editor.Composition.IsActive);
+        Assert.Equal("a中 b中", editor.Document.Text);
+        editor.Undo();
+        Assert.Equal("a b", editor.Document.Text);
+        Assert.False(editor.CanUndo);
+    });
+
+    [Fact]
+    public Task NativeTextHostShutdownReleasesExactlyOneReference() => WindowsTestHost.RunAsync(() =>
+    {
+        var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
+        var site = new NativeTextTestSite(WinRT.Interop.WindowNative.GetWindowHandle(window));
+        for (var index = 0; index < 16; index++)
+        {
+            var engine = new WindowsTextServices(site);
+            var document = new WindowsTextDocument(engine);
+            document.SetText(Microsoft.UI.Text.TextSetOptions.None, "retained range");
+            var range = (WindowsTextRange)document.GetRange(0, 8);
+            document.Dispose();
+            engine.Dispose();
+            Assert.Throws<ObjectDisposedException>(() => _ = range.Text);
+            range.Dispose();
+            engine.Dispose();
+        }
+    });
+
+    [Fact]
     public Task NativeTextRangesPreserveUnicodeSelectionAndImageGeometry() => WindowsTestHost.RunAsync(() =>
     {
         var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();

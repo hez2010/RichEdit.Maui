@@ -11,20 +11,20 @@ public partial class CodeEditorTests
         var editor = fixture.Editor;
         var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(80);
             editor.Selections = new((TextSelection[])[new(1, 1) { AnchorVirtualSpaces = 3, ActiveVirtualSpaces = 3 }]);
             await Task.Delay(40);
             Assert.Single(fixture.Handler.SecondaryCaretBounds);
-            Assert.Equal(Microsoft.UI.Text.CaretType.Null, fixture.Handler.PlatformView.Document.CaretType);
+            Assert.True(fixture.Handler.PlatformView.HideVirtualCaret);
             Assert.Equal("x", editor.Document.Text);
             Assert.False(editor.CanUndo);
             editor.Selections = TextSelectionSet.Caret(1);
             await Task.Delay(30);
             Assert.Empty(fixture.Handler.SecondaryCaretBounds);
-            Assert.Equal(Microsoft.UI.Text.CaretType.Normal, fixture.Handler.PlatformView.Document.CaretType);
+            Assert.False(fixture.Handler.PlatformView.HideVirtualCaret);
         }
         finally { window.Content = null; }
     });
@@ -58,7 +58,7 @@ public partial class CodeEditorTests
         var editor = fixture.Editor;
         var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(100);
@@ -94,7 +94,7 @@ public partial class CodeEditorTests
             // Native typing at a virtual primary is corrected together with all secondary edits.
             editor.Selections = new(before, 1);
             await Task.Delay(30);
-            Assert.Equal(Microsoft.UI.Text.CaretType.Null, fixture.Handler.PlatformView.Document.CaretType);
+            Assert.True(fixture.Handler.PlatformView.HideVirtualCaret);
             fixture.Handler.PlatformView.Document.Selection.TypeText("!");
             Assert.Equal("abc!d\r\nx  !\r\nabc!def", editor.Document.Text);
             Assert.All(editor.Selections, item => Assert.Equal(0, item.ActiveVirtualSpaces));
@@ -113,7 +113,7 @@ public partial class CodeEditorTests
         var editor = fixture.Editor;
         var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
-        window.Activate();
+        window.AppWindow.Show(activateWindow: false);
         try
         {
             await Task.Delay(100);

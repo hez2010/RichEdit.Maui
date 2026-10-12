@@ -1,3 +1,4 @@
+using RichEdit.Maui.Platforms.Windows.NativeText;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.UI.Text;
@@ -183,7 +184,7 @@ public partial class RichEditorHandler
     private static string ToNativeLink(string target) =>
         $"\"{target.Replace("\"", "%22", StringComparison.Ordinal)}\"";
 
-    private void OnNativeDocumentChanged(RichEditBox sender, RichEditBoxTextChangingEventArgs eventArgs)
+    private void OnNativeDocumentChanged(object? sender, NativeTextChangingEventArgs eventArgs)
     {
         if (_applyingDocument || VirtualView is null)
         {
@@ -394,7 +395,7 @@ public partial class RichEditorHandler
         });
     }
 
-    private static string ReadNativeStoryText(RichEditTextDocument nativeDocument)
+    private static string ReadNativeStoryText(WindowsTextDocument nativeDocument)
     {
         var range = nativeDocument.GetRange(0, 0);
         range.SetRange(0, range.StoryLength);
@@ -523,7 +524,7 @@ public partial class RichEditorHandler
         return new TextSpan(start, 1);
     }
 
-    private void OnNativeSelectionChanged(object sender, RoutedEventArgs eventArgs)
+    private void OnNativeSelectionChanged(object? sender, EventArgs eventArgs)
     {
         if (_applyingDocument || VirtualView is null)
         {

@@ -31,6 +31,9 @@ public partial class CodeEditorTests
             editor.SelectedRange = new(editor.Document.Length, 0);
             Assert.True(await editor.RevealAsync(editor.Document.Length));
             await Task.Delay(300);
+            var first = editor.TextLayout.Capture()!.Lines.First().SourceRanges.First().Start;
+            Assert.True(first > editor.Document.Length / 2, $"Distant pane reverted to source position {first}.");
+            Assert.Equal(0, peer.TextLayout.Capture()!.Lines.First().SourceRanges.First().Start);
             Assert.True(editor.Bounds.Right <= peer.Bounds.Left, "Split panes must not overlap.");
             var path = Path.Combine(AppContext.BaseDirectory, "split-pane-rendering.png");
             await WindowsWindowCapture.SaveAsync(_gutterWindow!, path);
