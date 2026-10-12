@@ -154,7 +154,7 @@ internal sealed class StructuredRichNativeMap
     internal bool HasSameStructureAndFormatting(RichDocumentSnapshot snapshot, RichNodeId editedParagraph)
     {
         if (Snapshot.DefaultCharacter != snapshot.DefaultCharacter || Snapshot.DefaultParagraph != snapshot.DefaultParagraph ||
-            Snapshot.Styles != snapshot.Styles || Snapshot.Revisions.Count != 0 || snapshot.Revisions.Count != 0) return false;
+            Snapshot.Styles != snapshot.Styles) return false;
         foreach (var node in Snapshot.Nodes.Values.Concat(snapshot.Nodes.Values).DistinctBy(node => node.Id))
         {
             if (node is RichText && node.Parent == editedParagraph) continue;

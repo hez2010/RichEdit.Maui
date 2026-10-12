@@ -66,6 +66,10 @@ public partial class RichEditorHandler
             return false;
         }
         var snapshot = VirtualView.StructuredSession!.Document.CurrentSnapshot;
+        // Native input has already changed its primary range. Multi-caret edits
+        // and input rules apply their remaining changes against that live state.
+        if (_pendingStructuredNativeMap is { } pending && HasStructuredNativeBaseline(pending))
+            SetStructuredNativeMap(pending, captureFormats: false);
         if (TryApplyStructuredInlineEdit(snapshot)) return true;
         SetStructuredNativeMap(CreateStructuredNativeDocumentCore(snapshot, apply: true), captureFormats: false);
         ApplyStructuredReservations();
