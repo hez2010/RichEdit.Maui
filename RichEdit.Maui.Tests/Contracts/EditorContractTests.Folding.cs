@@ -153,7 +153,7 @@ internal static partial class EditorContractTests
     private static Rect FoldingCaretRect(NativeEditorView editor, int offset)
     {
 #if WINDOWS
-        var native = (RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView)editor.Handler!.PlatformView!;
+        var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
         native.Document.GetRange(offset, offset).GetRect(Microsoft.UI.Text.PointOptions.ClientCoordinates | Microsoft.UI.Text.PointOptions.AllowOffClient, out var rect, out _);
         return new(rect.X, rect.Y, rect.Width, rect.Height);
 #elif ANDROID

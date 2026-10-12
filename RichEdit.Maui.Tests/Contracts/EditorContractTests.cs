@@ -343,7 +343,7 @@ internal static partial class EditorContractTests
             editor.Selection.ParagraphFormat.Alignment = RichTextAlignment.Center;
             await Verify(editor);
 #if WINDOWS
-            var native = (RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView)editor.Handler!.PlatformView!;
+            var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
             var range = native.Document.GetRange(0, 1);
             Equal(Microsoft.UI.Text.FormatEffect.On, range.CharacterFormat.Bold);
             Equal(Microsoft.UI.Text.FormatEffect.On, range.CharacterFormat.Italic);
@@ -466,7 +466,7 @@ internal static partial class EditorContractTests
             editor.SelectAll();
             editor.ClearUndoHistory();
 #if WINDOWS
-            var native = (RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView)editor.Handler!.PlatformView!;
+            var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
             native.Document.Selection.CharacterFormat.Bold = Microsoft.UI.Text.FormatEffect.On;
 #elif ANDROID
             var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;
@@ -1072,7 +1072,7 @@ internal static partial class EditorContractTests
     public static string NativeText(NativeEditorView editor)
     {
 #if WINDOWS
-        var native = (RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView)editor.Handler!.PlatformView!;
+        var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
         if (editor.Document.CurrentSnapshot.Links.Length == 0)
         {
             native.Document.GetText(Microsoft.UI.Text.TextGetOptions.None, out var plain);
@@ -1096,7 +1096,7 @@ internal static partial class EditorContractTests
     public static void NativeSelect(NativeEditorView editor, TextSpan range, bool backwards = false)
     {
 #if WINDOWS
-        var native = (RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView)editor.Handler!.PlatformView!;
+        var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
         native.Document.Selection.SetRange(backwards ? range.End : range.Start, backwards ? range.Start : range.End);
 #elif ANDROID
         var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;
@@ -1114,7 +1114,7 @@ internal static partial class EditorContractTests
         if (text.Length == 0 && editor.SelectedRange.IsEmpty)
             return;
 #if WINDOWS
-        ((RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView)editor.Handler!.PlatformView!).Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.None, text);
+        ((Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!).Document.Selection.SetText(Microsoft.UI.Text.TextSetOptions.None, text);
 #elif ANDROID
         var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;
         var start = Math.Min(native.SelectionStart, native.SelectionEnd);
@@ -1139,7 +1139,7 @@ internal static partial class EditorContractTests
     private static void SetNativeFocus(NativeEditorView editor, bool focused)
     {
 #if WINDOWS
-        var native = (RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView)editor.Handler!.PlatformView!;
+        var native = (Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!;
         if (focused)
             native.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
         else

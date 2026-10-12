@@ -1,4 +1,3 @@
-using RichEdit.Maui.Platforms.Windows.NativeText;
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -21,8 +20,10 @@ public partial class RichEditorHandler
             (FrameworkElementAutomationPeer.FromElement(view) as SourceTextPeer)?.CompleteCompositionTracking();
     }
 
-    private sealed partial class SourceRichEditView(RichEditorHandler handler) : WindowsRichEditView
+    private sealed partial class SourceRichEditBox(RichEditorHandler handler) : RichEditBox
     {
+        protected override void OnDragOver(Microsoft.UI.Xaml.DragEventArgs args) => handler.OnNativeDragOver(this, args);
+        protected override void OnDrop(Microsoft.UI.Xaml.DragEventArgs args) => handler.OnNativeDrop(this, args);
         protected override AutomationPeer OnCreateAutomationPeer() => new SourceTextPeer(this, handler);
     }
 
@@ -49,7 +50,7 @@ public partial class RichEditorHandler
 
         internal NativeEditorView Editor => Handler.VirtualView;
 
-        internal SourceTextPeer(SourceRichEditView view, RichEditorHandler handler) : base(view)
+        internal SourceTextPeer(SourceRichEditBox view, RichEditorHandler handler) : base(view)
         {
             Handler = handler;
             Connect();

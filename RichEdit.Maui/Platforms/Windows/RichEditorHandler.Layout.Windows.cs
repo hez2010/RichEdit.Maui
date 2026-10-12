@@ -8,7 +8,12 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private Point TextLayoutOrigin() => Point.Zero;
+    [DynamicWindowsRuntimeCast(typeof(UIElement))]
+    private Point TextLayoutOrigin()
+    {
+        var origin = (_adornmentScroller?.Content as UIElement)?.TransformToVisual(PlatformView).TransformPoint(new(0, 0));
+        return origin is { } point ? new(point.X, point.Y) : new(PlatformView.Padding.Left, PlatformView.Padding.Top);
+    }
 
     private int NativePositionFromDisplay(int source) => _hasNativeLinks ? GetNativeTextSnapshot().ToNativePosition(source) : source;
 
@@ -24,7 +29,7 @@ public partial class RichEditorHandler
         var textViewport = new Rect(padding.Left, padding.Top, Math.Max(0, viewport.Width - padding.Left - padding.Right), Math.Max(0, viewport.Height - padding.Top - padding.Bottom));
         var origin = TextLayoutOrigin();
         NativeGeometryQueryCount++;
-        var line = PlatformView.Document.GetRangeFromPoint(new(textViewport.Left + 0.01, textViewport.Top + 0.01), PointOptions.ClientCoordinates);
+        var line = PlatformView.Document.GetRangeFromPoint(new(0, Math.Max(0, -origin.Y)), PointOptions.ClientCoordinates);
         line.Expand(TextRangeUnit.Line);
         var lines = new List<RichTextVisualLine>();
         var lastStart = -1;
@@ -84,9 +89,7 @@ public partial class RichEditorHandler
 
         NativeGeometryQueryCount++;
         range.GetRect(PointOptions.ClientCoordinates | PointOptions.AllowOffClient, out var rect, out _);
-        range.GetPoint(HorizontalCharacterAlignment.Left, VerticalCharacterAlignment.Top,
-            PointOptions.ClientCoordinates | PointOptions.AllowOffClient | PointOptions.Start, out var point);
-        return new(point.X + origin.X, point.Y + origin.Y, 1, rect.Height);
+        return new(rect.X + origin.X, rect.Y + origin.Y, Math.Max(1, rect.Width), rect.Height);
     }
 
     private partial IReadOnlyList<Rect> GetTextRangeBoundsCore(TextSpan range)

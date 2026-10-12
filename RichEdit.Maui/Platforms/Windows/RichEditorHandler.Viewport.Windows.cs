@@ -13,8 +13,10 @@ public partial class RichEditorHandler
 
     private partial bool ScrollViewportByCore(Point delta)
     {
-        if (!PlatformView.IsLoaded) return false;
-        PlatformView.ScrollBy(delta.X, delta.Y);
+        if (_adornmentScroller is not { } scroller) return false;
+        scroller.ChangeView(
+            Math.Clamp(scroller.HorizontalOffset + delta.X, 0, scroller.ScrollableWidth),
+            Math.Clamp(scroller.VerticalOffset + delta.Y, 0, scroller.ScrollableHeight), null, true);
         return true;
     }
 }

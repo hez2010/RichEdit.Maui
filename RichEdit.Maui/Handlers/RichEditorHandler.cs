@@ -3,7 +3,7 @@ using PlatformRichEditor = RichEdit.Maui.Platforms.Android.RichEditText;
 #elif IOS || MACCATALYST
 using PlatformRichEditor = RichEdit.Maui.Platforms.Apple.RichTextView;
 #elif WINDOWS
-using PlatformRichEditor = Microsoft.UI.Xaml.Controls.Control;
+using PlatformRichEditor = Microsoft.UI.Xaml.Controls.RichEditBox;
 #endif
 
 using Microsoft.Maui.Handlers;

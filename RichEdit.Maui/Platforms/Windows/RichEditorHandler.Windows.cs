@@ -1,4 +1,3 @@
-using RichEdit.Maui.Platforms.Windows.NativeText;
 using System.Runtime.InteropServices;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Text;
@@ -12,8 +11,6 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    internal new WindowsRichEditView PlatformView => (WindowsRichEditView)base.PlatformView;
-
     private static readonly byte[] ImagePlaceholder = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
     private bool _applyingDocument;
@@ -25,15 +22,14 @@ public partial class RichEditorHandler
     private RichTextCharacterFormat _nativeTypingFormat = RichTextCharacterFormat.Default;
     private RichTextParagraphFormat _nativeTypingParagraphFormat = RichTextParagraphFormat.Default;
     private NativeTextSnapshot? _nativeTextSnapshot;
-    private CommandBarFlyout? _contextFlyout;
+    private TextCommandBarFlyout? _contextFlyout;
+    private TextCommandBarFlyout? _selectionFlyout;
 
     /// <inheritdoc />
-    protected override Control CreatePlatformView() => new SourceRichEditView(this)
+    protected override RichEditBox CreatePlatformView() => new SourceRichEditBox(this)
     {
-        IsProjectionUpdate = () => _applyingDocument,
         AcceptsReturn = true,
         AllowDrop = true,
-        CanDrag = true,
         HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
         HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
         IsSpellCheckEnabled = true,
@@ -44,10 +40,9 @@ public partial class RichEditorHandler
     };
 
     /// <inheritdoc />
-    protected override void ConnectHandler(Control platformControl)
+    protected override void ConnectHandler(RichEditBox platformView)
     {
-        base.ConnectHandler(platformControl);
-        var platformView = (WindowsRichEditView)platformControl;
+        base.ConnectHandler(platformView);
         ConnectAdornments();
         platformView.TextChanging += OnNativeDocumentChanged;
         platformView.SelectionChanged += OnNativeSelectionChanged;
@@ -55,22 +50,26 @@ public partial class RichEditorHandler
         platformView.Loaded += OnPlatformViewLoaded;
         platformView.LostFocus += OnPlatformViewLostFocus;
         platformView.PreviewKeyDown += OnPlatformKeyDown;
+        platformView.Paste += OnPlatformPaste;
+        platformView.CopyingToClipboard += OnPlatformCopy;
+        platformView.CuttingToClipboard += OnPlatformCut;
         platformView.DragStarting += OnSourceDragStarting;
-        platformView.DragOver += OnNativeDragOver;
-        platformView.Drop += OnNativeDrop;
         platformView.Tapped += OnPlatformTapped;
         platformView.TextCompositionStarted += OnCompositionStarted;
         platformView.TextCompositionEnded += OnCompositionEnded;
-        _contextFlyout = new CommandBarFlyout();
+        _contextFlyout = new TextCommandBarFlyout();
+        _selectionFlyout = new TextCommandBarFlyout();
         _contextFlyout.Opening += OnTextFlyoutOpening;
         _contextFlyout.Closed += OnTextFlyoutClosed;
+        _selectionFlyout.Opening += OnTextFlyoutOpening;
+        _selectionFlyout.Closed += OnTextFlyoutClosed;
         platformView.ContextFlyout = _contextFlyout;
+        platformView.SelectionFlyout = _selectionFlyout;
     }
 
     /// <inheritdoc />
-    protected override void DisconnectHandler(Control platformControl)
+    protected override void DisconnectHandler(RichEditBox platformView)
     {
-        var platformView = (WindowsRichEditView)platformControl;
         VirtualView?.Commands.Disconnect();
         DisconnectAdornments();
         platformView.TextChanging -= OnNativeDocumentChanged;
@@ -79,9 +78,10 @@ public partial class RichEditorHandler
         platformView.Loaded -= OnPlatformViewLoaded;
         platformView.LostFocus -= OnPlatformViewLostFocus;
         platformView.PreviewKeyDown -= OnPlatformKeyDown;
+        platformView.Paste -= OnPlatformPaste;
+        platformView.CopyingToClipboard -= OnPlatformCopy;
+        platformView.CuttingToClipboard -= OnPlatformCut;
         platformView.DragStarting -= OnSourceDragStarting;
-        platformView.DragOver -= OnNativeDragOver;
-        platformView.Drop -= OnNativeDrop;
         platformView.Tapped -= OnPlatformTapped;
         platformView.TextCompositionStarted -= OnCompositionStarted;
         platformView.TextCompositionEnded -= OnCompositionEnded;
@@ -93,7 +93,15 @@ public partial class RichEditorHandler
             RestoreTextFlyout(_contextFlyout);
         }
 
+        if (_selectionFlyout is not null)
+        {
+            _selectionFlyout.Opening -= OnTextFlyoutOpening;
+            _selectionFlyout.Closed -= OnTextFlyoutClosed;
+            RestoreTextFlyout(_selectionFlyout);
+        }
+
         _contextFlyout = null;
+        _selectionFlyout = null;
         _hasCompletedInitialLoad = false;
         _hasNativeLinks = false;
         _nativeTextSnapshot = null;
@@ -102,13 +110,11 @@ public partial class RichEditorHandler
         {
             scratch.Document.SetText(TextSetOptions.None, "");
             scratch.Document.ClearUndoRedoHistory();
-            scratch.Dispose();
             _structuredScratch = null;
         }
         _structuredNativeMap = null;
 
-        platformView.Dispose();
-        base.DisconnectHandler(platformControl);
+        base.DisconnectHandler(platformView);
     }
 
     private partial void SetNativeSelectionCore(TextSelectionState selection)
@@ -141,13 +147,13 @@ public partial class RichEditorHandler
 
     private partial bool IsComposingCore() => _isComposing;
 
-    private void OnCompositionStarted(object? sender, EventArgs args)
+    private void OnCompositionStarted(RichEditBox sender, TextCompositionStartedEventArgs args)
     {
         _isComposing = true;
         UpdateCompositionState();
     }
 
-    private void OnCompositionEnded(object? sender, EventArgs args)
+    private void OnCompositionEnded(RichEditBox sender, TextCompositionEndedEventArgs args)
     {
         ReadNativeDocumentChange();
         _isComposing = false;
@@ -323,15 +329,6 @@ public partial class RichEditorHandler
             return;
         }
 
-        if (IsShiftKeyDown() && !IsControlKeyDown() && !IsAltKeyDown() &&
-            eventArgs.Key is Windows.System.VirtualKey.Insert or Windows.System.VirtualKey.Delete)
-        {
-            var command = eventArgs.Key == Windows.System.VirtualKey.Insert ? VirtualView.Commands.Paste : VirtualView.Commands.Cut;
-            if (command.CanExecute(null)) command.Execute(null);
-            eventArgs.Handled = true;
-            return;
-        }
-
         if (IsControlKeyDown() && !IsAltKeyDown())
         {
             var clipboardCommand = eventArgs.Key switch
@@ -392,10 +389,35 @@ public partial class RichEditorHandler
         }
     }
 
-    [DynamicWindowsRuntimeCast(typeof(CommandBarFlyout))]
+    private async void OnPlatformPaste(object sender, TextControlPasteEventArgs eventArgs)
+    {
+        if (_applyingDocument || VirtualView is null || VirtualView.IsReadOnly)
+        {
+            return;
+        }
+
+        // Route every user paste through the portable fragment and cancellable
+        // Pasting event. The complete fragment becomes one document undo unit.
+        eventArgs.Handled = true;
+        await VirtualView.Commands.ExecuteClipboardAsync(VirtualView.PasteAsync);
+    }
+
+    private async void OnPlatformCopy(RichEditBox sender, TextControlCopyingToClipboardEventArgs args)
+    {
+        args.Handled = true;
+        await VirtualView.Commands.ExecuteClipboardAsync(VirtualView.CopyAsync);
+    }
+
+    private async void OnPlatformCut(RichEditBox sender, TextControlCuttingToClipboardEventArgs args)
+    {
+        args.Handled = true;
+        await VirtualView.Commands.ExecuteClipboardAsync(VirtualView.CutAsync);
+    }
+
+    [DynamicWindowsRuntimeCast(typeof(TextCommandBarFlyout))]
     private void OnTextFlyoutOpening(object? sender, object args)
     {
-        if (sender is not CommandBarFlyout flyout || VirtualView is null)
+        if (sender is not TextCommandBarFlyout flyout || VirtualView is null)
         {
             return;
         }
@@ -405,7 +427,7 @@ public partial class RichEditorHandler
     }
 
     [DynamicWindowsRuntimeCast(typeof(StandardUICommand))]
-    internal void ConfigureTextFlyoutCommands(CommandBarFlyout flyout)
+    internal void ConfigureTextFlyoutCommands(TextCommandBarFlyout flyout)
     {
         // Native flyout copy/cut call TOM directly and bypass the control's
         // clipboard events. Keep native formatting/proofing, but route editing
@@ -420,12 +442,9 @@ public partial class RichEditorHandler
             }
         }
 
-        AddCommand(StandardUICommandKind.Copy, VirtualView.Commands.Copy);
-        AddCommand(StandardUICommandKind.Cut, VirtualView.Commands.Cut);
         AddCommand(StandardUICommandKind.Undo, VirtualView.Commands.Undo);
         AddCommand(StandardUICommandKind.Redo, VirtualView.Commands.Redo);
         AddCommand(StandardUICommandKind.Paste, VirtualView.Commands.Paste);
-        AddCommand(StandardUICommandKind.SelectAll, VirtualView.Commands.SelectAll);
 
         System.Windows.Input.ICommand? GetCommand(StandardUICommandKind kind) => kind switch
         {
@@ -434,7 +453,6 @@ public partial class RichEditorHandler
             StandardUICommandKind.Paste => VirtualView.Commands.Paste,
             StandardUICommandKind.Undo => VirtualView.Commands.Undo,
             StandardUICommandKind.Redo => VirtualView.Commands.Redo,
-            StandardUICommandKind.SelectAll => VirtualView.Commands.SelectAll,
             _ => null,
         };
 

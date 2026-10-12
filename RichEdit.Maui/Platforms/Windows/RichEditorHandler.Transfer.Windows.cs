@@ -10,7 +10,7 @@ public partial class RichEditorHandler
 {
     private async void OnSourceDragStarting(UIElement sender, DragStartingEventArgs args)
     {
-        if (!PlatformView.IsTextDragArmed || !VirtualView.HasClipboardSelection || VirtualView.Composition.IsActive)
+        if (!VirtualView.HasClipboardSelection || VirtualView.Composition.IsActive)
         {
             args.Cancel = true;
             return;
@@ -22,6 +22,7 @@ public partial class RichEditorHandler
             await VirtualView.Commands.ExecuteClipboardAsync(async () =>
             {
                 if (await VirtualView.CaptureTransferAsync() is not { } content) return;
+                
                 args.Data.SetText(content.Text);
                 if (content.Rtf is { } rtf) args.Data.SetRtf(rtf);
                 args.AllowedOperations = DataPackageOperation.Copy;

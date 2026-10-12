@@ -57,7 +57,7 @@ public partial class RichEditorHandler
         return VirtualView.ObservePointer(new(new(point.Position.X, point.Position.Y), kind, buttons, GetEditorModifiers()), pressed);
     }
 
-    private sealed partial class SourceRichEditView
+    private sealed partial class SourceRichEditBox
     {
         protected override void OnPointerCaptureLost(PointerRoutedEventArgs args)
         {

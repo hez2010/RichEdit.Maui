@@ -1,4 +1,3 @@
-using RichEdit.Maui.Platforms.Windows.NativeText;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -200,8 +199,11 @@ public partial class RichEditorHandler
         }
     }
 
-    private static void LoadRtfDocument(WindowsTextDocument nativeDocument, string rtf)
+    private static void LoadRtfDocument(RichEditTextDocument nativeDocument, string rtf)
     {
+        // RichEdit consumes the last paragraph mark as its mandatory story
+        // terminator. Supply it separately from logical trailing paragraph breaks.
+        rtf = rtf.Insert(rtf.Length - 1, @"\par");
         using var stream = new InMemoryRandomAccessStream();
         using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
         {

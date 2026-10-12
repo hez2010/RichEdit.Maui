@@ -8,7 +8,7 @@ namespace CodeEdit.Maui;
 
 internal sealed partial class CodeEditorNativeAdapter
 {
-    private RichEdit.Maui.Platforms.Windows.NativeText.WindowsRichEditView PlatformView = null!;
+    private RichEditBox PlatformView = null!;
 
     [DynamicWindowsRuntimeCast(typeof(Microsoft.UI.Xaml.Media.SolidColorBrush))]
     internal partial Color? GetTextColor() => (PlatformView.Foreground as Microsoft.UI.Xaml.Media.SolidColorBrush)?.Color.ToColor();
@@ -27,6 +27,6 @@ internal sealed partial class CodeEditorNativeAdapter
             PlatformView.TextWrapping = wrapping;
             _handler.InvalidateNativeReservationPolicy();
         }
-        ScrollViewer.SetHorizontalScrollBarVisibility(PlatformView.Scroller, Owner.WordWrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(PlatformView, Owner.WordWrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
     }
 }
