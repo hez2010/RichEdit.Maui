@@ -4,10 +4,10 @@
              xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui"
              x:Class="RichEdit.Maui.TestApp.RichEditorPage"
              Title="Rich editor" Shell.NavBarIsVisible="False">
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Padding="18" RowSpacing="10">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Padding="18" RowSpacing="10">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <VerticalStackLayout Spacing="3">
-                <Label Text="Rich document" FontSize="24" FontAttributes="Bold" />
+                <Label x:Name="DocumentTitle" Text="RTF reference" FontSize="24" FontAttributes="Bold" />
                 <Label Text="Native editing · shared views · RTF" FontSize="12" Opacity="0.7" />
             </VerticalStackLayout>
             <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
@@ -17,33 +17,34 @@
         </Grid>
         <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Default">
         <HorizontalStackLayout Spacing="4">
-            <Button Text="Bold" Clicked="OnBold" Margin="2" />
-            <Button Text="Italic" Clicked="OnItalic" Margin="2" />
-            <Button Text="Underline" Clicked="OnUnderline" Margin="2" />
-            <Button Text="Styles &amp; lists" Clicked="OnStyles" Margin="2" />
-            <Button Text="Table" Clicked="OnTableTools" Margin="2" />
-            <Button Text="Annotations" Clicked="OnAnnotations" Margin="2" />
-            <Button Text="Review" Clicked="OnReview" Margin="2" />
-            <Button Text="Caret below" Clicked="OnAddCaret" Margin="2" />
+            <Button Text="New" Clicked="OnNewDocument" AutomationId="NewDocument" />
+            <Button Text="RTF reference" Clicked="OnLoadReference" AutomationId="LoadReferenceDocument" />
+            <Button Text="Studio notes" Clicked="OnLoadStudio" />
+            <Button Text="Feature tour" Clicked="OnLoadFeatureTour" />
+            <Button Text="Theme" Clicked="OnToggleTheme" />
+
             <Button Text="Undo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Undo}" Margin="2" />
             <Button Text="Redo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Redo}" Margin="2" />
-            <Button Text="Copy" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Copy}" Margin="2" />
-            <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Paste}" Margin="2" />
+            <Button Text="Copy RTF" Clicked="OnCopyRtf" />
             <Button Text="Open RTF" Clicked="OnOpenRtf" Margin="2" />
             <Button Text="Save RTF" Clicked="OnSaveRtf" Margin="2" />
         </HorizontalStackLayout>
         </ScrollView>
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
-            <Label Text="Tools apply to the main view. Select text to format it or add a comment." FontSize="12" VerticalOptions="Center" />
+            <Picker x:Name="DemoPicker" Title="Editor tools" SelectedIndexChanged="OnDemoChanged" AutomationId="PrimitiveDemo" HorizontalOptions="Start" WidthRequest="{OnIdiom Phone=170, Default=220}" />
             <HorizontalStackLayout Grid.Column="1" Spacing="6">
                 <Label Text="Track changes" VerticalOptions="Center" FontSize="12" />
                 <Switch x:Name="TrackingSwitch" Toggled="OnTrackingChanged" AutomationId="TrackRichChanges" />
             </HorizontalStackLayout>
         </Grid>
-        <Grid x:Name="EditorColumns" Grid.Row="3" ColumnDefinitions="*,0" RowDefinitions="*,0" ColumnSpacing="12" RowSpacing="12">
+        <VerticalStackLayout x:Name="ToolPanel" Grid.Row="3" Spacing="3" />
+        <Grid x:Name="EditorColumns" Grid.Row="4" ColumnDefinitions="*,0" RowDefinitions="*,0" ColumnSpacing="12" RowSpacing="12">
             <Grid RowDefinitions="Auto,*" RowSpacing="6">
                 <Label Text="MAIN VIEW" FontSize="11" Opacity="0.7" />
-                <rich:RichEditor x:Name="Editor" Grid.Row="1" AutomationId="RichEditor" FontSize="17" Placeholder="Start writing…" />
+                <Grid Grid.Row="1">
+                    <rich:RichEditor x:Name="Editor" AutomationId="RichEditor" FontSize="17" Placeholder="Start writing…" />
+                    <AbsoluteLayout x:Name="GeometryOverlay" InputTransparent="True" IsClippedToBounds="True" />
+                </Grid>
             </Grid>
             <Grid x:Name="PeerPane" Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="6" IsVisible="False">
                 <HorizontalStackLayout Spacing="6">
@@ -54,6 +55,9 @@
                 <rich:RichEditor x:Name="Peer" Grid.Row="1" AutomationId="RichEditorSplit" FontSize="17" />
             </Grid>
         </Grid>
-        <Label x:Name="StatusLabel" Grid.Row="4" FontSize="12" Opacity="0.7" />
+        <VerticalStackLayout Grid.Row="5" Spacing="2">
+            <Label x:Name="ResultLabel" Text="Tools act on the main view. Choose a tool group to explore all editor features." FontSize="11" LineBreakMode="WordWrap" />
+            <Label x:Name="StatusLabel" FontSize="11" Opacity="0.7" />
+        </VerticalStackLayout>
     </Grid>
 </ContentPage>

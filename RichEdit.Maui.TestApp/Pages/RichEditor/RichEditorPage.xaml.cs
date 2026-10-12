@@ -9,7 +9,21 @@ public partial class RichEditorPage : ContentPage
     {
         InitializeComponent();
         EditorColumns.SizeChanged += (_, _) => SplitPaneLayout.Update(EditorColumns, PeerPane);
-        Editor.Document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        Editor.Document = new RichDocument();
+        Peer.Document = Editor.Document;
+        Editor.SelectionChanged += (_, _) => UpdateStatus();
+        Editor.ContentChanged += (_, _) => UpdateStatus();
+        Editor.Pasting += (_, args) =>
+        {
+            if (!args.Diagnostics.IsEmpty) StatusLabel.Text = string.Join(" ", args.Diagnostics.Select(item => item.Message));
+        };
+        InitializeTools();
+        UpdateStatus();
+    }
+
+    private static RichDocument CreateFeatureDocument()
+    {
+        return new RichDocument(RichDocumentSnapshot.Build(edit =>
         {
             edit.SetStyles(new((RichStyleDefinition[])
             [
@@ -40,14 +54,6 @@ public partial class RichEditorPage : ContentPage
             edit.AddComment(noteRange, "Try Styles & lists → Restyle headings, then Undo.", "Sample");
             edit.AddBookmark("StyleExample", noteRange);
         }));
-        Peer.Document = Editor.Document;
-        Editor.SelectionChanged += (_, _) => UpdateStatus();
-        Editor.ContentChanged += (_, _) => UpdateStatus();
-        Editor.Pasting += (_, args) =>
-        {
-            if (!args.Diagnostics.IsEmpty) StatusLabel.Text = string.Join(" ", args.Diagnostics.Select(item => item.Message));
-        };
-        UpdateStatus();
     }
 
     private void OnBold(object? sender, EventArgs args) => RunRich(Editor.ToggleBold);
@@ -89,10 +95,7 @@ public partial class RichEditorPage : ContentPage
             if (file is null) return;
             await using var stream = await file.OpenReadAsync();
             var result = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(stream);
-            Editor.Document = new RichDocument(result.Snapshot);
-            Peer.Document = Editor.Document;
-            TrackingSwitch.IsToggled = false;
-            UpdateStatus();
+            UseDocument(new RichDocument(result.Snapshot), file.FileName);
             if (!result.Diagnostics.IsEmpty) StatusLabel.Text = string.Join(" ", result.Diagnostics.Select(item => item.Message));
         }
         catch (Exception error) { await DisplayAlertAsync("Open RTF", error.Message, "OK"); }

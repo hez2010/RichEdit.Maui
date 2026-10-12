@@ -92,6 +92,8 @@
                                 <Button Text="Single caret" Clicked="OnSingleCaret" />
                                 <Button Text="Go to line" Clicked="OnGoToLine" />
                                 <Button Text="Line endings" Clicked="OnLineEndings" />
+                                <Button Text="Select all" Command="{Binding Source={x:Reference Editor}, x:DataType=code:CodeEditor, Path=Commands.SelectAll}" Style="{StaticResource QuietButton}" />
+                                <Button Text="Cut" Command="{Binding Source={x:Reference Editor}, x:DataType=code:CodeEditor, Path=Commands.Cut}" Style="{StaticResource QuietButton}" />
                                 <Button Text="Copy" Command="{Binding Source={x:Reference Editor}, x:DataType=code:CodeEditor, Path=Commands.Copy}" Style="{StaticResource QuietButton}" />
                                 <Button Text="Paste" Command="{Binding Source={x:Reference Editor}, x:DataType=code:CodeEditor, Path=Commands.Paste}" Style="{StaticResource QuietButton}" />
                             </HorizontalStackLayout>

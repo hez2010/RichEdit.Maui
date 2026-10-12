@@ -11,7 +11,7 @@ public partial class RichEditorPage
         {
             var result = action();
             if (!result.Accepted) StatusLabel.Text = $"Edit not applied: {result.Rejection}.";
-            else { UpdateStatus(); Editor.Focus(); }
+            else { UpdateStatus(); UpdateFormattingTools(); Editor.Focus(); }
         }
         catch (ArgumentException error) { StatusLabel.Text = error.Message; }
         catch (InvalidOperationException error) { StatusLabel.Text = error.Message; }
@@ -84,7 +84,7 @@ public partial class RichEditorPage
         var selection = Editor.Selection;
         var table = SelectedTable();
         var choice = await DisplayActionSheetAsync("Table", "Cancel", null, "Insert table", "Select first row", "Add row",
-            "Add column", "Merge selected cells", "Split selected cells", "Equal column widths", "Next cell");
+            "Add column", "Select first column", "Select all cells", "Clear selected cells", "Delete selected rows", "Delete selected columns", "Merge selected cells", "Split selected cells", "Equal column widths", "Next cell");
         if (choice is null or "Cancel" || !ReferenceEquals(document, Editor.Document)) return;
         if (document.Revision != revision || Editor.Session.SelectionGeneration != generation)
         { StatusLabel.Text = "The selection changed. Open Table again."; return; }
@@ -93,12 +93,17 @@ public partial class RichEditorPage
         if (choice == "Next cell") { Editor.MoveToAdjacentCell(); Editor.Focus(); return; }
         var grid = document.CurrentSnapshot.GetTableGrid(tableId);
         if (choice == "Select first row") { Editor.Selection = new RichCellSelection(tableId, 0, 0, 1, grid.Columns); Editor.Focus(); return; }
+        if (choice == "Select first column") { Editor.Selection = new RichCellSelection(tableId, 0, 0, grid.Rows, 1); Editor.Focus(); return; }
+        if (choice == "Select all cells") { Editor.Selection = new RichCellSelection(tableId, 0, 0, grid.Rows, grid.Columns); Editor.Focus(); return; }
         RunRich(() => Editor.Edit(edit =>
         {
             switch (choice)
             {
                 case "Add row": edit.InsertRows(tableId, grid.Rows); break;
                 case "Add column": edit.InsertColumns(tableId, grid.Columns, (RichLength[])[RichLength.FromPoints(100)]); break;
+                case "Clear selected cells" when selection is RichCellSelection cleared: edit.ClearCells(cleared); break;
+                case "Delete selected rows" when selection is RichCellSelection rows: edit.DeleteRows(tableId, rows.Row, rows.RowCount); break;
+                case "Delete selected columns" when selection is RichCellSelection columns: edit.DeleteColumns(tableId, columns.Column, columns.ColumnCount); break;
                 case "Merge selected cells" when selection is RichCellSelection cells: edit.MergeCells(cells); break;
                 case "Split selected cells" when selection is RichCellSelection cells:
                     var ids = new HashSet<RichNodeId>();

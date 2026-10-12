@@ -9,17 +9,36 @@ RichEdit Studio has separate rich-text and code-editor tabs. The tools act on th
 
 ## Rich document
 
-Select text and use **Bold**, **Italic**, or **Underline**. With an empty selection, these commands set the appearance of newly typed text. **Caret below** adds another insertion point.
+The sample opens the bundled **RTF reference** document. **RTF reference**, **Studio notes**, and **Feature tour** load the three bundled examples. **New** opens an empty document. **Theme** changes the app's light or dark appearance.
+
+Choose a group in **Editor tools**. Tool rows scroll horizontally on narrow screens.
+
+| Group | Available actions |
+| --- | --- |
+| Formatting | Font family and size, bold, italic, underline styles, strike-through, superscript/subscript, text color, highlighting, and clearing direct formatting. More character options include case, outline/shadow, visibility, baseline offset, spacing, width, language, and direction. |
+| Paragraphs | Alignment, leading and first-line indentation, hanging indentation, line spacing, paragraph spacing, tab stops, direction, and paragraph keep options. |
+| Lists & styles | Reusable Body/Heading styles, bullet/numbered lists, number styles, restart, paragraph indentation, and inserting a nested list. |
+| Insert | Hyperlinks, unlinking, an image, date/custom fields, and soft breaks. Field instructions are stored as data; the displayed result is supplied separately. |
+| Tables | Insert, select, navigate, merge/split, add/delete rows or columns, clear cells, change widths and cell appearance, and delete the table. |
+| Annotations & review | Comments, bookmarks, Original/Final review, and accepting or rejecting tracked changes. |
+| Selections | Select all or a paragraph, add carets above/below, keep the primary caret, cut/copy/paste, and paste plain text. |
+| Checked edits | Capture a selection and revision, apply a checked replacement, or add a transient highlight. Changing the document after capture demonstrates stale-edit rejection. |
+| Tracking | Track a text range or caret bookmark through edits and undo, navigate to it, and clear tracking. These transient anchors are separate from saved annotations. |
+| Widgets | Add overlay, margin, inline, above-line, or below-line widgets, then clear them. Widgets and presentation highlights do not enter RTF or undo history. |
+| Layout & input | Capture and inspect layout, inspect the selection, show native selection/caret bounds, observe pointer addresses and composition, and request composition completion. |
+| Document options | Read-only mode, spell checking, prediction, Tab input, saving, and the supported RTF profile. |
+
+Formatting actions apply to the selected content. With an empty text selection, character formatting sets the appearance of newly typed text. The formatting controls show the current selection's values where they agree; a mixed font or size has no selected picker item.
 
 **Styles & lists** applies Body or Heading to selected paragraphs, changes the reusable Heading style, creates bullet/numbered lists, and removes list structure. **Restyle headings** affects every paragraph using that style and can be undone.
 
-Use **Table** to insert a table. Place the caret in a cell to add rows or columns, select the first row, or move to the next cell. Select cells to merge or split them. **Equal column widths** makes every column 120 points wide.
+Use **Insert table** in Tables, or choose **Insert table** from **Table operations**. Place the caret in a cell to add rows or columns, select a row or column, or move between cells. Select cells to merge, split, clear, format, or delete their rows/columns. **Equal column widths** makes every column 120 points wide. **Cell appearance** changes padding, vertical alignment, shading, and borders.
 
 **Annotations** adds comments and named bookmarks at the text selection. Browse annotations to return to their text or delete them. An annotation whose text was deleted remains available as an orphaned annotation.
 
 Turn on **Track changes** before editing. **Review** opens selectable Original and Final views and lets you accept or reject a change group. The confirmation names how many related groups will also resolve. Use Undo in an editing pane to reverse a resolution.
 
-**Open RTF** imports an RTF file. **Save RTF** saves the current document and opens the system share interface. Comments, styles, tables, bookmarks, and pending change groups are retained by the library's RTF format. Other RTF applications can support a smaller set of features.
+**Open RTF** imports an RTF file. **Save RTF** saves the current document and opens the system share interface. **Copy RTF** copies its RTF source as clipboard text; the ordinary Copy command copies selected content for pasting into an editor. Comments, styles, tables, bookmarks, and pending change groups are retained by the library's RTF format. Other RTF applications can support a smaller set of features. Import notes identify approximations in an opened document.
 
 ## Code editor
 
