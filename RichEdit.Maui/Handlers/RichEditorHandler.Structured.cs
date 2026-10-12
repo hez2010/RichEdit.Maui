@@ -223,14 +223,25 @@ public partial class RichEditorHandler
             if (!VirtualView.Composition.IsActive) ReadStructuredFormatting(map);
             return true;
         }
-        var prefix = map.NativeText.AsSpan().CommonPrefixLength(text);
-        var suffix = 0;
-        while (suffix < Math.Min(map.NativeText.Length, text.Length) - prefix && map.NativeText[^(suffix + 1)] == text[^(suffix + 1)]) suffix++;
-        var nativeRange = new TextSelectionState(prefix, map.NativeText.Length - suffix);
+        var hint = NativeProjection.ToDisplay(VirtualView.InputSelection).Range;
+        TextSelectionState nativeRange;
+        string inserted;
+        // Repeated paragraph breaks have several valid text diffs. The caret
+        // identifies which paragraph was edited, and therefore its list membership.
+        if (RichTextDocumentSnapshot.TryGetReplacement(map.NativeText, text, hint, out inserted))
+            nativeRange = new(hint.Start, hint.End);
+        else
+        {
+            var prefix = map.NativeText.AsSpan().CommonPrefixLength(text);
+            var suffix = 0;
+            while (suffix < Math.Min(map.NativeText.Length, text.Length) - prefix && map.NativeText[^(suffix + 1)] == text[^(suffix + 1)]) suffix++;
+            nativeRange = new(prefix, map.NativeText.Length - suffix);
+            inserted = text.Substring(prefix, text.Length - prefix - suffix);
+        }
         var selected = (session.Composition?.Selection ?? session.Selection) is RichCellSelection or RichBlockSelection
             ? session.Composition?.Selection ?? session.Selection : map.SelectionFromNative(nativeRange);
         var observedReservations = ReadDisplayReservationMetadata(text);
-        var replacement = observedReservations.SourceText(text.Substring(prefix, text.Length - prefix - suffix), prefix)
+        var replacement = observedReservations.SourceText(inserted, nativeRange.Range.Start)
             .Replace('\r', '\n').Replace('\v', '\u2028');
         if (VirtualView.TryHandleStructuredListReplacement(selected, replacement))
         {

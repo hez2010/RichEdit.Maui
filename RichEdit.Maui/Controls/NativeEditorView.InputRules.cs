@@ -30,7 +30,7 @@ public partial class NativeEditorView
             return expanded;
         var before = Document.CurrentSnapshot;
         var candidate = expanded?.Snapshot ?? native;
-        var changes = expanded?.Changes ?? RichTextDocument.CreateDelta(before, candidate);
+        var changes = expanded?.Changes ?? RichTextDocument.CreateDelta(before, candidate, StructuredSession is not null ? SelectedRange : null);
         if (!changes.Any(change => change.Kind == RichTextChangeKind.Text))
             return expanded;
 

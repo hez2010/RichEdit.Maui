@@ -65,7 +65,8 @@ public partial class NativeEditorView
     {
         _compositionDocument ??= Document;
         _compositionPreviewDocument ??= new RichTextDocument(Document.CurrentSnapshot);
-        var changes = _compositionPreviewDocument.ReplaceSnapshotFromNative(snapshot, _previewSourceToken, nativeUndoOwned: true);
+        var changes = _compositionPreviewDocument.ReplaceSnapshotFromNative(snapshot, _previewSourceToken, nativeUndoOwned: true,
+            recordedChanges: StructuredSession is not null ? RichTextDocument.CreateDelta(_compositionPreviewDocument.CurrentSnapshot, snapshot, InputSelection.Range) : null);
         if (SourceSession?.Composition is { } composition)
             composition.Update(edit =>
             {

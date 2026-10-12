@@ -4,7 +4,8 @@ public sealed partial class RichTextDocument
 {
     internal static IReadOnlyList<RichTextChange> CreateDelta(
         RichTextDocumentSnapshot before,
-        RichTextDocumentSnapshot after)
+        RichTextDocumentSnapshot after,
+        TextSpan? replacementHint = null)
     {
         var sourceOnly = before.IsSourceProjection && after.IsSourceProjection &&
             before.Images.IsEmpty && after.Images.IsEmpty &&
@@ -18,7 +19,14 @@ public sealed partial class RichTextDocument
 
         var changes = new List<RichTextChange>();
         RichTextTextChange? textChange = null;
-        if (before.TextBuffer.FindDifference(after.TextBuffer, out _) is { } difference)
+        if (replacementHint is { } hint &&
+            RichTextDocumentSnapshot.TryGetReplacement(before.Text, after.Text, hint, out var inserted) &&
+            !before.TextBuffer.ContentEquals(after.TextBuffer))
+        {
+            textChange = new(hint, inserted);
+            changes.Add(textChange);
+        }
+        else if (before.TextBuffer.FindDifference(after.TextBuffer, out _) is { } difference)
         {
             textChange = new RichTextTextChange(
                 difference.Before,

@@ -33,12 +33,13 @@ public sealed class NativeEditingRegressionTests
             var paragraph = editor.Document.Text.IndexOf("The text you are reading is aligned left", StringComparison.Ordinal);
             Assert.True(paragraph >= 0);
             var insertionPoint = paragraph + 12;
+            RichList? originalList = null;
             if (listItem)
             {
                 var snapshot = imported.Snapshot;
-                var list = snapshot.Nodes.Values.OfType<RichList>().First();
+                var list = originalList = snapshot.Nodes.Values.OfType<RichList>().First(item => item.Numbered);
                 var item = snapshot.Get<RichListItem>(list.Items[0]);
-                insertionPoint = snapshot.ProjectText().GetOffset(new(snapshot.Body, item.Blocks[0], 3));
+                insertionPoint = snapshot.ProjectText().GetOffset(new(snapshot.Body, item.Blocks[0], snapshot.GetParagraphLength(item.Blocks[0])));
             }
             editor.SelectedRange = new(insertionPoint, 0);
             native.Focus(FocusState.Programmatic);
@@ -64,6 +65,8 @@ public sealed class NativeEditingRegressionTests
                 Assert.Equal(count + 1, events);
             }
             Assert.Equal(before.Insert(start, "abc\ndef"), editor.Document.Text);
+            if (originalList is not null)
+                Assert.Equal(originalList.Items.Count + 1, editor.StructuredSession!.Document.CurrentSnapshot.Get<RichList>(originalList.Id).Items.Count);
             var typed = native.Document.GetRange(insertion, insertion + 1).CharacterFormat;
             Assert.Equal(font.Size, typed.Size);
             Assert.Equal(font.Name, typed.Name);

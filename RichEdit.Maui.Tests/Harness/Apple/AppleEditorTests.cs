@@ -88,6 +88,8 @@ internal static partial class AppleEditorTests
         await Test("structured RTF reference uses native viewport fonts and list markers", () => VerifyReferenceLayout(editor));
         await Test("structured native list labels follow table cell geometry", () => VerifyTableListMarkers(editor));
         await Test("structured reference editing retains native input", () => VerifyReferenceEditing(editor));
+        await Test("structured numbered reference list Enter retains list membership", () => VerifyNumberedReferenceEnter(editor));
+        await Test("structured numbered reference list Enter retains membership with input rules", () => VerifyNumberedReferenceEnter(editor, withInputRule: true));
 
         async Task VerifyNativeTable(string tableRtf)
         {

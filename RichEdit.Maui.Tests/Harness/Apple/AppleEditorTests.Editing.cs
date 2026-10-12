@@ -8,6 +8,49 @@ namespace RichEdit.Maui.Tests;
 
 internal static partial class AppleEditorTests
 {
+    private static async Task VerifyNumberedReferenceEnter(NativeEditorView editor, bool withInputRule = false)
+    {
+        using var input = typeof(AppleEditorTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
+        var imported = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(input);
+        var previous = editor.Document;
+        using var rule = withInputRule ? editor.InputRules.Register(static _ => { }) : null;
+        try
+        {
+            var document = new RichDocument(imported.Snapshot);
+            editor.BindStructuredDocument(document);
+            var snapshot = document.CurrentSnapshot;
+            var list = snapshot.Nodes.Values.OfType<RichList>().First(item => item.Numbered);
+            var paragraph = snapshot.Get<RichListItem>(list.Items[0]).Blocks[0];
+            var point = new RichTextPoint(snapshot.Body, paragraph, snapshot.GetParagraphLength(paragraph));
+            editor.SelectedRange = new(snapshot.ProjectText().GetOffset(point), 0);
+            editor.ScrollIntoView(editor.SelectedRange);
+            await Task.Delay(150);
+            var handler = (RichEditorHandler)editor.Handler!;
+            var native = handler.PlatformView;
+            using var caret = native.GetDisplayPosition(native.BeginningOfDocument, (nint)native.SelectedRange.Location)!;
+            native.SetContentOffset(new(0, Math.Max(0, native.GetDisplayCaret(caret).Y - 100)), false);
+            await Task.Delay(100);
+            var offset = native.ContentOffset.Y;
+            native.InsertText("\n");
+            await Task.Delay(80);
+            EditorContractTests.Equal(true, Math.Abs(native.ContentOffset.Y - offset) < 2, "numbered Enter keeps the viewport stable");
+            var continued = document.CurrentSnapshot.Get<RichList>(list.Id);
+            EditorContractTests.Equal(list.Items.Count + 1, continued.Items.Count, "Return at item end creates another numbered item");
+            EditorContractTests.Equal(list.NumberStyle, continued.NumberStyle, "numbering style retained");
+            native.InsertText("new numbered item");
+            await Task.Delay(80);
+            var nextParagraph = document.CurrentSnapshot.Get<RichListItem>(continued.Items[1]).Blocks[0];
+            EditorContractTests.Equal("new numbered item", document.CurrentSnapshot.ProjectText(nextParagraph).Text.ToString(), "typing stays in the new item");
+            handler.UpdateNativeListMarkers();
+            EditorContractTests.Equal(true, native.Subviews.OfType<NativeListMarkerLabel>().Any(label => label.Text == "II."), "next Roman number is visible");
+            editor.Undo();
+            editor.Undo();
+            EditorContractTests.Equal(snapshot.ProjectText().Text.ToString(), document.CurrentSnapshot.ProjectText().Text.ToString(), "undo restores the reference text");
+            EditorContractTests.Equal(list.Items.Count, document.CurrentSnapshot.Get<RichList>(list.Id).Items.Count, "undo restores list membership");
+        }
+        finally { editor.Document = previous; }
+    }
+
     private static async Task VerifyReferenceEditing(NativeEditorView editor)
     {
         using var input = typeof(AppleEditorTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
