@@ -17,6 +17,8 @@ Rich editing includes body paragraphs, semantic lists/tables, inline resources, 
 
 Large files, very long lines, many widgets, and large Android tables can reduce responsiveness. Give the editor a finite viewport with fill alignment, use data-backed widget sources for many hints, and set `WordWrap = false` when wrapping very long source lines is unsuitable. Load and save large documents asynchronously with cancellation.
 
+Extremely large Windows documents can show blank text at distant scroll positions. That scale is outside this preview's supported Windows editing profile.
+
 ## Accessibility and input
 
 Use native touch handles and menus for the primary selection. Give meaningful widgets an `AccessibleDescription`, and make their interactive controls keyboard-accessible. Input and accessibility behavior follows the device's language, keyboard, text scaling, and assistive-technology settings. See [input](input.md) for composition and clipboard behavior.
