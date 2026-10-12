@@ -20,7 +20,15 @@ public partial class NativeEditorView
         var point = selection.Active;
         var paragraph = snapshot.Get<RichParagraph>(point.Paragraph);
         if (paragraph.Parent is not { } parent || snapshot.Nodes[parent] is not RichListItem item) return false;
-        if (key == EditorKey.Enter) return ApplyStructuredNativeInput(session.Selection, "\n");
+        if (key == EditorKey.Enter)
+        {
+            // The native control continues nonempty items itself. Readback maps
+            // that paragraph break into a list-item split without replacing the story.
+            if (snapshot.GetParagraphLength(point.Paragraph) > 0 &&
+                session.Selection is not RichTextSelectionSet { Count: > 1 } &&
+                Handler is RichEditorHandler { HasStructuredNativeDocument: true }) return false;
+            return ApplyStructuredNativeInput(session.Selection, "\n");
+        }
         if (key != EditorKey.Backspace || point.Offset != 0 || item.Blocks[0] != point.Paragraph ||
             session.Selection is RichTextSelectionSet { Count: > 1 }) return false;
         var result = session.Edit(edit =>

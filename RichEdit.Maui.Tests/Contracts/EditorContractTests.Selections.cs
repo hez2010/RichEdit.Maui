@@ -423,7 +423,11 @@ internal static partial class EditorContractTests
 
     public static void NativeMultiInsert(NativeEditorView editor, string text)
     {
-#if ANDROID
+#if WINDOWS
+        // TypeText advances the native caret as keyboard input does. SetText
+        // replaces a TOM range and retains its selection, which is a different operation.
+        ((Microsoft.UI.Xaml.Controls.RichEditBox)editor.Handler!.PlatformView!).Document.Selection.TypeText(text.Replace("\r\n", "\r", StringComparison.Ordinal).Replace('\n', '\r'));
+#elif ANDROID
         // Commit through the actual input connection. Assigning a native caret after
         // Editable.Replace is a separate selection command, not part of native typing.
         var native = (Android.Widget.EditText)editor.Handler!.PlatformView!;

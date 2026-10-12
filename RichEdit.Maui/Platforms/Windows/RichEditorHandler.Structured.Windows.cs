@@ -8,6 +8,21 @@ public partial class RichEditorHandler
 {
     private RichEditBox? _structuredScratch;
 
+    private partial void ApplyStructuredInlineEditCore(TextSpan replaced, string text, RichTextDocumentSnapshot display, TextSpan formatted, TextSelectionState selection)
+    {
+        var applying = _applyingDocument;
+        _applyingDocument = true;
+        try
+        {
+            PlatformView.Document.GetRange(replaced.Start, replaced.End).SetText(TextSetOptions.None, text);
+            ApplyCharacterFormatsIncrementally(display, formatted);
+            _nativeTextSnapshot = null;
+            SetNativeSelectionCore(selection);
+            PlatformView.Document.ClearUndoRedoHistory();
+        }
+        finally { _applyingDocument = applying; }
+    }
+
     private partial StructuredNativeFormats CaptureStructuredFormatsCore(StructuredRichNativeMap map)
         => CaptureStructuredFormats(PlatformView.Document, map);
 

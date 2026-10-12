@@ -52,6 +52,10 @@ internal sealed partial class CodeEditorTestPage
             _editor.Focus();
             await _editor.RevealAsync(_editor.SelectedRange.Start, CodeRevealAlignment.Center);
             await Task.Delay(700);
+            using var position = native.GetDisplayPosition(native.BeginningOfDocument, (nint)native.SelectedRange.Location)!;
+            var caret = native.GetDisplayCaret(position);
+            native.SetContentOffset(new(0, caret.Y - 100), false);
+            await Task.Delay(100);
             var originalOffset = native.ContentOffset;
             var offsets = new List<double>();
             using var observation = native.AddObserver("contentOffset", Foundation.NSKeyValueObservingOptions.New, _ => offsets.Add(native.ContentOffset.Y));

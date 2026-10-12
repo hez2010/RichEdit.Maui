@@ -5,10 +5,31 @@ namespace RichEdit.Maui;
 public partial class RichEditorHandler
 {
     private StructuredRichNativeMap? _structuredNativeMap;
+    internal bool HasStructuredNativeDocument => _structuredNativeMap is not null;
     private RichCellSelection? _paintedCellSelection;
     private TextSelectionState? _structuredSelection;
     private sealed record StructuredNativeFormats(IReadOnlyList<RichTextRun> Characters, IReadOnlyDictionary<RichNodeId, RichTextParagraphFormat> Paragraphs);
     private StructuredNativeFormats? _structuredFormats;
+    private StructuredRichNativeMap? _pendingStructuredNativeMap;
+
+    internal bool TryAcceptStructuredNativeChange(RichTextChangeSet changes)
+    {
+        if (!ReferenceEquals(changes.SourceToken, _sourceToken) || changes.NativeCorrections is { IsEmpty: false } ||
+            (_pendingStructuredNativeMap ?? _structuredNativeMap) is not { } map || VirtualView.StructuredSession is not { } session ||
+            !map.Snapshot.ContentEquals(session.Document.CurrentSnapshot)) return false;
+        AcceptStructuredNativeMap(map.WithSnapshot(session.Document.CurrentSnapshot));
+        return true;
+    }
+
+    private void AcceptStructuredNativeMap(StructuredRichNativeMap map)
+    {
+        // This document is already in the native control. Publish its new address
+        // map without replacing text, assigning a selection, or ending native input.
+        SetStructuredNativeMap(map);
+        _paintedSnapshot = DisplayPresentationSnapshot;
+        _structuredSelection = StructuredNativeSelection();
+        QueueAdornmentLayout();
+    }
     private bool UsesStructuredNativeDocument
     {
         get
@@ -32,6 +53,7 @@ public partial class RichEditorHandler
             return false;
         }
         var snapshot = VirtualView.StructuredSession!.Document.CurrentSnapshot;
+        if (TryApplyStructuredInlineEdit(snapshot)) return true;
         SetStructuredNativeMap(CreateStructuredNativeDocumentCore(snapshot, apply: true), captureFormats: false);
         ApplyStructuredReservations();
         ApplyStructuredDecorations();
@@ -41,6 +63,52 @@ public partial class RichEditorHandler
         CompleteDisplayProjection();
         return true;
     }
+
+    private bool TryApplyStructuredInlineEdit(RichDocumentSnapshot snapshot)
+    {
+#if ANDROID
+        return false; // Android hosts edit their scoped native projections directly.
+#else
+        if (_structuredNativeMap is not { } previous || _paintedCellSelection is not null ||
+            VirtualView.StructuredSession!.Selection is RichCellSelection || VirtualView.Composition.IsActive) return false;
+        var projection = VirtualView.ProjectStructuredInput(snapshot);
+        if (previous.TextProjection.Text.FindDifference(projection.Text, out _) is not { } difference ||
+            previous.TextProjection.GetPoint(difference.Before.Start) is not { } start ||
+            previous.TextProjection.GetPoint(difference.Before.End) is not { } end || start.Paragraph != end.Paragraph ||
+            !previous.HasSameStructureAndFormatting(snapshot, start.Paragraph)) return false;
+        var nativeStart = previous.ToNative(start);
+        var nativeEnd = previous.ToNative(end);
+        var inserted = projection.Text.GetText(difference.After);
+        if (inserted.AsSpan().ContainsAny('\r', '\n', '\u2028')) return false;
+        var text = previous.NativeText[..nativeStart] + inserted + previous.NativeText[nativeEnd..];
+        if (previous.TryApplyNativeText(snapshot, text, new RichEdit.Core.RichTextSelection(start, end)) is not { } map) return false;
+        // Other views and programmatic inline edits update the same native range;
+        // table structure and the rest of the story remain owned by the control.
+        var paragraph = map.Paragraphs.Single(item => item.Id == start.Paragraph);
+        var runs = paragraph.Segments.Where(segment => segment.NativeLength > 0).Select(segment => new RichTextRun(segment.NativeStart, segment.NativeLength,
+            RichTextDocumentSnapshot.ToNative(snapshot.ResolveCharacter(segment.Inline!.Value)))).ToArray();
+        var before = RichTextDisplayProjection.NativeDescription(map);
+        var retained = new List<RichTextRun>();
+        foreach (var run in before.Runs)
+        {
+            if (run.Start < paragraph.Start) retained.Add(new(run.Start, Math.Min(run.End, paragraph.Start) - run.Start, run.Format));
+            if (run.End > paragraph.End) retained.Add(new(Math.Max(run.Start, paragraph.End), run.End - Math.Max(run.Start, paragraph.End), run.Format));
+        }
+        var display = before.With(runs: retained.Concat(runs));
+        map = map.WithAuthoredDisplay(display);
+        SetStructuredNativeMap(map, captureFormats: false);
+        _structuredSelection = StructuredNativeSelection();
+        ApplyStructuredInlineEditCore(new(nativeStart, nativeEnd - nativeStart), inserted, display,
+            new(paragraph.Start, paragraph.End - paragraph.Start), _structuredSelection.Value);
+        ApplyStructuredDecorations();
+        CompleteDisplayProjection();
+        return true;
+#endif
+    }
+
+#if WINDOWS || IOS || MACCATALYST
+    private partial void ApplyStructuredInlineEditCore(TextSpan replaced, string text, RichTextDocumentSnapshot display, TextSpan formatted, TextSelectionState selection);
+#endif
 
     private void PrepareStructuredComposition()
     {
@@ -195,14 +263,20 @@ public partial class RichEditorHandler
         var projection = VirtualView.ProjectStructuredInput(candidate);
         var caret = ((RichEdit.Core.RichTextSelection)after).Active;
         var resulting = new TextSelectionState(projection.GetOffset(caret), projection.GetOffset(caret));
-        var candidateMap = CreateStructuredNativeDocumentCore(candidate, apply: false);
+        var candidateMap = map.TryApplyNativeText(candidate, text, selected) ?? CreateStructuredNativeDocumentCore(candidate, apply: false);
         if (candidateMap.NativeText == text && candidateMap.SelectionFromNative(selection) is RichEdit.Core.RichTextSelection selectedText)
             resulting = new(projection.GetOffset(selectedText.Anchor), projection.GetOffset(selectedText.Active));
         var snapshot = RichTextDocumentSnapshot.CreateStructuredProjection(projection);
-        VirtualView.UpdateDocumentFromPlatform(snapshot, resulting.Range.Start, resulting.Range.Length, _sourceToken, selectionState: resulting);
-        if (VirtualView.Composition.IsActive && session.Composition is { } composition)
-            SetStructuredNativeMap(CreateStructuredNativeDocumentCore(composition.Snapshot, apply: false));
-        else if (_structuredNativeMap?.Snapshot.Revision != session.Document.Revision || _structuredNativeMap.NativeText != text) TryApplyStructuredNativeDocument();
+        _pendingStructuredNativeMap = candidateMap.NativeText == text ? candidateMap : null;
+        try
+        {
+            VirtualView.UpdateDocumentFromPlatform(snapshot, resulting.Range.Start, resulting.Range.Length, _sourceToken, selectionState: resulting);
+            if (VirtualView.Composition.IsActive && session.Composition is { } composition)
+                AcceptStructuredNativeMap(candidateMap.WithSnapshot(composition.Snapshot));
+            else if (_structuredNativeMap?.Snapshot.Revision != session.Document.Revision || _structuredNativeMap.NativeText != text)
+                TryApplyStructuredNativeDocument();
+        }
+        finally { _pendingStructuredNativeMap = null; }
         return true;
     }
 

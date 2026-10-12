@@ -85,6 +85,65 @@ internal sealed class StructuredRichNativeMap
         _rendered = rendered; _presentation = presentation; Reservations = reservations.IsDefault ? [] : reservations; }
     internal RichTextDocumentSnapshot? Display { get; }
     internal RichTextDocumentSnapshot? AuthoredDisplay { get; }
+    internal StructuredRichNativeMap WithSnapshot(RichDocumentSnapshot snapshot) =>
+        new(snapshot, NativeText, _ordered, _boundaries, snapshot.ProjectText(_text.Root), Display, AuthoredDisplay, _rendered, _presentation, Reservations);
+
+    internal bool HasSameStructureAndFormatting(RichDocumentSnapshot snapshot, RichNodeId editedParagraph)
+    {
+        if (Snapshot.DefaultCharacter != snapshot.DefaultCharacter || Snapshot.DefaultParagraph != snapshot.DefaultParagraph ||
+            Snapshot.Styles != snapshot.Styles || Snapshot.Revisions.Count != 0 || snapshot.Revisions.Count != 0) return false;
+        foreach (var node in Snapshot.Nodes.Values.Concat(snapshot.Nodes.Values).DistinctBy(node => node.Id))
+        {
+            if (node is RichText && node.Parent == editedParagraph) continue;
+            if (!Snapshot.Nodes.TryGetValue(node.Id, out var before) || !snapshot.Nodes.TryGetValue(node.Id, out var after)) return false;
+            if (before is RichParagraph a && after is RichParagraph b && a.Id == editedParagraph)
+            { if (a with { Inlines = b.Inlines } != b) return false; }
+            else if (!RichDocumentSnapshot.SameNode(before, after)) return false;
+        }
+        return true;
+    }
+
+    internal StructuredRichNativeMap? TryApplyNativeText(RichDocumentSnapshot snapshot, string nativeText, RichSelection selection)
+    {
+        // An inline edit does not change native table/field separators. Keep the
+        // native addresses of those objects and shift the following paragraphs.
+        if (_rendered is not null || Display is not null || selection is not RichEdit.Core.RichTextSelection text ||
+            text.Anchor.Paragraph != text.Active.Paragraph) return null;
+        var id = text.Anchor.Paragraph;
+        if (!snapshot.Nodes.TryGetValue(id, out var node) || node is not RichParagraph paragraph ||
+            snapshot.Nodes.Values.OfType<RichParagraph>().Count() != _ordered.Length) return null;
+        var prior = _paragraphs[id];
+        var delta = nativeText.Length - NativeText.Length;
+        var segments = ImmutableArray.CreateBuilder<Segment>();
+        var position = prior.Start;
+        var local = 0;
+        foreach (var inlineId in paragraph.Inlines)
+        {
+            var inline = snapshot.Get<RichInline>(inlineId);
+            var length = RichDocumentSnapshot.InlineLength(inline);
+            var atom = inline is RichImage or RichField;
+            var previous = atom ? prior.Segments.FirstOrDefault(item => item.Inline == inlineId) : null;
+            if (atom && previous is null) return null;
+            var nativeLength = previous?.NativeLength ?? length;
+            if (position + nativeLength > nativeText.Length) return null;
+            if (inline is RichText run && !nativeText.AsSpan(position, nativeLength).SequenceEqual(NativeLiteralText(run.Content.ToString()))) return null;
+            segments.Add(new(id, local, length, position, nativeLength, atom, inlineId));
+            position += nativeLength;
+            local += length;
+        }
+        if (position != prior.End + delta) return null;
+        var paragraphs = _ordered.Select(item => item.Id == id ? new Paragraph(id, prior.Start, position, segments.ToImmutable()) :
+            item.Start < prior.Start ? item : item with
+            {
+                Start = item.Start + delta, End = item.End + delta,
+                Segments = item.Segments.Select(segment => segment with { NativeStart = segment.NativeStart + delta }).ToImmutableArray(),
+            }).ToImmutableArray();
+        var boundaries = _boundaries.ToImmutableDictionary(item => item.Key, item => item.Value < prior.End ? item.Value : item.Value + delta);
+        var first = Math.Min(ToNative(text.Anchor), ToNative(text.Active));
+        var end = Math.Max(ToNative(text.Anchor), ToNative(text.Active));
+        var authored = AuthoredDisplay?.Replace(first..end, nativeText.Substring(first, end - first + delta));
+        return new(snapshot, nativeText, paragraphs, boundaries, authoredDisplay: authored);
+    }
     internal StructuredRichNativeMap WithAuthoredDisplay(RichTextDocumentSnapshot display) => new(Snapshot, NativeText, _ordered, _boundaries, _text, Display, display, _rendered, _presentation, Reservations);
     internal StructuredRichNativeMap WithPresentation(StructuredRichPresentation presentation, RichTextProjection source)
     {

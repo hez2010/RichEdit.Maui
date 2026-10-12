@@ -21,22 +21,16 @@ namespace RichEdit.Maui
 {
     public partial class RichEditorHandler
     {
-        private static readonly NSString StructuredListMarkerKey = new("RichEdit.Maui.ListMarker");
-        private sealed class StructuredListMarker(string text, double indent) : NSObject
-        {
-            internal string Text { get; } = text;
-            internal double Indent { get; } = indent;
-        }
         private readonly Dictionary<int, Platforms.Apple.NativeListMarkerLabel> _listMarkerViews = [];
-        private bool _structuredHasListMarkers;
+        private Dictionary<RichNodeId, double> _structuredListIndents = [];
 
         partial void IncludeNativeAdornmentLayout(ref bool required) =>
             required |= _listMarkerViews.Count != 0 || DisplayPresentationSnapshot.Lists.Count != 0;
 
-        private static bool ApplyStructuredParagraphPresentation(NSMutableAttributedString content, StructuredRichNativeMap map,
+        private static Dictionary<RichNodeId, (RichNodeId List, string Text)> StructuredListMarkers(StructuredRichNativeMap map,
             IReadOnlySet<RichNodeId>? privateParagraphs)
         {
-            var markers = new Dictionary<RichNodeId, string>();
+            var markers = new Dictionary<RichNodeId, (RichNodeId, string)>();
             foreach (var list in map.Snapshot.Nodes.Values.OfType<RichList>())
                 for (var index = 0; index < list.Items.Count; index++)
                 {
@@ -45,7 +39,7 @@ namespace RichEdit.Maui
                         .FirstOrDefault(paragraph => privateParagraphs?.Contains(paragraph.Id) != true);
                     if (paragraph is null) continue;
                     var number = (int)Math.Min(int.MaxValue, (long)list.StartNumber + index);
-                    markers.Add(paragraph.Id, list.Numbered
+                    markers.Add(paragraph.Id, (list.Id, list.Numbered
                         ? RichTextListFormatter.FormatNumber(number, list.NumberStyle switch
                         {
                             RichListNumberingStyle.UpperRoman => RichListNumberStyle.UpperRoman,
@@ -53,9 +47,16 @@ namespace RichEdit.Maui
                             RichListNumberingStyle.UpperLetter => RichListNumberStyle.UpperLetter,
                             RichListNumberingStyle.LowerLetter => RichListNumberStyle.LowerLetter,
                             _ => RichListNumberStyle.Arabic,
-                        }) + "." : "•");
+                        }) + "." : "•"));
                 }
+            return markers;
+        }
 
+        private static Dictionary<RichNodeId, double> ApplyStructuredParagraphPresentation(NSMutableAttributedString content, StructuredRichNativeMap map,
+            IReadOnlySet<RichNodeId>? privateParagraphs)
+        {
+            var markers = StructuredListMarkers(map, privateParagraphs);
+            var result = new Dictionary<RichNodeId, double>();
             foreach (var paragraph in map.Paragraphs)
             {
                 if (paragraph.Start >= content.Length) continue;
@@ -72,21 +73,21 @@ namespace RichEdit.Maui
                 if (!inTable) style.TailIndent = (nfloat)(-map.Snapshot.ResolveParagraph(paragraph.Id).TrailingIndent.Points);
                 if (hasMarker)
                 {
-                    content.AddAttribute(StructuredListMarkerKey, new StructuredListMarker(marker!, style.HeadIndent - style.FirstLineHeadIndent), new(paragraph.Start, 1));
+                    result[marker.List] = style.HeadIndent - style.FirstLineHeadIndent;
                     style.FirstLineHeadIndent = style.HeadIndent;
                 }
                 // A mutable copy retains the RTF importer's native table blocks.
                 content.AddAttribute(UIStringAttributeKey.ParagraphStyle, style,
                     new(paragraph.Start, Math.Min((int)content.Length, paragraph.End + 1) - paragraph.Start));
             }
-            return markers.Count != 0;
+            return result;
         }
 
         internal void UpdateNativeListMarkers()
         {
             if (!_adornmentsConnected || _applyingDocument) return;
             var snapshot = DisplayPresentationSnapshot;
-            if (_structuredNativeMap is null ? snapshot.Lists.Count == 0 : !_structuredHasListMarkers)
+            if (_structuredNativeMap is null ? snapshot.Lists.Count == 0 : _structuredListIndents.Count == 0)
             {
                 ClearNativeListMarkers();
                 return;
@@ -101,11 +102,13 @@ namespace RichEdit.Maui
             var markers = new List<(int Position, string Text, double Indent, bool Relative)>();
             if (_structuredNativeMap is not null)
             {
-                PlatformView.TextStorage.EnumerateAttribute(StructuredListMarkerKey, visible, NSAttributedStringEnumeration.None,
-                    (NSObject value, NSRange range, ref bool stop) =>
-                    {
-                        if (value is StructuredListMarker marker) markers.Add(((int)range.Location, marker.Text, marker.Indent, true));
-                    });
+                // List markers belong to paragraphs, not attributed character runs.
+                // Native insertion can split or move such runs while keeping the item.
+                var current = StructuredListMarkers(_structuredNativeMap, null);
+                foreach (var paragraph in _structuredNativeMap.Paragraphs)
+                    if (paragraph.Start >= visible.Location && paragraph.Start <= visible.Location + visible.Length &&
+                        current.TryGetValue(paragraph.Id, out var marker) && _structuredListIndents.TryGetValue(marker.List, out var indent))
+                        markers.Add((paragraph.Start, marker.Text, indent, true));
             }
             else
             {
