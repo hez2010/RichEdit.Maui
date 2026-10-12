@@ -1205,6 +1205,10 @@ internal static partial class AppleEditorTests
         using var renderer = new UIGraphicsImageRenderer(new CoreGraphics.CGSize(28, caret.Height));
         using var image = renderer.CreateImage(context =>
         {
+            // Catalyst text views can have a transparent background. Composite
+            // before comparing RGB so transparent black is not mistaken for ink.
+            context.CGContext.SetFillColor(UIColor.White.CGColor);
+            context.CGContext.FillRect(new CoreGraphics.CGRect(0, 0, 28, caret.Height));
             context.CGContext.TranslateCTM(-inset.Left - padding - (nfloat)(textIndent - 36), -caret.Y + native.ContentOffset.Y);
             native.DrawViewHierarchy(new CoreGraphics.CGRect(0, 0, native.Bounds.Width, native.Bounds.Height), true);
         });

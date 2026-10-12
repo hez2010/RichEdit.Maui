@@ -10,8 +10,18 @@ internal static class AppleTestEnvironment
         var application = UIApplication.SharedApplication;
         var previous = application.IdleTimerDisabled;
         application.IdleTimerDisabled = true;
+#if MACCATALYST
+        var activity = Foundation.NSProcessInfo.ProcessInfo.BeginActivity(Foundation.NSActivityOptions.UserInitiated, "Native editor validation");
+#endif
         try { await tests(); }
-        finally { application.IdleTimerDisabled = previous; }
+        finally
+        {
+#if MACCATALYST
+            Foundation.NSProcessInfo.ProcessInfo.EndActivity(activity);
+            activity.Dispose();
+#endif
+            application.IdleTimerDisabled = previous;
+        }
     }
 }
 #endif

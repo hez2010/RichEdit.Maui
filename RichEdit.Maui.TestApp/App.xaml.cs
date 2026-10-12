@@ -12,6 +12,8 @@ public partial class App : Application
     protected override Window CreateWindow(IActivationState? activationState)
     {
 #if (DEBUG || EDITOR_TESTS) && (IOS || MACCATALYST)
+        if (Environment.GetEnvironmentVariable("RICHEDIT_SCENARIOS") is { Length: > 0 } suite)
+            return new Window(new Tests.EditingScenarioPage(suite, Environment.GetEnvironmentVariable("RICHEDIT_TEST_FILTER")));
         if (Environment.GetEnvironmentVariable("RICHEDIT_RUN_CODE_TESTS") == "1")
             return new Window(new Tests.CodeEditorTestPage(Environment.GetEnvironmentVariable("RICHEDIT_TEST_FILTER")));
         if (Environment.GetEnvironmentVariable("RICHEDIT_RUN_TESTS") == "1")

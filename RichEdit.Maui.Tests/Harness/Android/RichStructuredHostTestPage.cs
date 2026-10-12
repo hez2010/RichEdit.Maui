@@ -221,6 +221,7 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             }
             var set = new RichTextSelectionSet(snapshot, (RichTextSelectionItem[])[Caret(Cell(0, 0)), Caret(Cell(0, 1))], 1);
             _editor.Selection = set; _editor.Focus(); await Task.Delay(60);
+            Equal(set, _editor.Selection, "multiple carets survive focusing the primary cell");
             var native = ((RichEditorHandler)Surface(Cell(0, 1)).Handler!).PlatformView;
             using var info = new Android.Views.InputMethods.EditorInfo();
             using var connection = native.OnCreateInputConnection(info)!;
@@ -384,6 +385,8 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             var first = PointAt(0, 0, 2);
             _editor.Selection = new RichEdit.Core.RichTextSelection(first, first);
             _editor.Focus(); await Task.Delay(30);
+            var focusedPoint = _editor.Selection is RichTextSelectionSet focusedSet ? focusedSet.Primary.Selection.Active : ((RichEdit.Core.RichTextSelection)_editor.Selection).Active;
+            Equal(first, focusedPoint, "horizontal starting caret survives focus");
             Equal(true, Surface(Cell(0, 0)).SendKeyDown(EditorKey.Right, EditorKeyModifiers.None));
             await Task.Delay(40);
             var selected = (RichTextSelectionSet)_editor.Selection;
@@ -411,6 +414,8 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             var first = PointAt(0, 1, 1);
             _editor.Selection = new RichEdit.Core.RichTextSelection(first, first);
             _editor.Focus(); await Task.Delay(40);
+            var focusedPoint = _editor.Selection is RichTextSelectionSet focusedSet ? focusedSet.Primary.Selection.Active : ((RichEdit.Core.RichTextSelection)_editor.Selection).Active;
+            Equal(first, focusedPoint, "vertical starting caret survives focus");
             Equal(true, _editor.MoveSelections(EditorKey.Down, extend: true));
             var selection = ((RichTextSelectionSet)_editor.Selection).Primary.Selection;
             Equal(first, selection.Anchor);
