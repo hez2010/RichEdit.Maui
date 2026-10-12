@@ -132,7 +132,7 @@ public partial class NativeEditorView
         if (IsReadOnly || Document.HasActiveComposition) return false;
         try
         {
-            return StructuredSession!.Edit(edit =>
+            var result = StructuredSession!.Edit(edit =>
             {
                 var result = edit.ReplaceSelection(selection, text, StructuredSession.TypingCharacterFormat);
                 if (insertionSelection is { } local && result is RichEdit.Core.RichTextSelection caret)
@@ -145,7 +145,9 @@ public partial class NativeEditorView
                 }
                 edit.SetSelection(result);
                 if (!AcceptsStructuredInputLength(edit.Snapshot)) throw new StructuredInputLimitException();
-            }, new(Origin: origin)).Accepted;
+            }, new(Origin: origin));
+            if (result.Accepted && origin == TextChangeOrigin.User) RequestStructuredFocus();
+            return result.Accepted;
         }
         catch (StructuredInputLimitException) { return false; }
     }

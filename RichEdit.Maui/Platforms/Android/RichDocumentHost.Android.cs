@@ -38,6 +38,9 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
     private HashSet<RichNodeId>? _selectedCells;
     private (int Selection, int Border)? _cellColors;
     private readonly Dictionary<RichNodeId, RichTable> _tables = [];
+    private readonly Dictionary<RichNodeId, LinearLayout> _containers = [];
+    private readonly Dictionary<RichNodeId, (LinearLayout Row, TextView Marker)> _listRows = [];
+    private readonly Dictionary<RichNodeId, (RichTableScrollView Scroll, RichNativeTableGrid Grid)> _nativeTables = [];
     private LinearLayout? _body;
     private bool _connected;
     private bool _queued;
@@ -76,6 +79,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         _coordinator.PropertyChanged -= OnAppearanceChanged;
         foreach (var surface in _surfaces.Values) Release(surface);
         _surfaces.Clear(); ClearCellBackgrounds(); _selectedCells = null; _cellColors = null; _tables.Clear();
+        _containers.Clear(); _listRows.Clear(); _nativeTables.Clear();
         RemoveAllViews(); _body = null; _shape = null;
     }
     private void OnContentChanged(object? sender, RichDocumentChangedEventArgs args)
@@ -125,72 +129,136 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         if (_shape is { } previousShape && previousShape.Body == snapshot.Body && SameStructure(previousShape, snapshot, snapshot.Body))
         { _shape = snapshot; RequestLayout(); PaintCellSelection(); return; }
         using var selectionUpdate = _coordinator.BeginStructuredSurfaceUpdate();
-        var focused = _coordinator.HasFocusedStructuredSurface;
+        var focused = FindFocus() is not null;
         var used = new HashSet<RichTextViewScope>();
-        ClearCellBackgrounds(); _selectedCells = null; _tables.Clear();
+        var nodes = new HashSet<RichNodeId>();
+        _selectedCells = null; _tables.Clear();
         var body = Container(snapshot.Body, used);
-        RemoveAllViews();
-        AddView(body, new Android.Widget.ScrollView.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
+        if (!ReferenceEquals(body, _body))
+        {
+            RemoveAllViews();
+            AddView(body, new Android.Widget.ScrollView.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
+        }
         _body = body; _shape = snapshot;
         foreach (var pair in _surfaces.Where(pair => !used.Contains(pair.Key)).ToArray()) { Release(pair.Value); _surfaces.Remove(pair.Key); }
+        foreach (var id in _containers.Keys.Where(id => !nodes.Contains(id)).ToArray()) _containers.Remove(id);
+        foreach (var id in _listRows.Keys.Where(id => !nodes.Contains(id)).ToArray()) _listRows.Remove(id);
+        foreach (var id in _nativeTables.Keys.Where(id => !nodes.Contains(id)).ToArray()) _nativeTables.Remove(id);
+        foreach (var id in _cells.Keys.Where(id => !nodes.Contains(id)).ToArray())
+        {
+            _cells[id].Background = null; _cells.Remove(id);
+            _cellBackgrounds[id].Dispose(); _cellBackgrounds.Remove(id); _paintedCellFormats.Remove(id);
+        }
         PaintCellSelection();
-        if (focused) Post(() => { if (_connected) _coordinator.FocusStructuredSelection(); });
+        // A new empty list item has no focusable bounds until its first layout.
+        if (focused)
+            AndroidX.Core.View.OneShotPreDrawListener.Add(this, new Java.Lang.Runnable(() =>
+            {
+                if (_connected) _coordinator.FocusStructuredSelection();
+            }));
 
         LinearLayout Container(RichNodeId parent, HashSet<RichTextViewScope> scopes)
         {
-            var stack = new LinearLayout(Context) { Orientation = Orientation.Vertical };
+            nodes.Add(parent);
+            if (!_containers.TryGetValue(parent, out var stack))
+                _containers.Add(parent, stack = new LinearLayout(Context) { Orientation = Orientation.Vertical });
+            var children = new List<(NativeView, ViewGroup.LayoutParams)>();
             var blocks = RichDocumentSnapshot.Children(snapshot.Get<RichNode>(parent)).ToArray();
             RichNodeId? previous = null;
             foreach (var block in blocks.Where(id => snapshot.Get<RichNode>(id) is RichTable or RichList))
             {
-                AddFlow(stack, new(parent, previous, block), scopes);
-                if (snapshot.Get<RichNode>(block) is RichTable table) stack.AddView(Table(table, scopes));
+                children.Add((Flow(new(parent, previous, block), scopes), new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent)));
+                if (snapshot.Get<RichNode>(block) is RichTable table)
+                    children.Add((Table(table, scopes), new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent)));
                 else
                 {
                     var list = snapshot.Get<RichList>(block);
                     for (var index = 0; index < list.Items.Count; index++)
                     {
-                        var row = new LinearLayout(Context) { Orientation = Orientation.Horizontal };
-                        var marker = new TextView(Context) { Text = list.Numbered ? RichTextListFormatter.FormatNumber(list.StartNumber + index,
-                            (RichListNumberStyle)list.NumberStyle) + "." : "•", Gravity = GravityFlags.Top | GravityFlags.End };
+                        var item = list.Items[index]; nodes.Add(item);
+                        if (!_listRows.TryGetValue(item, out var nativeRow))
+                        {
+                            nativeRow = (new LinearLayout(Context) { Orientation = Orientation.Horizontal },
+                                new TextView(Context) { Gravity = GravityFlags.Top | GravityFlags.End });
+                            _listRows.Add(item, nativeRow);
+                        }
+                        var (row, marker) = nativeRow;
+                        var label = list.Numbered ? RichTextListFormatter.FormatNumber(list.StartNumber + index, (RichListNumberStyle)list.NumberStyle) + "." : "•";
+                        if (marker.Text != label) marker.Text = label;
                         marker.SetTextSize(Android.Util.ComplexUnitType.Sp, (float)(_owner.FontSize ?? 14));
                         marker.SetPadding(0, Pixels(4), Pixels(4), 0);
-                        row.AddView(marker, new LinearLayout.LayoutParams(Pixels(28), LayoutParams.WrapContent));
-                        row.AddView(Container(list.Items[index], scopes), new LinearLayout.LayoutParams(0, LayoutParams.WrapContent, 1));
-                        stack.AddView(row);
+                        ReconcileChildren(row, new (NativeView, ViewGroup.LayoutParams)[]
+                        {
+                            (marker, new LinearLayout.LayoutParams(Pixels(28), LayoutParams.WrapContent)),
+                            (Container(item, scopes), new LinearLayout.LayoutParams(0, LayoutParams.WrapContent, 1)),
+                        });
+                        children.Add((row, new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent)));
                     }
                 }
                 previous = block;
             }
-            AddFlow(stack, new(parent, previous, null), scopes);
+            children.Add((Flow(new(parent, previous, null), scopes), new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent)));
+            ReconcileChildren(stack, children);
             return stack;
         }
         NativeView Table(RichTable table, HashSet<RichTextViewScope> scopes)
         {
             _tables.Add(table.Id, table);
-            var grid = new RichNativeTableGrid(Context!) { ColumnCount = table.Columns.Length, RowCount = table.Rows.Count, UseDefaultMargins = false };
+            nodes.Add(table.Id);
+            if (!_nativeTables.TryGetValue(table.Id, out var nativeTable))
+            {
+                nativeTable = (new RichTableScrollView(Context!, _coordinator) { HorizontalScrollBarEnabled = true },
+                    new RichNativeTableGrid(Context!) { UseDefaultMargins = false });
+                nativeTable.Scroll.AddView(nativeTable.Grid, new HorizontalScrollView.LayoutParams(LayoutParams.WrapContent, LayoutParams.WrapContent));
+                _nativeTables.Add(table.Id, nativeTable);
+            }
+            var grid = nativeTable.Grid;
+            grid.ColumnCount = Math.Max(grid.ColumnCount, table.Columns.Length); grid.RowCount = Math.Max(grid.RowCount, table.Rows.Count);
+            var children = new List<(NativeView, ViewGroup.LayoutParams)>();
             for (var row = 0; row < table.Rows.Count; row++)
                 foreach (var cellId in snapshot.Get<RichTableRow>(table.Rows[row]).Cells)
                 {
                     var cell = snapshot.Get<RichTableCell>(cellId);
-                    var frame = new Android.Widget.FrameLayout(Context!);
-                    var background = new RichCellDrawable(Resources?.DisplayMetrics?.Density ?? 1);
-                    frame.Background = background;
-                    _cellBackgrounds.Add(cell.Id, background);
-                    frame.AddView(Container(cell.Id, scopes), new Android.Widget.FrameLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
+                    nodes.Add(cell.Id);
+                    if (!_cells.TryGetValue(cell.Id, out var frame))
+                    {
+                        _cells.Add(cell.Id, frame = new Android.Widget.FrameLayout(Context!));
+                        var background = new RichCellDrawable(Resources?.DisplayMetrics?.Density ?? 1);
+                        frame.Background = background; _cellBackgrounds.Add(cell.Id, background);
+                    }
+                    ReconcileChildren(frame, new (NativeView, ViewGroup.LayoutParams)[] { (Container(cell.Id, scopes), new Android.Widget.FrameLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent)) });
                     var parameters = new NativeGrid.LayoutParams(NativeGrid.InvokeSpec(row, cell.RowSpan, NativeGrid.Fill),
                         NativeGrid.InvokeSpec(cell.Column, cell.ColumnSpan, NativeGrid.Fill))
                     { Width = Pixels(table.Columns.Skip(cell.Column).Take(cell.ColumnSpan).Sum(width => width.Points)), Height = LayoutParams.WrapContent };
-                    grid.AddView(frame, parameters);
-                    _cells.Add(cell.Id, frame);
+                    children.Add((frame, parameters));
                 }
-            var horizontal = new RichTableScrollView(Context!, _coordinator) { HorizontalScrollBarEnabled = true };
-            horizontal.AddView(grid, new HorizontalScrollView.LayoutParams(LayoutParams.WrapContent, LayoutParams.WrapContent));
-            return horizontal;
+            ReconcileChildren(grid, children);
+            grid.ColumnCount = table.Columns.Length; grid.RowCount = table.Rows.Count;
+            return nativeTable.Scroll;
         }
     }
 
-    private void AddFlow(LinearLayout parent, RichTextViewScope scope, HashSet<RichTextViewScope> used)
+    // Keep surviving native controls attached. Rebuilding their ancestors would
+    // discard native focus and scroll anchors even for an unrelated row edit.
+    private static void ReconcileChildren(ViewGroup parent, IReadOnlyList<(NativeView View, ViewGroup.LayoutParams Parameters)> children)
+    {
+        var retained = children.Select(child => child.View).ToHashSet(ReferenceEqualityComparer.Instance);
+        for (var index = parent.ChildCount - 1; index >= 0; index--)
+            if (!retained.Contains(parent.GetChildAt(index)!)) parent.RemoveViewAt(index);
+        for (var index = 0; index < children.Count; index++)
+        {
+            var (view, parameters) = children[index];
+            if (ReferenceEquals(parent.GetChildAt(index), view)) view.LayoutParameters = parameters;
+            else
+            {
+                (view.Parent as ViewGroup)?.RemoveView(view);
+                parent.AddView(view, index, parameters);
+            }
+        }
+        while (parent.ChildCount > children.Count) parent.RemoveViewAt(parent.ChildCount - 1);
+    }
+
+    private NativeView Flow(RichTextViewScope scope, HashSet<RichTextViewScope> used)
     {
         used.Add(scope);
         if (_surfaces.TryGetValue(scope, out var previous) && !ReferenceEquals(previous.StructuredSession, _coordinator.StructuredSession))
@@ -204,7 +272,6 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
             surface.StructuredInputBoundsProvider = () => SurfaceBounds(surface);
         }
         var native = surface.ToPlatform(_context);
-        (native.Parent as ViewGroup)?.RemoveView(native);
         if (surface.Handler is RichEditorHandler handler)
         {
             handler.PlatformView.Background = null;
@@ -212,7 +279,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
             handler.PlatformView.SetPadding(Pixels(4), Pixels(4), Pixels(4), Pixels(4));
             handler.PlatformView.StructuredTableCell = TableCellContext(scope.Root);
         }
-        parent.AddView(native, new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent));
+        return native;
     }
     private void CopyAppearance(NativeEditorView surface)
     {

@@ -114,9 +114,35 @@ public partial class NativeEditorView
     internal bool FocusStructuredSelection()
     {
         if (StructuredSession is null || FindStructuredSurface(StructuredSession.Selection) is not { } surface) return false;
-        _focusingStructuredSelection = true;
-        try { RememberStructuredInput(surface); return surface.Focus(); }
-        finally { _focusingStructuredSelection = false; }
+#if ANDROID
+        if (surface.Handler is RichEditorHandler handler)
+        {
+            var native = handler.PlatformView;
+            // MAUI queues Android focus work. Keep native traversal and the
+            // shared selection update in that same main-loop operation.
+            native.Post(() =>
+            {
+                if (ReferenceEquals(surface.Handler, handler) && ReferenceEquals(FindStructuredSurface(StructuredSession!.Selection), surface))
+                    Focus(native.RequestFocus);
+            });
+            return true;
+        }
+#endif
+        return Focus(surface.Focus);
+
+        bool Focus(Func<bool> request)
+        {
+            using var selectionUpdate = BeginStructuredSurfaceUpdate();
+            _focusingStructuredSelection = true;
+            try
+            {
+                RememberStructuredInput(surface);
+                var focused = request();
+                if (focused) surface.OnStructuredSelectionChanged(this, EventArgs.Empty);
+                return focused;
+            }
+            finally { _focusingStructuredSelection = false; }
+        }
     }
     internal void UnfocusStructuredSurface()
     {

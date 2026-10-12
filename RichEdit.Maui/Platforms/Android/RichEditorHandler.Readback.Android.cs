@@ -288,9 +288,9 @@ public partial class RichEditorHandler
         {
             if (text is not null && what is not null && _handler.TryGetTarget(out var handler))
             {
-                // Text edits already reconcile source and composition once. Moving
-                // every later span is not a separate native formatting operation.
-                if (handler._applyingDocument || moved && handler._nativeTextChangeDepth != 0)
+                // Replacement readback reconciles its text and spans together.
+                // Intermediate span positions do not describe the committed edit.
+                if (handler._applyingDocument || handler._nativeTextChangeDepth != 0)
                     return;
 
                 handler.UpdateCompositionState();
@@ -301,7 +301,7 @@ public partial class RichEditorHandler
 
     private void OnNativeSelectionChanged(object? sender, NativeSelectionChangedEventArgs eventArgs)
     {
-        if (_applyingDocument || HasTransientInputSelection || VirtualView is null)
+        if (_applyingDocument || _nativeTextChangeDepth != 0 || HasTransientInputSelection || VirtualView is null)
         {
             return;
         }
