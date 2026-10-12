@@ -4,6 +4,26 @@ namespace RichEdit.Maui.Tests;
 
 public partial class CodeEditorTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task NativeGutterUpdatesDoNotPullScrollingBackToTheCaret(bool multipleCarets) => WithPerformanceSourceSurface(async editor =>
+    {
+        editor.Document = new CodeDocument(string.Join("\n", Enumerable.Range(0, 250).Select(i => $"Line {i}: scrolling")));
+        editor.SelectedRange = TextSpan.Empty;
+        if (multipleCarets) editor.AddCaret(12);
+        editor.Focus();
+        await Task.Delay(150);
+        var selected = editor.Selections;
+        var handler = (RichEditorHandler)editor.TextView.Handler!;
+        var scroll = WindowsScrollingTests.FindScroller(handler.PlatformView)!;
+        scroll.ChangeView(null, 900, null, true);
+        await Task.Delay(300);
+        Assert.True(scroll.VerticalOffset > 700, $"Gutter update returned the viewport to {scroll.VerticalOffset}.");
+        Assert.Equal(selected, editor.Selections);
+        Assert.True(editor.GetVisibleLines()[0].Number > 1);
+    });
+
     [Fact]
     public Task RectangleSelectsDisjointBidiIntervalsFromNativeGlyphs() => WindowsTestHost.RunAsync(async () =>
     {

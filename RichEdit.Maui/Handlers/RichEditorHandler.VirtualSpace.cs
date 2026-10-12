@@ -54,7 +54,10 @@ namespace RichEdit.Maui
         private void UpdateVirtualPrimaryCaret(bool hidden)
         {
 #if WINDOWS
-            PlatformView.Document.CaretType = hidden ? Microsoft.UI.Text.CaretType.Null : Microsoft.UI.Text.CaretType.Normal;
+            var type = hidden ? Microsoft.UI.Text.CaretType.Null : Microsoft.UI.Text.CaretType.Normal;
+            // Setting CaretType also reveals the native caret. Layout/scroll
+            // observation must not repeat that mutation when its state is unchanged.
+            if (PlatformView.Document.CaretType != type) PlatformView.Document.CaretType = type;
 #elif ANDROID
             PlatformView.SetCursorVisible(!hidden && !VirtualView.IsReadOnly);
 #else
