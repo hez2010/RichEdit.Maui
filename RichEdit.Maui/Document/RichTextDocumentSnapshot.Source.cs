@@ -7,7 +7,8 @@ public sealed partial class RichTextDocumentSnapshot
     // A native render description, never a second authored source document. Its
     // text root is the canonical source root; default paragraph entries are only
     // materialized if a platform renderer actually enumerates them.
-    internal static RichTextDocumentSnapshot CreateSourceProjection(TextSnapshot text) => new(text);
+    internal static RichTextDocumentSnapshot CreateSourceProjection(TextSnapshot text, RichTextCharacterFormat? defaultCharacterFormat = null) =>
+        new(text, defaultCharacterFormat);
 
     internal static RichTextDocumentSnapshot CreateSourceDisplay(TextSnapshot text, IEnumerable<RichTextRun> runs, IEnumerable<RichTextImage> reservations) =>
         new(text, runs, reservations);
@@ -20,12 +21,12 @@ public sealed partial class RichTextDocumentSnapshot
         _images = reservations.OrderBy(image => image.Position).ToImmutableArray();
     }
 
-    private RichTextDocumentSnapshot(TextSnapshot text)
+    private RichTextDocumentSnapshot(TextSnapshot text, RichTextCharacterFormat? defaultCharacterFormat = null)
     {
         _text = text;
         Version = text.Revision.IsValid ? text.Revision.Version : 0;
         Revision = text.Revision;
-        DefaultCharacterFormat = RichTextCharacterFormat.Default;
+        DefaultCharacterFormat = defaultCharacterFormat ?? RichTextCharacterFormat.Default;
         DefaultParagraphFormat = RichTextParagraphFormat.Default;
         _runs = text.Length == 0 ? [] : [new(0, text.Length, DefaultCharacterFormat)];
         _plainParagraphs = new(() => text.GetLines()

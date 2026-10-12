@@ -52,6 +52,7 @@ public partial class RichEditorHandler
         var resolved = prepared.Resolve(content.Value ?? "");
         foreach (var removal in resolved.Removals.Reverse()) content.Replace(new NSRange(removal.Start, removal.Length), "");
         if (content.Value != resolved.Map.NativeText) throw new InvalidOperationException("Native rich marker removal changed document coordinates.");
+        var hasListMarkers = ApplyStructuredParagraphPresentation(content, resolved.Map, presentation?.PrivateParagraphs);
         // Apple's RTF importer can omit pictures inside table cells. Import the
         // native table/paragraph structure with addressed image characters, then
         // attach the original resources through NSTextAttachment in that storage.
@@ -76,6 +77,7 @@ public partial class RichEditorHandler
             _pendingNativeChange = null;
             try
             {
+                _structuredHasListMarkers = hasListMarkers;
                 PlatformView.AttributedText = content;
                 ObserveTextStorage();
                 PlatformView.UpdatePlaceholderVisibility();

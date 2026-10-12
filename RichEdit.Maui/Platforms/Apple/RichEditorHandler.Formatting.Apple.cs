@@ -445,7 +445,7 @@ public partial class RichEditorHandler
         var size = (nfloat)(format.FontSize ?? VirtualView.FontSize ?? _defaultFont.PointSize);
         var font = (string.IsNullOrWhiteSpace(family)
             ? UIFont.FromDescriptor(_defaultFont.FontDescriptor, size) ?? _defaultFont
-            : UIFont.FromName(family, size) ?? UIFont.SystemFontOfSize(size))!;
+            : UIFont.FromName(family, size) ?? FontFromFamily(family, size) ?? UIFont.SystemFontOfSize(size))!;
 
         var traits = (UIFontDescriptorSymbolicTraits)0;
         if (format.Bold)
@@ -479,6 +479,12 @@ public partial class RichEditorHandler
         }
 
         return font;
+    }
+
+    private static UIFont? FontFromFamily(string family, nfloat size)
+    {
+        using var descriptor = new UIFontDescriptor(new UIFontAttributes { Family = family });
+        return UIFont.FromDescriptor(descriptor, size);
     }
 
     private static NSUnderlineStyle ToNativeUnderline(RichTextUnderlineStyle value) => value switch

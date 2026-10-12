@@ -13,7 +13,7 @@ public sealed partial class RichTextDocumentSnapshot
         var text = _text;
         foreach (var edit in replacements)
             text = text.Replace(new(edit.Range.Start, edit.Range.Length), edit.Text);
-        if (IsSourceProjection) return CreateSourceProjection(text);
+        if (IsSourceProjection) return CreateSourceProjection(text, DefaultCharacterFormat);
         var runs = new List<RichTextRun>(_runs.Length + ordered.Length * 2);
         var newStarts = new int[ordered.Length];
         var newEnds = new int[ordered.Length];

@@ -101,10 +101,12 @@ public partial class RichEditorHandler
     {
         if (_adornmentsConnected)
             VirtualView.TextLayout.Invalidate();
-        if (!_adornmentsConnected || _adornmentLayoutQueued || VirtualView.Adornments.Count == 0 && NativeProjection.IsEmpty &&
-            VirtualView.Selections.Count < 2 && VirtualView.Selections.Primary.AnchorVirtualSpaces == 0 &&
-            VirtualView.Selections.Primary.ActiveVirtualSpaces == 0 && !VirtualView.DrawScopedPrimaryAsSecondary && _secondarySelectionView is null)
-            return;
+        if (!_adornmentsConnected || _adornmentLayoutQueued) return;
+        var required = VirtualView.Adornments.Count != 0 || !NativeProjection.IsEmpty ||
+            VirtualView.Selections.Count >= 2 || VirtualView.Selections.Primary.AnchorVirtualSpaces != 0 ||
+            VirtualView.Selections.Primary.ActiveVirtualSpaces != 0 || VirtualView.DrawScopedPrimaryAsSecondary || _secondarySelectionView is not null;
+        IncludeNativeAdornmentLayout(ref required);
+        if (!required) return;
 
         _adornmentLayoutQueued = true;
         var attachment = LayoutAttachment;
@@ -116,6 +118,8 @@ public partial class RichEditorHandler
                 ArrangeAdornments();
         });
     }
+
+    partial void IncludeNativeAdornmentLayout(ref bool required);
 
     private void ArrangeAdornments()
     {

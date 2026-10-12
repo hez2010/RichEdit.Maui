@@ -356,7 +356,7 @@ public sealed partial class RichTextDocumentSnapshot
     {
         var (start, length) = range.GetOffsetAndLength(Length);
         if (IsSourceProjection && _images.IsEmpty)
-            return CreateSourceProjection(_text.Replace(new(start, length), replacement ?? ""));
+            return CreateSourceProjection(_text.Replace(new(start, length), replacement ?? ""), DefaultCharacterFormat);
         replacement = NormalizeText(replacement);
         var oldEnd = start + length;
         var delta = replacement.Length - length;

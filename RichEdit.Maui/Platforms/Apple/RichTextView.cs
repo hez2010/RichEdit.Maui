@@ -42,8 +42,7 @@ public partial class RichTextView : UITextView
 
         AddSubview(_placeholderLabel);
         TextContainerInset = new UIEdgeInsets(10, 8, 10, 8);
-        // Geometry and folding use TextKit 1. Its list markers are drawn by
-        // this view, since NSTextList alone only renders them in TextKit 2.
+        // Geometry and folding use TextKit 1. List markers use native labels.
         _ = LayoutManager;
     }
 
@@ -83,7 +82,7 @@ public partial class RichTextView : UITextView
         var width = Math.Max(0, Bounds.Width - x - inset.Right - TextContainer.LineFragmentPadding);
         var size = _placeholderLabel.SizeThatFits(new CGSize(width, nfloat.MaxValue));
         _placeholderLabel.Frame = new CGRect(x, inset.Top, width, size.Height);
-        SetNeedsDisplay();
+        ProjectionHandler?.UpdateNativeListMarkers();
     }
 
     /// <inheritdoc />

@@ -36,3 +36,5 @@ Use `SetStyles`, `SetParagraphStyle`, `SetCharacterStyle`, `SetCharacterFormat`,
 Character support includes bold, italic, underline variants/colors, strike-through, foreground/highlight, shading, baseline/script placement, spacing, horizontal scaling, language, direction, capitals, outline, shadow, and hidden state. Paragraph support includes alignment, direction, indents, before/after spacing, line spacing, tabs/leaders, headings, keep/widow settings, hyphenation, shading, and uniform borders.
 
 `FontFamily`, `FontSize`, and `TextColor` on the view are fallback appearance and do not change saved content. Presentation layers compose afterward. Native engines can approximate some retained properties; see [RTF support](../../RTF_SUPPORT.md).
+
+Body text wraps within the editor's available width, accounting for paragraph indents. Table text uses the cell's width. Alignment does not change font size: each paragraph's text keeps its resolved character formatting.

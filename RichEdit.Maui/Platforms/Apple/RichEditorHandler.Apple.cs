@@ -77,6 +77,7 @@ public partial class RichEditorHandler
     /// <inheritdoc />
     protected override void DisconnectHandler(RichTextView platformView)
     {
+        ClearNativeListMarkers();
         _nativeReadbackQueued = false;
         _queuedDocument = null;
         VirtualView?.Commands.Disconnect();
@@ -155,7 +156,7 @@ public partial class RichEditorHandler
         try
         {
             PlatformView.TypingAttributes2 = attributes;
-            PlatformView.SetNeedsDisplay();
+            QueueAdornmentLayout();
         }
         finally
         {

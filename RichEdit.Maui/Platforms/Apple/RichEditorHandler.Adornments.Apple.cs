@@ -40,7 +40,6 @@ public partial class RichEditorHandler
         _adornmentView = PlatformView;
         _adornmentScrollObservation = _adornmentView.AddObserver("contentOffset", NSKeyValueObservingOptions.New, _ =>
         {
-            _adornmentView.SetNeedsDisplay();
             QueueAdornmentLayout();
         });
         _adornmentBoundsObservation = _adornmentView.AddObserver("bounds", NSKeyValueObservingOptions.New, _ => QueueAdornmentLayout());
@@ -58,6 +57,8 @@ public partial class RichEditorHandler
         SetAdornmentMargin(0);
         _adornmentView = null!;
     }
+
+    partial void CommitAdornmentLayout() => UpdateNativeListMarkers();
 
     private partial void SetAdornmentMargin(double width)
     {

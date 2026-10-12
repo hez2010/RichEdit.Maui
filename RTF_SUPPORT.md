@@ -25,7 +25,7 @@ RTF is the sole persistence and interchange format for `RichEdit.Core.RichDocume
 | Heading, keep, widow, hyphenation settings | Retained | Continuous editing is not a paginated layout engine |
 | Paragraph borders | Uniform style across selected sides retained | Mixed external edge styles produce a diagnostic; native visual fidelity varies |
 | Named character/paragraph styles | References, inheritance, next-style, and direct overrides retained | Views resolve the authored cascade |
-| Lists | Semantic items, nested blocks, bullets, start counters, decimal/Roman/alphabetic numbering | Up to nine RTF levels and 2,000 overrides |
+| Lists | Semantic items, nested blocks, bullets, start counters, decimal/Roman/alphabetic numbering; imported sections retain continued numbering across intervening paragraphs | Up to nine RTF levels and 2,000 overrides |
 | Tables | Nested blocks, explicit grid, merged cells, row/column edits retained | Table layout can differ between platforms |
 | Cell formatting | Independent borders, padding, shading, vertical alignment retained | Padding around a cell containing only a nested table can differ on Windows |
 | Hyperlinks | Target and tooltip retained | Application activation events and native text mapping |

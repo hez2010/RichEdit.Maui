@@ -6,7 +6,7 @@ using UIKit;
 
 namespace RichEdit.Maui.Tests;
 
-internal static class AppleEditorTests
+internal static partial class AppleEditorTests
 {
     public static Task RunAsync(NativeEditorView editor) => AppleTestEnvironment.RunAsync(() => RunCoreAsync(editor));
 
@@ -84,6 +84,9 @@ internal static class AppleEditorTests
             Save();
             Console.WriteLine(results[index]);
         }
+
+        await Test("structured RTF reference uses native viewport fonts and list markers", () => VerifyReferenceLayout(editor));
+        await Test("structured native list labels follow table cell geometry", () => VerifyTableListMarkers(editor));
 
         async Task VerifyNativeTable(string tableRtf)
         {

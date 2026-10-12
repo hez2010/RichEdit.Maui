@@ -468,9 +468,7 @@ public partial class RichEditorHandler
     private void OnTextStorageProcessed(object? sender, NSTextStorageEventArgs args)
     {
         if (((IElementHandler)this).VirtualView is not NativeEditorView) return;
-        // List-marker appearance follows storage attributes, including changes
-        // that do not require the text view itself to lay out again.
-        PlatformView.SetNeedsDisplay();
+        QueueAdornmentLayout();
         _inputProjection = null;
         if (VirtualView.SourceSession is not null && (!_applyingDocument || _applyingTypingFormat))
         {
