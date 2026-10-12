@@ -13,13 +13,6 @@ public partial class RichEditorHandler
         return (tint, tint.WithAlpha(0.3f));
     }
 
-    private partial void OffsetAdornmentScroll(double verticalDelta)
-    {
-        var inset = PlatformView.AdjustedContentInset;
-        var maximum = Math.Max(-inset.Top, PlatformView.ContentSize.Height - PlatformView.Bounds.Height + inset.Bottom);
-        PlatformView.SetContentOffset(new(PlatformView.ContentOffset.X, Math.Clamp(PlatformView.ContentOffset.Y + verticalDelta, -inset.Top, maximum)), false);
-    }
-
     private RichEdit.Maui.Platforms.Apple.RichTextView _adornmentView = null!;
     private IDisposable? _adornmentScrollObservation;
     private IDisposable? _adornmentBoundsObservation;
@@ -47,7 +40,6 @@ public partial class RichEditorHandler
         _adornmentView = PlatformView;
         _adornmentScrollObservation = _adornmentView.AddObserver("contentOffset", NSKeyValueObservingOptions.New, _ =>
         {
-            OnNativeScrollOffsetChanged();
             _adornmentView.SetNeedsDisplay();
             QueueAdornmentLayout();
         });

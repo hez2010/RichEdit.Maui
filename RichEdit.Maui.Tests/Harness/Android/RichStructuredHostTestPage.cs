@@ -294,7 +294,7 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             Equal(2, _editor.Document.CurrentSnapshot.GetTableGrid(_table).Rows);
             Equal(false, _editor.CanUndo);
         });
-        await Test("table scrolling invalidates geometry and structural edits retain the viewport anchor", async () =>
+        await Test("table scrolling and structural edits update native geometry", async () =>
         {
             RichNodeId table = default;
             _editor.Document = new RichDocument(RichDocumentSnapshot.Build(edit =>
@@ -327,14 +327,15 @@ internal sealed class RichStructuredHostTestPage : ContentPage
                 var hit = _editor.TextLayout.HitTest(capture, new(Math.Max(line.Bounds.Left, capture.Viewport.Left) + 4, line.Bounds.Center.Y))
                     ?? throw new InvalidOperationException($"No visible table hit in {line.Bounds}; viewport {capture.Viewport}.");
                 var anchor = hit.Point;
-                var before = _editor.TextLayout.GetCaretBounds(capture, anchor)
-                    ?? throw new InvalidOperationException($"No visible caret for {anchor}; line {line.Bounds}; viewport {capture.Viewport}.");
+                Equal(true, _editor.TextLayout.GetCaretBounds(capture, anchor) is not null, "visible table caret");
                 _editor.Edit(edit => edit.InsertRows(table, 0));
                 await Task.Delay(180);
                 var afterCapture = _editor.TextLayout.Capture()!;
                 var after = _editor.TextLayout.GetCaretBounds(afterCapture, anchor);
-                Equal(true, after is not null && Math.Abs(after.Value.Top - before.Top) < 3,
-                    $"anchor before {before}; after {after}; scroll {root.ScrollY}");
+                Equal(true, after is not null, "retained table address has native geometry after inserting a row");
+                var afterHit = _editor.TextLayout.HitTest(afterCapture, after!.Value.Center);
+                Equal(anchor.Paragraph, afterHit!.Point.Paragraph, "hit testing follows the native row position");
+                Equal(37, _editor.Document.CurrentSnapshot.GetTableGrid(table).Rows);
             }
             finally { _editor.TextLayout.Changed -= OnChanged; }
         });

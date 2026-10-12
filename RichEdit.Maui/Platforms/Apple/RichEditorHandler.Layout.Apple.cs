@@ -22,8 +22,9 @@ public partial class RichEditorHandler
         var manager = PlatformView.LayoutManager;
         NativeGeometryQueryCount++;
         // A gutter can request geometry before UITextView's next layout pass.
-        var visible = manager.GetGlyphRangeForBoundingRect(
-            new CGRect(offset.X - inset.Left, offset.Y - inset.Top, viewport.Width, viewport.Height), PlatformView.TextContainer);
+        var nativeViewport = new CGRect(offset.X - inset.Left, offset.Y - inset.Top, viewport.Width, viewport.Height);
+        manager.EnsureLayoutForBoundingRect(nativeViewport, PlatformView.TextContainer);
+        var visible = manager.GetGlyphRangeForBoundingRect(nativeViewport, PlatformView.TextContainer);
         var lines = new List<RichTextVisualLine>();
         var limit = checked((nuint)(visible.Location + visible.Length));
         for (var glyph = checked((nuint)visible.Location); glyph < limit;)

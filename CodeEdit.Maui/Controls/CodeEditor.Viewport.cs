@@ -105,45 +105,47 @@ public sealed partial class CodeEditor
         CodeRevealAlignment alignment, object? causeToken, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (Composition.IsActive || TextView.Handler is not RichEditorHandler handler || !handler.HasTextLayout) return false;
+        if (Composition.IsActive || TextView.Handler is not RichEditorHandler handler || !handler.HasTextLayout || NativeAdapter is not { } adapter) return false;
         var document = Document;
-        using var target = document.Tracking.TrackPosition(position, deletion: TrackingDeletionBehavior.Preserve);
+        var revision = document.Revision;
         var generation = ++_scrollRequestGeneration;
         _scrollCause = causeToken;
         try
         {
+            if (!await adapter.PrepareViewportAsync(cancellationToken) || generation != _scrollRequestGeneration ||
+                !ReferenceEquals(Document, document) || document.Revision != revision || Composition.IsActive)
+                return false;
+            if (TextLayout.Capture() is not { } layout ||
+                handler.GetTextCaretBounds(position, (RichTextCaretAffinity)affinity) is not { } native)
+                return false;
+            var caret = new Rect(native.X + layout.Origin.X, native.Y + layout.Origin.Y, native.Width, native.Height);
+            var viewport = layout.TextViewport;
+            var y = offset?.Y ?? alignment switch
+            {
+                CodeRevealAlignment.Start => 0,
+                CodeRevealAlignment.Center => (viewport.Height - caret.Height) / 2,
+                CodeRevealAlignment.End => viewport.Height - caret.Height,
+                _ => Math.Clamp(caret.Top - viewport.Top, 0, Math.Max(0, viewport.Height - caret.Height)),
+            };
+            var x = offset?.X ?? Math.Clamp(caret.Left - viewport.Left, 0, Math.Max(0, viewport.Width - caret.Width));
+            if (!handler.ScrollViewportBy(new(caret.Left - viewport.Left - x, caret.Top - viewport.Top - y))) return false;
+
             CodeViewportSnapshot? previous = null;
             var stable = 0;
-            // Native layout and widget measurement may finish after a scroll call.
-            // A bounded settling period avoids retaining a view indefinitely if a
-            // backend never supplies usable geometry. Callers can cancel earlier.
+            // Observe completion without issuing further scroll commands. Native
+            // layout and any subsequent user scrolling own the viewport position.
             var deadline = Environment.TickCount64 + 2000;
             while (Environment.TickCount64 < deadline)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (generation != _scrollRequestGeneration || !ReferenceEquals(document, Document) ||
-                    !ReferenceEquals(TextView.Handler, handler) || Composition.IsActive || target.Position is not { } current)
+                    !ReferenceEquals(TextView.Handler, handler) || Composition.IsActive)
                     return false;
-                if (TextLayout.Capture() is { } layout &&
-                    handler.GetTextCaretBounds(current, (RichTextCaretAffinity)affinity) is { } native)
-                {
-                    var caret = new Rect(native.X + layout.Origin.X, native.Y + layout.Origin.Y, native.Width, native.Height);
-                    var viewport = layout.TextViewport;
-                    var y = offset?.Y ?? alignment switch
-                    {
-                        CodeRevealAlignment.Start => 0,
-                        CodeRevealAlignment.Center => (viewport.Height - caret.Height) / 2,
-                        CodeRevealAlignment.End => viewport.Height - caret.Height,
-                        _ => Math.Clamp(caret.Top - viewport.Top, 0, Math.Max(0, viewport.Height - caret.Height)),
-                    };
-                    var x = offset?.X ?? Math.Clamp(caret.Left - viewport.Left, 0, Math.Max(0, viewport.Width - caret.Width));
-                    if (!handler.ScrollViewportBy(new(caret.Left - viewport.Left - x, caret.Top - viewport.Top - y))) return false;
-                    var observed = CaptureViewport();
-                    stable = observed is not null && observed == previous ? stable + 1 : 0;
-                    previous = observed;
-                    PublishViewport();
-                    if (stable >= 2) return true;
-                }
+                var observed = CaptureViewport();
+                stable = observed is not null && observed == previous ? stable + 1 : 0;
+                previous = observed;
+                PublishViewport();
+                if (stable >= 2) return true;
                 await Task.Delay(16, cancellationToken);
             }
             return false;

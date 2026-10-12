@@ -14,6 +14,14 @@ internal sealed partial class CodeEditorNativeAdapter
 
     internal partial Color? GetTextColor() => _defaultTextColor.ToColor();
 
+    internal partial Task<bool> PrepareViewportAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PlatformView.LayoutManager.EnsureLayoutForTextContainer(PlatformView.TextContainer);
+        PlatformView.LayoutIfNeeded();
+        return Task.FromResult(PlatformView.Window is not null);
+    }
+
     internal partial bool Post(Action action)
     {
         PlatformView.BeginInvokeOnMainThread(action);
@@ -24,25 +32,17 @@ internal sealed partial class CodeEditorNativeAdapter
     {
         PlatformView = _handler.PlatformView;
         _defaultTextColor = PlatformView.TextColor ?? UIColor.Label;
-        Owner.TextLayout.Changed += OnTextLayoutChanged;
-    }
-
-    private partial void Disconnect()
-    {
-        Owner.TextLayout.Changed -= OnTextLayoutChanged;
-    }
-
-    private void OnTextLayoutChanged(object? sender, EventArgs args) => UpdateTextContainer();
-
-    private partial void UpdateConfigurationCore()
-    {
+        PlatformView.NativeSizeChanged += UpdateTextContainer;
         PlatformView.AllowsEditingTextAttributes = false;
         PlatformView.AutocapitalizationType = UITextAutocapitalizationType.None;
         PlatformView.SmartQuotesType = UITextSmartQuotesType.No;
         PlatformView.SmartDashesType = UITextSmartDashesType.No;
         PlatformView.SmartInsertDeleteType = UITextSmartInsertDeleteType.No;
-        UpdateTextContainer();
     }
+
+    private partial void Disconnect() => PlatformView.NativeSizeChanged -= UpdateTextContainer;
+
+    private partial void UpdateConfigurationCore() => UpdateTextContainer();
 
     private void UpdateTextContainer()
     {

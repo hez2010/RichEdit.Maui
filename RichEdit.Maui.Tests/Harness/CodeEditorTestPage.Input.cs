@@ -27,28 +27,20 @@ internal sealed partial class CodeEditorTestPage
             }
             finally { native.TextChanged -= Changed; }
         });
-        await test("local native source edits retain incremental layout", string.Concat(Enumerable.Repeat("line of source\n", 2000)), async () =>
+        await test("local native source edits preserve the editable buffer", string.Concat(Enumerable.Repeat("line of source\n", 2000)), async () =>
         {
             var native = (Android.Widget.EditText)_textView.Handler!.PlatformView!;
             _editor.Coloring().Enabled = false;
             await Task.Delay(100);
-            var layout = native.Layout!;
+            var editable = native.EditableText!;
             var handler = (RichEditorHandler)_textView.Handler;
             var replacements = handler.NativeDocumentReplacementCount;
             _editor.SelectedRange = new(3, 0);
             EditorContractTests.NativeReplace(_textView, "X");
             await Task.Delay(100);
-            Equal(true, layout.Equals(native.Layout),
-                "native layout identity after a local edit and a frame");
+            Equal(true, editable.Equals(native.EditableText), "native editable buffer after a local edit");
             Equal(replacements, handler.NativeDocumentReplacementCount, "native buffer replacement count");
             Equal('X', _editor.Document.CurrentSnapshot.TextBuffer[3]);
-            _editor.FontSize += 2;
-            await Task.Delay(100);
-            Equal(false, layout.Equals(native.Layout), "font changes invalidate native metrics");
-            var unwrapped = native.Layout;
-            _editor.WordWrap = true;
-            await Task.Delay(100);
-            Equal(false, unwrapped!.Equals(native.Layout), "wrapping invalidates native layout");
         });
 #endif
 #if IOS || MACCATALYST

@@ -206,11 +206,16 @@ public partial class RichEditorHandler
 
     private partial void ScrollIntoViewCore(TextSpan range)
     {
-        _adornmentScrollAnchor = null;
-        _requestedReveal = (VirtualView.Document.Revision, NativeProjection.ToSource(range.Start), VirtualView.SelectionState, RevealSelectionGeneration);
-        var generation = ++_revealGeneration;
-        PlatformView.BringPointIntoView(range.Start);
-        PlatformView.PostDelayed(() => FinishRequestedReveal(generation), 32);
+        var view = PlatformView;
+        var revision = VirtualView.Document.Revision;
+        // Execute this navigation request once, after native text layout and
+        // its pending selection reveal have completed for the frame.
+        AndroidX.Core.View.OneShotPreDrawListener.Add(view, new Java.Lang.Runnable(() =>
+        {
+            if (VirtualView?.Document.Revision == revision)
+                view.BringPointIntoView(range.Start);
+        }));
+        view.Invalidate();
     }
 
     // Android's public TextView API does not expose its internal undo manager or

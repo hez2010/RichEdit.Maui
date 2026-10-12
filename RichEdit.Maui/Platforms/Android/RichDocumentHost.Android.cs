@@ -42,7 +42,6 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
     private bool _connected;
     private bool _queued;
     private RichDocumentSnapshot? _shape;
-    private (DocumentRevision Revision, RichTextPoint Point, double Top)? _viewportAnchor;
 
     internal RichDocumentHost(Context context, RichEditor owner, IMauiContext mauiContext) : base(context)
     {
@@ -77,14 +76,13 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         _coordinator.PropertyChanged -= OnAppearanceChanged;
         foreach (var surface in _surfaces.Values) Release(surface);
         _surfaces.Clear(); ClearCellBackgrounds(); _selectedCells = null; _cellColors = null; _tables.Clear();
-        RemoveAllViews(); _body = null; _shape = null; _viewportAnchor = null;
+        RemoveAllViews(); _body = null; _shape = null;
     }
     private void OnContentChanged(object? sender, RichDocumentChangedEventArgs args)
     {
-        _viewportAnchor = CaptureViewportAnchor();
         QueueRebuild();
     }
-    private void OnDocumentReplaced(object? sender, RichDocumentReplacedEventArgs args) { _shape = null; _viewportAnchor = null; QueueRebuild(); }
+    private void OnDocumentReplaced(object? sender, RichDocumentReplacedEventArgs args) { _shape = null; QueueRebuild(); }
     private void OnSelectionChanged(object? sender, EventArgs args) { PaintCellSelection(); }
     private void OnCompositionChanged(object? sender, EventArgs args) { if (_owner.Composition is null) QueueRebuild(); }
     private void OnAppearanceChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
@@ -320,49 +318,9 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
                 var density = Resources?.DisplayMetrics?.Density ?? 1;
                 surface.StructuredInputOffset = new((location[0] - origin[0]) / density, (location[1] - origin[1]) / density);
             }
-        RestoreViewportAnchor();
     }
 
-    private (DocumentRevision Revision, RichTextPoint Point, double Top)? CaptureViewportAnchor()
-    {
-        if (_body is null || _shape is null || Height <= 0) return null;
-        var density = Resources?.DisplayMetrics?.Density ?? 1;
-        NativeEditorView? selected = null;
-        var selectedBounds = Rect.Zero;
-        var nearest = double.MaxValue;
-        foreach (var surface in _surfaces.Values)
-        {
-            if (surface.Document.StructuredProjection is not { Paragraphs.IsEmpty: false }) continue;
-            var bounds = SurfaceBounds(surface);
-            if (bounds.Bottom <= 0 || bounds.Top >= Height / density || bounds.Right <= 0 || bounds.Left >= Width / density) continue;
-            var distance = Math.Max(0, bounds.Top);
-            if (distance >= nearest) continue;
-            nearest = distance; selected = surface; selectedBounds = bounds;
-        }
-        if (selected?.Handler is not RichEditorHandler handler || selected.Document.StructuredProjection is not { } projection) return null;
-        var point = new Point(Math.Max(0, -selectedBounds.Left) + 1, Math.Max(0, -selectedBounds.Top) + 1);
-        if (handler.HitTestText(point) is not { } hit || projection.GetPoint(hit.Position) is not { } rich ||
-            handler.GetTextCaretBounds(hit.Position, hit.Affinity) is not { } caret) return null;
-        return (_owner.Document.Revision, rich, selectedBounds.Top + caret.Top);
-    }
 
-    private void RestoreViewportAnchor()
-    {
-        if (_viewportAnchor is not { } anchor) return;
-        _viewportAnchor = null;
-        if (_owner.Document.Revision != anchor.Revision ||
-            _coordinator.FindStructuredSurface(new RichEdit.Core.RichTextSelection(anchor.Point, anchor.Point)) is not { } surface ||
-            surface.Handler is not RichEditorHandler handler || surface.Document.StructuredProjection is not { } projection) return;
-        if (handler.GetTextCaretBounds(projection.GetOffset(anchor.Point), RichTextCaretAffinity.Downstream) is not { } caret) return;
-        var delta = SurfaceBounds(surface).Top + caret.Top - anchor.Top;
-        if (Math.Abs(delta) > 0.5) ScrollTo(ScrollX, Math.Max(0, ScrollY + Pixels(delta)));
-    }
-
-    public override bool OnInterceptTouchEvent(MotionEvent? ev)
-    {
-        if (ev?.ActionMasked is MotionEventActions.Down or MotionEventActions.Move) _viewportAnchor = null;
-        return base.OnInterceptTouchEvent(ev);
-    }
 }
 
 internal sealed class RichTableScrollView(Context context, NativeEditorView coordinator) : HorizontalScrollView(context)

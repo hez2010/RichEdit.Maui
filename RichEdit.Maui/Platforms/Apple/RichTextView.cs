@@ -11,7 +11,7 @@ public partial class RichTextView : UITextView
     private readonly UIColor _defaultPlaceholderColor;
     private readonly UILabel _placeholderLabel;
     private readonly DocumentUndoManager _documentUndoManager = new();
-    private bool _layingOut;
+    private CGSize _layoutSize;
 
     /// <inheritdoc />
     public override NSUndoManager? UndoManager => _documentUndoManager ?? base.UndoManager;
@@ -27,20 +27,7 @@ public partial class RichTextView : UITextView
     internal Func<Task>? CutRequested { get; set; }
 
     internal Action? NativeAppearanceChanged { get; set; }
-
-    /// <inheritdoc />
-    public override bool AccessibilityScroll(UIAccessibilityScrollDirection direction)
-    {
-        ProjectionHandler?.CancelViewportRestoration();
-        return base.AccessibilityScroll(direction);
-    }
-
-    /// <inheritdoc />
-    public override void AccessibilityElementDidBecomeFocused()
-    {
-        ProjectionHandler?.CancelViewportRestoration();
-        base.AccessibilityElementDidBecomeFocused();
-    }
+    internal event Action? NativeSizeChanged;
 
     /// <summary>Initializes the native rich-text view.</summary>
     public RichTextView()
@@ -85,27 +72,18 @@ public partial class RichTextView : UITextView
     /// <inheritdoc />
     public override void LayoutSubviews()
     {
-        var previous = _layingOut;
-        _layingOut = true;
-        try
+        base.LayoutSubviews();
+        if (_layoutSize != Bounds.Size)
         {
-            base.LayoutSubviews();
-            var inset = TextContainerInset;
-            var x = inset.Left + TextContainer.LineFragmentPadding;
-            var width = Math.Max(0, Bounds.Width - x - inset.Right - TextContainer.LineFragmentPadding);
-            var size = _placeholderLabel.SizeThatFits(new CGSize(width, nfloat.MaxValue));
-            _placeholderLabel.Frame = new CGRect(x, inset.Top, width, size.Height);
-            ProjectionHandler?.OnNativeLayoutCompleted();
-            SetNeedsDisplay();
+            _layoutSize = Bounds.Size;
+            NativeSizeChanged?.Invoke();
         }
-        finally { _layingOut = previous; }
-    }
-
-    /// <inheritdoc />
-    public override void SetContentOffset(CGPoint contentOffset, bool animated)
-    {
-        if (!animated && !_layingOut) ProjectionHandler?.OnExplicitNativeScroll();
-        base.SetContentOffset(contentOffset, animated);
+        var inset = TextContainerInset;
+        var x = inset.Left + TextContainer.LineFragmentPadding;
+        var width = Math.Max(0, Bounds.Width - x - inset.Right - TextContainer.LineFragmentPadding);
+        var size = _placeholderLabel.SizeThatFits(new CGSize(width, nfloat.MaxValue));
+        _placeholderLabel.Frame = new CGRect(x, inset.Top, width, size.Height);
+        SetNeedsDisplay();
     }
 
     /// <inheritdoc />

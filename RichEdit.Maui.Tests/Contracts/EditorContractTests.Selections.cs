@@ -202,6 +202,7 @@ internal static partial class EditorContractTests
             editor.SelectedRange = new(1, 0);
             using var peer = new SharedEditor(editor);
             var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+            await Task.Delay(40);
 #if ANDROID
             using var info = new Android.Views.InputMethods.EditorInfo();
             using var connection = native.OnCreateInputConnection(info)!;

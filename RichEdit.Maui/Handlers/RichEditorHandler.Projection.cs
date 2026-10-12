@@ -248,7 +248,7 @@ public partial class RichEditorHandler
         _nativeReservationCost.Observe(_reservationPublicationCount, elapsed, _publishedAdornments.Count - _reservationPublicationCount);
     }
 
-    private void RefreshDisplayProjection(RichTextNativeLayout? previousLayout)
+    private void RefreshDisplayProjection()
     {
         if (!_adornmentsConnected || _updatingDisplayProjection || _applyingDocument || ((IRichEditorHandler)this).IsComposing)
             return;
@@ -258,8 +258,6 @@ public partial class RichEditorHandler
         _updatingDisplayProjection = true;
         try
         {
-            var anchor = previousLayout?.Lines.SelectMany(static line => line.SourceRanges).FirstOrDefault().Start ?? 0;
-            var anchorBounds = anchor > 0 ? GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(anchor), RichTextCaretAffinity.Downstream) : null;
             var before = _paintedSnapshot ?? VirtualView.PresentationSnapshot;
             if (!PrepareDisplayProjection())
                 return;
@@ -267,18 +265,12 @@ public partial class RichEditorHandler
             var changes = CreateDisplayDelta(before, DisplayPresentationSnapshot);
             if (changes.Count > 0)
             {
-                if (anchorBounds is { } anchored)
-                    PreserveAdornmentScrollAnchor(anchor, anchored.Y);
-
                 var publicationStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 ApplyDisplayChangesCore(new(0, 1, RichTextChangeOrigin.Programmatic, [.. changes], null,
                     beforeSnapshot: before, afterSnapshot: DisplayPresentationSnapshot), VirtualView.SelectedRange,
                     VirtualView.TypingCharacterFormat, VirtualView.TypingParagraphFormat);
                 ApplyFoldingCore();
                 RecordNativePublicationCost(publicationStarted);
-                if (anchorBounds is { } prior && GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(anchor), RichTextCaretAffinity.Downstream) is { } current &&
-                    Math.Abs(current.Y - prior.Y) > 0.5)
-                    OffsetAdornmentScroll(current.Y - prior.Y);
             }
 
             CompleteDisplayProjection();
@@ -505,5 +497,4 @@ public partial class RichEditorHandler
 
     private partial Point? GetDisplayReservationBaseline(int position);
 
-    partial void PreserveAdornmentScrollAnchor(int position, double top);
 }

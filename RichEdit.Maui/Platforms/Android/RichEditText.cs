@@ -23,50 +23,6 @@ public sealed class NativeSelectionChangedEventArgs(int start, int end) : EventA
 /// </summary>
 public partial class RichEditText : AppCompatEditText
 {
-    private (int Width, int Padding)? _boundedSourceMeasure;
-
-    /// <inheritdoc />
-    protected override void OnMeasure(int widthMeasureSpec, int heightMeasureSpec)
-    {
-        // A fill-aligned editor uses the bounded viewport width. Measuring its entire
-        // text for an intrinsic width first would then rebuild layout at the fill width.
-        if (MeasureSpec.GetMode(widthMeasureSpec) == MeasureSpecMode.AtMost &&
-            ProjectionHandler?.VirtualView.HorizontalOptions.Alignment == LayoutAlignment.Fill)
-            widthMeasureSpec = MeasureSpec.MakeMeasureSpec(MeasureSpec.GetSize(widthMeasureSpec), MeasureSpecMode.Exactly);
-
-        if (MeasureSpec.GetMode(heightMeasureSpec) == MeasureSpecMode.AtMost &&
-            ProjectionHandler?.VirtualView is { SourceSession: not null } sourceView &&
-            sourceView.VerticalOptions.Alignment == LayoutAlignment.Fill)
-            heightMeasureSpec = MeasureSpec.MakeMeasureSpec(MeasureSpec.GetSize(heightMeasureSpec), MeasureSpecMode.Exactly);
-
-        var boundedSource = ProjectionHandler?.VirtualView is { SourceSession: not null, SourceWordWrap: false } &&
-            MeasureSpec.GetMode(widthMeasureSpec) == MeasureSpecMode.Exactly &&
-            MeasureSpec.GetMode(heightMeasureSpec) == MeasureSpecMode.Exactly;
-        var measure = (MeasureSpec.GetSize(widthMeasureSpec), CompoundPaddingLeft + CompoundPaddingRight);
-        // TextView.onMeasure compares DynamicLayout's unwrapped ellipsis width
-        // with the viewport width even when ellipsizing is disabled, rebuilding
-        // the entire layout on each measure. Native DynamicLayout already
-        // reflows editable text and metric spans. For an unchanged bounded width
-        // retain that layout; native invalidation sets Layout to null when font
-        // or other global metrics change. Resizing width takes the ordinary path.
-        if (boundedSource && _boundedSourceMeasure == measure && Layout is DynamicLayout && Ellipsize is null)
-        {
-            SetMeasuredDimension(measure.Item1, MeasureSpec.GetSize(heightMeasureSpec));
-            return;
-        }
-
-        base.OnMeasure(widthMeasureSpec, heightMeasureSpec);
-        _boundedSourceMeasure = boundedSource ? measure : null;
-    }
-
-    /// <inheritdoc />
-    public override bool OnPreDraw()
-    {
-        var result = base.OnPreDraw();
-        ProjectionHandler?.OnNativeLayoutCompleted();
-        return result;
-    }
-
     private float _pointerDownX;
     private float _pointerDownY;
 

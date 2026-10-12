@@ -592,6 +592,7 @@ internal static partial class EditorContractTests
                 Equal("aa", NativeText(peer.Editor));
                 Equal("bb", NativeText(editor));
                 coordinator.MaxLength = -1;
+                await Task.Delay(40);
                 var native = ((RichEditorHandler)editor.Handler!).PlatformView;
 #if ANDROID
                 using var info = new Android.Views.InputMethods.EditorInfo();
@@ -615,6 +616,7 @@ internal static partial class EditorContractTests
                 Equal(set, coordinator.StructuredSession.Selection);
                 Equal(false, model.CanUndo);
                 coordinator.SelectAll();
+                await Task.Delay(40);
                 before = model.CurrentSnapshot;
 #if ANDROID
                 using var whole = new Java.Lang.String("whole\nbody");

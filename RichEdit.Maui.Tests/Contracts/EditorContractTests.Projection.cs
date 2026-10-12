@@ -318,7 +318,7 @@ internal static partial class EditorContractTests
             await Task.Delay(150);
         });
 
-        yield return new("projection keeps a visible source anchor when rows above it change", async editor =>
+        yield return new("projection preserves source addresses across row resizing", async editor =>
         {
             editor.Document = RichTextDocument.FromPlainText(string.Join("\n", Enumerable.Range(0, 250).Select(index => $"line {index}")));
             await Task.Delay(150);
@@ -326,7 +326,7 @@ internal static partial class EditorContractTests
             await Task.Delay(150);
             var layout = editor.TextLayout.Capture()!;
             var anchor = layout.Lines.Skip(1).First().SourceRanges.First().Start;
-            var before = editor.TextLayout.GetCaretBounds(layout, anchor)!.Value;
+            var source = editor.Document.CurrentSnapshot;
             Equal(true, layout.Lines.First().SourceRanges.First().Start > 0, $"source is scrolled: first anchor {layout.Lines.First().SourceRanges.First().Start}");
             using var item = editor.Adornments.Add(0, new Label
                 {
@@ -334,14 +334,20 @@ internal static partial class EditorContractTests
                     HeightRequest = 40
                 }, new() { Placement = RichTextAdornmentPlacement.AboveLine });
             await Task.Delay(150);
+            editor.ScrollIntoView(new(anchor, 0));
+            await Task.Delay(150);
             layout = editor.TextLayout.Capture()!;
             var after = editor.TextLayout.GetCaretBounds(layout, anchor);
-            Equal(true, after is { } bounds && Math.Abs(bounds.Y - before.Y) <= 2, $"source anchor: before {before}, after {after}");
+            Equal(true, after is not null, "source address can be revealed after inserting a display row");
             item.View.HeightRequest = 70;
+            await Task.Delay(150);
+            editor.ScrollIntoView(new(anchor, 0));
             await Task.Delay(150);
             layout = editor.TextLayout.Capture()!;
             after = editor.TextLayout.GetCaretBounds(layout, anchor);
-            Equal(true, after is { } resized && Math.Abs(resized.Y - before.Y) <= 2, "source anchor after size refinement");
+            Equal(true, after is not null, "source address can be revealed after resizing a display row");
+            Equal(true, ReferenceEquals(source, editor.Document.CurrentSnapshot));
+            Equal(false, editor.CanUndo);
             item.Dispose();
             await Task.Delay(150);
         });

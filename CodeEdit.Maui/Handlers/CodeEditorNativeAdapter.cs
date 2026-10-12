@@ -36,6 +36,8 @@ internal sealed partial class CodeEditorNativeAdapter : IDisposable
 
     internal partial bool Post(Action action);
 
+    internal partial Task<bool> PrepareViewportAsync(CancellationToken cancellationToken);
+
     internal void UpdateConfiguration()
     {
         UpdateConfigurationCore();

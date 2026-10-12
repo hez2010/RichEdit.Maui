@@ -14,7 +14,6 @@ public partial class RichEditorHandler
 
     private partial bool ScrollViewportByCore(Point delta)
     {
-        CancelViewportRestoration();
         var inset = PlatformView.AdjustedContentInset;
         PlatformView.SetContentOffset(new(
             Math.Clamp(PlatformView.ContentOffset.X + delta.X, -inset.Left,

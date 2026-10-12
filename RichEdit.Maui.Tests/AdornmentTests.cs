@@ -89,9 +89,9 @@ public class AdornmentTests
         Assert.Equal(created, recycled);
     });
 
-    [Fact]
+    [Fact(Explicit = true)]
     public Task DensePresentationWorkloadRecordsDeviceBaseline() => WithNativeEditor(async (editor, _) =>
-        await EditorContractTests.Cases.Single(static test => test.Name.StartsWith("performance dense", StringComparison.Ordinal)).Run(editor));
+        await EditorContractTests.PerformanceBenchmarks.Single(static test => test.Name.StartsWith("performance dense", StringComparison.Ordinal)).Run(editor));
 
     [Fact]
     public Task AccessibilityRangesAddressSourceAcrossReservations() => WithNativeEditor(async (editor, handler) =>

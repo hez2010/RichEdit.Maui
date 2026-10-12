@@ -1,5 +1,4 @@
 #if IOS || MACCATALYST
-using CoreGraphics;
 using Foundation;
 using UIKit;
 
@@ -160,7 +159,6 @@ public partial class RichEditorHandler
             return;
         }
 
-        var viewport = PlatformView.ContentOffset;
         // UITextView must own authored replacements so its input context sees
         // one coherent content/format update. Direct storage mutations can be
         // interpreted as new input and trigger additional text transformations.
@@ -172,23 +170,6 @@ public partial class RichEditorHandler
         {
             ApplyCurrentDocument(selection.Start, selection.Length);
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
-            if (!changes.IsTextChanged || _restoringHistory)
-            {
-                // Replacing attributed content resets UIKit's scroll position.
-                // Formatting and history replay must keep the user's viewport.
-                PlatformView.LayoutManager.EnsureLayoutForTextContainer(PlatformView.TextContainer);
-                PlatformView.LayoutIfNeeded();
-                var inset = PlatformView.AdjustedContentInset;
-                var maximumX = Math.Max(-inset.Left, PlatformView.ContentSize.Width - PlatformView.Bounds.Width + inset.Right);
-                var maximumY = Math.Max(-inset.Top, PlatformView.ContentSize.Height - PlatformView.Bounds.Height + inset.Bottom);
-                PlatformView.SetContentOffset(new CGPoint(
-                    Math.Clamp(viewport.X, -inset.Left, maximumX),
-                    Math.Clamp(viewport.Y, -inset.Top, maximumY)), false);
-                _adornmentScrollAnchor = null;
-                _explicitViewportReveal = false;
-                _viewportAfterLayout = (VirtualView.Document.Revision, viewport);
-                PlatformView.SetNeedsLayout();
-            }
         }
         finally
         {

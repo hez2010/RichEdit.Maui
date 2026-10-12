@@ -6,84 +6,11 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private (DocumentRevision Revision, int Position, double Top)? _adornmentScrollAnchor;
-    private (DocumentRevision Revision, CoreGraphics.CGPoint Offset)? _viewportAfterLayout;
-    private bool _restoringViewport;
-    private bool _explicitViewportReveal;
-
-    private void OnNativeScrollOffsetChanged()
-    {
-        if (!_adornmentsConnected || _applyingDocument || _restoringViewport ||
-            _adornmentScrollAnchor is null && _viewportAfterLayout is null) return;
-        if (PlatformView.Dragging || PlatformView.Decelerating || PlatformView.Tracking)
-        { CancelViewportRestoration(); return; }
-        if (_viewportAfterLayout is not { } saved || saved.Revision != VirtualView.Document.Revision) return;
-        _restoringViewport = true;
-        try { OffsetAdornmentScroll(saved.Offset.Y - PlatformView.ContentOffset.Y); }
-        finally { _restoringViewport = false; }
-    }
-
-    partial void PreserveAdornmentScrollAnchor(int position, double top)
-    {
-        if (_explicitViewportReveal) return;
-        _viewportAfterLayout = null;
-        _adornmentScrollAnchor = (VirtualView.Document.Revision, position, top);
-    }
-
-    internal void CancelViewportRestoration()
-    {
-        _explicitViewportReveal = false;
-        _adornmentScrollAnchor = null;
-        _viewportAfterLayout = null;
-    }
-
-    internal void OnExplicitNativeScroll()
-    {
-        if (!_applyingDocument && !_restoringViewport && !_updatingDisplayProjection)
-            CancelViewportRestoration();
-    }
-
-    internal void OnNativeLayoutCompleted()
-    {
-        if (!_adornmentsConnected || ((IElementHandler)this).PlatformView is null || _applyingDocument || _restoringViewport)
-            return;
-        if (PlatformView.Dragging || PlatformView.Decelerating || PlatformView.Tracking)
-        {
-            CancelViewportRestoration();
-            return;
-        }
-
-        var anchor = _adornmentScrollAnchor;
-        var viewport = _viewportAfterLayout;
-        if (anchor?.Revision != VirtualView.Document.Revision && viewport?.Revision != VirtualView.Document.Revision)
-        { CancelViewportRestoration(); return; }
-        _restoringViewport = true;
-        try
-        {
-            if (anchor is { } source && source.Revision == VirtualView.Document.Revision &&
-                GetTextCaretBoundsCore(NativeProjection.ToDisplayCaret(source.Position), RichTextCaretAffinity.Downstream) is { } bounds)
-            {
-                var inset = PlatformView.AdjustedContentInset;
-                var top = _explicitViewportReveal ? Math.Clamp(source.Top, inset.Top,
-                    Math.Max(inset.Top, PlatformView.Bounds.Height - inset.Bottom - bounds.Height)) : source.Top;
-                OffsetAdornmentScroll(bounds.Y - top);
-            }
-            else if (viewport is { } saved && saved.Revision == VirtualView.Document.Revision)
-                OffsetAdornmentScroll(saved.Offset.Y - PlatformView.ContentOffset.Y);
-        }
-        finally { _restoringViewport = false; }
-
-        // Keep the requested viewport through later UIKit layout/selection
-        // adjustments. A new revision, user navigation, focus, or explicit reveal
-        // releases it; no timer needs to guess when native layout has settled.
-    }
-
     private void ApplyReservationChanges(RichTextChangeSet changes, TextSpan selection,
         RichTextCharacterFormat typingCharacterFormat, RichTextParagraphFormat typingParagraphFormat)
     {
         var snapshot = DisplayPresentationSnapshot;
         var storage = PlatformView.TextStorage;
-        var viewport = PlatformView.ContentOffset;
         var applying = _applyingDocument;
         _applyingDocument = true;
         _projectionGeneration++;
@@ -136,8 +63,6 @@ public partial class RichEditorHandler
 
             SetSelectionCore(selection.Start, selection.Length);
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
-            PlatformView.LayoutIfNeeded();
-            PlatformView.SetContentOffset(viewport, false);
             PlatformView.UpdatePlaceholderVisibility();
         }
         finally

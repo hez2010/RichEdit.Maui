@@ -11,6 +11,25 @@ internal sealed partial class CodeEditorNativeAdapter
 
     internal partial bool Post(Action action) => PlatformView.Post(action);
 
+    internal partial async Task<bool> PrepareViewportAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!PlatformView.IsAttachedToWindow) return false;
+        if (!PlatformView.IsLayoutRequested) return true;
+        var observer = PlatformView.ViewTreeObserver!;
+        var completion = new TaskCompletionSource<bool>();
+        void Draw(object? sender, EventArgs args) => completion.TrySetResult(true);
+        void Detached(object? sender, EventArgs args) => completion.TrySetResult(false);
+        observer.PreDraw += Draw;
+        PlatformView.ViewDetachedFromWindow += Detached;
+        try { return await completion.Task.WaitAsync(cancellationToken); }
+        finally
+        {
+            if (observer.IsAlive) observer.PreDraw -= Draw;
+            PlatformView.ViewDetachedFromWindow -= Detached;
+        }
+    }
+
     private partial void Connect() => PlatformView = _handler.PlatformView;
 
     private partial void Disconnect() { }

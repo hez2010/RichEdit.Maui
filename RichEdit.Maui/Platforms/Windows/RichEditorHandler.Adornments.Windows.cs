@@ -12,9 +12,6 @@ public partial class RichEditorHandler
     private partial (Color Caret, Color Selection) GetSecondarySelectionColors() =>
         (ResolveTextColor() ?? Colors.Black, PlatformView.SelectionHighlightColor.Color.ToColor().WithAlpha(0.3f));
 
-    private partial void OffsetAdornmentScroll(double verticalDelta) =>
-        _adornmentScroller?.ChangeView(null, Math.Max(0, _adornmentScroller.VerticalOffset + verticalDelta), null, true);
-
     private RichEditBox _adornmentView = null!;
     private (int Position, double X, double Y)? _observedNativeViewport;
     private ScrollViewer? _adornmentScroller;

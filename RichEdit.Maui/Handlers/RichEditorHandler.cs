@@ -149,7 +149,7 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
     {
         if (VirtualView.SourceSession is not null && !_applyingDocument && !VirtualView.Composition.IsActive &&
             !IsComposingCore() && _projectedVirtualSpace != RequestedVirtualSpace())
-            RefreshDisplayProjection(CaptureTextLayout());
+            RefreshDisplayProjection();
         var native = _structuredNativeMap is not null && !VirtualView.Composition.IsActive ? StructuredNativeSelection() : NativeProjection.ToDisplayPrimary(selection, _virtualSpace);
         _structuredSelection = native;
         SetNativeSelectionCore(native);

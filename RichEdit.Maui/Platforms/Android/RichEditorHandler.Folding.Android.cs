@@ -13,7 +13,7 @@ public partial class RichEditorHandler
 
     private partial void ApplyFoldingCore()
     {
-        if (PlatformView is null)
+        if (PlatformView is null || _foldTransformation is null && VirtualView.Folding.EffectiveRanges.IsEmpty)
             return;
 
         var folding = VirtualView.Folding;

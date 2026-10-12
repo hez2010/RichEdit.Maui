@@ -15,6 +15,13 @@ internal sealed partial class CodeEditorNativeAdapter
 
     internal partial bool Post(Action action) => PlatformView.DispatcherQueue.TryEnqueue(() => action());
 
+    internal partial Task<bool> PrepareViewportAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PlatformView.UpdateLayout();
+        return Task.FromResult(PlatformView.IsLoaded);
+    }
+
     private partial void Connect() => PlatformView = _handler.PlatformView;
 
     private partial void Disconnect() { }

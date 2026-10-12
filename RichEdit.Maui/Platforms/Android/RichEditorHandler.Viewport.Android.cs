@@ -18,8 +18,6 @@ public partial class RichEditorHandler
     private partial bool ScrollViewportByCore(Point delta)
     {
         if (PlatformView.Layout is not { } layout) return false;
-        CancelRequestedReveal();
-        _adornmentScrollAnchor = null;
         var width = Math.Max(0, PlatformView.Width - PlatformView.CompoundPaddingLeft - PlatformView.CompoundPaddingRight);
         var height = Math.Max(0, PlatformView.Height - PlatformView.CompoundPaddingTop - PlatformView.CompoundPaddingBottom);
         PlatformView.ScrollTo(

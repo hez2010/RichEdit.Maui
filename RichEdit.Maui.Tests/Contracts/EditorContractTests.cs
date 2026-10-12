@@ -18,6 +18,8 @@ internal static partial class EditorContractTests
 
     public static IReadOnlyList<Case> Cases { get; } = CreateCases().ToArray();
 
+    internal static IReadOnlyList<Case> PerformanceBenchmarks => PerformanceCases().ToArray();
+
     public static void Reset(NativeEditorView editor)
     {
         editor.IsReadOnly = false;
@@ -68,8 +70,9 @@ internal static partial class EditorContractTests
         foreach (var test in ProjectionCases())
             yield return test;
 
-        foreach (var test in PerformanceCases())
-            yield return test;
+        if (Environment.GetEnvironmentVariable("RICHEDIT_RUN_PERFORMANCE_TESTS") == "1")
+            foreach (var test in PerformanceCases())
+                yield return test;
 #if ANDROID || IOS || MACCATALYST
         foreach (var test in CharacterFormattingTests.Cases)
             yield return test;

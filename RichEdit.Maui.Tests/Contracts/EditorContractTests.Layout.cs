@@ -7,7 +7,7 @@ internal static partial class EditorContractTests
     private static IEnumerable<Case> LayoutCases()
     {
 #if ANDROID
-        yield return new("layout Android fill width retains native layout across edits", async editor =>
+        yield return new("layout Android fill alignment uses the arranged native viewport", async editor =>
         {
             var alignment = editor.HorizontalOptions;
             var native = ((RichEditorHandler)editor.Handler!).PlatformView;
@@ -16,26 +16,17 @@ internal static partial class EditorContractTests
                 editor.Document = RichTextDocument.FromPlainText("short\nnext\nlast");
                 editor.HorizontalOptions = LayoutOptions.Fill;
                 await Task.Delay(100);
-                var width = global::Android.Views.View.MeasureSpec.MakeMeasureSpec(native.Width, global::Android.Views.MeasureSpecMode.AtMost);
-                var height = global::Android.Views.View.MeasureSpec.MakeMeasureSpec(native.Height, global::Android.Views.MeasureSpecMode.Exactly);
-                native.ForceLayout();
-                native.Measure(width, height);
-                Equal(native.Width, native.MeasuredWidth, "fill consumes the bounded viewport");
-                var layout = native.Layout!;
+                var density = native.Resources!.DisplayMetrics!.Density;
+                Equal(true, Math.Abs(editor.Width * density - native.Width) <= 1, "native width fills the arranged editor");
                 editor.SelectedRange = new(0, 0);
                 NativeReplace(editor, "x");
-                native.ForceLayout();
-                native.Measure(width, height);
-                Equal(true, layout.Equals(native.Layout), "unchanged width keeps the incremental native layout");
-                editor.HorizontalOptions = LayoutOptions.Start;
-                native.ForceLayout();
-                native.Measure(width, height);
-                Equal(true, native.MeasuredWidth < global::Android.Views.View.MeasureSpec.GetSize(width), "start alignment keeps intrinsic measurement");
+                await Task.Delay(100);
+                Equal(true, Math.Abs(editor.Width * density - native.Width) <= 1, "editing retains the arranged viewport");
+                Equal("xshort\nnext\nlast", editor.Document.Text);
             }
             finally
             {
                 editor.HorizontalOptions = alignment;
-                native.RequestLayout();
             }
         });
 #endif

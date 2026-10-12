@@ -187,10 +187,14 @@ internal static partial class EditorContractTests
             var inline = AdornmentButton(() => { });
             var transient = editor.Adornments.Add(position, inline, options: new() { Offset = new Point(6, 0) });
             await Task.Delay(100);
-            Equal(true, inline.Bounds.X > button.Bounds.X && button.Bounds.X >= 0, "adding a text overlay preserves the scrolled viewport");
+            ScrollAdornmentToPosition(editor, position);
+            await Task.Delay(100);
+            Equal(true, inline.Bounds.X > button.Bounds.X && button.Bounds.X >= 0, "text overlay and margin adornment share the revealed source anchor");
             transient.Dispose();
             await Task.Delay(100);
-            Equal(true, button.Bounds.X >= 0, "removing a text overlay preserves the scrolled viewport");
+            ScrollAdornmentToPosition(editor, position);
+            await Task.Delay(100);
+            Equal(true, button.Bounds.X >= 0, "remaining margin adornment can be revealed after removing an overlay");
             editor.Folding.Collapse(new(position, 8));
             await Task.Delay(150);
             Equal(true, button.Bounds.X < 0, "anchor inside collapsed text is hidden");

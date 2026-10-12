@@ -161,7 +161,7 @@ public partial class RichEditorHandler
                     _displayAdornmentVersion = -1;
             }
 
-            RefreshDisplayProjection(layout);
+            RefreshDisplayProjection();
             layout = CaptureTextLayoutCore();
             sourceRanges = layout?.Lines.SelectMany(static line => line.SourceRanges).ToArray() ?? [];
             visibleStart = Math.Min(visibleStart, sourceRanges.Length == 0 ? visibleStart : sourceRanges.Min(static range => range.Start));
@@ -236,7 +236,6 @@ public partial class RichEditorHandler
 
     private partial Rect? GetAdornmentAnchor(int position);
 
-    private partial void OffsetAdornmentScroll(double verticalDelta);
 
     partial void CommitAdornmentLayout();
 }

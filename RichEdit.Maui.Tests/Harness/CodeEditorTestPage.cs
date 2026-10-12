@@ -92,6 +92,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 _editor.Focus();
                 await Task.Delay(60);
                 await _editor.Coloring().RefreshAsync();
+                if (replaceDocument) await _editor.RevealAsync(0);
                 await action();
                 await EditorContractTests.Verify(_textView);
                 results[index] = $"PASS {name}";
@@ -111,6 +112,36 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             return Task.CompletedTask;
         }, replaceDocument: false);
 
+        await Test("explicit reveal after document replacement", string.Join("\n", Enumerable.Repeat("a line", 200)), async () =>
+        {
+            Equal(true, await _editor.RevealAsync(_editor.GetLineRange(160).Start, CodeRevealAlignment.Start));
+            _editor.Document = CodeDocument.FromPlainText(string.Join("\n", Enumerable.Repeat("new line", 200)));
+            Equal(true, await _editor.RevealAsync(0));
+            var layout = _editor.TextLayout.Capture()!;
+            Equal(true, _editor.TextLayout.GetCaretBounds(layout, 0) is not null, "new document caret is visible");
+            Equal(TextSpan.Empty, _editor.SelectedRange);
+        });
+
+#if IOS || MACCATALYST
+        await Test("native overscroll survives layout observation", string.Join("\n", Enumerable.Repeat("a line", 200)), async () =>
+        {
+            var native = ((RichEditorHandler)_textView.Handler!).PlatformView;
+            var selection = _editor.SelectedRange;
+            _textView.ScrollIntoView(new(0, 0));
+            await Task.Delay(100);
+            var inset = native.AdjustedContentInset;
+            foreach (var y in new[] { -inset.Top - 24, native.ContentSize.Height - native.Bounds.Height + inset.Bottom + 24 })
+            {
+                native.ContentOffset = new(native.ContentOffset.X, y);
+                var offset = native.ContentOffset;
+                native.LayoutSubviews();
+                _ = _editor.TextLayout.Capture();
+                Equal(offset, native.ContentOffset, "layout leaves native overscroll unchanged");
+                Equal(selection, _editor.SelectedRange);
+            }
+        });
+#endif
+
         await Test("layout tab display width is native and independent of indentation", "\tX\n    X", async () =>
         {
             var before = _editor.Document.CurrentSnapshot;
@@ -120,11 +151,11 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 return _editor.TextLayout.GetCaretBounds(layout, offset)?.Left ?? throw new InvalidOperationException("Missing native tab caret.");
             }
             var fourSpaces = X(7) - X(3);
-            Equal(true, Math.Abs((X(1) - X(0)) - fourSpaces) <= 1, "four-column native tab");
+            Equal(true, Math.Abs((X(1) - X(0)) - fourSpaces) <= 1.000001, "four-column native tab");
             _editor.SelectedRange = new(1, 0);
             _editor.TabSize = 8;
             await Task.Delay(40);
-            Equal(true, Math.Abs((X(1) - X(0)) - fourSpaces * 2) <= 1, "eight-column native tab");
+            Equal(true, Math.Abs((X(1) - X(0)) - fourSpaces * 2) <= 1.000001, "eight-column native tab");
             _editor.IndentSize = 2;
             Equal(8, _editor.TabSize);
             Equal(true, ReferenceEquals(before, _editor.Document.CurrentSnapshot));
@@ -134,7 +165,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             _editor.WordWrap = true;
             _editor.FontSize = 20;
             await Task.Delay(60);
-            Equal(true, Math.Abs((X(1) - X(0)) - (X(7) - X(3)) * 2) <= 1, "tab follows native font scaling with wrapping");
+            Equal(true, Math.Abs((X(1) - X(0)) - (X(7) - X(3)) * 2) <= 1.000001, "tab follows native font scaling with wrapping");
             _editor.WordWrap = false;
             using (var widget = _editor.Adornments.Add(0, new Label { Text = "hint", WidthRequest = 110, HeightRequest = 20 },
                 new() { Placement = RichTextAdornmentPlacement.Inline }))

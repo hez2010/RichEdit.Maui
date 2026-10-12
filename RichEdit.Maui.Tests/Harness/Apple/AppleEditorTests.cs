@@ -46,9 +46,24 @@ internal static class AppleEditorTests
             try
             {
                 native.ResignFirstResponder();
+                var previous = editor;
+                var previousHandler = previous.Handler;
+                editor = new NativeEditorView();
+                var loaded = new TaskCompletionSource();
+                void Loaded(object? sender, EventArgs args) => loaded.TrySetResult();
+                editor.Loaded += Loaded;
+                ((ContentPage)Application.Current!.Windows[0].Page!).Content = editor;
+                await loaded.Task;
+                editor.Loaded -= Loaded;
+                previous.Handler = null;
+                previousHandler?.DisconnectHandler();
+                native = (RichTextView)editor.Handler!.PlatformView!;
+                native.SmartInsertDeleteType = UITextSmartInsertDeleteType.Yes;
                 EditorContractTests.Reset(editor);
                 native.BecomeFirstResponder();
-                await Drain();
+                // UIKit completes keyboard/focus transitions asynchronously.
+                // Start each case after that transition, not during its scrolling animation.
+                await Task.Delay(350);
                 editor.ClearUndoHistory();
                 editor.SelectionChanged += SelectionChanged;
                 editor.ContentChanged += ContentChanged;
@@ -302,34 +317,30 @@ internal static class AppleEditorTests
             EditorContractTests.SameContent(after, editor.Document.CurrentSnapshot);
         });
 
-        await Test("formatting preserves the scrolled viewport", async () =>
+        await Test("native scrolling remains free after formatting", async () =>
         {
             editor.Selection.ReplaceText(string.Concat(Enumerable.Repeat("Paragraph text for scrolling.\n", 150)));
             editor.SelectedRange = new TextSpan(31, 9);
             await Drain();
-            native.SetContentOffset(new CoreGraphics.CGPoint(0, 200), false);
-            await Drain();
-            var before = native.ContentOffset;
+            async Task VerifyFreeScrolling(string operation)
+            {
+                await Drain();
+                native.SetContentOffset(new CoreGraphics.CGPoint(0, 200), false);
+                await Drain();
+                EditorContractTests.Equal(true, native.ContentOffset.Y > 150,
+                    $"native scrolling after {operation}: {native.ContentOffset.Y}");
+                Equal(new TextSpan(31, 9), editor.SelectedRange);
+            }
             editor.Selection.ToggleBold();
-            await Drain();
-            EditorContractTests.Equal(true, Math.Abs((double)(native.ContentOffset.Y - before.Y)) < 2,
-                $"character formatting scrolled from {before.Y} to {native.ContentOffset.Y}");
+            await VerifyFreeScrolling("character formatting");
             editor.Selection.ParagraphFormat.Alignment = RichTextAlignment.Center;
-            await Drain();
-            EditorContractTests.Equal(true, Math.Abs((double)(native.ContentOffset.Y - before.Y)) < 2,
-                $"paragraph formatting scrolled from {before.Y} to {native.ContentOffset.Y}");
+            await VerifyFreeScrolling("paragraph formatting");
             editor.Selection.CharacterFormat.FontSize = 24;
-            await Drain();
-            EditorContractTests.Equal(true, Math.Abs((double)(native.ContentOffset.Y - before.Y)) < 2,
-                $"font size formatting scrolled from {before.Y} to {native.ContentOffset.Y}");
+            await VerifyFreeScrolling("font size");
             editor.Undo();
-            await Drain();
-            EditorContractTests.Equal(true, Math.Abs((double)(native.ContentOffset.Y - before.Y)) < 2,
-                $"formatting undo scrolled from {before.Y} to {native.ContentOffset.Y}");
+            await VerifyFreeScrolling("undo");
             editor.Redo();
-            await Drain();
-            EditorContractTests.Equal(true, Math.Abs((double)(native.ContentOffset.Y - before.Y)) < 2,
-                $"formatting redo scrolled from {before.Y} to {native.ContentOffset.Y}");
+            await VerifyFreeScrolling("redo");
 
             editor.SelectAll();
             await Drain();
@@ -342,7 +353,7 @@ internal static class AppleEditorTests
                 $"shrinking formatting left offset {native.ContentOffset.Y} past the bottom {maximum}");
         });
 
-        await Test("text undo and redo preserve the scrolled viewport", async () =>
+        await Test("native scrolling remains free after text undo and redo", async () =>
         {
             var source = string.Concat(Enumerable.Repeat("Paragraph text for scrolling.\n", 150));
             editor.Document = RichTextDocument.FromPlainText(source);
@@ -351,15 +362,16 @@ internal static class AppleEditorTests
             await Task.Delay(100);
             native.SetContentOffset(new CoreGraphics.CGPoint(0, 200), false);
             await Task.Delay(100);
-            var before = native.ContentOffset;
             async Task VerifyViewport(string operation)
             {
-                // Sample several frames so a delayed UIKit scroll is observable.
+                await Task.Delay(500);
+                native.SetContentOffset(new CoreGraphics.CGPoint(0, 200), false);
+                // The native viewport must remain free to leave the selection.
                 for (var frame = 0; frame < 15; frame++)
                 {
                     await Task.Delay(20);
-                    EditorContractTests.Equal(true, Math.Abs((double)(native.ContentOffset.Y - before.Y)) < 2,
-                        $"text {operation} scrolled from {before.Y} to {native.ContentOffset.Y}");
+                    EditorContractTests.Equal(true, native.ContentOffset.Y > 150,
+                        $"native scrolling after {operation}: {native.ContentOffset.Y}");
                 }
             }
             editor.Undo();
@@ -383,7 +395,7 @@ internal static class AppleEditorTests
                 $"text undo left offset {native.ContentOffset.Y} past the bottom {maximum}");
         });
 
-        await Test("explicit reveal releases the preserved viewport without moving selection", async () =>
+        await Test("explicit reveal changes the viewport without moving selection", async () =>
         {
             editor.Document = RichTextDocument.FromPlainText(string.Concat(Enumerable.Repeat("line\n", 200)));
             editor.SelectedRange = new(0, 4);

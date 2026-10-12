@@ -170,11 +170,12 @@ public partial class RichEditorHandler
         _applyingDocument = true;
         _projectionGeneration++;
         var filters = editable.GetFilters();
-        PlatformView.BeginBatchEdit();
+        var textChanges = changes.Changes.OfType<RichTextTextChange>().ToArray();
+        var editsText = textChanges.Length != 0;
+        if (editsText) PlatformView.BeginBatchEdit();
         try
         {
             editable.SetFilters([]);
-            var textChanges = changes.Changes.OfType<RichTextTextChange>().ToArray();
             if (VirtualView.SourceSession is not null && NativeProjection.Reservations.IsEmpty && textChanges.Length > 1 &&
                 changes.BeforeSnapshot is { } before && changes.AfterSnapshot is { } after)
             {
@@ -256,13 +257,11 @@ public partial class RichEditorHandler
             RefreshSourceTabStops(editable, snapshot, paragraphRange);
             SetSelectionCore(selection.Start, selection.Length);
             ApplyTypingFormatCore(typingCharacterFormat, typingParagraphFormat);
-            PlatformView.RequestLayout();
-            PlatformView.Invalidate();
         }
         finally
         {
             editable.SetFilters(filters);
-            PlatformView.EndBatchEdit();
+            if (editsText) PlatformView.EndBatchEdit();
             _applyingDocument = false;
         }
     }
