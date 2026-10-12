@@ -53,6 +53,11 @@
         <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
     </PropertyGroup>
 
+    <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+        <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+        <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    </PropertyGroup>
+
     <PropertyGroup Condition="'$(Configuration)'=='Release'">
         <AndroidPackageFormat>apk</AndroidPackageFormat>
         <AndroidLinkTool>r8</AndroidLinkTool>
