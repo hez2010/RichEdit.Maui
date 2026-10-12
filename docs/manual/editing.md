@@ -36,6 +36,8 @@ A `RichTextSelectionSet` supplies stable selection IDs and one primary selection
 
 Cell selections expand to include whole merged cells. Replacing selected cell content preserves the grid. Delete rows, columns, or complete blocks with explicit structural operations. Text replacement cannot silently flatten table boundaries.
 
+Deleting text across items in one list joins the remaining text and keeps the list's numbering style. Deleting the first item's leading paragraph break joins its text to the preceding paragraph. Backspace at the start of the first item removes its list membership; if the paragraph is empty, another Backspace removes the remaining line. Undo restores both text and list membership.
+
 ## Source selections and batches
 
 `CodeEditor.Selections` is a `TextSelectionSet`; `SelectedRange` and `SelectionState` address its primary selection. `AddCaret`, `ClearSecondarySelections`, and `ReplaceSelections` provide common commands. Selection sets normalize duplicate carets and intersecting ranges while preserving primary identity.

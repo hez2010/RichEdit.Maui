@@ -6,6 +6,53 @@ namespace RichEdit.Core.Tests;
 public sealed class ListEditingTests
 {
     [Fact]
+    public void DeletingFirstItemWithItsLeadingBreakPreservesFollowingItemsAndUndo()
+    {
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "heading");
+            edit.InsertParagraph(edit.Body, 1, "first");
+            edit.InsertParagraph(edit.Body, 2, "second");
+            edit.WrapInList(edit.Body, 1, 2, numbered: true, startNumber: 4);
+        });
+        var document = new RichDocument(snapshot);
+        var list = snapshot.Nodes.Values.OfType<RichList>().Single();
+        var first = snapshot.Get<RichListItem>(list.Items[0]).Blocks[0];
+        document.Edit(edit => edit.ReplaceSelection(new RichTextSelection(new(edit.Body, new(2), 7), new(edit.Body, first, 5)), ""));
+        Assert.Equal("heading\nsecond", document.CurrentSnapshot.ProjectText().Text.ToString());
+        Assert.Single(document.CurrentSnapshot.Get<RichList>(list.Id).Items);
+        Assert.Equal(5, document.CurrentSnapshot.Get<RichList>(list.Id).StartNumber);
+        document.Undo();
+        Assert.True(snapshot.ContentEquals(document.CurrentSnapshot));
+    }
+
+    [Theory]
+    [InlineData(0, 0, "second\nthird")]
+    [InlineData(2, 3, "fiond\nthird")]
+    public void TextDeletionJoinsListItemsAndRetainsHistory(int start, int end, string expected)
+    {
+        var snapshot = RichDocumentSnapshot.Build(edit =>
+        {
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "first");
+            edit.InsertParagraph(edit.Body, 1, "second");
+            edit.InsertParagraph(edit.Body, 2, "third");
+            edit.WrapInList(edit.Body, 0, 3, numbered: true, startNumber: 4, numberStyle: RichListNumberingStyle.LowerLetter);
+        });
+        var document = new RichDocument(snapshot);
+        var list = snapshot.Nodes.Values.OfType<RichList>().Single();
+        var first = snapshot.Get<RichListItem>(list.Items[0]).Blocks[0];
+        var second = snapshot.Get<RichListItem>(list.Items[1]).Blocks[0];
+        document.Edit(edit => edit.ReplaceSelection(new RichTextSelection(new(edit.Body, first, start), new(edit.Body, second, end)), ""));
+        var updated = document.CurrentSnapshot.Get<RichList>(list.Id);
+        Assert.Equal(expected, document.CurrentSnapshot.ProjectText().Text.ToString());
+        Assert.Equal(2, updated.Items.Count);
+        Assert.Equal(list.StartNumber, updated.StartNumber);
+        Assert.Equal(list.NumberStyle, updated.NumberStyle);
+        document.Undo();
+        Assert.True(snapshot.ContentEquals(document.CurrentSnapshot));
+    }
+
+    [Fact]
     public void SplitAndJoinPreserveFollowingBlocksAnnotationsAndOneUndoEntry()
     {
         var document = new RichDocument(RichDocumentSnapshot.FromPlainText("abcd\nnested"));

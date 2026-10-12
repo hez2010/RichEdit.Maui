@@ -5,7 +5,7 @@ namespace RichEdit.Core;
 public sealed partial class RichDocumentEdit
 {
     /// <summary>Replaces a typed selection with semantic paragraphs and soft breaks, returning the resulting caret.</summary>
-    /// <remarks>Text replacement across table cells or list items is rejected. Cell selections clear cell contents while retaining the grid.</remarks>
+    /// <remarks>Text replacement can join paragraphs and items of one list. Use structural selections across table cells or structural blocks.</remarks>
     public RichSelection ReplaceSelection(RichSelection selection, string text, RichCharacterStyle? typingFormat = null)
     {
         VerifyOpen();
@@ -102,6 +102,48 @@ public sealed partial class RichDocumentEdit
         if (start.Paragraph == end.Paragraph) { ReplaceText(start, end.Offset - start.Offset, ""); return; }
         var first = Get<RichParagraph>(start.Paragraph);
         var last = Get<RichParagraph>(end.Paragraph);
+        if (first.Parent != last.Parent && Get<RichNode>(last.Parent!.Value) is RichListItem leadingItem &&
+            Get<RichList>(leadingItem.Parent!.Value) is { } followingList && followingList.Parent == first.Parent &&
+            followingList.Items[0] == leadingItem.Id)
+        {
+            var blocks = Blocks(Get<RichNode>(first.Parent!.Value));
+            var from = blocks.IndexOf(first.Id);
+            var to = blocks.IndexOf(followingList.Id);
+            if (blocks.Skip(from).Take(to - from).Any(id => Get<RichNode>(id) is not RichParagraph) ||
+                leadingItem.Blocks.Take(leadingItem.Blocks.IndexOf(last.Id) + 1).Any(id => Get<RichNode>(id) is not RichParagraph))
+                throw new ArgumentException("A text replacement cannot remove structural blocks.");
+            // Smart deletion may include the paragraph break before a selected
+            // first item. Promote that item before joining it to the preceding text.
+            UnwrapListItem(leadingItem.Id);
+            RemoveTextSelection(start, end);
+            return;
+        }
+        if (first.Parent != last.Parent && Get<RichNode>(first.Parent!.Value) is RichListItem firstItem &&
+            Get<RichNode>(last.Parent!.Value) is RichListItem lastItem && firstItem.Parent == lastItem.Parent)
+        {
+            var list = Get<RichList>(firstItem.Parent!.Value);
+            var firstItemIndex = list.Items.IndexOf(firstItem.Id);
+            var lastItemIndex = list.Items.IndexOf(lastItem.Id);
+            // Check the entire selected span before changing membership. Tables
+            // and nested lists still require an explicit structural selection.
+            for (var index = firstItemIndex; index <= lastItemIndex; index++)
+            {
+                var blocks = Get<RichListItem>(list.Items[index]).Blocks;
+                var from = index == firstItemIndex ? blocks.IndexOf(first.Id) : 0;
+                var to = index == lastItemIndex ? blocks.IndexOf(last.Id) + 1 : blocks.Count;
+                if (blocks.Skip(from).Take(to - from).Any(id => Get<RichNode>(id) is not RichParagraph))
+                    throw new ArgumentException("A text replacement cannot remove structural blocks.");
+            }
+            for (var index = firstItemIndex; index < lastItemIndex; index++)
+            {
+                var next = Get<RichListItem>(Get<RichList>(list.Id).Items[firstItemIndex + 1]);
+                var before = _maps.Count;
+                JoinListItem(new(start.Story, next.Blocks[0], 0));
+                end = new RichAddressMap(_maps.Skip(before)).Map(end)!.Value;
+            }
+            RemoveTextSelection(start, end);
+            return;
+        }
         if (first.Parent != last.Parent) throw new ArgumentException("Use a structural selection when crossing table cells or list items.");
         var siblings = Blocks(Get<RichNode>(first.Parent!.Value));
         var firstIndex = siblings.IndexOf(first.Id);
