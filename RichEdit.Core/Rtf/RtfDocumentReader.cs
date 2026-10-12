@@ -29,6 +29,7 @@ internal sealed partial class RtfDocumentReader
     private readonly List<RichColor?> _colors = [];
     private readonly Dictionary<int, RichStyleDefinition> _styles = [];
     private RichCharacterStyle _defaultCharacter = new();
+    private int _defaultFont = -1;
     private RichParagraphStyle _defaultParagraph = new();
     private readonly List<Block> _body = [];
     private List<Block> _container = [];
@@ -138,7 +139,7 @@ internal sealed partial class RtfDocumentReader
         {
             snapshot = new(body, nodes.ToImmutable(), new(_styles.Values), assets: _assets.ToImmutableDictionary(),
                 bookmarks: _bookmarks.ToImmutableDictionary(value => value.Id), comments: _comments.ToImmutableDictionary(value => value.Id),
-                defaultCharacter: _defaultCharacter, defaultParagraph: _defaultParagraph);
+                defaultCharacter: _semantic ? _defaultCharacter : ExternalCharacterDefaults(), defaultParagraph: _defaultParagraph);
         }
         catch (ArgumentException error) { throw new FormatException("RTF contains invalid document structure or resource references.", error); }
         CompleteIdentities(snapshot);
@@ -147,6 +148,9 @@ internal sealed partial class RtfDocumentReader
         if (options.RequireLossless && !diagnostics.IsEmpty) throw new RtfFidelityException(diagnostics);
         return new(snapshot, diagnostics);
     }
+
+    private RichCharacterStyle ExternalCharacterDefaults() => _defaultCharacter.FontFamily.Kind == StyleValueKind.Inherit &&
+        _fonts.TryGetValue(_defaultFont, out var font) ? _defaultCharacter with { FontFamily = font.Name } : _defaultCharacter;
 
     private void Byte(byte value)
     {
@@ -241,7 +245,12 @@ internal sealed partial class RtfDocumentReader
     {
         if (_paragraph is not null) return _paragraph;
         if (!_state.InTable) CloseTables(0);
-        else CloseTables(Math.Max(1, _state.TableLevel));
+        else
+        {
+            var level = Math.Max(1, _state.TableLevel);
+            CloseTables(level);
+            BeginInheritedRow(level);
+        }
         if (!_semantic) ApplyExternalList();
         var paragraph = new Paragraph(Allocate()) { Format = _state.Paragraph, Character = _state.ParagraphCharacter, Style = _state.ParagraphStyle };
         _container.Add(paragraph);

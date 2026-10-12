@@ -101,12 +101,29 @@ internal sealed partial class RtfDocumentReader
     private void EndCell(int level)
     {
         CloseTables(level);
+        BeginInheritedRow(level);
         if (_tables.Count == 0 || _tables[^1].Level != level || _tables[^1].Row is not { Complete: false } row)
             throw Error("A cell terminator has no open row");
         _state.InTable = true;
         _state.TableLevel = level;
         if (_container.Count == 0) EnsureParagraph();
         if (_paragraph is not null) CaptureParagraphProperties();
+        _paragraph = null;
+        _container = [];
+        row.Cells.Add(_container);
+    }
+
+    private void BeginInheritedRow(int level)
+    {
+        if (_tables.Count == 0 || _tables[^1].Level != level || _tables[^1].Row is not { Complete: true } previous) return;
+        // A following row may reuse its predecessor's properties without
+        // another \trowd. Start it before content enters the parent story.
+        ChargeResource();
+        var row = new Row { CellGap = previous.CellGap, Padding = previous.Padding, PaddingUnits = previous.PaddingUnits };
+        foreach (var definition in previous.Definitions) { ChargeResource(); row.Definitions.Add(definition); }
+        var frame = _tables[^1];
+        frame.Row = row;
+        frame.Table.Rows.Add(row);
         _paragraph = null;
         _container = [];
         row.Cells.Add(_container);

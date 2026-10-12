@@ -7,6 +7,54 @@ namespace RichEdit.Core.Tests;
 public sealed class RtfCodecTests
 {
     [Fact]
+    public async Task ImplicitNormalStyleCanBeTheBaseOfAnExplicitParagraphStyle()
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1{\stylesheet{\fs20\snext0 Normal;}{\s1\b\sbasedon0\snext0 Heading;}}\s1 title\par\s0 body\par}"));
+        var result = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        var normal = Assert.Single(result.Snapshot.Styles.Definitions.Values, style => style.Name == "Normal");
+        var heading = Assert.Single(result.Snapshot.Styles.Definitions.Values, style => style.Name == "Heading");
+        Assert.Equal(normal.Id, heading.BasedOn);
+        Assert.Equal(normal.Id, heading.NextStyle);
+        Assert.Equal("title\nbody", result.Snapshot.ProjectText().Text.ToString());
+        Assert.True(result.Snapshot.ResolveCharacter(Assert.Single(result.Snapshot.Nodes.Values.OfType<RichText>(), run => run.Content.ToString() == "title").Id).Bold);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public async Task OriginalReferenceDocumentImportsItsStylesTablesAndContent()
+    {
+        using var input = typeof(RtfCodecTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
+        var imported = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains("It is an example test rtf-file", imported.Snapshot.ProjectText().Text.ToString());
+        Assert.Contains(imported.Snapshot.Styles.Definitions.Values, style => style.Name == "Normal");
+        Assert.Equal("Times New Roman", imported.Snapshot.DefaultCharacter.FontFamily.Value);
+        Assert.NotEmpty(imported.Snapshot.Nodes.Values.OfType<RichTable>());
+        var restored = await RoundTrip(imported.Snapshot);
+        Assert.Equal(imported.Snapshot.ProjectText().Text.ToString(), restored.ProjectText().Text.ToString());
+    }
+
+    [Fact]
+    public async Task DefaultFontAppliesBeforeAndAfterPlainAndParagraphStyleResets()
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\deff7{\fonttbl{\f7 Times New Roman;}{\f8 Courier New;}}{\stylesheet{Normal;}{\s1\b\sbasedon0 Heading;}}body\par\f8 other\plain normal\par\s1 title\par}"));
+        var imported = await RtfCodec.ReadAsync(input, new() { RequireLossless = true }, TestContext.Current.CancellationToken);
+        foreach (var run in imported.Snapshot.Nodes.Values.OfType<RichText>())
+            Assert.Equal(run.Content.ToString() == "other" ? "Courier New" : "Times New Roman", imported.Snapshot.ResolveCharacter(run.Id).FontFamily);
+    }
+
+    [Fact]
+    public async Task TableRowsCanInheritDescriptorsIncludingAnEmptyFirstCell()
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\trowd\cellx1000\cellx2000\intbl a\cell b\cell\row\pard\intbl\cell d\cell\row\pard tail\par}"));
+        var imported = await RtfCodec.ReadAsync(input, new() { RequireLossless = true }, TestContext.Current.CancellationToken);
+        var table = Assert.Single(imported.Snapshot.Nodes.Values.OfType<RichTable>());
+        var grid = imported.Snapshot.GetTableGrid(table.Id);
+        Assert.Equal(2, grid.Rows);
+        Assert.Equal(2, grid.Columns);
+        Assert.Equal("a\tb\n\td\ntail", imported.Snapshot.ProjectText().Text.ToString());
+    }
+
+    [Fact]
     public async Task NativeRtfTerminatorsAndZeroScalingAreHandledWithoutTruncatingContent()
     {
         using var stream = new MemoryStream(Encoding.ASCII.GetBytes("{\\rtf1\\charscalex0 text\\par}\r\n\0 \t"));

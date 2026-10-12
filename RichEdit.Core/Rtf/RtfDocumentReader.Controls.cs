@@ -68,7 +68,11 @@ internal sealed partial class RtfDocumentReader
                     136 => 950, 161 => 1253, 162 => 1254, 163 => 1258, 177 => 1255, 178 => 1256, 186 => 1257, 204 => 1251, 222 => 874, 238 => 1250, 255 => 437, _ => _state.CodePage }; return;
             case "cpg": _state.FontCodePage = n; return;
             case "plain":
-                _state.Character = RtfStyleState.Restore(new ResolvedCharacterStyle(), 0, 0, 0); _state.CharacterStyle = null; _state.Font = -1; return;
+                _state.Character = RtfStyleState.Restore(_semantic ? new ResolvedCharacterStyle() : ExternalCharacterDefaults().Apply(new()), 0, 0, 0);
+                _state.CharacterStyle = null; _state.Font = _defaultFont; return;
+            case "deff":
+                if (n < 0) throw Error("Invalid default font identifier");
+                _defaultFont = n; _state.Font = n; return;
             case "pard":
                 _state.Paragraph = RtfStyleState.Restore(new ResolvedParagraphStyle(), 0, 0, 0);
                 _state.ParagraphCharacter = new(); _state.ParagraphStyle = null;
@@ -84,7 +88,7 @@ internal sealed partial class RtfDocumentReader
                 if (!_semantic)
                 {
                     var sheet = new RichStyleSheet(_styles.Values);
-                    _state.Character = RtfStyleState.Restore(sheet.ResolveCharacter(_state.ParagraphStyle, _state.CharacterStyle), 0, 0, 0);
+                    _state.Character = RtfStyleState.Restore(sheet.ResolveCharacter(_state.ParagraphStyle, _state.CharacterStyle, defaults: ExternalCharacterDefaults()), 0, 0, 0);
                     if (word == "s")
                     {
                         var paragraph = sheet.ResolveParagraph(style.Id);
@@ -145,7 +149,7 @@ internal sealed partial class RtfDocumentReader
             case "pich": if (_state.Picture is { } ph) ph.PixelHeight = n; return;
             case "picscalex": case "picscaley": if (n != 100) Report("picture-scale", "Picture scaling was not applied to the authored dimensions."); return;
             case "atndate": if (_state.Annotation is { } annotation) annotation.Date = n; return;
-            case "deff": case "adeff": case "deflang": case "deflangfe": case "viewkind": case "viewscale": case "fet":
+            case "adeff": case "deflang": case "deflangfe": case "viewkind": case "viewscale": case "fet":
             case "fnil": case "froman": case "fswiss": case "fmodern": case "fscript": case "fdecor": case "ftech": case "fbidi": case "fprq":
             case "additive": case "sautoupd": case "slocked": case "shidden": case "slink": case "styrsid":
             case "trleft": case "trautofit": case "trftsWidth": case "trwWidth": case "clftsWidth": case "clwWidth":
@@ -248,13 +252,19 @@ internal sealed partial class RtfDocumentReader
                 _colors.Add(_state.ColorSpecified ? new((byte)_state.Red, (byte)_state.Green, (byte)_state.Blue) : null);
                 _state.Red = _state.Green = _state.Blue = 0; _state.ColorSpecified = false; return;
             case "stylesheet":
-                if (_state.StyleId < 0) return;
-                ReportBorderFidelity(_state);
-                var id = _state.StyleId == 0 ? short.MaxValue : _state.StyleId;
                 var styleName = _state.Capture?.ToString().Trim();
-                if (string.IsNullOrWhiteSpace(styleName)) throw Error("Empty style name");
+                if (string.IsNullOrWhiteSpace(styleName))
+                {
+                    if (_state.StyleId < 0) return;
+                    throw Error("Empty style name");
+                }
+                // RTF permits the default paragraph style to omit \s0. Its
+                // formatting and name still define the base for \sbasedon0.
+                var styleNumber = Math.Max(0, _state.StyleId);
+                ReportBorderFidelity(_state);
+                var id = styleNumber == 0 ? short.MaxValue : styleNumber;
                 ChargeResource();
-                _styles[_state.StyleId] = new(new(id), styleName, _state.CharacterDefinition ? RichStyleKind.Character : RichStyleKind.Paragraph)
+                _styles[styleNumber] = new(new(id), styleName, _state.CharacterDefinition ? RichStyleKind.Character : RichStyleKind.Paragraph)
                 {
                     BasedOn = _state.BasedOn is < 0 or 222 ? null : new(_state.BasedOn == 0 ? short.MaxValue : _state.BasedOn),
                     NextStyle = _state.NextStyle < 0 ? null : new(_state.NextStyle == 0 ? short.MaxValue : _state.NextStyle),
