@@ -29,8 +29,27 @@ public sealed class RtfCodecTests
         Assert.Contains(imported.Snapshot.Styles.Definitions.Values, style => style.Name == "Normal");
         Assert.Equal("Times New Roman", imported.Snapshot.DefaultCharacter.FontFamily.Value);
         Assert.NotEmpty(imported.Snapshot.Nodes.Values.OfType<RichTable>());
+        var roman = imported.Snapshot.Nodes.Values.OfType<RichList>()
+            .Where(list => list.Numbered && list.NumberStyle == RichListNumberingStyle.UpperRoman).OrderBy(list => list.Id.Value).ToArray();
+        Assert.Equal(new[] { 1, 2, 3, 4 }, roman.Select(list => list.StartNumber));
+        foreach (var alignment in new[] { "left", "right", "center" })
+        {
+            var run = Assert.Single(imported.Snapshot.Nodes.Values.OfType<RichText>(), run => run.Content.ToString().Contains($"reading is aligned {alignment}.", StringComparison.Ordinal));
+            Assert.Equal(alignment == "right" ? 10d : 12d, imported.Snapshot.ResolveCharacter(run.Id).FontSize?.Points);
+        }
         var restored = await RoundTrip(imported.Snapshot);
         Assert.Equal(imported.Snapshot.ProjectText().Text.ToString(), restored.ProjectText().Text.ToString());
+    }
+
+    [Fact]
+    public async Task InterruptedListNumberingContinuesWithinItsOverrideAndNestedLevelsRestart()
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1{\*\listtable{\list{\listlevel\levelnfc0\levelstartat3}{\listlevel\levelnfc0\levelstartat1}\listid9}}{\*\listoverridetable{\listoverride\listid9\ls1}{\listoverride\listid9\ls2}}\pard\ls1 first\par\pard prose\par\pard\ls1 second\par\pard\ls1\ilvl1 child\par\pard gap\par\pard\ls1\ilvl1 child continued\par\pard\ls1 parent\par\pard\ls1\ilvl1 fresh child\par\pard\ls2 separate\par}"));
+        var imported = await RtfCodec.ReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
+        var lists = imported.Snapshot.Nodes.Values.OfType<RichList>().OrderBy(list => list.Id.Value).ToArray();
+        Assert.Equal(new[] { 3, 4, 1, 2, 5, 1, 3 }, lists.Select(list => list.StartNumber));
+        var restored = await RoundTrip(imported.Snapshot);
+        Assert.Equal(lists.Select(list => list.StartNumber), restored.Nodes.Values.OfType<RichList>().OrderBy(list => list.Id.Value).Select(list => list.StartNumber));
     }
 
     [Fact]

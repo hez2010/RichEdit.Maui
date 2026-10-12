@@ -8,6 +8,7 @@ internal sealed partial class RtfDocumentReader
     private readonly Stack<ListFrame> _listStack = [];
     private readonly Dictionary<int, ListDefinition> _listDefinitions = [];
     private readonly Dictionary<int, int> _listOverrides = [];
+    private readonly Dictionary<(int Number, int Level), long> _nextListNumbers = [];
 
     private sealed class Table(RichNodeId id) : Block(id) { internal readonly List<Row> Rows = []; }
     private sealed class Row
@@ -158,7 +159,9 @@ internal sealed partial class RtfDocumentReader
         _paragraph = null;
         var id = _listOverrides.GetValueOrDefault(number, number);
         var definition = (_listDefinitions.GetValueOrDefault(id) ?? new()).Level(external ? level : 0);
-        var list = new ListBlock(Allocate(), number, definition.Numbered, definition.Start, definition.NumberStyle);
+        var start = external && definition.Numbered ? _nextListNumbers.GetValueOrDefault((number, level), definition.Start) : definition.Start;
+        if (start > int.MaxValue) throw Error("List numbering exceeds the supported range");
+        var list = new ListBlock(Allocate(), number, definition.Numbered, (int)start, definition.NumberStyle);
         _container.Add(list);
         _listStack.Push(new(list, _container, external, level));
     }
@@ -168,7 +171,14 @@ internal sealed partial class RtfDocumentReader
         if (_listStack.Count == 0) throw Error("A list item has no list");
         _paragraph = null;
         _container = [];
-        _listStack.Peek().List.Items.Add((Allocate(), _container));
+        var frame = _listStack.Peek();
+        frame.List.Items.Add((Allocate(), _container));
+        if (frame.External)
+        {
+            _nextListNumbers[(frame.List.Number, frame.Level)] = (long)frame.List.Start + frame.List.Items.Count;
+            foreach (var key in _nextListNumbers.Keys.Where(key => key.Number == frame.List.Number && key.Level > frame.Level).ToArray())
+                _nextListNumbers.Remove(key);
+        }
     }
 
     private void EndList()
