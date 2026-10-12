@@ -93,7 +93,7 @@ public partial class NativeEditorView
     private void OnStructuredSelectionChanged(object? sender, EventArgs args)
     {
         if (_requestedStructuredFocus is { } pending && (StructuredSession?.Document.Revision != pending.Revision ||
-            StructuredPrimaryText is not { } primary || primary.Anchor != pending.Point || primary.Active != pending.Point))
+            StructuredSession.SelectionGeneration != pending.SelectionGeneration))
             _requestedStructuredFocus = null;
         if (_deferNotifications || _synchronizingStructured) return;
         _synchronizingStructured = true;

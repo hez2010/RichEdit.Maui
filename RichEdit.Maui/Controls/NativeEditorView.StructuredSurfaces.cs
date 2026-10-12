@@ -12,7 +12,7 @@ public partial class NativeEditorView
     // callbacks from old controls must not replace its requested caret. The
     // target surface may report normally; edits, explicit selections and pointer
     // gestures release the request without retaining a native view.
-    private (DocumentRevision Revision, RichTextPoint Point)? _requestedStructuredFocus;
+    private (DocumentRevision Revision, long SelectionGeneration, RichTextPoint Point)? _requestedStructuredFocus;
     internal bool IsUpdatingStructuredSurfaces
     {
         get
@@ -20,14 +20,19 @@ public partial class NativeEditorView
             var owner = StructuredInputCoordinator ?? this;
             return owner._structuredSurfaceUpdateDepth != 0 || owner._requestedStructuredFocus is { } pending &&
                 owner.StructuredSession?.Document.Revision == pending.Revision &&
+                owner.StructuredSession.SelectionGeneration == pending.SelectionGeneration &&
                 Document.StructuredProjection?.ContainsParagraph(pending.Point.Paragraph) != true;
         }
     }
     private void RequestStructuredFocus()
     {
-        if (StructuredSession is { } session && _structuredSurfaces.Count != 0 && StructuredPrimaryText is { } text && text.Anchor == text.Active)
-            _requestedStructuredFocus = (session.Document.Revision, text.Active);
+        RememberStructuredFocusRequest();
         FocusStructuredSelection();
+    }
+    private void RememberStructuredFocusRequest()
+    {
+        if (StructuredSession is { } session && _structuredSurfaces.Count != 0 && StructuredPrimaryText is { } text)
+            _requestedStructuredFocus = (session.Document.Revision, session.SelectionGeneration, text.Active);
     }
     internal IDisposable BeginStructuredSurfaceUpdate()
     {
@@ -113,6 +118,7 @@ public partial class NativeEditorView
     }
     internal bool FocusStructuredSelection()
     {
+        RememberStructuredFocusRequest();
         if (StructuredSession is null || FindStructuredSurface(StructuredSession.Selection) is not { } surface) return false;
 #if ANDROID
         if (surface.Handler is RichEditorHandler handler)
