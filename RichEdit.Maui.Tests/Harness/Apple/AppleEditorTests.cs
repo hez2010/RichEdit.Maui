@@ -971,6 +971,8 @@ internal static partial class AppleEditorTests
             var before = VerifyListMarkerPixels(native, 4);
             editor.Selection.RestartList(7);
             await Drain();
+            var markerTexts = native.Subviews.OfType<UILabel>().Select(label => label.Text).ToArray();
+            EditorContractTests.Equal(true, markerTexts.Contains("7."), "native restarted marker: " + string.Join(",", markerTexts));
             var after = VerifyListMarkerPixels(native, 4);
             Equal(false, before.AsSpan().SequenceEqual(after));
             Equal("one\ntwo", native.Text);
@@ -1210,7 +1212,12 @@ internal static partial class AppleEditorTests
             context.CGContext.SetFillColor(UIColor.White.CGColor);
             context.CGContext.FillRect(new CoreGraphics.CGRect(0, 0, 28, caret.Height));
             context.CGContext.TranslateCTM(-inset.Left - padding - (nfloat)(textIndent - 36), -caret.Y + native.ContentOffset.Y);
+#if MACCATALYST
+            foreach (var label in native.Subviews.OfType<UILabel>()) label.Layer.DisplayIfNeeded();
+            native.Layer.RenderInContext(context.CGContext);
+#else
             native.DrawViewHierarchy(new CoreGraphics.CGRect(0, 0, native.Bounds.Width, native.Bounds.Height), true);
+#endif
         });
         using var pixels = image.CGImage!.DataProvider.CopyData()!;
         var data = pixels.ToArray();

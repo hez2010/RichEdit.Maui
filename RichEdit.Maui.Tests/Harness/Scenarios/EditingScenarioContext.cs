@@ -54,13 +54,23 @@ internal sealed partial class EditingScenarioContext(Func<View, Task> attach)
     }
 
 #if IOS || MACCATALYST
-    internal async Task CheckNativeViewportBaseline(bool reference = false)
+    internal async Task CheckNativeViewportBaseline(bool reference = false, bool contiguous = false, bool metrics = false)
     {
         Foundation.NSAttributedString? referenceText = null;
-        if (reference) { await OpenReference(); referenceText = new Foundation.NSAttributedString(Handler.PlatformView.AttributedText); }
+        if (reference)
+        {
+            using var input = typeof(EditingScenarioContext).Assembly.GetManifestResourceStream("ReferenceDocument")!;
+            using var bytes = new MemoryStream(); await input.CopyToAsync(bytes);
+            using var data = Foundation.NSData.FromArray(bytes.ToArray());
+            referenceText = Foundation.NSAttributedString.Create(data,
+                new Foundation.NSAttributedStringDocumentAttributes { DocumentType = Foundation.NSDocumentType.RTF }, out var error)
+                ?? throw new InvalidOperationException("Native reference RTF import failed: " + error?.LocalizedDescription);
+            error?.Dispose();
+        }
         var editor = new Editor { Text = string.Join("\n", Enumerable.Range(0, 150).Select(i => $"Native baseline paragraph {i}")), AutoSize = EditorAutoSizeOption.Disabled };
         Host = new Grid { Children = { editor } }; await attach(Host); await Settle();
         var native = (UIKit.UITextView)editor.Handler!.PlatformView!;
+        if (contiguous) native.LayoutManager.AllowsNonContiguousLayout = false;
         if (referenceText is not null) { native.AttributedText = referenceText; await Settle(); }
         native.BecomeFirstResponder();
         var start = native.Text!.IndexOf(reference ? "The text you are reading is aligned left" : "Native baseline paragraph 40", StringComparison.Ordinal);
@@ -70,11 +80,18 @@ internal sealed partial class EditingScenarioContext(Func<View, Task> attach)
         native.SetContentOffset(new(0, caret.Y - 100), false); await Settle(80);
         var before = native.ContentOffset;
         native.TextStorage.BeginEditing();
-        native.TextStorage.AddAttribute(UIKit.UIStringAttributeKey.ForegroundColor, UIKit.UIColor.Red, new(start, 4));
+        if (metrics)
+        {
+            using var attributes = native.TextStorage.GetAttributes(start, out _);
+            using var font = new UIKit.UIStringAttributes(attributes).Font!.WithSize(18)
+                ?? throw new InvalidOperationException("The native font could not be resized.");
+            native.TextStorage.AddAttribute(UIKit.UIStringAttributeKey.Font, font, new(start, 4));
+        }
+        else native.TextStorage.AddAttribute(UIKit.UIStringAttributeKey.ForegroundColor, UIKit.UIColor.Red, new(start, 4));
         native.TextStorage.EndEditing();
         await Settle(); var after = native.ContentOffset;
         native.ResignFirstResponder(); editor.Handler.DisconnectHandler(); referenceText?.Dispose();
-        Check(Math.Abs(before.Y - after.Y) < 2, $"unmodified MAUI Editor native baseline moved from {before} to {after}");
+        Check(Math.Abs(before.Y - after.Y) < 2, $"standalone MAUI Editor native baseline moved from {before} to {after}; contiguous={contiguous}");
     }
 #endif
 
@@ -133,7 +150,7 @@ internal sealed partial class EditingScenarioContext(Func<View, Task> attach)
             if (sameSelection) Equal(before.Selection, after.Selection, name + ": selection retained");
             if (stableScroll && (Math.Abs(before.Scroll.Y - after.Scroll.Y) > 2 || Math.Abs(before.Scroll.X - after.Scroll.X) > 2))
                 _behaviorFailures.Add($"{name}: viewport moved from {before.Scroll} to {after.Scroll}");
-            if (frame == 11 && wasVisible && viewport is { } visible)
+            if (frame == 11 && wasVisible && viewport is { } visible && (Rich is null || Rich.Selection is CoreSelection or RichTextSelectionSet))
                 Check(after.Caret is { Height: > 0 } final && double.IsFinite(final.Y) && final.Top >= visible.Top - 1 && final.Bottom <= visible.Bottom + 1,
                     $"{name}: caret remains visible after edit; caret={after.Caret}, viewport={visible}");
         }

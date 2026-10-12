@@ -88,9 +88,9 @@ public partial class RichEditorHandler
             try
             {
                 PlatformView.IsReadOnly = false;
-                var previous = _paintedCellSelection == VirtualView.StructuredSession!.Selection as RichCellSelection &&
-                    _structuredNativeMap is { } baseline && HasStructuredNativeBaseline(baseline) ? baseline : null;
-                if (previous is not null && previous.CanApplyFormatting(result))
+                var changedTables = ChangedCellSelectionTables();
+                var previous = _structuredNativeMap is { } baseline && HasStructuredNativeBaseline(baseline) ? baseline : null;
+                if (previous is not null && changedTables is null && previous.CanApplyFormatting(result))
                 {
                     ApplyCharacterFormatsIncrementally(RichTextDisplayProjection.NativeDescription(result), new(0, result.NativeText.Length), RichTextDisplayProjection.NativeDescription(previous));
                     foreach (var paragraph in result.Paragraphs)
@@ -102,7 +102,7 @@ public partial class RichEditorHandler
                             ApplyParagraphTabs(target, ReadParagraphFormat(source, null));
                         }
                 }
-                else if (previous?.FindBlockReplacement(result) is { } replacement)
+                else if (previous?.FindBlockReplacement(result, changedTables) is { } replacement)
                 {
                     PlatformView.Document.GetRange(replacement.Before.Start, replacement.Before.End).FormattedText =
                         scratch.GetRange(replacement.After.Start, replacement.After.End);

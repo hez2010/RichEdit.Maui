@@ -85,7 +85,7 @@ internal sealed class StructuredRichNativeMap
         _rendered = rendered; _presentation = presentation; Reservations = reservations.IsDefault ? [] : reservations; }
     internal RichTextDocumentSnapshot? Display { get; }
     internal RichTextDocumentSnapshot? AuthoredDisplay { get; }
-    internal (TextSpan Before, TextSpan After)? FindBlockReplacement(StructuredRichNativeMap next)
+    internal (TextSpan Before, TextSpan After)? FindBlockReplacement(StructuredRichNativeMap next, IReadOnlySet<RichNodeId>? invalidatedBlocks = null)
     {
         if (!Reservations.IsEmpty || !next.Reservations.IsEmpty || Snapshot.Body != next.Snapshot.Body) return null;
         var before = Snapshot.Get<RichStory>(Snapshot.Body).Blocks;
@@ -122,6 +122,7 @@ internal sealed class StructuredRichNativeMap
 
         bool Same(RichNodeId a, RichNodeId b)
         {
+            if (invalidatedBlocks?.Contains(a) == true) return false;
             if (a != b || !Snapshot.Nodes.TryGetValue(a, out var x) || !next.Snapshot.Nodes.TryGetValue(b, out var y) || !RichDocumentSnapshot.SameNode(x, y)) return false;
             var children = RichDocumentSnapshot.Children(x);
             return children.All(id => Same(id, id));

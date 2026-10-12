@@ -90,6 +90,10 @@ public partial class RichEditorHandler
         if (presentation is not null) result = result.WithPresentation(presentation, sourceProjection);
         if (apply)
         {
+            // Keep native RTF table layout contiguous so partial glyph layout
+            // cannot move the scroll anchor during incremental corrections.
+            if (PlatformView.LayoutManager.AllowsNonContiguousLayout)
+                PlatformView.LayoutManager.AllowsNonContiguousLayout = false;
             var applying = _applyingDocument;
             _applyingDocument = true;
             _projectionGeneration++;
@@ -97,9 +101,9 @@ public partial class RichEditorHandler
             try
             {
                 _structuredListIndents = listMarkers;
-                var previous = _paintedCellSelection == VirtualView.StructuredSession!.Selection as RichCellSelection &&
-                    _structuredNativeMap is { } baseline && HasStructuredNativeBaseline(baseline) ? baseline : null;
-                if (previous is not null && previous.CanApplyFormatting(result))
+                var changedTables = ChangedCellSelectionTables();
+                var previous = _structuredNativeMap is { } baseline && HasStructuredNativeBaseline(baseline) ? baseline : null;
+                if (previous is not null && changedTables is null && previous.CanApplyFormatting(result))
                 {
                     var storage = PlatformView.TextStorage;
                     storage.BeginEditing();
@@ -136,7 +140,7 @@ public partial class RichEditorHandler
                     }
                     finally { storage.EndEditing(); }
                 }
-                else if (previous?.FindBlockReplacement(result) is { } replacement)
+                else if (previous?.FindBlockReplacement(result, changedTables) is { } replacement)
                 {
                     using var fragment = content.Substring(replacement.After.Start, replacement.After.Length);
                     PlatformView.TextStorage.Replace(new(replacement.Before.Start, replacement.Before.Length), fragment);

@@ -9,6 +9,18 @@ internal static partial class ReferenceEditingScenarios
 {
     private static IEnumerable<EditingScenario> ContentCases()
     {
+        yield return new("rich/table/cell-selection", ["table cell selection", "formatting", "scroll", "undo"], async context =>
+        {
+            await context.OpenReference(); var snapshot = context.Rich.Document.CurrentSnapshot;
+            var table = snapshot.Nodes.Values.OfType<RichTable>().First(); var grid = snapshot.GetTableGrid(table.Id);
+            var paragraph = snapshot.Get<RichTableCell>(grid[0, 0]).Blocks[0];
+            await context.Select(new(snapshot.Body, paragraph, 0)); var before = await context.SaveRich();
+            await context.ObserveEdit("select cells", () => context.Rich.Selection = new RichCellSelection(table.Id, 0, 0, 1, 2));
+            var bold = !snapshot.GetSelectedCharacterFormats(context.Rich.Selection).All(format => format.Bold);
+            await context.ObserveEdit("format selected cells", () => context.Rich.ApplyCharacterFormat(new() { Bold = bold }), sameSelection: true);
+            Check(context.Rich.Document.CurrentSnapshot.GetSelectedCharacterFormats(context.Rich.Selection).All(format => format.Bold == bold), "selected cell text formatted");
+            await context.CheckUndo(before, () => Check(context.Rich.Selection is RichCellSelection, "cell selection survives redo"));
+        });
         yield return new("rich/inline/hyperlink", ["links", "selection", "scroll", "undo", "RTF"], async context =>
         {
             await context.OpenReference(); var point = context.Find("The text you are reading is aligned left", 4);

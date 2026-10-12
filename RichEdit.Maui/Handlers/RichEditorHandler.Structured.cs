@@ -12,6 +12,16 @@ public partial class RichEditorHandler
     private StructuredNativeFormats? _structuredFormats;
     private StructuredRichNativeMap? _pendingStructuredNativeMap;
 
+    private IReadOnlySet<RichNodeId>? ChangedCellSelectionTables()
+    {
+        var selection = VirtualView.StructuredSession!.Selection as RichCellSelection;
+        if (selection == _paintedCellSelection) return null;
+        var tables = new HashSet<RichNodeId>();
+        if (_paintedCellSelection is { } previous) tables.Add(previous.Table);
+        if (selection is not null) tables.Add(selection.Table);
+        return tables;
+    }
+
     private bool HasStructuredNativeBaseline(StructuredRichNativeMap map)
     {
 #if WINDOWS

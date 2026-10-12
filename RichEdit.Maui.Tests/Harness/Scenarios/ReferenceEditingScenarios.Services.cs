@@ -10,7 +10,8 @@ internal static partial class ReferenceEditingScenarios
     private static IEnumerable<EditingScenario> ServiceCases()
     {
 #if IOS || MACCATALYST
-        yield return new("rich/native/viewport-baseline", ["native reference baseline"], context => context.CheckNativeViewportBaseline(reference: true));
+        yield return new("rich/native/viewport-baseline", ["native reference baseline"], context => context.CheckNativeViewportBaseline(reference: true, contiguous: true));
+        yield return new("rich/native/metric-viewport-baseline", ["native reference baseline"], context => context.CheckNativeViewportBaseline(reference: true, contiguous: true, metrics: true));
 #endif
         yield return new("rich/views/shared-editing", ["shared document", "independent selections", "native peer text", "caret", "scroll", "undo"], async context =>
         {
