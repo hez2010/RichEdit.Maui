@@ -58,7 +58,7 @@ namespace RichEdit.Maui
 #elif ANDROID
             PlatformView.SetCursorVisible(!hidden && !VirtualView.IsReadOnly);
 #else
-            PlatformView.Document.CaretType = hidden ? Microsoft.UI.Text.CaretType.Null : Microsoft.UI.Text.CaretType.Normal;
+            PlatformView.HideVirtualCaret = hidden;
 #endif
         }
     }
