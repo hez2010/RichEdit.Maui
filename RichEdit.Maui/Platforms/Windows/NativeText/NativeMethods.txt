@@ -12,3 +12,4 @@ ENM_*
 EM_*
 CHANGENOTIFY
 CHANGETYPE
+GetPointerInfo

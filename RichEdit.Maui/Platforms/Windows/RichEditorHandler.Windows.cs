@@ -32,6 +32,8 @@ public partial class RichEditorHandler
     {
         IsProjectionUpdate = () => _applyingDocument,
         AcceptsReturn = true,
+        AllowDrop = true,
+        CanDrag = true,
         HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
         HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
         IsSpellCheckEnabled = true,
@@ -54,6 +56,8 @@ public partial class RichEditorHandler
         platformView.LostFocus += OnPlatformViewLostFocus;
         platformView.PreviewKeyDown += OnPlatformKeyDown;
         platformView.DragStarting += OnSourceDragStarting;
+        platformView.DragOver += OnNativeDragOver;
+        platformView.Drop += OnNativeDrop;
         platformView.Tapped += OnPlatformTapped;
         platformView.TextCompositionStarted += OnCompositionStarted;
         platformView.TextCompositionEnded += OnCompositionEnded;
@@ -76,6 +80,8 @@ public partial class RichEditorHandler
         platformView.LostFocus -= OnPlatformViewLostFocus;
         platformView.PreviewKeyDown -= OnPlatformKeyDown;
         platformView.DragStarting -= OnSourceDragStarting;
+        platformView.DragOver -= OnNativeDragOver;
+        platformView.Drop -= OnNativeDrop;
         platformView.Tapped -= OnPlatformTapped;
         platformView.TextCompositionStarted -= OnCompositionStarted;
         platformView.TextCompositionEnded -= OnCompositionEnded;
@@ -384,16 +390,6 @@ public partial class RichEditorHandler
 
             eventArgs.Handled = true;
         }
-    }
-
-    private void OnSourceDragStarting(Microsoft.UI.Xaml.UIElement sender, Microsoft.UI.Xaml.DragStartingEventArgs args)
-    {
-        if (NativeProjection.IsEmpty || VirtualView.SelectedRange.IsEmpty)
-            return;
-
-        var fragment = RichTextDocumentFragment.FromRange(VirtualView.Document.CurrentSnapshot, VirtualView.SelectedRange);
-        args.Data.SetText(fragment.Text);
-        args.Data.SetRtf(fragment.RtfText);
     }
 
     [DynamicWindowsRuntimeCast(typeof(CommandBarFlyout))]

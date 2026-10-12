@@ -127,8 +127,13 @@ internal static class RichTextClipboard
         if (ReferenceEquals(payload, _cache) && payload.Structured is { } owned)
             return new(asPlainText ? RichDocumentFragment.FromPlainText(payload.Text!) : owned, asPlainText,
                 asPlainText ? payload.StructuredParts?.Select(part => RichDocumentFragment.FromPlainText(part.Content.ProjectText().Text.ToString())).ToArray() : payload.StructuredParts, []);
+        return await ReadStructuredTransferAsync(asPlainText ? null : payload.Rtf, payload.Text);
+    }
+
+    internal static async Task<StructuredContent?> ReadStructuredTransferAsync(string? rtf, string? text)
+    {
         var diagnostics = ImmutableArray<RtfDiagnostic>.Empty;
-        if (!asPlainText && payload.Rtf is { } rtf)
+        if (rtf is not null)
         {
             try
             {
@@ -137,9 +142,9 @@ internal static class RichTextClipboard
                 return new(new(imported.Snapshot), false, null, imported.Diagnostics);
             }
             catch (Exception error) when (error is FormatException or ArgumentException or InvalidDataException)
-            { diagnostics = [new("clipboard", "The clipboard RTF is invalid; plain text is available instead.")]; }
+            { diagnostics = [new("clipboard", "The RTF is invalid; plain text is available instead.")]; }
         }
-        return payload.Text is { } text ? new(RichDocumentFragment.FromPlainText(text), true, null, diagnostics) : null;
+        return text is not null ? new(RichDocumentFragment.FromPlainText(text), true, null, diagnostics) : null;
     }
 
     private static async Task<Payload?> GetPayloadAsync(bool asPlainText)

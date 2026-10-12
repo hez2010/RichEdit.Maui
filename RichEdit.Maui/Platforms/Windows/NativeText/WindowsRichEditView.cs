@@ -57,9 +57,11 @@ internal partial class WindowsRichEditView : UserControl, IWindowsTextSite, IDis
         _engine = new(this);
         Document = new(_engine);
         _engine.OperationCompleted += FlushNotifications;
+        _engine.Send(EM_SETEDITSTYLEEX, 0x08000000, 0x08000000); // SES_EX_MULTITOUCH
         _engine.Send(EM_SETEVENTMASK, 0, (nint)(ENM_CHANGE | ENM_SELCHANGE | ENM_SCROLL | ENM_REQUESTRESIZE));
         _canvas.Draw += Draw;
         Scroller.ViewChanged += ScrollChanged;
+        DropCompleted += OnDropCompleted;
         SizeChanged += (_, _) => ResizeNativeClient();
         Loaded += (_, _) => { ResizeNativeClient(); AttachInputWindow(); };
         Unloaded += (_, _) => DetachInputWindow();
@@ -109,8 +111,8 @@ internal partial class WindowsRichEditView : UserControl, IWindowsTextSite, IDis
     private void UpdateLanguageServices()
     {
         // RichEdit's TSF store supplies proofing, prediction and composition.
-        const uint proofing = 0x00800000;
-        _engine.Send(EM_SETEDITSTYLE, _spellCheck ? proofing : 0, (nint)proofing);
+        const uint textServices = 0x00010000, proofing = 0x00800000;
+        _engine.Send(EM_SETEDITSTYLE, textServices | (_spellCheck ? proofing : 0), (nint)(textServices | proofing));
         const uint spelling = 0x0800, prediction = 0x1000;
         _engine.Send(EM_SETLANGOPTIONS, 0, (nint)((uint)_engine.Send(EM_GETLANGOPTIONS) & ~(spelling | prediction) | (_spellCheck ? spelling : 0) | (_prediction ? prediction : 0)));
         if (FocusState != FocusState.Unfocused && NativeWindow != 0)
@@ -232,7 +234,7 @@ internal partial class WindowsRichEditView : UserControl, IWindowsTextSite, IDis
         (_wrapping == TextWrapping.NoWrap ? 0 : TXTBIT_WORDWRAP) | (_readOnly ? TXTBIT_READONLY : 0);
     uint IWindowsTextSite.ScrollBars => 0x300000;
     uint IWindowsTextSite.MaximumLength => _maximumLength <= 0 ? int.MaxValue : (uint)_maximumLength;
-    uint IWindowsTextSite.EditStyle => 0;
+    uint IWindowsTextSite.EditStyle => 0x00010000; // SES_USECTF
     uint IWindowsTextSite.WindowStyle => 0x50000000 | 0x300000 | 4 | 0x40 | 0x80;
     int IWindowsTextSite.HorizontalExtent => (int)ActualWidth;
     void IWindowsTextSite.Invalidate() { if (!_disposed) { _canvas.Invalidate(); QueueScrollUpdate(); } }

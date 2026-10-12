@@ -8,6 +8,25 @@ namespace RichEdit.Maui.Tests;
 
 public partial class CodeEditorTests
 {
+    [Fact]
+    public Task DisconnectCancelsNativeCompositionAndPendingTransfers() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new CodeEditorFixture("before");
+        var editor = fixture.Editor;
+        var incoming = new TaskCompletionSource<NativeEditorView.TransferContent>();
+        var pending = editor.TextView.InsertTransferAsync(0, () => incoming.Task);
+        ((IWindowsTextSite)fixture.Handler.PlatformView).Notify(0x713, 0);
+        await Task.Delay(20);
+        fixture.Handler.PlatformView.Document.Selection.TypeText("marked");
+        Assert.True(editor.Composition.IsActive);
+        editor.TextView.Handler = null;
+        incoming.SetResult(new("stale", null));
+        Assert.False(await pending);
+        Assert.False(editor.Composition.IsActive);
+        Assert.Equal("before", editor.Document.Text);
+        Assert.False(editor.CanUndo);
+    });
+
     [Theory]
     [InlineData(3, 3)]
     [InlineData(5, 2)]

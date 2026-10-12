@@ -20,6 +20,9 @@ internal partial class WindowsRichEditView
     [ThreadStatic] private static WindowsRichEditView? _systemCaretOwner;
     private global::Windows.Foundation.Rect _caret;
     private global::Windows.Foundation.Rect? _dropCaret;
+    internal bool IsTextDragArmed { get; private set; }
+    private bool _dragCompleted;
+    private global::Windows.Foundation.Point _dragOrigin;
     private long _lastClickTime;
     private global::Windows.Foundation.Point _lastClick;
 
@@ -57,8 +60,8 @@ internal partial class WindowsRichEditView
         base.OnGotFocus(args);
         if (_disposed) return;
         AttachInputWindow();
-        _engine.SetFocus(true);
         UpdateLanguageServices();
+        _engine.SetFocus(true);
     }
 
     protected override void OnLostFocus(RoutedEventArgs args)
@@ -103,6 +106,7 @@ internal partial class WindowsRichEditView
         base.OnPointerPressed(args);
         if (_disposed || args.Handled) return;
         _pointer = args.Pointer;
+        if (ForwardTouch(args, 0x246)) { args.Handled = true; return; }
         var point = args.GetCurrentPoint(this);
         if (!point.Properties.IsLeftButtonPressed) return;
         Focus(FocusState.Pointer);
@@ -112,6 +116,16 @@ internal partial class WindowsRichEditView
             Math.Abs(point.Position.Y - _lastClick.Y) <= GetSystemMetrics(37);
         _lastClickTime = isDouble ? 0 : now;
         _lastClick = point.Position;
+        _dragCompleted = false;
+        using var selected = (WindowsTextRange)Document.Selection;
+        using var hit = (WindowsTextRange)Document.GetRangeFromPoint(point.Position, Microsoft.UI.Text.PointOptions.ClientCoordinates);
+        IsTextDragArmed = CanDrag && !isDouble && (MouseFlags(args) & 12) == 0 && selected.Length > 0 &&
+            hit.StartPosition >= selected.StartPosition && hit.StartPosition < selected.EndPosition;
+        if (IsTextDragArmed)
+        {
+            _dragOrigin = point.Position;
+            return;
+        }
         _engine.Send(isDouble ? 0x203u : 0x201u, MouseFlags(args), MousePosition(point.Position));
         args.Handled = true;
     }
@@ -120,6 +134,8 @@ internal partial class WindowsRichEditView
     {
         base.OnPointerMoved(args);
         if (_disposed || args.Handled) return;
+        if (ForwardTouch(args, 0x245)) { args.Handled = true; return; }
+        if (IsTextDragArmed) return;
         _engine.Send(0x200, MouseFlags(args), MousePosition(args.GetCurrentPoint(this).Position));
         if (args.GetCurrentPoint(this).Properties.IsLeftButtonPressed) args.Handled = true;
     }
@@ -128,8 +144,21 @@ internal partial class WindowsRichEditView
     {
         base.OnPointerReleased(args);
         if (_disposed || args.Handled) return;
+        if (ForwardTouch(args, 0x247)) { args.Handled = true; _pointer = null; return; }
+        if (_dragCompleted) { _dragCompleted = false; IsTextDragArmed = false; return; }
+        if (IsTextDragArmed)
+        {
+            IsTextDragArmed = false;
+            _engine.Send(0x201, 1, MousePosition(_dragOrigin));
+        }
         _engine.Send(0x202, MouseFlags(args), MousePosition(args.GetCurrentPoint(this).Position));
         _pointer = null;
+    }
+
+    private void OnDropCompleted(UIElement sender, Microsoft.UI.Xaml.DropCompletedEventArgs args)
+    {
+        IsTextDragArmed = false;
+        _dragCompleted = true;
     }
 
     protected override void OnPointerCaptureLost(PointerRoutedEventArgs args)
@@ -137,6 +166,18 @@ internal partial class WindowsRichEditView
         _pointer = null;
         if (!_disposed) _engine.Send(0x215);
         base.OnPointerCaptureLost(args);
+    }
+
+    private unsafe bool ForwardTouch(PointerRoutedEventArgs args, uint message)
+    {
+        if (args.GetCurrentPoint(this).PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Touch) return false;
+        global::Windows.Win32.UI.Input.Pointer.POINTER_INFO info;
+        if (!global::Windows.Win32.PInvoke.GetPointerInfo(args.Pointer.PointerId, &info)) return false;
+        if (message == 0x246) Focus(FocusState.Pointer);
+        var flags = (uint)info.pointerFlags & 0xffff;
+        _engine.Send(message, (nuint)((args.Pointer.PointerId & 0xffff) | flags << 16),
+            MousePosition(new(info.ptPixelLocation.X, info.ptPixelLocation.Y)));
+        return true;
     }
 
     private nuint MouseFlags(PointerRoutedEventArgs args)
@@ -230,14 +271,25 @@ internal partial class WindowsRichEditView
     private static nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint data)
     {
         var view = (WindowsRichEditView)GCHandle.FromIntPtr((nint)data).Target!;
-        if (!view._disposed && view.FocusState != FocusState.Unfocused &&
-            (message is >= 0x10d and <= 0x10f or >= 0x281 and <= 0x291 or 0x51))
+        try
         {
-            using var operation = view._engine.BeginOperation();
-            if (message == 0x10d) view._compositionStarted = true;
-            var result = view._engine.Send(message, wParam, lParam);
-            if (message == 0x10e) view._compositionEnded = true;
-            return result;
+            if (!view._disposed && view.FocusState != FocusState.Unfocused &&
+                (message is >= 0x10d and <= 0x10f or >= 0x281 and <= 0x291 or 0x51))
+            {
+                using var operation = view._engine.BeginOperation();
+                if (message == 0x10d) view._compositionStarted = true;
+                var result = view._engine.Send(message, wParam, lParam);
+                if (message == 0x10e) view._compositionEnded = true;
+                return result;
+            }
+        }
+        catch (Exception error)
+        {
+            // A managed exception cannot unwind through a native window procedure.
+            // Report it through the UI dispatcher after the native callback returns.
+            var failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            view.DispatcherQueue.TryEnqueue(() => failure.Throw());
+            return 0;
         }
         return DefSubclassProc(window, message, wParam, lParam);
     }

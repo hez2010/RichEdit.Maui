@@ -32,3 +32,7 @@ Rich clipboard exchange is self-contained RTF plus ordinary plain-text fallback.
 Cut freezes the selection and snapshot, publishes the clipboard, then checks document revision and selection generation before deleting. An asynchronous stale cut cannot delete newly selected or edited content.
 
 In-process multiple-selection metadata can preserve fragment boundaries while clipboard identity matches. Matching fragment/caret counts distribute fragments; otherwise the combined payload is inserted at each selection. External rich interchange remains one RTF payload.
+
+## Drag and drop
+
+On Windows, dragging selected text copies it to a drop destination. Rich selections carry RTF and ordinary text; source selections carry exact text. Dropping into an editor uses its paste event and editing limits. A drop is canceled if its destination document, selection, or attached view changes while the data is being read. Dragging does not replace the system clipboard.
