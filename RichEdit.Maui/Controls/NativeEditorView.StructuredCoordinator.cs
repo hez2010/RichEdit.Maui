@@ -23,7 +23,7 @@ public partial class NativeEditorView
     private bool HasCurrentStructuredCoordinator => StructuredInputCoordinator is { } coordinator &&
         ReferenceEquals(coordinator.StructuredSession, StructuredSession);
 
-    private void ForwardStructuredInput(RichTextDocumentSnapshot snapshot, TextSelectionState selection)
+    private void ForwardStructuredInput(RichTextDocumentSnapshot snapshot, TextSelectionState selection, TextSpan? replacementHint)
     {
         var coordinator = StructuredInputCoordinator!;
         if (!HasCurrentStructuredCoordinator || Document.StructuredProjection is null)
@@ -40,8 +40,9 @@ public partial class NativeEditorView
         var session = StructuredSession!;
         coordinator.RememberStructuredInput(this);
         var before = session.Composition?.Snapshot ?? session.Document.CurrentSnapshot;
-        var scopedBefore = RichTextDocumentSnapshot.CreateStructuredProjection(ProjectStructuredInput(before));
-        var changes = RichTextDocument.CreateDelta(scopedBefore, snapshot).ToArray();
+        var scopedProjection = ProjectStructuredInput(before);
+        var scopedBefore = RichTextDocumentSnapshot.CreateStructuredProjection(scopedProjection);
+        var changes = RichTextDocument.CreateDelta(scopedBefore, snapshot, replacementHint ?? InputSelection.Range).ToArray();
         if (!Composition.IsActive && !changes.Any(change => change.Kind == RichTextChangeKind.Text))
         {
             if (changes.Length != 0)
@@ -72,8 +73,15 @@ public partial class NativeEditorView
         finally { builder.Close(); }
         var full = candidate.ProjectText();
         var mapped = new TextSelectionState(full.GetOffset(selected.Anchor), full.GetOffset(selected.Active));
+        TextSpan? fullReplacement = null;
+        if (changes.OfType<RichTextTextChange>().FirstOrDefault() is { } textChange &&
+            scopedProjection.GetPoint(textChange.OldRange.Start) is { } start && scopedProjection.GetPoint(textChange.OldRange.End) is { } end)
+        {
+            var original = before.ProjectText();
+            fullReplacement = new TextSelectionState(original.GetOffset(start), original.GetOffset(end)).Range;
+        }
         coordinator.UpdateDocumentFromPlatform(RichTextDocumentSnapshot.CreateStructuredProjection(full), mapped.Range.Start, mapped.Range.Length,
-            coordinator.EditSourceToken, selectionState: mapped);
+            coordinator.EditSourceToken, selectionState: mapped, replacementHint: fullReplacement);
         if (Composition.IsActive)
         {
             _compositionDocument ??= Document;
@@ -85,10 +93,9 @@ public partial class NativeEditorView
             NotifyCompositionSnapshot();
             TextLayout.Invalidate();
         }
-        else
+        else if (snapshot.Text != Document.CurrentSnapshot.Text)
         {
-            // A rejected input or a no-op has no document publication to repair
-            // the native surface. Restore the committed scoped render description.
+            // Only rejected or corrected input needs a further text repair.
             (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
         }
     }

@@ -24,13 +24,13 @@ public partial class NativeEditorView
     private bool _planningInput;
 
     private NativeSelectionEdit? PlanNativeInput(RichTextDocumentSnapshot native, TextSelectionState selection,
-        NativeSelectionEdit? expanded)
+        NativeSelectionEdit? expanded, TextSpan? replacementHint = null)
     {
         if (InputRules.Count == 0 || ReferenceEquals(expanded?.Snapshot, Document.CurrentSnapshot))
             return expanded;
         var before = Document.CurrentSnapshot;
         var candidate = expanded?.Snapshot ?? native;
-        var changes = expanded?.Changes ?? RichTextDocument.CreateDelta(before, candidate, StructuredSession is not null ? SelectedRange : null);
+        var changes = expanded?.Changes ?? RichTextDocument.CreateDelta(before, candidate, replacementHint ?? (StructuredSession is not null ? SelectedRange : null));
         if (!changes.Any(change => change.Kind == RichTextChangeKind.Text))
             return expanded;
 

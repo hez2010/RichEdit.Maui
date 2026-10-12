@@ -646,7 +646,8 @@ public partial class NativeEditorView : View
         RichTextChangeOrigin origin = RichTextChangeOrigin.User,
         bool mergeWithPrevious = false,
         long? projectedVersion = null,
-        TextSelectionState? selectionState = null)
+        TextSelectionState? selectionState = null,
+        TextSpan? replacementHint = null)
     {
         VerifyAccess();
         if (StructuredSession is not null && Document.StructuredProjection is null)
@@ -662,10 +663,10 @@ public partial class NativeEditorView : View
             (Handler as IRichEditorHandler)?.ApplyDocument(SelectedRange, TypingCharacterFormat, TypingParagraphFormat);
             return;
         }
-        if (StructuredInputCoordinator is not null) { ForwardStructuredInput(snapshot, selection); return; }
+        if (StructuredInputCoordinator is not null) { ForwardStructuredInput(snapshot, selection, replacementHint); return; }
         if (Composition.IsActive)
         {
-            StageComposition(snapshot, selection, sourceToken);
+            StageComposition(snapshot, selection, sourceToken, replacementHint);
             return;
         }
         if ((SourceSession is not null || StructuredSession is not null) && MaxLength >= 0 && snapshot.Length > MaxLength && snapshot.Length > Document.Length)
@@ -677,7 +678,7 @@ public partial class NativeEditorView : View
         }
         var expanded = origin == RichTextChangeOrigin.User ? ExpandNativeSelectionEdit(snapshot, selection) : null;
         if (origin == RichTextChangeOrigin.User)
-            expanded = PlanNativeInput(snapshot, selection, expanded);
+            expanded = PlanNativeInput(snapshot, selection, expanded, replacementHint);
         var previousSelections = _pendingSelections;
         RichTextChangeSet? corrections = null;
         if (expanded is not null)
@@ -714,7 +715,7 @@ public partial class NativeEditorView : View
                 origin,
                 mergeWithPrevious,
                 projectedVersion,
-                expanded?.Changes ?? (StructuredSession is not null ? RichTextDocument.CreateDelta(Document.CurrentSnapshot, snapshot, SelectedRange) : null),
+                expanded?.Changes ?? (StructuredSession is not null ? RichTextDocument.CreateDelta(Document.CurrentSnapshot, snapshot, replacementHint ?? SelectedRange) : null),
                 corrections);
             if (changes.IsEmpty)
             {

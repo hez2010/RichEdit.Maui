@@ -8,6 +8,50 @@ namespace RichEdit.Maui.Tests;
 
 internal static partial class AppleEditorTests
 {
+    private static async Task VerifyReferenceBulletDeletion(NativeEditorView editor)
+    {
+        using var input = typeof(AppleEditorTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
+        var imported = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(input);
+        var previous = editor.Document;
+        try
+        {
+            var document = new RichDocument(imported.Snapshot);
+            editor.BindStructuredDocument(document);
+            var snapshot = document.CurrentSnapshot;
+            var list = snapshot.Nodes.Values.OfType<RichList>().First(item => !item.Numbered);
+            var paragraph = snapshot.Get<RichListItem>(list.Items[0]).Blocks[0];
+            var start = snapshot.ProjectText().GetOffset(new(snapshot.Body, paragraph, 0));
+            var length = snapshot.GetParagraphLength(paragraph);
+            editor.SelectedRange = new(start + length, 0);
+            editor.ScrollIntoView(editor.SelectedRange);
+            await Task.Delay(150);
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+            for (var index = 0; index < length; index++) native.DeleteBackward();
+            await Task.Delay(80);
+            EditorContractTests.Equal(0, document.CurrentSnapshot.GetParagraphLength(paragraph), "item text was deleted");
+            native.DeleteBackward();
+            await Task.Delay(80);
+            EditorContractTests.Equal(snapshot.Body, document.CurrentSnapshot.Get<RichParagraph>(paragraph).Parent!.Value, "empty first item exits the list");
+            var beforeJoin = document.CurrentSnapshot.ProjectText().Text.ToString();
+            var joinAt = editor.SelectedRange.Start;
+            native.DeleteBackward();
+            await Task.Delay(80);
+            EditorContractTests.Equal(beforeJoin.Remove(joinAt - 1, 1), document.CurrentSnapshot.ProjectText().Text.ToString(), "Backspace removes the remaining empty paragraph");
+            for (var index = 0; index < length + 2 && document.CanUndo; index++) editor.Undo();
+            EditorContractTests.Equal(snapshot.ProjectText().Text.ToString(), document.CurrentSnapshot.ProjectText().Text.ToString(), "undo restores the original reference");
+            EditorContractTests.Equal(list.Items.Count, document.CurrentSnapshot.Get<RichList>(list.Id).Items.Count, "undo restores the list");
+            editor.SelectedRange = new(start, length);
+            await Task.Delay(60);
+            native.DeleteBackward();
+            await Task.Delay(80);
+            EditorContractTests.Equal(snapshot.ProjectText().Text.ToString().Remove(start - 1, length + 1), document.CurrentSnapshot.ProjectText().Text.ToString(), "native smart deletion can remove the selected item's leading paragraph break");
+            EditorContractTests.Equal(list.Items.Count - 1, document.CurrentSnapshot.Get<RichList>(list.Id).Items.Count, "selected item deletion retains the following list");
+            editor.Undo();
+            EditorContractTests.Equal(snapshot.ProjectText().Text.ToString(), document.CurrentSnapshot.ProjectText().Text.ToString(), "undo restores the selected item");
+        }
+        finally { editor.Document = previous; }
+    }
+
     private static async Task VerifyNumberedReferenceEnter(NativeEditorView editor, bool withInputRule = false)
     {
         using var input = typeof(AppleEditorTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;

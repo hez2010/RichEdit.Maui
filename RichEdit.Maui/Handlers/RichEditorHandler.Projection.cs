@@ -342,6 +342,8 @@ public partial class RichEditorHandler
         TextSpan? nativeReplacement = null)
     {
         var nativePresentation = presentation ?? PreserveNativePresentation(snapshot, nativeReplacement);
+        var sourceReplacement = VirtualView.StructuredSession is not null && nativeReplacement is { } structuredReplacement
+            ? NativeProjection.ToSource(new TextSelectionState(structuredReplacement.Start, structuredReplacement.End)).Range : (TextSpan?)null;
         var map = NativeProjection.Reservations.IsEmpty ? RichTextDisplayProjection.Empty : ReadDisplayReservationMetadata(snapshot.Text);
         var selection = map.ToSource(selectionState ?? TextSelectionState.FromRange(new(selectionStart, selectionLength)));
         var source = map.Unproject(snapshot);
@@ -361,7 +363,7 @@ public partial class RichEditorHandler
             source = source.With(metadata: VirtualView.Document.CurrentSnapshot.Metadata);
 
         VirtualView.UpdateDocumentFromPlatform(source, selection.Range.Start, selection.Range.Length,
-            sourceToken, origin, mergeWithPrevious, projectedVersion, selection);
+            sourceToken, origin, mergeWithPrevious, projectedVersion, selection, sourceReplacement);
         // The source commit has moved/inactivated document-owned anchors. Reconcile any removed
         // reservation after native editing finishes, never in the middle of an IME callback.
         _projectionSource = VirtualView.InputSnapshot;

@@ -13,6 +13,55 @@ public sealed class NativeEditingRegressionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public Task ReferenceEmptyBulletParagraphCanBeDeleted(bool withInputRule) => WindowsTestHost.RunAsync(async () =>
+    {
+        using var input = typeof(NativeEditingRegressionTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
+        var imported = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(input);
+        var document = new RichDocument(imported.Snapshot);
+        var editor = new NativeEditorView();
+        using var rule = withInputRule ? editor.InputRules.Register(static _ => { }) : null;
+        editor.BindStructuredDocument(document);
+        var handler = new RichEditorHandler();
+        handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
+        editor.Handler = handler;
+        var window = _window ??= new Window();
+        window.Content = handler.ContainerView ?? handler.PlatformView;
+        window.AppWindow.Show(activateWindow: false);
+        try
+        {
+            await Task.Delay(150);
+            var snapshot = document.CurrentSnapshot;
+            var list = snapshot.Nodes.Values.OfType<RichList>().First(item => !item.Numbered);
+            var paragraph = snapshot.Get<RichListItem>(list.Items[0]).Blocks[0];
+            var start = snapshot.ProjectText().GetOffset(new(snapshot.Body, paragraph, 0));
+            editor.SelectedRange = new(start, snapshot.GetParagraphLength(paragraph));
+            async Task Backspace()
+            {
+                if (!editor.SendKeyDown(EditorKey.Backspace, EditorKeyModifiers.None))
+                {
+                    handler.PrepareNativeSourceKey(EditorKey.Backspace);
+                    handler.PlatformView.Document.Selection.Delete(TextRangeUnit.Character, -1);
+                }
+                await Task.Delay(60);
+            }
+            await Backspace();
+            Assert.Equal(0, document.CurrentSnapshot.GetParagraphLength(paragraph));
+            await Backspace();
+            Assert.Equal(snapshot.Body, document.CurrentSnapshot.Get<RichParagraph>(paragraph).Parent);
+            var beforeJoin = document.CurrentSnapshot.ProjectText().Text.ToString();
+            var joinAt = editor.SelectedRange.Start;
+            await Backspace();
+            Assert.Equal(beforeJoin.Remove(joinAt - 1, 1), document.CurrentSnapshot.ProjectText().Text.ToString());
+            editor.Undo(); editor.Undo(); editor.Undo();
+            Assert.Equal(snapshot.ProjectText().Text.ToString(), document.CurrentSnapshot.ProjectText().Text.ToString());
+            Assert.Equal(list.Items.Count, document.CurrentSnapshot.Get<RichList>(list.Id).Items.Count);
+        }
+        finally { window.Content = null; editor.Handler = null; ((IElementHandler)handler).DisconnectHandler(); }
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public Task ReferenceDocumentTypingRetainsNativeContentAndViewport(bool listItem) => WindowsTestHost.RunAsync(async () =>
     {
         using var input = typeof(NativeEditingRegressionTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;

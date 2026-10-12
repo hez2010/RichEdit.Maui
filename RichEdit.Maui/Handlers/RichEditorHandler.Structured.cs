@@ -213,7 +213,7 @@ public partial class RichEditorHandler
         return true;
     }
 
-    private bool TryReadStructuredNativeChange(string text, TextSelectionState selection)
+    private bool TryReadStructuredNativeChange(string text, TextSelectionState selection, TextSpan? replacementHint = null)
     {
         if (_structuredNativeMap is not { } map || VirtualView.StructuredSession is not { } session) return false;
         if (VirtualView.IsReadOnly || session.IsReadOnly) { TryApplyStructuredNativeDocument(); return true; }
@@ -223,13 +223,19 @@ public partial class RichEditorHandler
             if (!VirtualView.Composition.IsActive) ReadStructuredFormatting(map);
             return true;
         }
-        var hint = NativeProjection.ToDisplay(VirtualView.InputSelection).Range;
+        var hint = replacementHint ?? NativeProjection.ToDisplay(VirtualView.InputSelection).Range;
         TextSelectionState nativeRange;
         string inserted;
         // Repeated paragraph breaks have several valid text diffs. The caret
         // identifies which paragraph was edited, and therefore its list membership.
         if (RichTextDocumentSnapshot.TryGetReplacement(map.NativeText, text, hint, out inserted))
             nativeRange = new(hint.Start, hint.End);
+        else if (selection.IsEmpty && map.NativeText.Length > text.Length &&
+            RichTextDocumentSnapshot.TryGetReplacement(map.NativeText, text,
+                new(selection.Active, map.NativeText.Length - text.Length), out inserted))
+            // Both Backspace and Delete leave the native caret at the beginning
+            // of the removed range, including amongst identical paragraph breaks.
+            nativeRange = new(selection.Active, selection.Active + map.NativeText.Length - text.Length);
         else
         {
             var prefix = map.NativeText.AsSpan().CommonPrefixLength(text);
@@ -278,10 +284,13 @@ public partial class RichEditorHandler
         if (candidateMap.NativeText == text && candidateMap.SelectionFromNative(selection) is RichEdit.Core.RichTextSelection selectedText)
             resulting = new(projection.GetOffset(selectedText.Anchor), projection.GetOffset(selectedText.Active));
         var snapshot = RichTextDocumentSnapshot.CreateStructuredProjection(projection);
+        TextSpan? sourceReplacement = selected is RichEdit.Core.RichTextSelection replaced
+            ? new TextSelectionState(map.TextProjection.GetOffset(replaced.Anchor), map.TextProjection.GetOffset(replaced.Active)).Range : null;
         _pendingStructuredNativeMap = candidateMap.NativeText == text ? candidateMap : null;
         try
         {
-            VirtualView.UpdateDocumentFromPlatform(snapshot, resulting.Range.Start, resulting.Range.Length, _sourceToken, selectionState: resulting);
+            VirtualView.UpdateDocumentFromPlatform(snapshot, resulting.Range.Start, resulting.Range.Length, _sourceToken,
+                selectionState: resulting, replacementHint: sourceReplacement);
             if (VirtualView.Composition.IsActive && session.Composition is { } composition)
                 AcceptStructuredNativeMap(candidateMap.WithSnapshot(composition.Snapshot));
             else if (_structuredNativeMap?.Snapshot.Revision != session.Document.Revision || _structuredNativeMap.NativeText != text)

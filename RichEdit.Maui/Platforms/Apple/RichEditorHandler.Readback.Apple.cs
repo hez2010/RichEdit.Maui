@@ -571,7 +571,8 @@ public partial class RichEditorHandler
         var previousSelection = VirtualView.SelectedRange;
 
         if (_structuredNativeMap is not null && TryReadStructuredNativeChange(textView.Text ?? "",
-            new((int)textView.SelectedRange.Location, (int)(textView.SelectedRange.Location + textView.SelectedRange.Length))))
+            new((int)textView.SelectedRange.Location, (int)(textView.SelectedRange.Location + textView.SelectedRange.Length)),
+            _pendingNativeChange is { } pending && pending.Version == VirtualView.Document.Version ? new(pending.Start, pending.RemovedLength) : null))
         {
             _pendingNativeChange = null;
             _readNativeGeneration = _nativeEditGeneration;

@@ -269,6 +269,43 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             _editor.Undo(); await Task.Delay(100);
             Equal(2, _editor.Document.CurrentSnapshot.Get<RichList>(list).Items.Count);
         });
+        await Test("reference empty bullet paragraph can be deleted through the native input connection", async () =>
+        {
+            using var input = typeof(RichStructuredHostTestPage).Assembly.GetManifestResourceStream("ReferenceDocument")!;
+            var imported = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(input);
+            _editor.Document = new RichDocument(imported.Snapshot);
+            var snapshot = _editor.Document.CurrentSnapshot;
+            var list = snapshot.Nodes.Values.OfType<RichList>().First(item => !item.Numbered);
+            var paragraph = snapshot.Get<RichListItem>(list.Items[0]).Blocks[0];
+            var length = snapshot.GetParagraphLength(paragraph);
+            var point = new RichTextPoint(snapshot.Body, paragraph, length);
+            _editor.Selection = new RichEdit.Core.RichTextSelection(point, point);
+            await Task.Delay(180);
+            _editor.Focus();
+            await Task.Delay(80);
+            async Task Backspace(int count)
+            {
+                var surface = _editor.NativeView.FindStructuredSurface(_editor.Selection)!;
+                var native = ((RichEditorHandler)surface.Handler!).PlatformView;
+                using var info = new Android.Views.InputMethods.EditorInfo();
+                using var connection = native.OnCreateInputConnection(info)!;
+                Equal(true, connection.DeleteSurroundingText(count, 0));
+                await Task.Delay(160);
+            }
+            await Backspace(length);
+            Equal(0, _editor.Document.CurrentSnapshot.GetParagraphLength(paragraph), "cleared item text");
+            await Backspace(1);
+            Equal(snapshot.Body, _editor.Document.CurrentSnapshot.Get<RichParagraph>(paragraph).Parent!.Value, "empty item exits list");
+            var beforeJoin = _editor.Document.CurrentSnapshot.ProjectText().Text.ToString();
+            var position = _editor.NativeView.SelectedRange.Start;
+            await Backspace(1);
+            Equal(beforeJoin.Remove(position - 1, 1), _editor.Document.CurrentSnapshot.ProjectText().Text.ToString(), "empty paragraph deleted");
+            Equal(list.Items.Count - 1, _editor.Document.CurrentSnapshot.Get<RichList>(list.Id).Items.Count, "remaining items stay in the list");
+            _editor.Undo(); _editor.Undo(); _editor.Undo();
+            await Task.Delay(160);
+            Equal(snapshot.ProjectText().Text.ToString(), _editor.Document.CurrentSnapshot.ProjectText().Text.ToString(), "undo restores reference text");
+            Equal(list.Items.Count, _editor.Document.CurrentSnapshot.Get<RichList>(list.Id).Items.Count, "undo restores list membership");
+        });
         await Test("Tab moves native cell focus and appends one shared row", async () =>
         {
             var snapshot = _editor.Document.CurrentSnapshot;

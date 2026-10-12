@@ -61,12 +61,12 @@ public partial class NativeEditorView
         }
     }
 
-    private void StageComposition(RichTextDocumentSnapshot snapshot, TextSelectionState selection, object sourceToken)
+    private void StageComposition(RichTextDocumentSnapshot snapshot, TextSelectionState selection, object sourceToken, TextSpan? replacementHint = null)
     {
         _compositionDocument ??= Document;
         _compositionPreviewDocument ??= new RichTextDocument(Document.CurrentSnapshot);
         var changes = _compositionPreviewDocument.ReplaceSnapshotFromNative(snapshot, _previewSourceToken, nativeUndoOwned: true,
-            recordedChanges: StructuredSession is not null ? RichTextDocument.CreateDelta(_compositionPreviewDocument.CurrentSnapshot, snapshot, InputSelection.Range) : null);
+            recordedChanges: StructuredSession is not null ? RichTextDocument.CreateDelta(_compositionPreviewDocument.CurrentSnapshot, snapshot, replacementHint ?? InputSelection.Range) : null);
         if (SourceSession?.Composition is { } composition)
             composition.Update(edit =>
             {
