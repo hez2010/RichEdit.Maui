@@ -30,3 +30,5 @@ Open **Tools** to indent, outdent, toggle comments, fold selected lines, change 
 **Go to line** uses one-based line numbers. **Line endings** sets the terminator inserted by Enter without rewriting existing text. Its Convert commands explicitly change the document's terminators in one undoable edit. The status bar shows the insertion policy, caret location, and selection count.
 
 Use **Find** for literal search and replacement. The second pane shares the text while retaining independent wrapping, folding, and selection. **Theme** switches the app's light and dark appearance.
+
+**Virtual carets** moves each selection to one tab width beyond its line ending. Type or compose text there to insert padding and text together; Undo restores the virtual carets.

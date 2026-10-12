@@ -147,7 +147,10 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
 
     void IRichEditorHandler.SetSelection(TextSelectionState selection)
     {
-        var native = _structuredNativeMap is not null && !VirtualView.Composition.IsActive ? StructuredNativeSelection() : NativeProjection.ToDisplay(selection);
+        if (VirtualView.SourceSession is not null && !_applyingDocument && !VirtualView.Composition.IsActive &&
+            !IsComposingCore() && _projectedVirtualSpace != RequestedVirtualSpace())
+            RefreshDisplayProjection(CaptureTextLayout());
+        var native = _structuredNativeMap is not null && !VirtualView.Composition.IsActive ? StructuredNativeSelection() : NativeProjection.ToDisplayPrimary(selection, _virtualSpace);
         _structuredSelection = native;
         SetNativeSelectionCore(native);
     }
@@ -242,7 +245,7 @@ public partial class RichEditorHandler : ViewHandler<NativeEditorView, PlatformR
     {
         var range = new TextSpan(start, length).Clamp(VirtualView.InputSnapshot.Length);
         var selection = VirtualView.SelectionState;
-        SetNativeSelectionCore(NativeProjection.ToDisplay(selection.Range == range ? selection : TextSelectionState.FromRange(range)));
+        SetNativeSelectionCore(NativeProjection.ToDisplayPrimary(selection.Range == range ? selection : TextSelectionState.FromRange(range), _virtualSpace));
     }
 
     private partial void SetNativeSelectionCore(TextSelectionState selection);

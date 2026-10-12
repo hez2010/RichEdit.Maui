@@ -5,8 +5,10 @@ namespace RichEdit.Maui;
 
 // Native reservations are identified by an object owned by the handler, never by their text.
 // A literal U+FFFC, authored image, or source newline is therefore never removed by this map.
-internal sealed record RichTextDisplayReservation(RichTextAdornment Adornment, int SourcePosition, int DisplayStart, string Text)
+internal sealed record RichTextDisplayReservation(object Owner, int SourcePosition, int DisplayStart, string Text)
 {
+    internal RichTextAdornment? Adornment => Owner as RichTextAdornment;
+    internal bool IsVirtualSpace => Owner is VirtualSpaceReservationOwner;
     internal int DisplayEnd => DisplayStart + Text.Length;
 
     internal int ImagePosition => Text.IndexOfAny(['\uFFFC', '\u00A0']) is var offset && offset >= 0 ? DisplayStart + offset : -1;
@@ -14,7 +16,13 @@ internal sealed record RichTextDisplayReservation(RichTextAdornment Adornment, i
 
 // Native spans and ranges track positions. Their payload only identifies a private
 // character and its application view; it does not retain obsolete source offsets.
-internal readonly record struct RichTextDisplayMarker(RichTextAdornment Adornment, char Character);
+internal readonly record struct RichTextDisplayMarker(object Owner, char Character);
+
+internal sealed class VirtualSpaceReservationOwner;
+internal sealed record VirtualSpaceReservation(VirtualSpaceReservationOwner Owner, int Position, int AnchorSpaces, int ActiveSpaces)
+{
+    internal int Length => Math.Max(AnchorSpaces, ActiveSpaces);
+}
 
 internal sealed partial class RichTextDisplayProjection
 {
@@ -25,7 +33,7 @@ internal sealed partial class RichTextDisplayProjection
     internal bool IsEmpty => Reservations.IsEmpty && _lineEndings is null && _structured is null;
 
     internal IEnumerable<(int Position, RichTextDisplayMarker Marker)> Markers => Reservations.SelectMany(static item =>
-        item.Text.Select((character, offset) => (item.DisplayStart + offset, new RichTextDisplayMarker(item.Adornment, character))));
+        item.Text.Select((character, offset) => (item.DisplayStart + offset, new RichTextDisplayMarker(item.Owner, character))));
 
     private readonly int[] _sourcePositions;
     private readonly int[] _displayStarts;
@@ -81,12 +89,20 @@ internal sealed partial class RichTextDisplayProjection
             var item = Reservations[index];
             if (item.SourcePosition > position)
                 break;
-            if (item.Adornment.Options.Placement == RichTextAdornmentPlacement.AboveLine ||
-                afterInline && item.Adornment.Options.Placement == RichTextAdornmentPlacement.Inline)
+            if (item.Adornment?.Options.Placement == RichTextAdornmentPlacement.AboveLine ||
+                afterInline && item.Adornment?.Options.Placement == RichTextAdornmentPlacement.Inline)
                 result += item.Text.Length;
         }
 
         return result;
+    }
+
+    internal TextSelectionState ToDisplayPrimary(TextSelectionState selection, VirtualSpaceReservation? virtualSpace)
+    {
+        if (virtualSpace is not null && selection.Range.IsEmpty && selection.Active == virtualSpace.Position &&
+            Reservations.FirstOrDefault(item => ReferenceEquals(item.Owner, virtualSpace.Owner)) is { } padding)
+            return new(padding.DisplayStart + virtualSpace.AnchorSpaces, padding.DisplayStart + virtualSpace.ActiveSpaces);
+        return ToDisplay(selection);
     }
 
     internal TextSelectionState ToDisplay(TextSelectionState selection)
@@ -151,12 +167,12 @@ internal sealed partial class RichTextDisplayProjection
         return result.ToString();
     }
 
-    internal static RichTextDisplayProjection Create(NativeEditorView editor, double viewportWidth, ISet<RichTextAdornment>? included = null)
+    internal static RichTextDisplayProjection Create(NativeEditorView editor, double viewportWidth, ISet<RichTextAdornment>? included = null, VirtualSpaceReservation? virtualSpace = null)
     {
         var lineEndings = editor.SourceSession is null ? null : ReferenceEquals(editor.InputSnapshot.TextBuffer, editor.Document.SourceLineEndings?.Source)
             ? editor.Document.SourceLineEndings : new LfTextProjection(editor.InputSnapshot.TextBuffer);
         var source = lineEndings?.Display ?? editor.Document.CurrentSnapshot.TextBuffer;
-        var candidates = new List<(RichTextAdornment Item, int Position, string Text, int Order)>();
+        var candidates = new List<(object Item, int Position, string Text, int Order)>();
         foreach (var item in editor.Adornments)
         {
             if (!item.ReservesSpace || !item.IsValid || included is not null && !included.Contains(item))
@@ -182,7 +198,7 @@ internal sealed partial class RichTextDisplayProjection
                 case RichTextAdornmentPlacement.BelowLine:
                     position = source.GetLine(source.GetPosition(position).Line).Span.End;
                     text = "\n" + glyph;
-                    order = 2;
+                    order = 3;
                     break;
                 case RichTextAdornmentPlacement.Inline when item.MeasuredSize.Width > viewportWidth:
                     text = (position > 0 && source[position - 1] != '\n' ? "\n" : "") + glyph +
@@ -195,6 +211,9 @@ internal sealed partial class RichTextDisplayProjection
             candidates.Add((item, position, text, order));
         }
 
+        if (virtualSpace is { Length: > 0 })
+            candidates.Add((virtualSpace.Owner, lineEndings?.ToDisplay(virtualSpace.Position) ?? virtualSpace.Position,
+                new string(' ', virtualSpace.Length), 2));
         var shift = 0;
         var entries = new List<RichTextDisplayReservation>();
         foreach (var (item, position, text, _) in candidates.OrderBy(static item => item.Position).ThenBy(static item => item.Order))
@@ -245,7 +264,7 @@ internal sealed partial class RichTextDisplayProjection
         {
             var format = snapshot.GetCaretFormat(item.SourcePosition);
 #if WINDOWS
-            if (item.Text.Contains('\u00A0')) format = RichEditorHandler.TextReservationFormat(item.Adornment, viewportWidth);
+            if (item.Text.Contains('\u00A0')) format = RichEditorHandler.TextReservationFormat(item.Adornment!, viewportWidth);
 #endif
             runs.Add(new(item.DisplayStart, item.Text.Length, format.Hidden ? format with { Hidden = false } : format));
         }
@@ -268,11 +287,11 @@ internal sealed partial class RichTextDisplayProjection
             images.Add(new()
             {
                 Position = item.ImagePosition,
-                Width = Math.Max(1, item.Adornment.Options.Placement == RichTextAdornmentPlacement.Inline
-                    ? Math.Min(item.Adornment.MeasuredSize.Width, viewportWidth) : viewportWidth),
-                Height = Math.Max(1, item.Adornment.MeasuredSize.Height),
+                Width = Math.Max(1, item.Adornment!.Options.Placement == RichTextAdornmentPlacement.Inline
+                    ? Math.Min(item.Adornment!.MeasuredSize.Width, viewportWidth) : viewportWidth),
+                Height = Math.Max(1, item.Adornment!.MeasuredSize.Height),
                 Adornment = item.Adornment,
-                AdornmentBaseline = item.Adornment.Options.Baseline,
+                AdornmentBaseline = item.Adornment!.Options.Baseline,
                 Data = TransparentPixel,
             });
 
@@ -366,9 +385,9 @@ internal sealed partial class RichTextDisplayProjection
             if (start < 0 || start >= text.Length || length != 1 || text[start] != item.Character)
                 continue;
 
-            if (entries.Count != 0 && ReferenceEquals(entries[^1].Adornment, item.Adornment) && entries[^1].DisplayEnd == start)
+            if (entries.Count != 0 && ReferenceEquals(entries[^1].Owner, item.Owner) && entries[^1].DisplayEnd == start)
                 entries[^1] = entries[^1] with { Text = entries[^1].Text + item.Character };
-            else entries.Add(new(item.Adornment, start - shift, start, item.Character.ToString()));
+            else entries.Add(new(item.Owner, start - shift, start, item.Character.ToString()));
             shift += length;
         }
 

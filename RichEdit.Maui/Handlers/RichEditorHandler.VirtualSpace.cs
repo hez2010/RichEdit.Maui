@@ -6,6 +6,17 @@ namespace RichEdit.Maui
 {
     public partial class RichEditorHandler
     {
+        internal bool HasNativeVirtualSelection => _virtualSpace is not null &&
+            NativeProjection.Reservations.Any(item => ReferenceEquals(item.Owner, _virtualSpace.Owner));
+
+        internal Rect? GetVirtualCaretBounds(TextSelection selection)
+        {
+            if (!HasTextLayout || _virtualSpace is null || selection.Id != VirtualView.Selections.Primary.Id ||
+                selection.Active != _virtualSpace.Position || NativeProjection.Reservations.FirstOrDefault(
+                    item => ReferenceEquals(item.Owner, _virtualSpace.Owner)) is not { } padding) return null;
+            return GetTextCaretBoundsCore(padding.DisplayStart + selection.ActiveVirtualSpaces, RichTextCaretAffinity.Downstream);
+        }
+
         internal double SourceSpaceAdvance
         {
             get

@@ -137,7 +137,7 @@ public sealed partial class RichEditorPresentationTests
             Assert.True(views["above"].Bounds.Width > 0);
             Assert.True(views["below"].Bounds.Width > 0);
             Assert.True(views["above"].Bounds.Bottom <= current.Top + 1, $"Above {views["above"].Bounds}, text {current}");
-            var belowSlot = handler.NativeProjection.Reservations.Single(item => item.Adornment.Options.Placement == RichTextAdornmentPlacement.BelowLine);
+            var belowSlot = handler.NativeProjection.Reservations.Single(item => item.Adornment!.Options.Placement == RichTextAdornmentPlacement.BelowLine);
             var belowRange = handler.PlatformView.Document.GetRange(belowSlot.ImagePosition, belowSlot.ImagePosition + 1);
             belowRange.GetRect(Microsoft.UI.Text.PointOptions.ClientCoordinates | Microsoft.UI.Text.PointOptions.AllowOffClient, out var belowRect, out _);
             Assert.True(views["below"].Bounds.Top >= current.Bottom - 1, $"Below {views["below"].Bounds}, text {current}, native {belowRect}, font {belowRange.CharacterFormat.Size}");

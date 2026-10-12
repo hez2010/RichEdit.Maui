@@ -6,6 +6,9 @@ public partial class RichEditorHandler
     // map so native input never observes offsets from a different projection.
     private sealed record DisplayState(RichTextDisplayProjection Projection, RichTextDocumentSnapshot Source, RichTextDocumentSnapshot Presentation);
 
+    private readonly VirtualSpaceReservationOwner _virtualSpaceOwner = new();
+    private VirtualSpaceReservation? _virtualSpace;
+    private VirtualSpaceReservation? _projectedVirtualSpace;
     private DisplayState? _displayState;
     private RichTextDocumentSnapshot? _projectionSource;
     private RichTextDocumentSnapshot? _paintedSnapshot;
@@ -59,6 +62,14 @@ public partial class RichEditorHandler
 
     private TextSpan? FindDisplayFoldRange(int position) => VirtualView.Folding.FindRange(NativeProjection.ToSource(position)) is { } range ? NativeProjection.ToDisplay(range) : null;
 
+    private VirtualSpaceReservation? RequestedVirtualSpace()
+    {
+        var primary = VirtualView.Selections.Primary;
+        return VirtualView.SourceSession is not null && primary.Range.IsEmpty &&
+            (primary.AnchorVirtualSpaces != 0 || primary.ActiveVirtualSpaces != 0)
+            ? new(_virtualSpaceOwner, primary.Active, primary.AnchorVirtualSpaces, primary.ActiveVirtualSpaces) : null;
+    }
+
     private bool PrepareDisplayProjection()
     {
         if (UsesStructuredNativeDocument)
@@ -85,9 +96,15 @@ public partial class RichEditorHandler
             if (pending) QueueAdornmentLayout();
             return false;
         }
+        if (!VirtualView.Composition.IsActive && !IsComposingCore())
+        {
+            _virtualSpace = RequestedVirtualSpace();
+        }
+        var virtualSpaceChanged = _projectedVirtualSpace != _virtualSpace;
+        _projectedVirtualSpace = _virtualSpace;
         var viewportWidth = GetAdornmentViewport().Width;
         var widthChanged = viewportWidth != _displayViewportWidth;
-        if (!_displayPublicationPending && !widthChanged && _displayAdornmentVersion == VirtualView.Adornments.Version &&
+        if (!virtualSpaceChanged && !_displayPublicationPending && !widthChanged && _displayAdornmentVersion == VirtualView.Adornments.Version &&
             _displayDecorationVersion == VirtualView.Decorations.Version && ReferenceEquals(_projectionSource, VirtualView.Document.CurrentSnapshot))
             return false;
 
@@ -156,7 +173,7 @@ public partial class RichEditorHandler
             _reservationPublicationCount = added;
         }
 
-        var projection = RichTextDisplayProjection.Create(VirtualView, _displayWidth, _publishedAdornments);
+        var projection = RichTextDisplayProjection.Create(VirtualView, _displayWidth, _publishedAdornments, _virtualSpace);
         var reuseSource = ReferenceEquals(_projectionSource, VirtualView.Document.CurrentSnapshot) &&
             NativeProjection.Reservations.AsSpan().SequenceEqual(projection.Reservations.AsSpan()) && !widthChanged && !measured;
         var input = VirtualView.Document.CurrentSnapshot;
@@ -235,7 +252,7 @@ public partial class RichEditorHandler
     {
         if (!_adornmentsConnected || _updatingDisplayProjection || _applyingDocument || ((IRichEditorHandler)this).IsComposing)
             return;
-        if (NativeProjection.IsEmpty && !VirtualView.Adornments.Any(static item => item.ReservesSpace))
+        if (NativeProjection.IsEmpty && VirtualView.SourceSession is null && !VirtualView.Adornments.Any(static item => item.ReservesSpace))
             return;
 
         _updatingDisplayProjection = true;
@@ -480,7 +497,7 @@ public partial class RichEditorHandler
         if (reservation.ImagePosition < 0 || GetDisplayReservationBaseline(reservation.ImagePosition) is not { } baseline)
             return null;
 
-        var item = reservation.Adornment;
+        var item = reservation.Adornment!;
         var size = item.MeasuredSize;
         var width = NativeProjection.IsStructured ? size.Width : item.Options.Placement == RichTextAdornmentPlacement.Inline ? Math.Min(size.Width, _displayWidth) : _displayWidth;
         return new(baseline.X, baseline.Y - (item.Options.Baseline ?? size.Height), width, size.Height);

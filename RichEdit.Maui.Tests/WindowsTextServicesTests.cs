@@ -8,6 +8,35 @@ namespace RichEdit.Maui.Tests;
 
 public partial class CodeEditorTests
 {
+    [Theory]
+    [InlineData(3, 3)]
+    [InlineData(5, 2)]
+    public Task NativeCompositionAtVirtualColumnKeepsPaddingOutOfSourceUntilCommit(int anchorSpaces, int activeSpaces) => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new CodeEditorFixture("x");
+        var editor = fixture.Editor;
+        var native = fixture.Handler.PlatformView;
+        editor.Selections = new((TextSelection[])[new(1, 1) { AnchorVirtualSpaces = anchorSpaces, ActiveVirtualSpaces = activeSpaces }]);
+        var padding = Math.Min(anchorSpaces, activeSpaces);
+        Assert.Equal(1 + padding, native.Document.Selection.StartPosition);
+        Assert.Empty(editor.TextView.Adornments);
+        Assert.False(editor.CanUndo);
+        var site = (IWindowsTextSite)native;
+        site.Notify(0x713, 0);
+        await Task.Delay(20);
+        native.Document.Selection.TypeText("日");
+        Assert.Equal("x", editor.Document.Text);
+        Assert.Equal("日", native.Document.GetRange(1 + padding, 2 + padding).Text);
+        site.Notify(0x714, 0);
+        await Task.Delay(20);
+        Assert.Equal("x" + new string(' ', padding) + "日", editor.Document.Text);
+        editor.Undo();
+        Assert.Equal("x", editor.Document.Text);
+        Assert.Equal(activeSpaces, editor.Selections.Primary.ActiveVirtualSpaces);
+        Assert.Equal(anchorSpaces, editor.Selections.Primary.AnchorVirtualSpaces);
+        Assert.False(editor.CanUndo);
+    });
+
     [Fact]
     public Task NativeCompositionNotificationsKeepSharedSourceProvisionalUntilCommit() => WindowsTestHost.RunAsync(async () =>
     {

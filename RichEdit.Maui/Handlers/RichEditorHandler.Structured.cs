@@ -99,8 +99,8 @@ public partial class RichEditorHandler
         ApplyStructuredReservationsCore(map.Reservations.Where(item => item.ImagePosition >= 0).Select(item => new RichTextImage
         {
             Position = item.ImagePosition, Adornment = item.Adornment, Data = RichTextDisplayProjection.TransparentPixel,
-            Width = Math.Max(0.1, item.Adornment.MeasuredSize.Width), Height = Math.Max(0.1, item.Adornment.MeasuredSize.Height),
-            AdornmentBaseline = item.Adornment.Options.Baseline ?? item.Adornment.MeasuredSize.Height,
+            Width = Math.Max(0.1, item.Adornment!.MeasuredSize.Width), Height = Math.Max(0.1, item.Adornment!.MeasuredSize.Height),
+            AdornmentBaseline = item.Adornment!.Options.Baseline ?? item.Adornment!.MeasuredSize.Height,
         }).ToArray());
     }
     private partial void ApplyStructuredReservationsCore(IReadOnlyList<RichTextImage> images);

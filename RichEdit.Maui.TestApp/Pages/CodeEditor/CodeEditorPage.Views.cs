@@ -7,6 +7,20 @@ public sealed partial class CodeEditorPage
     private void OnAddCaretBelow(object? sender, EventArgs args) { Editor.AddCaretBelow(); Editor.Focus(); }
     private void OnSingleCaret(object? sender, EventArgs args) { Editor.ClearSecondarySelections(); Editor.Focus(); }
 
+    private void OnVirtualCarets(object? sender, EventArgs args)
+    {
+        if (!Editor.TryCompleteComposition()) return;
+        var text = Editor.Document.CurrentSnapshot.TextBuffer;
+        Editor.AllowVirtualSpace = true;
+        Editor.Selections = new(Editor.Selections.Select(selection =>
+        {
+            var end = text.GetLine(text.GetPosition(selection.Active).Line).Span.End;
+            return selection with { Anchor = end, Active = end, AnchorVirtualSpaces = Editor.TabSize, ActiveVirtualSpaces = Editor.TabSize };
+        }), Editor.Selections.PrimaryIndex);
+        Editor.Focus();
+    }
+
+
     private void OnSelectOccurrences(object? sender, EventArgs args)
     {
         var query = Editor.Document.GetText(Editor.SelectedRange);

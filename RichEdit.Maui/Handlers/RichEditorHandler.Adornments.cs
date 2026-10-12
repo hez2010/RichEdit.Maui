@@ -167,7 +167,7 @@ public partial class RichEditorHandler
             visibleStart = Math.Min(visibleStart, sourceRanges.Length == 0 ? visibleStart : sourceRanges.Min(static range => range.Start));
             visibleEnd = Math.Max(visibleEnd, sourceRanges.Length == 0 ? visibleEnd : sourceRanges.Max(static range => range.End));
             var reservations = NativeProjection.Reservations.Where(static entry => entry.ImagePosition >= 0)
-                .ToDictionary(static entry => entry.Adornment);
+                .ToDictionary(static entry => entry.Adornment!);
             foreach (var item in adornments)
             {
                 var bounds = new Rect(-100000, -100000, 0, 0);

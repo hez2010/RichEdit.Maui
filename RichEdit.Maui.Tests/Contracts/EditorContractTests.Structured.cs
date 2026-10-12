@@ -61,11 +61,11 @@ internal static partial class EditorContractTests
                         handler.NativeProjection.Reservations.Select(item =>
                         {
                             if (item.ImagePosition < 0 || item.ImagePosition >= native.TextStorage.Length)
-                                return $"{item.Adornment.Key}: source {item.SourcePosition}, image {item.ImagePosition}, size {item.Adornment.MeasuredSize}, outside native storage {native.TextStorage.Length}";
+                                return $"{item.Adornment!.Key}: source {item.SourcePosition}, image {item.ImagePosition}, size {item.Adornment!.MeasuredSize}, outside native storage {native.TextStorage.Length}";
                             var glyphs = native.LayoutManager.GetGlyphRange(new Foundation.NSRange(item.ImagePosition, 1));
                             var rect = native.LayoutManager.GetBoundingRect(glyphs, native.TextContainer);
                             var line = native.LayoutManager.GetLineFragmentRect((nuint)glyphs.Location, out var lineGlyphs);
-                            return $"{item.Adornment.Key}: source {item.SourcePosition}, image {item.ImagePosition}, size {item.Adornment.MeasuredSize}, glyph {rect}, line {line}, location {native.LayoutManager.GetLocationForGlyph((nuint)lineGlyphs.Location)}";
+                            return $"{item.Adornment!.Key}: source {item.SourcePosition}, image {item.ImagePosition}, size {item.Adornment!.MeasuredSize}, glyph {rect}, line {line}, location {native.LayoutManager.GetLocationForGlyph((nuint)lineGlyphs.Location)}";
                         }));
                 }
 #endif
@@ -100,7 +100,7 @@ internal static partial class EditorContractTests
                 foreach (var widget in editor.Adornments) Equal(true, widget.CreatedView?.Bounds.Width > 0,
                     $"{widget.Key}: realized {widget.IsRealized}, bounds {widget.CreatedView?.Bounds}, viewport {editor.TextLayout.Capture()?.Viewport}; native {NativeText(editor)}; " +
                     $"lines {string.Join(';', editor.TextLayout.Capture()?.Lines.Select(line => $"{line.Bounds}:{string.Join(',', line.SourceRanges)}") ?? [])}; " +
-                    string.Join(";", handler.NativeProjection.Reservations.Select(item => $"{item.Adornment.Key}:{item.SourcePosition}/{item.DisplayStart}/{item.ImagePosition}/{item.Text.Length}")));
+                    string.Join(";", handler.NativeProjection.Reservations.Select(item => $"{item.Adornment!.Key}:{item.SourcePosition}/{item.DisplayStart}/{item.ImagePosition}/{item.Text.Length}")));
                 Equal(false, model.CanUndo);
                 editor.SelectedRange = new(4, 0);
                 NativeMultiInsert(editor, "X");

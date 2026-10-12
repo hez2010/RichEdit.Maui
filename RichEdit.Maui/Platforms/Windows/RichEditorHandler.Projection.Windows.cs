@@ -27,14 +27,14 @@ public partial class RichEditorHandler
         }
 
         var map = _hasNativeLinks ? GetNativeTextSnapshot() : null;
-        var previous = _displayReservationRanges.GroupBy(static item => item.Marker.Adornment)
+        var previous = _displayReservationRanges.GroupBy(static item => item.Marker.Owner)
             .ToDictionary(static group => group.Key, static group => new Queue<ITextRange>(group.Select(static item => item.Range)));
         _displayReservationRanges.Clear();
         foreach (var (position, marker) in NativeProjection.Markers)
         {
             var start = map?.ToNativePosition(position) ?? position;
             var end = map?.ToNativePosition(position + 1) ?? position + 1;
-            var range = previous.TryGetValue(marker.Adornment, out var ranges) && ranges.TryDequeue(out var retained) ? retained : PlatformView.Document.GetRange(start, end);
+            var range = previous.TryGetValue(marker.Owner, out var ranges) && ranges.TryDequeue(out var retained) ? retained : PlatformView.Document.GetRange(start, end);
             if (range.StartPosition != start || range.EndPosition != end)
                 range.SetRange(start, end);
 

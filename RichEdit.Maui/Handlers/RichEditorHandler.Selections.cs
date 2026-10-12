@@ -10,8 +10,9 @@ public partial class RichEditorHandler
 
     private void UpdateSecondarySelections(Rect viewport)
     {
-        var virtualPrimary = VirtualView.Selections.Primary.ActiveVirtualSpaces != 0 && !VirtualView.Composition.IsActive;
-        var primaryVirtualSelection = VirtualView.Selections.Primary.AnchorVirtualSpaces != 0 || VirtualView.Selections.Primary.ActiveVirtualSpaces != 0;
+        var virtualPrimary = !HasNativeVirtualSelection && VirtualView.Selections.Primary.ActiveVirtualSpaces != 0 && !VirtualView.Composition.IsActive;
+        var primaryVirtualSelection = !HasNativeVirtualSelection &&
+            (VirtualView.Selections.Primary.AnchorVirtualSpaces != 0 || VirtualView.Selections.Primary.ActiveVirtualSpaces != 0);
         UpdateVirtualPrimaryCaret(virtualPrimary);
         if (VirtualView.Selections.Count < 2 && !VirtualView.DrawScopedPrimaryAsSecondary && !primaryVirtualSelection)
         {

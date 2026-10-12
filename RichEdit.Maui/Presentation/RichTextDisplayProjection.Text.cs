@@ -46,7 +46,7 @@ internal sealed partial class RichTextDisplayProjection
 
         bool Same(RichTextDisplayReservation before, RichTextDisplayReservation after)
         {
-            if (!ReferenceEquals(before.Adornment, after.Adornment) || before.Text != after.Text) return false;
+            if (!ReferenceEquals(before.Owner, after.Owner) || before.Text != after.Text) return false;
             if (difference is not { } change) return before.SourcePosition == after.SourcePosition;
             if (before.SourcePosition < change.Before.Start) return before.SourcePosition == after.SourcePosition;
             if (before.SourcePosition > change.Before.End) return before.SourcePosition + change.After.Length - change.Before.Length == after.SourcePosition;

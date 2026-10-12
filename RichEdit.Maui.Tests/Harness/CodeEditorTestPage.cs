@@ -172,6 +172,9 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(2, _editor.Selections[1].ActiveVirtualSpaces);
             _editor.Selections = new(_editor.Selections, 1);
             var before = _editor.Selections;
+            var handler = (RichEditorHandler)_textView.Handler!;
+            Equal(0, _textView.Adornments.Count, "virtual space is private presentation");
+            Equal(true, handler.NativeProjection.Reservations.Any(item => item.IsVirtualSpace));
             EditorContractTests.NativeReplace(_textView, "!");
             Equal("abc!d\r\nx  !\r\nabc!def", _editor.Document.Text);
             _editor.Undo();
@@ -182,15 +185,19 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             var native = ((RichEditorHandler)_textView.Handler!).PlatformView;
             using var info = new Android.Views.InputMethods.EditorInfo();
             using var connection = native.OnCreateInputConnection(info)!;
+            var preeditStart = handler.NativeProjection.Reservations.Single(item => item.IsVirtualSpace).DisplayEnd;
             using var composing = new Java.Lang.String("日");
             using var committed = new Java.Lang.String("日本");
             connection.SetComposingText(composing, 1);
+            Equal(preeditStart, Android.Views.InputMethods.BaseInputConnection.GetComposingSpanStart(native.EditableText!), "marked text begins at the virtual column");
             Equal("abcd\r\nx\r\nabcdef", _editor.Document.Text);
             connection.CommitText(committed, 1);
             connection.FinishComposingText();
 #else
             var native = ((RichEditorHandler)_textView.Handler!).PlatformView;
+            var preeditStart = handler.NativeProjection.Reservations.Single(item => item.IsVirtualSpace).DisplayEnd;
             native.SetMarkedText("日", new Foundation.NSRange(1, 0));
+            Equal(preeditStart, (int)native.GetDisplayOffset(native.BeginningOfDocument, native.MarkedTextRange!.Start), "marked text begins at the virtual column");
             Equal("abcd\r\nx\r\nabcdef", _editor.Document.Text);
             native.SetMarkedText("日本", new Foundation.NSRange(2, 0));
             native.UnmarkText();

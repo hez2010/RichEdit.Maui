@@ -17,8 +17,9 @@ public partial class CodeEditorTests
             await Task.Delay(80);
             editor.Selections = new((TextSelection[])[new(1, 1) { AnchorVirtualSpaces = 3, ActiveVirtualSpaces = 3 }]);
             await Task.Delay(40);
-            Assert.Single(fixture.Handler.SecondaryCaretBounds);
-            Assert.True(fixture.Handler.PlatformView.HideVirtualCaret);
+            Assert.Empty(fixture.Handler.SecondaryCaretBounds);
+            Assert.False(fixture.Handler.PlatformView.HideVirtualCaret);
+            Assert.Equal(4, fixture.Handler.PlatformView.Document.Selection.StartPosition);
             Assert.Equal("x", editor.Document.Text);
             Assert.False(editor.CanUndo);
             editor.Selections = TextSelectionSet.Caret(1);
@@ -94,7 +95,7 @@ public partial class CodeEditorTests
             // Native typing at a virtual primary is corrected together with all secondary edits.
             editor.Selections = new(before, 1);
             await Task.Delay(30);
-            Assert.True(fixture.Handler.PlatformView.HideVirtualCaret);
+            Assert.False(fixture.Handler.PlatformView.HideVirtualCaret);
             fixture.Handler.PlatformView.Document.Selection.TypeText("!");
             Assert.Equal("abc!d\r\nx  !\r\nabc!def", editor.Document.Text);
             Assert.All(editor.Selections, item => Assert.Equal(0, item.ActiveVirtualSpaces));

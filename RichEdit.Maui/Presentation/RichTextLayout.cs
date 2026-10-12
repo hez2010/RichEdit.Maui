@@ -182,6 +182,12 @@ public sealed class RichTextLayout
     public Rect? GetCaretBounds(RichTextLayoutSnapshot layout, TextSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
+        if (!IsCurrent(layout)) return null;
+        if (((RichEditorHandler)_editor.Handler!).GetVirtualCaretBounds(selection) is { } native)
+        {
+            var placed = Translate(native, layout.Origin);
+            return placed.IntersectsWith(layout.TextViewport) ? placed : null;
+        }
         if (GetCaretBounds(layout, selection.Active, selection.ActiveVirtualSpaces == 0 ? (RichTextCaretAffinity)selection.Affinity : RichTextCaretAffinity.Upstream) is not { } caret)
             return null;
         if (selection.ActiveVirtualSpaces != 0)

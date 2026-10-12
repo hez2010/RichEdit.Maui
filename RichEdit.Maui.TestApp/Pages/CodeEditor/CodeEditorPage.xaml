@@ -88,6 +88,7 @@
                                 <Button Text="Comment" Clicked="OnToggleLineCommentClicked" IsEnabled="{Binding Source={x:Reference Editor}, x:DataType=code:CodeEditor, Path=IsReadOnly, Converter={StaticResource InverseBooleanConverter}}" />
                                 <Button Text="Caret below" Clicked="OnAddCaretBelow" />
                                 <Button Text="Select occurrences" Clicked="OnSelectOccurrences" />
+                                <Button Text="Virtual carets" Clicked="OnVirtualCarets" />
                                 <Button Text="Single caret" Clicked="OnSingleCaret" />
                                 <Button Text="Go to line" Clicked="OnGoToLine" />
                                 <Button Text="Line endings" Clicked="OnLineEndings" />

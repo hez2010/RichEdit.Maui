@@ -15,7 +15,7 @@ Use the control's `Commands`, `KeyBindings`, and `ContextMenuOpening` APIs for a
 
 Marked text lives in a provisional session snapshot. The shared committed document does not change until native composition completes. A document permits one composition lease; unrelated mutation is rejected with `CompositionActive`. Other panes may still inspect and display committed content.
 
-With multiple carets, native composition previews at the primary caret. A simple committed replacement is replicated to the other carets in one transaction. Reconversion extending outside the primary range leaves secondary-selection mode. Cancellation restores the pre-composition selection set.
+With multiple carets, native composition previews at the primary caret, including its virtual column. Virtual padding becomes document text only when input commits. A simple committed replacement is replicated to the other carets in one transaction. Reconversion extending outside the primary range leaves secondary-selection mode. Cancellation restores the pre-composition selection set.
 
 Request completion before saving, changing documents, or commands requiring committed input. An unresolved request must remain pending rather than saving text that omits the marked input.
 
