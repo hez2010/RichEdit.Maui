@@ -455,7 +455,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
 #if IOS || MACCATALYST
             _editor.TextColor = Colors.Black;
             _editor.BackgroundColor = Colors.White;
-            gutter.Invalidate();
+            _editor.ShowLineNumbers = false;
+            _editor.ShowLineNumbers = true;
             await Task.Delay(30);
             VerifyLineNumberPixels(gutter);
 #endif
@@ -470,7 +471,8 @@ internal sealed partial class CodeEditorTestPage : ContentPage
             Equal(1, _editor.LineCount);
             ColorAt(0, TokenColor("keyword"));
 #if IOS || MACCATALYST
-            gutter.Invalidate();
+            _editor.ShowLineNumbers = false;
+            _editor.ShowLineNumbers = true;
             await Task.Delay(30);
             VerifyLineNumberPixels(gutter);
 #endif
