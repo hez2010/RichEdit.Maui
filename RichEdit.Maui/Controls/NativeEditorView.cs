@@ -715,7 +715,8 @@ public partial class NativeEditorView : View
                 origin,
                 mergeWithPrevious,
                 projectedVersion,
-                expanded?.Changes ?? (StructuredSession is not null ? RichTextDocument.CreateDelta(Document.CurrentSnapshot, snapshot, replacementHint ?? SelectedRange) : null),
+                expanded?.Changes ?? (replacementHint is not null || StructuredSession is not null
+                    ? RichTextDocument.CreateDelta(Document.CurrentSnapshot, snapshot, replacementHint ?? SelectedRange) : null),
                 corrections);
             if (changes.IsEmpty)
             {
