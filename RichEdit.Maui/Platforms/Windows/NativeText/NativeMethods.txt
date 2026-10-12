@@ -5,6 +5,7 @@ CHARFORMATW
 PARAFORMAT
 POINT
 CHARRANGE
+CreateStreamOverRandomAccessStream
 TXTBIT_*
 EN_*
 ENM_*

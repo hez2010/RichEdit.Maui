@@ -9,6 +9,56 @@ namespace RichEdit.Maui.Tests;
 public partial class CodeEditorTests
 {
     [Fact]
+    public Task NativeTextRangesPreserveUnicodeSelectionAndImageGeometry() => WindowsTestHost.RunAsync(() =>
+    {
+        var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
+        using var engine = new WindowsTextServices(new NativeTextTestSite(WinRT.Interop.WindowNative.GetWindowHandle(window)));
+        using var document = new WindowsTextDocument(engine);
+        document.SetText(Microsoft.UI.Text.TextSetOptions.None, "a\U0001f600b\r\nsecond");
+        document.GetText(Microsoft.UI.Text.TextGetOptions.UseLf, out var text);
+        Assert.Equal("a\U0001f600b\nsecond", text);
+        using var range = (WindowsTextRange)document.GetRange(1, 3);
+        range.GetCharacterUtf32(out var character, 0);
+        Assert.Equal((uint)'b', character);
+        range.GetCharacterUtf32(out character, -1);
+        Assert.Equal(0x1f600U, character);
+        using var selection = (WindowsTextRange)document.Selection;
+        selection.SetRange(1, 3);
+        selection.TypeText("X");
+        document.GetText(Microsoft.UI.Text.TextGetOptions.UseLf, out text);
+        Assert.Equal("aXb\nsecond", text);
+        using var matched = (WindowsTextRange)document.GetRange(0, 0);
+        matched.MatchSelection();
+        Assert.Equal(selection.StartPosition, matched.StartPosition);
+        Assert.Equal(selection.EndPosition, matched.EndPosition);
+        using var first = (WindowsTextRange)document.GetRange(0, 0);
+        first.Expand(Microsoft.UI.Text.TextRangeUnit.Line);
+        Assert.Equal(0, first.StartPosition);
+        Assert.Equal(4, first.EndPosition);
+        using var insertion = (WindowsTextRange)document.GetRange(0, 0);
+        using var stream = new global::Windows.Storage.Streams.InMemoryRandomAccessStream();
+        using (var writer = new global::Windows.Storage.Streams.DataWriter(stream.GetOutputStreamAt(0)))
+        {
+            writer.WriteBytes(RichTextDisplayProjection.TransparentPixel.ToArray());
+            writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+            writer.DetachStream();
+        }
+        stream.Seek(0);
+        var before = selection.StartPosition;
+        insertion.InsertImage(40, 20, 12, Microsoft.UI.Text.VerticalCharacterAlignment.Baseline, "badge", stream);
+        using var image = (WindowsTextRange)document.GetRange(0, 1);
+        Assert.Equal('\uFFFC', image.Character);
+        Assert.Equal(before + 1, selection.StartPosition);
+        image.GetRect(Microsoft.UI.Text.PointOptions.ClientCoordinates | Microsoft.UI.Text.PointOptions.AllowOffClient, out var bounds, out _);
+        Assert.InRange(bounds.Width, 39, 41);
+        Assert.True(bounds.Height >= 20);
+        image.GetText(Microsoft.UI.Text.TextGetOptions.FormatRtf, out var rtf);
+        Assert.Contains("\\pict", rtf);
+        document.ClearUndoRedoHistory();
+        Assert.Equal(0, (int)engine.Send(0xC6));
+    });
+
+    [Fact]
     public Task NativeTextFormatAdaptersRetainTOMSemantics() => WindowsTestHost.RunAsync(() =>
     {
         var window = _gutterWindow ??= new Microsoft.UI.Xaml.Window();
