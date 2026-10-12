@@ -7,6 +7,34 @@ namespace RichEdit.Maui.Tests;
 public sealed class StructuredBindingTests
 {
     private static Microsoft.UI.Xaml.Window? _window;
+
+    [Fact]
+    public Task FinalListParagraphRetainsNativeNumberingAfterProjection() => WindowsTestHost.RunAsync(() =>
+    {
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "first");
+            edit.InsertParagraph(edit.Body, 1, "second");
+            edit.WrapInList(edit.Body, 0, 2, numbered: true);
+        }));
+        var view = new NativeEditorView();
+        view.BindStructuredDocument(document);
+        var handler = new RichEditorHandler();
+        handler.SetMauiContext(new MauiContext(WindowsTestHost.MauiApp.Services));
+        view.Handler = handler;
+        try
+        {
+            handler.PlatformView.Document.GetText(TextGetOptions.None, out var text);
+            var first = handler.PlatformView.Document.GetRange(0, 0).ParagraphFormat;
+            var last = handler.PlatformView.Document.GetRange(text.IndexOf("second", StringComparison.Ordinal), text.Length - 1).ParagraphFormat;
+            Assert.Equal(MarkerType.Arabic, first.ListType);
+            Assert.Equal(first.ListType, last.ListType);
+            Assert.Equal(first.LeftIndent, last.LeftIndent);
+            Assert.False(document.CanUndo);
+        }
+        finally { view.Handler = null; ((IElementHandler)handler).DisconnectHandler(); }
+    });
+
     [Fact]
     public Task NativeTablesRemainStructuredThroughCellTypingUndoAndBoundaryInsertion() => WindowsTestHost.RunAsync(async () =>
     {

@@ -74,6 +74,11 @@ public partial class RichEditorHandler
                 var target = PlatformView.Document.GetRange(0, 0);
                 target.SetRange(0, Math.Max(0, target.StoryLength - 1));
                 target.FormattedText = incoming;
+                // The mandatory final paragraph mark is excluded from the text
+                // transfer. Its paragraph attributes still belong to the document.
+                var terminal = Math.Max(0, resolved.Map.NativeText.Length - 1);
+                PlatformView.Document.GetRange(terminal, terminal).ParagraphFormat.SetClone(
+                    scratch.GetRange(terminal, terminal).ParagraphFormat);
                 _hasNativeLinks = false; // The structured map addresses raw TOM positions, including field gaps.
                 _nativeTextSnapshot = null;
                 PlatformView.Document.ClearUndoRedoHistory();
