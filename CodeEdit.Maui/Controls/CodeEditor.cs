@@ -166,7 +166,9 @@ public sealed partial class CodeEditor : ContentView
     private const string DefaultFontFamily = "Menlo";
 #endif
 
-    private readonly GraphicsView _gutter;
+    private readonly AbsoluteLayout _gutter;
+    private readonly List<Label> _lineLabels = [];
+    private bool _gutterUpdateQueued;
     private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
     private bool _synchronizingSelection;
     private CodeDocument _document = new();
@@ -189,7 +191,7 @@ public sealed partial class CodeEditor : ContentView
         InitializeSelections();
         TextView.Folding.Changed += (_, _) => { CancelRectangle(); InvalidateGutter(); };
         Commands = new CodeEditorCommands(this);
-        _gutter = new GraphicsView { Drawable = new LineNumberDrawable(this), InputTransparent = true };
+        _gutter = new AbsoluteLayout { InputTransparent = true, IsClippedToBounds = true };
         TextView.BackgroundColor = BackgroundColor;
         _gutter.BackgroundColor = BackgroundColor;
         var grid = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 0 };
@@ -510,34 +512,44 @@ public sealed partial class CodeEditor : ContentView
         InvalidateGutter();
     }
 
-    internal void InvalidateGutter() => _gutter.Invalidate();
-
-    private sealed class LineNumberDrawable(CodeEditor owner) : IDrawable
+    internal void InvalidateGutter()
     {
-        public void Draw(ICanvas canvas, RectF dirtyRect)
-        {
-            canvas.FontSize = (float)owner.FontSize;
-            if (owner.NativeAdapter is not { } handler)
-                return;
-            if ((owner.TextColor ?? owner.TextView.TextColor ?? handler.GetTextColor()) is { } color)
-                canvas.FontColor = color;
+        if (_gutterUpdateQueued || NativeAdapter is not { } adapter) return;
+        _gutterUpdateQueued = true;
+        if (!adapter.Post(() => { _gutterUpdateQueued = false; UpdateLineLabels(); })) _gutterUpdateQueued = false;
+    }
 
-            foreach (var line in owner.GetVisibleLines())
-            {
-                canvas.Font = new Microsoft.Maui.Graphics.Font(owner.FontFamily, line.Number == owner.CaretPosition.Line + 1 ? 700 : 400);
-#if IOS || MACCATALYST
-                // CoreText's framed drawing can omit text when its font metrics exceed
-                // the native used-rect height. Its point overload draws at a baseline.
-                var baseline = line.Baseline - (float)(owner.Content.Y + owner._gutter.Y);
-                canvas.DrawString(line.Number.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    (float)owner._gutter.Width - 8, baseline, HorizontalAlignment.Right);
-#else
-                canvas.DrawString(line.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), 0, line.Top,
-                    (float)owner._gutter.Width - 8, line.Height, HorizontalAlignment.Right, VerticalAlignment.Center);
-#endif
-            }
+    private void UpdateLineLabels()
+    {
+        var visible = ShowLineNumbers ? GetVisibleLines().ToArray() : [];
+        while (_lineLabels.Count < visible.Length)
+        {
+            var label = new Label { InputTransparent = true, HorizontalTextAlignment = TextAlignment.End,
+                VerticalTextAlignment = TextAlignment.Center, LineBreakMode = LineBreakMode.NoWrap, Padding = 0 };
+            _lineLabels.Add(label);
+            _gutter.Add(label);
+        }
+        while (_lineLabels.Count > visible.Length)
+        {
+            var last = _lineLabels[^1];
+            _gutter.Remove(last);
+            last.Handler?.DisconnectHandler();
+            _lineLabels.RemoveAt(_lineLabels.Count - 1);
+        }
+        var color = TextColor ?? TextView.TextColor ?? NativeAdapter?.GetTextColor() ?? Colors.Black;
+        for (var index = 0; index < visible.Length; index++)
+        {
+            var line = visible[index];
+            var label = _lineLabels[index];
+            label.Text = line.Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            label.FontFamily = FontFamily;
+            label.FontSize = FontSize;
+            label.FontAttributes = line.Number == CaretPosition.Line + 1 ? FontAttributes.Bold : FontAttributes.None;
+            label.TextColor = color;
+            AbsoluteLayout.SetLayoutBounds(label, new(0, line.Top, Math.Max(0, _gutter.WidthRequest - 8), line.Height));
         }
     }
+
 }
 
 internal readonly record struct VisibleCodeLine(int Number, float Top, float Height, float Baseline);

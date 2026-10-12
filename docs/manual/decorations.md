@@ -38,4 +38,4 @@ layer.TryPublish(request, new[]
 
 Rich ranges are validated and routed to the native surface containing each paragraph, including table cells. Structural address maps move their endpoints. Removing an anchored paragraph drops its transient presentation; undo does not resurrect dropped items. Replacing the document clears producers.
 
-Decorations do not change authored formatting. Weight and italic can change text layout. Presentation updates may be deferred until composition finishes. Use `TextLayout` range bounds to position diagnostic drawings.
+Decorations do not change authored formatting. Weight and italic can change text layout. Presentation updates may be deferred until composition finishes. Use `TextLayout` range bounds to position diagnostic labels and other native views.

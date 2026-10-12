@@ -450,7 +450,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
                 "visible line-number source positions after layout invalidation");
             _actions.GoToLine(2, 3);
             Equal(new TextSpan(5, 0), _editor.SelectedRange);
-            var gutter = ((Grid)_editor.Content).Children.OfType<GraphicsView>().Single();
+            var gutter = ((Grid)_editor.Content).Children.OfType<AbsoluteLayout>().Single();
             Equal(true, gutter.Width > 0 && gutter.Height > 0, "gutter layout");
 #if IOS || MACCATALYST
             _editor.TextColor = Colors.Black;
@@ -793,7 +793,7 @@ internal sealed partial class CodeEditorTestPage : ContentPage
     }
 
 #if IOS || MACCATALYST
-    private void VerifyLineNumberPixels(GraphicsView gutter)
+    private void VerifyLineNumberPixels(AbsoluteLayout gutter)
     {
         var native = gutter.ToPlatform(_textView.Handler!.MauiContext!);
         native.LayoutIfNeeded();

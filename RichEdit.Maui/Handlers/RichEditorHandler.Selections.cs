@@ -2,10 +2,10 @@ namespace RichEdit.Maui;
 
 public partial class RichEditorHandler
 {
-    private GraphicsView? _secondarySelectionView;
-    private SecondarySelectionDrawable? _secondarySelectionDrawable;
+    private AbsoluteLayout? _secondarySelectionView;
+    private SecondarySelectionPresentation? _secondarySelectionPresentation;
 
-    internal IReadOnlyList<Rect> SecondaryCaretBounds => _secondarySelectionDrawable?.Carets ?? [];
+    internal IReadOnlyList<Rect> SecondaryCaretBounds => _secondarySelectionPresentation?.Carets ?? [];
     internal void RefreshSelectionPresentation() => QueueAdornmentLayout();
 
     private void UpdateSecondarySelections(Rect viewport)
@@ -19,18 +19,14 @@ public partial class RichEditorHandler
             VirtualView.Adornments.Overlay.SetSelectionOverlay(null);
             _secondarySelectionView?.Handler?.DisconnectHandler();
             _secondarySelectionView = null;
-            _secondarySelectionDrawable = null;
+            _secondarySelectionPresentation = null;
             return;
         }
 
         if (_secondarySelectionView is null)
         {
-            _secondarySelectionDrawable = new();
-            _secondarySelectionView = new GraphicsView
-            {
-                Drawable = _secondarySelectionDrawable,
-                InputTransparent = true,
-            };
+            _secondarySelectionPresentation = new();
+            _secondarySelectionView = new AbsoluteLayout { InputTransparent = true, IsClippedToBounds = true };
             VirtualView.Adornments.Overlay.SetSelectionOverlay(_secondarySelectionView);
         }
 
@@ -66,14 +62,14 @@ public partial class RichEditorHandler
             }
 
         var colors = GetSecondarySelectionColors();
-        _secondarySelectionDrawable!.Carets = carets;
-        _secondarySelectionDrawable.Ranges = ranges;
-        _secondarySelectionDrawable.Clip = captured?.TextViewport ?? viewport;
-        _secondarySelectionDrawable.CaretColor = colors.Caret;
-        _secondarySelectionDrawable.SelectionColor = colors.Selection;
-        _secondarySelectionDrawable.DrawCarets = (VirtualView.IsFocused || VirtualView.StructuredInputCoordinator?.HasFocusedStructuredSurface == true) &&
+        _secondarySelectionPresentation!.Carets = carets;
+        _secondarySelectionPresentation.Ranges = ranges;
+        _secondarySelectionPresentation.Clip = captured?.TextViewport ?? viewport;
+        _secondarySelectionPresentation.CaretColor = colors.Caret;
+        _secondarySelectionPresentation.SelectionColor = colors.Selection;
+        _secondarySelectionPresentation.ShowCarets = (VirtualView.IsFocused || VirtualView.StructuredInputCoordinator?.HasFocusedStructuredSurface == true) &&
             !VirtualView.IsReadOnly && !VirtualView.Composition.IsActive && VirtualView.StructuredSession?.Composition is null;
-        _secondarySelectionView.Invalidate();
+        _secondarySelectionPresentation.Update(_secondarySelectionView);
     }
 
     private partial (Color Caret, Color Selection) GetSecondarySelectionColors();
@@ -83,32 +79,42 @@ public partial class RichEditorHandler
         VirtualView.Adornments.Overlay.SetSelectionOverlay(null);
         _secondarySelectionView?.Handler?.DisconnectHandler();
         _secondarySelectionView = null;
-        _secondarySelectionDrawable = null;
+        _secondarySelectionPresentation = null;
     }
 
-    private sealed class SecondarySelectionDrawable : IDrawable
+    private sealed class SecondarySelectionPresentation
     {
+        private readonly List<BoxView> _boxes = [];
         internal IReadOnlyList<Rect> Carets { get; set; } = [];
         internal IReadOnlyList<Rect> Ranges { get; set; } = [];
         internal Rect Clip { get; set; }
         internal Color CaretColor { get; set; } = Colors.Black;
         internal Color SelectionColor { get; set; } = Colors.Transparent;
-        internal bool DrawCarets { get; set; }
+        internal bool ShowCarets { get; set; }
 
-        public void Draw(ICanvas canvas, RectF dirtyRect)
+        internal void Update(AbsoluteLayout layout)
         {
-            canvas.SaveState();
-            canvas.ClipRectangle((float)Clip.X, (float)Clip.Y, (float)Clip.Width, (float)Clip.Height);
-            canvas.FillColor = SelectionColor;
-            foreach (var rect in Ranges)
-                canvas.FillRectangle((float)rect.X, (float)rect.Y, (float)rect.Width, (float)rect.Height);
-            if (DrawCarets)
+            var rectangles = Ranges.Select(rect => (Rect: rect.Intersect(Clip), Color: SelectionColor))
+                .Concat(ShowCarets ? Carets.Select(rect => (Rect: rect.Intersect(Clip), Color: CaretColor)) : [])
+                .Where(item => item.Rect.Width > 0 && item.Rect.Height > 0).ToArray();
+            while (_boxes.Count < rectangles.Length)
             {
-                canvas.FillColor = CaretColor;
-                foreach (var rect in Carets)
-                    canvas.FillRectangle((float)rect.X, (float)rect.Y, (float)rect.Width, (float)rect.Height);
+                var box = new BoxView { InputTransparent = true };
+                _boxes.Add(box);
+                layout.Add(box);
             }
-            canvas.RestoreState();
+            while (_boxes.Count > rectangles.Length)
+            {
+                var last = _boxes[^1];
+                layout.Remove(last);
+                last.Handler?.DisconnectHandler();
+                _boxes.RemoveAt(_boxes.Count - 1);
+            }
+            for (var index = 0; index < rectangles.Length; index++)
+            {
+                _boxes[index].Color = rectangles[index].Color;
+                AbsoluteLayout.SetLayoutBounds(_boxes[index], rectangles[index].Rect);
+            }
         }
     }
 }

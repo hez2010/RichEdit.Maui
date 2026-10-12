@@ -394,9 +394,9 @@ public sealed partial class RichTextAdornments : IReadOnlyList<RichTextAdornment
 internal sealed partial class RichTextAdornmentLayout : Layout
 {
     private readonly RichTextAdornments _adornments;
-    private GraphicsView? _selectionOverlay;
+    private AbsoluteLayout? _selectionOverlay;
 
-    internal void SetSelectionOverlay(GraphicsView? view)
+    internal void SetSelectionOverlay(AbsoluteLayout? view)
     {
         if (ReferenceEquals(_selectionOverlay, view))
             return;
