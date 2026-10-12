@@ -85,6 +85,69 @@ internal sealed class StructuredRichNativeMap
         _rendered = rendered; _presentation = presentation; Reservations = reservations.IsDefault ? [] : reservations; }
     internal RichTextDocumentSnapshot? Display { get; }
     internal RichTextDocumentSnapshot? AuthoredDisplay { get; }
+    internal (TextSpan Before, TextSpan After)? FindBlockReplacement(StructuredRichNativeMap next)
+    {
+        if (!Reservations.IsEmpty || !next.Reservations.IsEmpty || Snapshot.Body != next.Snapshot.Body) return null;
+        var before = Snapshot.Get<RichStory>(Snapshot.Body).Blocks;
+        var after = next.Snapshot.Get<RichStory>(next.Snapshot.Body).Blocks;
+        var prefix = 0;
+        while (prefix < Math.Min(before.Count, after.Count) && Same(before[prefix], after[prefix])) prefix++;
+        var suffix = 0;
+        while (suffix < Math.Min(before.Count, after.Count) - prefix && Same(before[^(suffix + 1)], after[^(suffix + 1)])) suffix++;
+        if (prefix == before.Count && prefix == after.Count) return null;
+        if (before.Count - prefix - suffix == 1 && after.Count - prefix - suffix == 1 &&
+            before[prefix] == after[prefix] && Snapshot.Get<RichBlock>(before[prefix]) is RichParagraph)
+        {
+            var a = _paragraphs[before[prefix]]; var b = next._paragraphs[after[prefix]];
+            return (new(a.Start, a.End - a.Start), new(b.Start, b.End - b.Start));
+        }
+        // RTF fragment boundaries belong in ordinary body paragraphs, outside
+        // native cell/list terminators. Include unchanged paragraph context on
+        // each side so native paste retains the surrounding block structure.
+        var first = prefix - 1;
+        while (first >= 0 && Snapshot.Get<RichBlock>(before[first]) is not RichParagraph) first--;
+        var oldStart = first >= 0 ? _paragraphs[before[first]].Start : 0;
+        var newStart = first >= 0 ? next._paragraphs[after[first]].Start : 0;
+        var oldTail = before.Count - suffix;
+        var newTail = after.Count - suffix;
+        while (oldTail < before.Count && Snapshot.Get<RichBlock>(before[oldTail]) is not RichParagraph) { oldTail++; newTail++; }
+#if WINDOWS
+        var oldLimit = Math.Max(0, NativeText.Length - 1); var newLimit = Math.Max(0, next.NativeText.Length - 1);
+#else
+        var oldLimit = NativeText.Length; var newLimit = next.NativeText.Length;
+#endif
+        var oldEnd = oldTail < before.Count ? Math.Min(oldLimit, _paragraphs[before[oldTail]].End + 1) : oldLimit;
+        var newEnd = newTail < after.Count ? Math.Min(newLimit, next._paragraphs[after[newTail]].End + 1) : newLimit;
+        return (new(oldStart, oldEnd - oldStart), new(newStart, newEnd - newStart));
+
+        bool Same(RichNodeId a, RichNodeId b)
+        {
+            if (a != b || !Snapshot.Nodes.TryGetValue(a, out var x) || !next.Snapshot.Nodes.TryGetValue(b, out var y) || !RichDocumentSnapshot.SameNode(x, y)) return false;
+            var children = RichDocumentSnapshot.Children(x);
+            return children.All(id => Same(id, id));
+        }
+    }
+    internal bool CanApplyFormatting(StructuredRichNativeMap next)
+    {
+        if (NativeText != next.NativeText || _ordered.Length != next._ordered.Length || !Reservations.SequenceEqual(next.Reservations)) return false;
+        for (var index = 0; index < _ordered.Length; index++)
+        {
+            var a = _ordered[index]; var b = next._ordered[index];
+            if (a.Id != b.Id || a.Start != b.Start || a.End != b.End || Snapshot.Get<RichParagraph>(a.Id).Parent != next.Snapshot.Get<RichParagraph>(b.Id).Parent) return false;
+        }
+        var beforeNodes = Snapshot.Nodes.Values.Where(node => node is not (RichParagraph or RichText or RichSoftBreak)).ToDictionary(node => node.Id);
+        var afterNodes = next.Snapshot.Nodes.Values.Where(node => node is not (RichParagraph or RichText or RichSoftBreak)).ToArray();
+        if (beforeNodes.Count != afterNodes.Length) return false;
+        foreach (var node in afterNodes)
+        {
+            if (!beforeNodes.TryGetValue(node.Id, out var before)) return false;
+            if (before is RichInline a && node is RichInline b) before = a with { Format = b.Format, Style = b.Style };
+            if (!RichDocumentSnapshot.SameNode(before, node)) return false;
+        }
+        var prior = RichTextDocumentSnapshot.CreateStructuredProjection(_text);
+        var current = RichTextDocumentSnapshot.CreateStructuredProjection(next._text);
+        return prior.Links.SequenceEqual(current.Links) && prior.Images.SequenceEqual(current.Images);
+    }
     internal StructuredRichNativeMap WithSnapshot(RichDocumentSnapshot snapshot) =>
         new(snapshot, NativeText, _ordered, _boundaries, snapshot.ProjectText(_text.Root), Display, AuthoredDisplay, _rendered, _presentation, Reservations);
 

@@ -85,6 +85,9 @@ public partial class RichEditorHandler
                         RichImageKind.Dib => "image/bmp", RichImageKind.Wmf => "image/wmf", _ => "image/emf" },
                 });
             }
+        var result = resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
+            .With(runs: CaptureStructuredFormats(content, resolved.Map).Characters));
+        if (presentation is not null) result = result.WithPresentation(presentation, sourceProjection);
         if (apply)
         {
             var applying = _applyingDocument;
@@ -94,16 +97,58 @@ public partial class RichEditorHandler
             try
             {
                 _structuredListIndents = listMarkers;
-                PlatformView.AttributedText = content;
+                var previous = _paintedCellSelection == VirtualView.StructuredSession!.Selection as RichCellSelection &&
+                    _structuredNativeMap is { } baseline && HasStructuredNativeBaseline(baseline) ? baseline : null;
+                if (previous is not null && previous.CanApplyFormatting(result))
+                {
+                    var storage = PlatformView.TextStorage;
+                    storage.BeginEditing();
+                    try
+                    {
+                        ApplyCharacterFormatsIncrementally(RichTextDisplayProjection.NativeDescription(result), new(0, result.NativeText.Length), RichTextDisplayProjection.NativeDescription(previous));
+                        foreach (var paragraph in result.Paragraphs)
+                        {
+                            var before = previous.Snapshot.ResolveParagraph(paragraph.Id);
+                            var after = result.Snapshot.ResolveParagraph(paragraph.Id);
+                            if (before == after || paragraph.Start >= storage.Length) continue;
+                            using var attributes = content.GetAttributes(paragraph.Start, out _);
+                            if (attributes?[UIKit.UIStringAttributeKey.ParagraphStyle] is not UIKit.NSParagraphStyle incoming) continue;
+                            using var currentAttributes = storage.GetAttributes(paragraph.Start, out _);
+                            var inCell = false;
+                            for (var node = result.Snapshot.Get<RichNode>(paragraph.Id); node.Parent is { } parent; node = result.Snapshot.Get<RichNode>(parent))
+                                if (node is RichTableCell) { inCell = true; break; }
+                            using var style = (UIKit.NSMutableParagraphStyle)(inCell && currentAttributes?[UIKit.UIStringAttributeKey.ParagraphStyle] is UIKit.NSParagraphStyle current
+                                ? current.MutableCopy() : incoming.MutableCopy());
+                            if (inCell)
+                            {
+                                // Retain the live native table blocks; update public paragraph properties.
+                                style.Alignment = incoming.Alignment; style.BaseWritingDirection = incoming.BaseWritingDirection;
+                                style.HeadIndent += (nfloat)(after.LeadingIndent.Points - before.LeadingIndent.Points);
+                                style.FirstLineHeadIndent += (nfloat)(after.LeadingIndent.Points - before.LeadingIndent.Points + after.FirstLineIndent.Points - before.FirstLineIndent.Points);
+                                style.TailIndent -= (nfloat)(after.TrailingIndent.Points - before.TrailingIndent.Points);
+                                style.ParagraphSpacingBefore = incoming.ParagraphSpacingBefore; style.ParagraphSpacing = incoming.ParagraphSpacing;
+                                style.MinimumLineHeight = incoming.MinimumLineHeight; style.MaximumLineHeight = incoming.MaximumLineHeight;
+                                style.LineHeightMultiple = incoming.LineHeightMultiple; style.LineSpacing = incoming.LineSpacing;
+                                style.TabStops = incoming.TabStops; style.DefaultTabInterval = incoming.DefaultTabInterval; style.HyphenationFactor = incoming.HyphenationFactor;
+                            }
+                            storage.AddAttribute(UIKit.UIStringAttributeKey.ParagraphStyle, style, new(paragraph.Start, Math.Min((int)storage.Length, paragraph.End + 1) - paragraph.Start));
+                        }
+                    }
+                    finally { storage.EndEditing(); }
+                }
+                else if (previous?.FindBlockReplacement(result) is { } replacement)
+                {
+                    using var fragment = content.Substring(replacement.After.Start, replacement.After.Length);
+                    PlatformView.TextStorage.Replace(new(replacement.Before.Start, replacement.Before.Length), fragment);
+                }
+                else PlatformView.AttributedText = content;
                 ObserveTextStorage();
                 PlatformView.UpdatePlaceholderVisibility();
                 PlatformView.UndoManager?.RemoveAllActions();
             }
             finally { _applyingDocument = applying; }
         }
-        var result = resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
-            .With(runs: CaptureStructuredFormats(content, resolved.Map).Characters));
-        return presentation is null ? result : result.WithPresentation(presentation, sourceProjection);
+        return result;
     }
 
     private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)

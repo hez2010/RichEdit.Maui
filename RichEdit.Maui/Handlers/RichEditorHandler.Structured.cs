@@ -12,11 +12,24 @@ public partial class RichEditorHandler
     private StructuredNativeFormats? _structuredFormats;
     private StructuredRichNativeMap? _pendingStructuredNativeMap;
 
+    private bool HasStructuredNativeBaseline(StructuredRichNativeMap map)
+    {
+#if WINDOWS
+        return ReadNativeStoryText(PlatformView.Document) == map.NativeText;
+#elif IOS || MACCATALYST
+        return PlatformView.TextStorage.Value == map.NativeText;
+#else
+        return PlatformView.Text == map.NativeText;
+#endif
+    }
+
     internal bool TryAcceptStructuredNativeChange(RichTextChangeSet changes)
     {
         if (!ReferenceEquals(changes.SourceToken, _sourceToken) || changes.NativeCorrections is { IsEmpty: false } ||
             (_pendingStructuredNativeMap ?? _structuredNativeMap) is not { } map || VirtualView.StructuredSession is not { } session ||
-            !map.Snapshot.ContentEquals(session.Document.CurrentSnapshot)) return false;
+            // Revision tracking adds retained history after native text input;
+            // it does not change the current text or its native coordinates.
+            !map.Snapshot.ContentEquals(session.Document.CurrentSnapshot.WithRevisions(map.Snapshot.Revisions))) return false;
         AcceptStructuredNativeMap(map.WithSnapshot(session.Document.CurrentSnapshot));
         return true;
     }
@@ -70,7 +83,7 @@ public partial class RichEditorHandler
         return false; // Android hosts edit their scoped native projections directly.
 #else
         if (_structuredNativeMap is not { } previous || _paintedCellSelection is not null ||
-            VirtualView.StructuredSession!.Selection is RichCellSelection || VirtualView.Composition.IsActive) return false;
+            VirtualView.StructuredSession!.Selection is RichCellSelection || VirtualView.Composition.IsActive || !HasStructuredNativeBaseline(previous)) return false;
         var projection = VirtualView.ProjectStructuredInput(snapshot);
         if (previous.TextProjection.Text.FindDifference(projection.Text, out _) is not { } difference ||
             previous.TextProjection.GetPoint(difference.Before.Start) is not { } start ||

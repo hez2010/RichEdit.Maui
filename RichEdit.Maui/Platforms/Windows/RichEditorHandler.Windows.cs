@@ -125,6 +125,10 @@ public partial class RichEditorHandler
         var range = selection.Range;
         var positions = _hasNativeLinks ? GetNativeTextSnapshot() : null;
         var native = PlatformView.Document.Selection;
+        var start = positions?.ToNativePosition(range.Start) ?? range.Start;
+        var end = positions?.ToNativePosition(range.End) ?? range.End;
+        if (native.StartPosition == start && native.EndPosition == end &&
+            ((native.Options & SelectionOptions.StartActive) != 0) == selection.IsReversed) return;
         var wasApplying = _applyingDocument;
         _applyingDocument = true;
         try
@@ -576,6 +580,9 @@ public partial class RichEditorHandler
             }
         }
 
+        // Applying the WinUI template initializes native font defaults. The
+        // pre-load projection is not a valid formatting baseline for that story.
+        if (!_hasCompletedInitialLoad) _structuredNativeMap = null;
         ApplyCurrentDocument(
             VirtualView.SelectedRange.Start,
             VirtualView.SelectedRange.Length);

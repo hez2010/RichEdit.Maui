@@ -77,6 +77,9 @@ public partial class RichEditorHandler
         finally { scratch.ApplyDisplayUpdates(); }
         scratch.ClearUndoRedoHistory();
         if (ReadNativeStoryText(scratch) != resolved.Map.NativeText) throw new InvalidOperationException("Native rich marker removal changed document coordinates.");
+        var result = resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
+            .With(runs: CaptureStructuredFormats(scratch, resolved.Map).Characters));
+        if (presentation is not null) result = result.WithPresentation(presentation, sourceProjection);
         if (apply)
         {
             var applying = _applyingDocument;
@@ -85,10 +88,32 @@ public partial class RichEditorHandler
             try
             {
                 PlatformView.IsReadOnly = false;
-                var incoming = scratch.GetRange(0, Math.Max(0, resolved.Map.NativeText.Length - 1));
-                var target = PlatformView.Document.GetRange(0, 0);
-                target.SetRange(0, Math.Max(0, target.StoryLength - 1));
-                target.FormattedText = incoming;
+                var previous = _paintedCellSelection == VirtualView.StructuredSession!.Selection as RichCellSelection &&
+                    _structuredNativeMap is { } baseline && HasStructuredNativeBaseline(baseline) ? baseline : null;
+                if (previous is not null && previous.CanApplyFormatting(result))
+                {
+                    ApplyCharacterFormatsIncrementally(RichTextDisplayProjection.NativeDescription(result), new(0, result.NativeText.Length), RichTextDisplayProjection.NativeDescription(previous));
+                    foreach (var paragraph in result.Paragraphs)
+                        if (previous.Snapshot.ResolveParagraph(paragraph.Id) != result.Snapshot.ResolveParagraph(paragraph.Id))
+                        {
+                            var target = PlatformView.Document.GetRange(paragraph.Start, paragraph.Start).ParagraphFormat;
+                            var source = scratch.GetRange(paragraph.Start, paragraph.Start).ParagraphFormat;
+                            target.SetClone(source);
+                            ApplyParagraphTabs(target, ReadParagraphFormat(source, null));
+                        }
+                }
+                else if (previous?.FindBlockReplacement(result) is { } replacement)
+                {
+                    PlatformView.Document.GetRange(replacement.Before.Start, replacement.Before.End).FormattedText =
+                        scratch.GetRange(replacement.After.Start, replacement.After.End);
+                }
+                else
+                {
+                    var incoming = scratch.GetRange(0, Math.Max(0, resolved.Map.NativeText.Length - 1));
+                    var target = PlatformView.Document.GetRange(0, 0);
+                    target.SetRange(0, Math.Max(0, target.StoryLength - 1));
+                    target.FormattedText = incoming;
+                }
                 // The mandatory final paragraph mark is excluded from the text
                 // transfer. Its paragraph attributes still belong to the document.
                 var terminal = Math.Max(0, resolved.Map.NativeText.Length - 1);
@@ -103,9 +128,7 @@ public partial class RichEditorHandler
             }
             finally { PlatformView.IsReadOnly = readOnly; _applyingDocument = applying; }
         }
-        var result = resolved.Map.WithAuthoredDisplay(RichTextDisplayProjection.NativeDescription(resolved.Map)
-            .With(runs: CaptureStructuredFormats(scratch, resolved.Map).Characters));
-        return presentation is null ? result : result.WithPresentation(presentation, sourceProjection);
+        return result;
     }
 
     private partial void ApplyStructuredDecorationFormatsCore(RichTextDocumentSnapshot before, RichTextDocumentSnapshot after)
