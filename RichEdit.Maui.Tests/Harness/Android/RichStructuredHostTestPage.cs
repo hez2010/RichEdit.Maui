@@ -430,6 +430,7 @@ internal sealed class RichStructuredHostTestPage : ContentPage
             Equal(true, _editor.MoveSelections(EditorKey.Right, extend: true));
             selection = ((RichTextSelectionSet)_editor.Selection).Primary.Selection;
             Equal(first, selection.Anchor); Equal(PointAt(0, 1, 1), selection.Active);
+            Equal(false, _editor.NativeView.SendKeyDown(EditorKey.Delete, EditorKeyModifiers.None), "text deletion cannot join separate table cells");
             Equal(false, _editor.CanUndo);
         });
         await Test("structured viewport contains native painting after shrinking", async () =>

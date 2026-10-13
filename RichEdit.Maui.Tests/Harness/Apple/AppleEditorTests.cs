@@ -91,6 +91,7 @@ internal static partial class AppleEditorTests
         await Test("structured numbered reference list Enter retains list membership", () => VerifyNumberedReferenceEnter(editor));
         await Test("structured numbered reference list Enter retains membership with input rules", () => VerifyNumberedReferenceEnter(editor, withInputRule: true));
         await Test("structured reference empty bullet paragraph can be deleted", () => VerifyReferenceBulletDeletion(editor));
+        await Test("structured reference native table selection grows and shrinks across rows and columns", () => VerifyReferenceTableSelection(editor));
 
         async Task VerifyNativeTable(string tableRtf)
         {

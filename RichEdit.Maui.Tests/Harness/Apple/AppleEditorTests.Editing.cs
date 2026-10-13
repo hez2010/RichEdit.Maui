@@ -8,6 +8,47 @@ namespace RichEdit.Maui.Tests;
 
 internal static partial class AppleEditorTests
 {
+    private static async Task VerifyReferenceTableSelection(NativeEditorView editor)
+    {
+        using var input = typeof(AppleEditorTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
+        var imported = await RichEdit.Core.Rtf.RtfCodec.ReadAsync(input);
+        var previous = editor.Document;
+        try
+        {
+            var document = new RichDocument(imported.Snapshot);
+            editor.BindStructuredDocument(document);
+            editor.Focus();
+            await Task.Delay(150);
+            var native = ((RichEditorHandler)editor.Handler!).PlatformView;
+            var before = native.TextStorage.Value ?? throw new InvalidOperationException("Native reference text is missing.");
+            var table = document.CurrentSnapshot.Nodes.Values.OfType<RichTable>().First();
+            foreach (var (anchorRow, anchorColumn) in new[] { (1, 0), (1, 4), (5, 0), (5, 4) })
+            {
+                var anchor = before.IndexOf($"{anchorRow}.{anchorColumn + 1} item", StringComparison.Ordinal) + 1;
+                var rowStep = anchorRow == 1 ? 1 : -1;
+                var columnStep = anchorColumn == 0 ? 1 : -1;
+                foreach (var (rowDistance, columnDistance) in new[] { (0, 1), (1, 1), (2, 2), (4, 4), (1, 2), (1, 1), (0, 1), (0, 0) })
+                {
+                    var row = anchorRow + rowStep * rowDistance;
+                    var column = anchorColumn + columnStep * columnDistance;
+                    var active = before.IndexOf($"{row}.{column + 1} item", StringComparison.Ordinal) + 2;
+                    var range = new NSRange(Math.Min(anchor, active), Math.Abs(active - anchor));
+                    native.SelectedRange = range;
+                    await Task.Delay(30);
+                    EditorContractTests.Equal(range, native.SelectedRange, "native drag endpoints retained");
+                    EditorContractTests.Equal(before, native.TextStorage.Value, "selection does not rewrite native text");
+                    EditorContractTests.Equal(false, document.CanUndo, "selection creates no edit");
+                    if (rowDistance == 0 && columnDistance == 0)
+                        EditorContractTests.Equal(true, editor.StructuredSession!.Selection is RichEdit.Core.RichTextSelection, "range inside one cell remains text");
+                    else
+                        EditorContractTests.Equal<RichSelection>(new RichCellSelection(table.Id, Math.Min(row, anchorRow), Math.Min(column, anchorColumn), rowDistance + 1, columnDistance + 1),
+                            editor.StructuredSession!.Selection, "native cell rectangle");
+                }
+            }
+        }
+        finally { editor.Document = previous; }
+    }
+
     private static async Task VerifyReferenceBulletDeletion(NativeEditorView editor)
     {
         using var input = typeof(AppleEditorTests).Assembly.GetManifestResourceStream("ReferenceDocument")!;
@@ -72,12 +113,12 @@ internal static partial class AppleEditorTests
             var handler = (RichEditorHandler)editor.Handler!;
             var native = handler.PlatformView;
             using var caret = native.GetDisplayPosition(native.BeginningOfDocument, (nint)native.SelectedRange.Location)!;
-            native.SetContentOffset(new(0, Math.Max(0, native.GetDisplayCaret(caret).Y - 100)), false);
+            PositionReferenceCaret(native, caret);
             await Task.Delay(100);
             var offset = native.ContentOffset.Y;
             native.InsertText("\n");
             await Task.Delay(80);
-            EditorContractTests.Equal(true, Math.Abs(native.ContentOffset.Y - offset) < 2, "numbered Enter keeps the viewport stable");
+            EditorContractTests.Equal(true, Math.Abs(native.ContentOffset.Y - offset) < 2, $"numbered Enter keeps the viewport stable: before={offset}, after={native.ContentOffset.Y}, content={native.ContentSize.Height}, viewport={native.Bounds.Height}");
             var continued = document.CurrentSnapshot.Get<RichList>(list.Id);
             EditorContractTests.Equal(list.Items.Count + 1, continued.Items.Count, "Return at item end creates another numbered item");
             EditorContractTests.Equal(list.NumberStyle, continued.NumberStyle, "numbering style retained");
@@ -147,12 +188,12 @@ internal static partial class AppleEditorTests
             marker = native.Subviews.OfType<NativeListMarkerLabel>().First(label => label.Text == "•");
             EditorContractTests.Equal(frame.X, marker.Frame.X, "typing does not move the bullet");
             using var caretPosition = native.GetDisplayPosition(native.BeginningOfDocument, (nint)native.SelectedRange.Location)!;
-            native.SetContentOffset(new(0, Math.Max(0, native.GetDisplayCaret(caretPosition).Y - 100)), false);
+            PositionReferenceCaret(native, caretPosition);
             await Task.Delay(100);
             var beforeEnter = native.ContentOffset.Y;
             native.InsertText("\n");
             await Task.Delay(80);
-            EditorContractTests.Equal(true, Math.Abs(native.ContentOffset.Y - beforeEnter) < 2, "list Enter keeps the visible caret in place");
+            EditorContractTests.Equal(true, Math.Abs(native.ContentOffset.Y - beforeEnter) < 2, $"list Enter keeps the visible caret in place: before={beforeEnter}, after={native.ContentOffset.Y}, content={native.ContentSize.Height}, viewport={native.Bounds.Height}");
             native.InsertText("new item");
             await Task.Delay(80);
             var updated = model.CurrentSnapshot.Get<RichList>(list.Id);
@@ -177,6 +218,15 @@ internal static partial class AppleEditorTests
             EditorContractTests.Equal(2, native.Subviews.OfType<NativeListMarkerLabel>().Count(label => label.Text == "•"), "typing retains the final bullet");
         }
         finally { editor.Document = previous; }
+    }
+
+    private static void PositionReferenceCaret(RichTextView native, UITextPosition caret)
+    {
+        // Start within the native scroll range. A short desktop document cannot
+        // place its last paragraphs 100 points from the top without overscrolling.
+        double minimum = -native.AdjustedContentInset.Top;
+        double maximum = Math.Max(minimum, native.ContentSize.Height - native.Bounds.Height + native.AdjustedContentInset.Bottom);
+        native.SetContentOffset(new(0, Math.Clamp(native.GetDisplayCaret(caret).Y - 100, minimum, maximum)), false);
     }
 }
 #endif

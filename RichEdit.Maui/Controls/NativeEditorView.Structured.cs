@@ -171,8 +171,18 @@ public partial class NativeEditorView
 
     internal bool DeleteStructuredSelection()
     {
-        if (StructuredSession is not { Selection: RichCellSelection or RichBlockSelection } session || Composition.IsActive) return false;
+        if (StructuredSession is not { } session || Composition.IsActive) return false;
         var selection = session.Selection;
+        // A native surface can delete only the selection in its own text flow.
+        // Route selections spanning native list/cell surfaces through the shared
+        // document so every selected paragraph belongs to the same undo step.
+        var spansSurfaces = selection switch
+        {
+            RichEdit.Core.RichTextSelection text => SpansSurfaces(text),
+            RichTextSelectionSet set => set.Any(item => SpansSurfaces(item.Selection)),
+            _ => false,
+        };
+        if (selection is not (RichCellSelection or RichBlockSelection) && !spansSurfaces) return false;
         if (selection is RichCellSelection cells)
         {
             var snapshot = session.Document.CurrentSnapshot;
@@ -181,6 +191,21 @@ public partial class NativeEditorView
                 selection = new RichBlockSelection(snapshot.Get<RichTable>(cells.Table).Parent!.Value, cells.Table, cells.Table);
         }
         return ApplyStructuredNativeInput(selection, "");
+
+        bool SpansSurfaces(RichEdit.Core.RichTextSelection text) =>
+            FindStructuredSurface(text)?.Document.StructuredProjection is { } projection &&
+            !projection.ContainsParagraph(text.Anchor.Paragraph) &&
+            TextContainer(text.Anchor) == TextContainer(text.Active);
+
+        RichNodeId TextContainer(RichTextPoint point)
+        {
+            // Text deletion joins list items within one story or cell. Crossing
+            // table cells requires a cell/block selection, not a text join.
+            var snapshot = session.Document.CurrentSnapshot;
+            var node = snapshot.Get<RichNode>(point.Paragraph);
+            while (node is not (RichStory or RichTableCell)) node = snapshot.Get<RichNode>(node.Parent!.Value);
+            return node.Id;
+        }
     }
 
     private TextSelectionSet? GetStructuredSelections()

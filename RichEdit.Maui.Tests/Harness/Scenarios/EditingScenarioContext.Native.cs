@@ -15,6 +15,37 @@ namespace RichEdit.Maui.Tests;
 
 internal sealed partial class EditingScenarioContext
 {
+    internal void DeleteSelection()
+    {
+#if ANDROID
+        // DeleteSurroundingText deliberately excludes the selected text.
+        // Exercise the native Delete key path for a nonempty selection.
+        var native = Handler.PlatformView;
+        using var down = new Android.Views.KeyEvent(Android.Views.KeyEventActions.Down, Android.Views.Keycode.Del);
+        using var up = new Android.Views.KeyEvent(Android.Views.KeyEventActions.Up, Android.Views.Keycode.Del);
+        Check(native.DispatchKeyEvent(down), "native selection deletion accepted");
+        native.DispatchKeyEvent(up);
+#else
+        Backspace();
+#endif
+    }
+
+    internal string[] RichNativeTexts()
+    {
+#if ANDROID
+        return TextViews((Android.Views.View)Rich.Content!.Handler!.PlatformView!).Select(view => view.Text ?? "").ToArray();
+        static IEnumerable<Android.Widget.EditText> TextViews(Android.Views.View view)
+        {
+            if (view is Android.Widget.EditText text) yield return text;
+            if (view is Android.Views.ViewGroup group)
+                for (var index = 0; index < group.ChildCount; index++)
+                    foreach (var child in TextViews(group.GetChildAt(index)!)) yield return child;
+        }
+#else
+        return [NativeText(Rich.NativeView)];
+#endif
+    }
+
     internal static string NativeText(NativeEditorView surface)
     {
         var handler = (RichEditorHandler)surface.Handler!;
