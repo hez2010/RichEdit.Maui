@@ -478,6 +478,7 @@ internal sealed class RichStructuredHostTestPage : ContentPage
                 Content = _editor;
             }
         });
+        await Test("sample theme changes preserve reference colors and native editing state", RichEditorThemeTests.RunAsync);
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         File.WriteAllLines(report, results);
     }

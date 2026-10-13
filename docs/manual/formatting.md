@@ -37,4 +37,12 @@ Character support includes bold, italic, underline variants/colors, strike-throu
 
 `FontFamily`, `FontSize`, and `TextColor` on the view are fallback appearance and do not change saved content. Presentation layers compose afterward. Native engines can approximate some retained properties; see [RTF support](../../RTF_SUPPORT.md).
 
+For a light/dark app theme, bind the editor's fallback text color and background together. Explicit colors in the document keep their authored values.
+
+```xml
+<rich:RichEditor
+    TextColor="{AppThemeBinding Light=Black, Dark=White}"
+    BackgroundColor="{AppThemeBinding Light=White, Dark=#192933}" />
+```
+
 Body text wraps within the editor's available width, accounting for paragraph indents. Table text uses the cell's width. Alignment does not change font size: each paragraph's text keeps its resolved character formatting.

@@ -4,6 +4,12 @@
              xmlns:rich="clr-namespace:RichEdit.Maui;assembly=RichEdit.Maui"
              x:Class="RichEdit.Maui.TestApp.RichEditorPage"
              Title="Rich editor" Shell.NavBarIsVisible="False">
+    <ContentPage.Resources>
+        <Style TargetType="rich:RichEditor">
+            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource LightInk}, Dark={StaticResource DarkInk}}" />
+            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource LightSurface}, Dark={StaticResource DarkSurface}}" />
+        </Style>
+    </ContentPage.Resources>
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Padding="18" RowSpacing="10">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <VerticalStackLayout Spacing="3">

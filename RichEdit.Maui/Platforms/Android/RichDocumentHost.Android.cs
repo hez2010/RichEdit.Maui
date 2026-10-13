@@ -95,6 +95,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
             nameof(NativeEditorView.IsReadOnly) or nameof(NativeEditorView.IsSpellCheckEnabled) or nameof(NativeEditorView.IsTextPredictionEnabled) or
             nameof(NativeEditorView.Keyboard) or nameof(NativeEditorView.AcceptsTab) or nameof(NativeEditorView.MaxLength))) return;
         foreach (var surface in _surfaces.Values) CopyAppearance(surface);
+        UpdateListMarkerAppearance();
         PaintCellSelection();
     }
     private void QueueRebuild()
@@ -149,6 +150,7 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
             _cells[id].Background = null; _cells.Remove(id);
             _cellBackgrounds[id].Dispose(); _cellBackgrounds.Remove(id); _paintedCellFormats.Remove(id);
         }
+        UpdateListMarkerAppearance();
         PaintCellSelection();
         // A new empty list item has no focusable bounds until its first layout.
         if (focused)
@@ -185,7 +187,6 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
                         var (row, marker) = nativeRow;
                         var label = list.Numbered ? RichTextListFormatter.FormatNumber(list.StartNumber + index, (RichListNumberStyle)list.NumberStyle) + "." : "•";
                         if (marker.Text != label) marker.Text = label;
-                        marker.SetTextSize(Android.Util.ComplexUnitType.Sp, (float)(_owner.FontSize ?? 14));
                         marker.SetPadding(0, Pixels(4), Pixels(4), 0);
                         ReconcileChildren(row, new (NativeView, ViewGroup.LayoutParams)[]
                         {
@@ -289,6 +290,18 @@ internal sealed class RichDocumentHost : Android.Widget.ScrollView
         surface.IsTextPredictionEnabled = _coordinator.IsTextPredictionEnabled;
         surface.Keyboard = _coordinator.Keyboard; surface.AcceptsTab = _coordinator.AcceptsTab;
         surface.MaxLength = _coordinator.MaxLength;
+    }
+    private void UpdateListMarkerAppearance()
+    {
+        var text = _surfaces.Values.Select(surface => (surface.Handler as RichEditorHandler)?.PlatformView)
+            .FirstOrDefault(view => view is not null);
+        if (text is null) return;
+        foreach (var row in _listRows.Values)
+        {
+            row.Marker.SetTextColor(text.TextColors);
+            row.Marker.SetTextSize(Android.Util.ComplexUnitType.Px, text.TextSize);
+            row.Marker.Typeface = text.Typeface;
+        }
     }
     private RichNativeTableCell? TableCellContext(RichNodeId root)
     {
