@@ -39,7 +39,7 @@
     </ContentPage.Resources>
 
     <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14"
-          MaximumWidthRequest="1440" HorizontalOptions="Fill">
+          HorizontalOptions="Fill">
         <Grid.Padding>
             <OnIdiom x:TypeArguments="Thickness" Desktop="28" Phone="14" Default="20" />
         </Grid.Padding>
