@@ -15,8 +15,6 @@ public partial class RichEditorPage
     }
     private void OnNewDocument(object? sender, EventArgs args) => UseDocument(new RichDocument(), "Untitled.rtf");
     private async void OnLoadReference(object? sender, EventArgs args) => await LoadBundledDocument("ReferenceDocument", "RTF reference");
-    private async void OnLoadStudio(object? sender, EventArgs args) => await LoadBundledDocument("StudioNotesDocument", "Studio notes.rtf");
-    private void OnLoadFeatureTour(object? sender, EventArgs args) => UseDocument(CreateFeatureDocument(), "Feature tour");
     private void OnToggleTheme(object? sender, EventArgs args) => StudioTheme.Toggle();
 
     private async Task LoadBundledDocument(string resource, string title)

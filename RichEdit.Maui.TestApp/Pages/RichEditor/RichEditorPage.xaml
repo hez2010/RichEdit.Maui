@@ -25,8 +25,6 @@
         <HorizontalStackLayout Spacing="4">
             <Button Text="New" Clicked="OnNewDocument" AutomationId="NewDocument" />
             <Button Text="RTF reference" Clicked="OnLoadReference" AutomationId="LoadReferenceDocument" />
-            <Button Text="Studio notes" Clicked="OnLoadStudio" />
-            <Button Text="Feature tour" Clicked="OnLoadFeatureTour" />
             <Button Text="Theme" Clicked="OnToggleTheme" />
 
             <Button Text="Undo" Command="{Binding Source={x:Reference Editor}, x:DataType=rich:RichEditor, Path=Commands.Undo}" Margin="2" />

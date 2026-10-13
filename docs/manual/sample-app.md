@@ -9,7 +9,7 @@ RichEdit Studio has separate rich-text and code-editor tabs. The tools act on th
 
 ## Rich document
 
-The sample opens the bundled **RTF reference** document. **RTF reference**, **Studio notes**, and **Feature tour** load the three bundled examples. **New** opens an empty document. **Theme** changes the app's light or dark appearance.
+The sample opens the bundled **RTF reference** document. **RTF reference** reloads that document. **New** opens an empty document. **Theme** changes the app's light or dark appearance.
 
 Choose a group in **Editor tools**. Tool rows scroll horizontally on narrow screens.
 
