@@ -67,7 +67,7 @@ public partial class NativeEditorView
         if (SourceSession is not null && modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete &&
             Selections.Any(item => item.AnchorVirtualSpaces != 0 || item.ActiveVirtualSpaces != 0))
             return DeleteSourceVirtualSelections(key == EditorKey.Backspace);
-        if (modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete && DeleteStructuredCells()) return true;
+        if (modifiers == EditorKeyModifiers.None && key is EditorKey.Backspace or EditorKey.Delete && DeleteStructuredSelection()) return true;
         if (modifiers == EditorKeyModifiers.None && key is EditorKey.Left or EditorKey.Right or EditorKey.Up or EditorKey.Down or EditorKey.Home or EditorKey.End &&
             StructuredSession?.Selection is RichEdit.Core.RichCellSelection or RichEdit.Core.RichBlockSelection)
         {

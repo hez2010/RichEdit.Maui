@@ -166,7 +166,7 @@ namespace RichEdit.Maui.Platforms.Apple
         public override void DeleteBackward()
         {
             if (ProjectionHandler?.VirtualView.TryHandleStructuredListKey(EditorKey.Backspace) == true) return;
-            if (ProjectionHandler?.VirtualView.DeleteStructuredCells() == true) return;
+            if (ProjectionHandler?.VirtualView.DeleteStructuredSelection() == true) return;
             ProjectionHandler?.PrepareNativeSourceKey(EditorKey.Backspace);
             base.DeleteBackward();
         }

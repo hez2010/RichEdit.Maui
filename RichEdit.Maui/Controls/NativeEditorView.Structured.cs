@@ -169,11 +169,18 @@ public partial class NativeEditorView
         return length <= limit || length <= StructuredSession!.Document.CurrentSnapshot.ProjectText().Text.Length;
     }
 
-    internal bool DeleteStructuredCells()
+    internal bool DeleteStructuredSelection()
     {
-        if (StructuredSession?.Selection is not (RichCellSelection or RichBlockSelection) || Composition.IsActive) return false;
-        ReplaceStructuredSelections("");
-        return true;
+        if (StructuredSession is not { Selection: RichCellSelection or RichBlockSelection } session || Composition.IsActive) return false;
+        var selection = session.Selection;
+        if (selection is RichCellSelection cells)
+        {
+            var snapshot = session.Document.CurrentSnapshot;
+            var grid = snapshot.GetTableGrid(cells.Table);
+            if (cells.Row == 0 && cells.Column == 0 && cells.RowCount == grid.Rows && cells.ColumnCount == grid.Columns)
+                selection = new RichBlockSelection(snapshot.Get<RichTable>(cells.Table).Parent!.Value, cells.Table, cells.Table);
+        }
+        return ApplyStructuredNativeInput(selection, "");
     }
 
     private TextSelectionSet? GetStructuredSelections()

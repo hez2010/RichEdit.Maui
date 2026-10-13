@@ -19,16 +19,20 @@ public sealed partial class RichEditor
         var needsHost = Document.CurrentSnapshot.Nodes.Values.Any(node => node is RichTable or RichList);
         if (needsHost && _structureHost is null)
         {
+            var focused = _view.IsFocused;
             _structureHost = new(this);
             Content = _structureHost;
             _view.Handler = null;
+            if (focused) Focus();
         }
         else if (!needsHost && _structureHost is not null)
         {
+            var focused = _view.HasFocusedStructuredSurface;
             var previous = _structureHost;
             _structureHost = null;
             Content = _view;
             previous.Handler?.DisconnectHandler();
+            if (focused) Focus();
         }
     }
 }

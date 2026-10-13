@@ -478,6 +478,26 @@ internal sealed class RichStructuredHostTestPage : ContentPage
                 Content = _editor;
             }
         });
+        await Test("deleting a complete table removes the table and preserves native focus through undo", async () =>
+        {
+            var table = _table;
+            var before = _editor.Document.CurrentSnapshot.ProjectText().Text.ToString();
+            var cells = new RichCellSelection(table, 0, 0, 2, 2);
+            _editor.Selection = cells;
+            _editor.Focus();
+            await Task.Delay(80);
+            Equal(true, _editor.NativeView.HasFocusedStructuredSurface, "focus before deleting the table");
+            Equal(true, _editor.NativeView.SendKeyDown(EditorKey.Delete, EditorKeyModifiers.None), "whole-table Delete handled");
+            await Task.Delay(200);
+            Equal(false, _editor.Document.CurrentSnapshot.Nodes.ContainsKey(table));
+            Equal(true, _editor.NativeView.IsFocused || _editor.NativeView.HasFocusedStructuredSurface, "focus after deleting the table");
+            _editor.Undo();
+            await Ready();
+            await Task.Delay(80);
+            Equal(before, _editor.Document.CurrentSnapshot.ProjectText().Text.ToString());
+            Equal(cells, _editor.Selection);
+            Equal(true, _editor.NativeView.HasFocusedStructuredSurface, "focus after undoing table deletion");
+        });
         await Test("sample theme changes preserve reference colors and native editing state", RichEditorThemeTests.RunAsync);
         results.Add($"COMPLETE {results.Count} tests, {results.Count(result => result.StartsWith("FAIL", StringComparison.Ordinal))} failures");
         File.WriteAllLines(report, results);

@@ -302,8 +302,8 @@ internal sealed class StructuredRichNativeMap
             if (selection.Active < _ordered[0].Start && Snapshot.Get<RichBlock>(body.Blocks[0]) is RichTable)
                 return new RichBoundarySelection(Snapshot.Body, body.Blocks[0], RichBlockEdge.Before);
         }
-        anchor ??= _text.GetPoint(ToSource(selection.Anchor));
-        active ??= _text.GetPoint(ToSource(selection.Active));
+        anchor ??= SelectionBoundary(selection.Anchor, selection.Anchor > selection.Active);
+        active ??= SelectionBoundary(selection.Active, selection.Active > selection.Anchor);
         if (anchor is null || active is null) throw new ArgumentException("The native range does not have valid rich endpoints.", nameof(selection));
         // Native table selections include cell/row separators. Their exclusive
         // end can be the next cell's start, so use the paragraphs inside the
@@ -333,6 +333,15 @@ internal sealed class StructuredRichNativeMap
             }
         }
         return new RichEdit.Core.RichTextSelection(anchor.Value, active.Value);
+
+        RichTextPoint? SelectionBoundary(int offset, bool trailing)
+        {
+            // An exclusive end in a native row/paragraph separator belongs to
+            // the preceding content, not the first cell after that separator.
+            if (trailing && _ordered.LastOrDefault(paragraph => paragraph.End <= offset) is { } previous)
+                return new(Snapshot.Body, previous.Id, Snapshot.GetParagraphLength(previous.Id));
+            return _text.GetPoint(ToSource(offset));
+        }
 
         IEnumerable<RichTableCell> CellsFor(RichNodeId paragraph)
         {

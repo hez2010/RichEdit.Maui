@@ -196,7 +196,15 @@ public sealed partial class RichEditor : ContentView
         session.Document.StateChanged -= _stateObserver;
         _stateObserver = null;
     }
-    private void OnDocumentChanged(object? sender, RichDocumentChangedEventArgs args) { Presentation.Changed(args); OnStateChanged(); ContentChanged?.Invoke(this, args); UpdateStructureHost(immediate: false); }
+    private void OnDocumentChanged(object? sender, RichDocumentChangedEventArgs args)
+    {
+        Presentation.Changed(args);
+        OnStateChanged();
+        // Schedule a host transition before child hosts respond to the same
+        // change, so the outgoing native control still owns its focus.
+        UpdateStructureHost(immediate: false);
+        ContentChanged?.Invoke(this, args);
+    }
     private void OnSelectionChanged(object? sender, EventArgs args)
     {
         _synchronizingSelection = true;

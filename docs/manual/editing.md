@@ -34,9 +34,9 @@ editor.ReplaceSelection("Hello");
 
 A `RichTextSelectionSet` supplies stable selection IDs and one primary selection. Typing, deletion, paste, and history use the whole set. The native control owns primary selection and touch handles; secondary carets use native geometry.
 
-Cell selections expand to include whole merged cells. Replacing selected cell content preserves the grid. Delete rows, columns, or complete blocks with explicit structural operations. Text replacement cannot silently flatten table boundaries.
+Cell selections expand to include whole merged cells. Replacing selected cell content preserves the grid. Delete or Backspace removes the table when every cell is selected; with a partial cell selection, it clears the selected cells. Use `ClearCells` to empty a whole table while keeping its grid. Row, column, and block commands provide explicit structural operations. Text replacement does not flatten partially selected table boundaries.
 
-Deleting text across items in one list joins the remaining text and keeps the list's numbering style. Deleting the first item's leading paragraph break joins its text to the preceding paragraph. Backspace at the start of the first item removes its list membership; if the paragraph is empty, another Backspace removes the remaining line. Undo restores both text and list membership.
+Deleting text across list items or separate lists in the same text container joins the remaining prefix and suffix. Unselected text keeps its character formatting, and trailing list items retain their numbering. Fully selected lists and intervening blocks are removed. Deleting the first item's leading paragraph break joins its text to the preceding paragraph. Backspace at the start of the first item removes its list membership; if the paragraph is empty, another Backspace removes the remaining line. Undo restores both text and list membership.
 
 ## Source selections and batches
 

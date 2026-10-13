@@ -4,6 +4,53 @@ namespace RichEdit.Core.Tests;
 
 public sealed class RichSelectionEditingTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void CrossListDeletionPreservesUnselectedTextFormattingAndTrailingItems(bool startsInList, bool endsInList)
+    {
+        RichNodeId first = default, last = default, tail = default, endingList = default;
+        var document = new RichDocument(RichDocumentSnapshot.Build(edit =>
+        {
+            edit.ReplaceText(new(edit.Body, new(2), 0), 0, "before");
+            edit.InsertParagraph(edit.Body, 1, "lead");
+            first = edit.InsertParagraph(edit.Body, 2, "abcd");
+            edit.InsertParagraph(edit.Body, 3, "middle A");
+            edit.InsertParagraph(edit.Body, 4, "middle B");
+            last = edit.InsertParagraph(edit.Body, 5, "GHIJ");
+            tail = edit.InsertParagraph(edit.Body, 6, "tail");
+            edit.InsertParagraph(edit.Body, 7, "after");
+            edit.SetCharacterFormat(new(edit.Body, first, 0), 4, new() { Bold = true });
+            edit.SetCharacterFormat(new(edit.Body, last, 0), 4, new() { Italic = true });
+            if (startsInList) edit.WrapInList(edit.Body, 1, 3, numbered: true);
+            if (endsInList) endingList = edit.WrapInList(edit.Body, edit.Snapshot.Get<RichStory>(edit.Body).Blocks.IndexOf(last), 2, numbered: true, startNumber: 7);
+            edit.InsertTable(edit.Body, edit.Snapshot.Get<RichStory>(edit.Body).Blocks.IndexOf(endsInList ? endingList : last), 1, [new(1000)]);
+        }));
+        var before = document.CurrentSnapshot;
+        using var session = document.CreateSession();
+        using var peer = document.CreateSession();
+        var peerSelection = new RichTextSelection(new(before.Body, tail, 1), new(before.Body, tail, 1));
+        peer.Selection = peerSelection;
+        var selected = new RichTextSelection(new(before.Body, first, 2), new(before.Body, last, 2));
+        session.Selection = selected;
+        session.ReplaceSelection("");
+        var after = document.CurrentSnapshot;
+        Assert.Equal("before\nlead\nabIJ\ntail\nafter", after.ProjectText().Text.ToString());
+        Assert.Empty(after.Nodes.Values.OfType<RichTable>());
+        Assert.All(after.GetSelectedCharacterFormats(new RichTextSelection(new(after.Body, first, 0), new(after.Body, first, 2))), format => Assert.True(format.Bold));
+        Assert.All(after.GetSelectedCharacterFormats(new RichTextSelection(new(after.Body, first, 2), new(after.Body, first, 4))), format => Assert.True(format.Italic));
+        Assert.Equal(peerSelection, peer.Selection);
+        if (endsInList) Assert.Equal(8, after.Get<RichList>(endingList).StartNumber);
+        session.Undo();
+        Assert.True(before.ContentEquals(document.CurrentSnapshot));
+        Assert.Equal(selected, session.Selection);
+        session.Redo();
+        Assert.True(after.ContentEquals(document.CurrentSnapshot));
+        Assert.Equal(peerSelection, peer.Selection);
+    }
+
     [Fact]
     public void SelectingAllBlocksRemovesTablesWhileSelectingCellsRetainsTheirGrid()
     {

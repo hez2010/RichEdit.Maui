@@ -5,7 +5,7 @@ namespace RichEdit.Core;
 public sealed partial class RichDocumentEdit
 {
     /// <summary>Replaces a typed selection with semantic paragraphs and soft breaks, returning the resulting caret.</summary>
-    /// <remarks>Text replacement can join paragraphs and items of one list. Use structural selections across table cells or structural blocks.</remarks>
+    /// <remarks>Text replacement joins paragraphs and list items within one text container and removes fully enclosed blocks. Use cell selections across table cells.</remarks>
     public RichSelection ReplaceSelection(RichSelection selection, string text, RichCharacterStyle? typingFormat = null)
     {
         VerifyOpen();
@@ -13,17 +13,19 @@ public sealed partial class RichDocumentEdit
         if (typingFormat is not null) RichStyleSheet.Validate(typingFormat);
         var snapshot = Candidate(validate: false);
         selection = snapshot.NormalizeSelection(selection);
+        if (selection is RichTextSelection complete && WholeBlocks(snapshot, complete) is { } blocks)
+            selection = blocks;
         RichTextPoint start;
         RichInline? seed = null;
         switch (selection)
         {
             case RichTextSelectionSet set:
                 return ReplaceSelections(set, Enumerable.Repeat(text, set.Count).ToArray(), typingFormat);
-            case RichBlockSelection blocks:
-                var selectedBlocks = snapshot.GetSelectedBlocks(blocks);
+            case RichBlockSelection blockSelection:
+                var selectedBlocks = snapshot.GetSelectedBlocks(blockSelection);
                 var firstParagraph = snapshot.Get<RichParagraph>(snapshot.EnumerateParagraphs(selectedBlocks[0]).First());
                 seed = firstParagraph.Inlines.Count == 0 ? null : snapshot.Get<RichInline>(firstParagraph.Inlines[0]);
-                var inserted = InsertParagraph(blocks.Parent, Blocks(Get<RichNode>(blocks.Parent)).IndexOf(selectedBlocks[0]));
+                var inserted = InsertParagraph(blockSelection.Parent, Blocks(Get<RichNode>(blockSelection.Parent)).IndexOf(selectedBlocks[0]));
                 _nodes[inserted] = Get<RichParagraph>(inserted) with
                 { Style = firstParagraph.Style, Format = firstParagraph.Format, Character = firstParagraph.Character };
                 foreach (var block in selectedBlocks) DeleteBlock(block);
@@ -72,6 +74,33 @@ public sealed partial class RichDocumentEdit
         return new RichTextSelection(caret, caret);
     }
 
+    private static RichBlockSelection? WholeBlocks(RichDocumentSnapshot snapshot, RichTextSelection selection)
+    {
+        var reversed = snapshot.ComparePoints(selection.Anchor, selection.Active) > 0;
+        var start = reversed ? selection.Active : selection.Anchor;
+        var end = reversed ? selection.Anchor : selection.Active;
+        if (start.Offset != 0 || end.Offset != snapshot.GetParagraphLength(end.Paragraph) ||
+            snapshot.Get<RichParagraph>(start.Paragraph).Parent == snapshot.Get<RichParagraph>(end.Paragraph).Parent) return null;
+        var endAncestors = new Dictionary<RichNodeId, RichBlock>();
+        for (var node = snapshot.Get<RichNode>(end.Paragraph); node.Parent is { } parent; node = snapshot.Get<RichNode>(parent))
+        {
+            if (node is RichTableCell) break;
+            if (node is RichBlock block && snapshot.Get<RichNode>(parent) is RichStory or RichTableCell or RichListItem)
+                endAncestors[parent] = block;
+        }
+        for (var node = snapshot.Get<RichNode>(start.Paragraph); node.Parent is { } parent; node = snapshot.Get<RichNode>(parent))
+        {
+            if (node is RichTableCell) break;
+            if (node is not RichBlock first || !endAncestors.TryGetValue(parent, out var last)) continue;
+            // Entire lists and intervening blocks can be removed together while
+            // partial items continue through the text-joining path below.
+            return snapshot.EnumerateParagraphs(first.Id).First() == start.Paragraph &&
+                snapshot.EnumerateParagraphs(last.Id).Last() == end.Paragraph
+                ? new(parent, first.Id, last.Id) : null;
+        }
+        return null;
+    }
+
     /// <summary>Plans one replacement per normalized selection against the same candidate and retains stable selection identities.</summary>
     public RichTextSelectionSet ReplaceSelections(RichTextSelectionSet selections, IReadOnlyList<string> text, RichCharacterStyle? typingFormat = null)
     {
@@ -102,38 +131,13 @@ public sealed partial class RichDocumentEdit
         if (start.Paragraph == end.Paragraph) { ReplaceText(start, end.Offset - start.Offset, ""); return; }
         var first = Get<RichParagraph>(start.Paragraph);
         var last = Get<RichParagraph>(end.Paragraph);
-        if (first.Parent != last.Parent && Get<RichNode>(last.Parent!.Value) is RichListItem leadingItem &&
-            Get<RichList>(leadingItem.Parent!.Value) is { } followingList && followingList.Parent == first.Parent &&
-            followingList.Items[0] == leadingItem.Id)
-        {
-            var blocks = Blocks(Get<RichNode>(first.Parent!.Value));
-            var from = blocks.IndexOf(first.Id);
-            var to = blocks.IndexOf(followingList.Id);
-            if (blocks.Skip(from).Take(to - from).Any(id => Get<RichNode>(id) is not RichParagraph) ||
-                leadingItem.Blocks.Take(leadingItem.Blocks.IndexOf(last.Id) + 1).Any(id => Get<RichNode>(id) is not RichParagraph))
-                throw new ArgumentException("A text replacement cannot remove structural blocks.");
-            // Smart deletion may include the paragraph break before a selected
-            // first item. Promote that item before joining it to the preceding text.
-            UnwrapListItem(leadingItem.Id);
-            RemoveTextSelection(start, end);
-            return;
-        }
+        if (first.Parent != last.Parent && RemoveAcrossListContainers(start, end, first, last)) return;
         if (first.Parent != last.Parent && Get<RichNode>(first.Parent!.Value) is RichListItem firstItem &&
             Get<RichNode>(last.Parent!.Value) is RichListItem lastItem && firstItem.Parent == lastItem.Parent)
         {
             var list = Get<RichList>(firstItem.Parent!.Value);
             var firstItemIndex = list.Items.IndexOf(firstItem.Id);
             var lastItemIndex = list.Items.IndexOf(lastItem.Id);
-            // Check the entire selected span before changing membership. Tables
-            // and nested lists still require an explicit structural selection.
-            for (var index = firstItemIndex; index <= lastItemIndex; index++)
-            {
-                var blocks = Get<RichListItem>(list.Items[index]).Blocks;
-                var from = index == firstItemIndex ? blocks.IndexOf(first.Id) : 0;
-                var to = index == lastItemIndex ? blocks.IndexOf(last.Id) + 1 : blocks.Count;
-                if (blocks.Skip(from).Take(to - from).Any(id => Get<RichNode>(id) is not RichParagraph))
-                    throw new ArgumentException("A text replacement cannot remove structural blocks.");
-            }
             for (var index = firstItemIndex; index < lastItemIndex; index++)
             {
                 var next = Get<RichListItem>(Get<RichList>(list.Id).Items[firstItemIndex + 1]);
@@ -148,12 +152,61 @@ public sealed partial class RichDocumentEdit
         var siblings = Blocks(Get<RichNode>(first.Parent!.Value));
         var firstIndex = siblings.IndexOf(first.Id);
         var lastIndex = siblings.IndexOf(last.Id);
-        if (lastIndex <= firstIndex || siblings.Skip(firstIndex).Take(lastIndex - firstIndex + 1).Any(id => Get<RichNode>(id) is not RichParagraph))
-            throw new ArgumentException("A text replacement cannot remove structural blocks.");
+        if (lastIndex <= firstIndex) throw new ArgumentException("Text endpoints must follow document order.");
         ReplaceText(new(end.Story, end.Paragraph, 0), end.Offset, "");
         for (var index = lastIndex - 1; index > firstIndex; index--) DeleteBlock(siblings[index]);
         ReplaceText(start, Length(Get<RichParagraph>(start.Paragraph)) - start.Offset, "");
         JoinParagraphs(start.Paragraph, end.Paragraph);
+    }
+
+    private bool RemoveAcrossListContainers(RichTextPoint start, RichTextPoint end, RichParagraph first, RichParagraph last)
+    {
+        var firstItem = Get<RichNode>(first.Parent!.Value) as RichListItem;
+        var lastItem = Get<RichNode>(last.Parent!.Value) as RichListItem;
+        var firstList = firstItem is null ? null : Get<RichList>(firstItem.Parent!.Value);
+        var lastList = lastItem is null ? null : Get<RichList>(lastItem.Parent!.Value);
+        if (firstList is null && lastList is null || firstList?.Id == lastList?.Id) return false;
+        var parent = firstList?.Parent ?? first.Parent;
+        if (parent != (lastList?.Parent ?? last.Parent)) return false;
+        var siblings = Blocks(Get<RichNode>(parent!.Value));
+        var from = siblings.IndexOf(firstList?.Id ?? first.Id);
+        var to = siblings.IndexOf(lastList?.Id ?? last.Id);
+        if (to <= from) throw new ArgumentException("Text endpoints must follow document order.");
+
+        ReplaceText(start, Length(first) - start.Offset, "");
+        ReplaceText(new(end.Story, end.Paragraph, 0), end.Offset, "");
+        if (firstItem is not null)
+        {
+            var keep = firstItem.Blocks.IndexOf(first.Id) + 1;
+            foreach (var block in firstItem.Blocks.Skip(keep)) RemoveSubtree(block);
+            _nodes[firstItem.Id] = firstItem with { Blocks = firstItem.Blocks.GetRange(0, keep) };
+            var keepItems = firstList!.Items.IndexOf(firstItem.Id) + 1;
+            foreach (var item in firstList.Items.Skip(keepItems)) RemoveSubtree(item);
+            _nodes[firstList.Id] = firstList with { Items = firstList.Items.GetRange(0, keepItems) };
+        }
+
+        var suffix = lastItem is null ? new[] { last.Id } : lastItem.Blocks.Skip(lastItem.Blocks.IndexOf(last.Id)).ToArray();
+        if (lastItem is not null)
+        {
+            foreach (var block in lastItem.Blocks.Take(lastItem.Blocks.IndexOf(last.Id))) RemoveSubtree(block);
+            _nodes[lastItem.Id] = lastItem with { Blocks = lastItem.Blocks.RemoveRange(0, lastItem.Blocks.IndexOf(last.Id)) };
+        }
+        // Keep the ending item's unselected blocks and inline formatting with
+        // the surviving paragraph. Other trailing list items retain their list.
+        var destination = first.Parent!.Value;
+        var index = Blocks(Get<RichNode>(destination)).IndexOf(first.Id) + 1;
+        foreach (var block in suffix) MoveBlock(block, destination, index++);
+        JoinParagraphs(first.Id, last.Id);
+        if (lastItem is not null)
+        {
+            var removedItems = lastList!.Items.IndexOf(lastItem.Id) + 1;
+            foreach (var item in lastList.Items.Take(removedItems)) RemoveSubtree(item);
+            _nodes[lastList.Id] = lastList with { Items = lastList.Items.RemoveRange(0, removedItems) };
+            if (removedItems == lastList.Items.Count) DeleteBlock(lastList.Id);
+            else _nodes[lastList.Id] = Get<RichList>(lastList.Id) with { StartNumber = checked(lastList.StartNumber + removedItems) };
+        }
+        foreach (var block in siblings.Skip(from + 1).Take(to - from - 1)) DeleteBlock(block);
+        return true;
     }
 
     private RichTextPoint InsertPlainText(RichTextPoint point, string text, RichCharacterStyle? typingFormat, RichInline? seed)
