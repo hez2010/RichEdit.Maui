@@ -100,10 +100,19 @@ public partial class NativeEditorView
         try
         {
             SetSelectionsFromDocument(GetStructuredSelections()!);
-            (Handler as RichEditorHandler)?.RefreshStructuredSelection();
+            if (!_synchronizingSelection)
+                (Handler as RichEditorHandler)?.RefreshStructuredSelection();
             Commands.Refresh();
         }
         finally { _synchronizingStructured = false; }
+    }
+
+    internal void UpdateStructuredSelectionFromPlatform(RichSelection selection)
+    {
+        var previous = _synchronizingSelection;
+        _synchronizingSelection = true;
+        try { StructuredSession!.Selection = selection; }
+        finally { _synchronizingSelection = previous; }
     }
 
     private void SynchronizeStructuredSelection()

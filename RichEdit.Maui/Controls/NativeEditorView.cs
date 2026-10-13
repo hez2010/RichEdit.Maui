@@ -1113,6 +1113,7 @@ public partial class NativeEditorView : View
             return;
         }
 
+        var previous = _synchronizingSelection;
         _synchronizingSelection = fromPlatform;
         try
         {
@@ -1120,7 +1121,7 @@ public partial class NativeEditorView : View
         }
         finally
         {
-            _synchronizingSelection = false;
+            _synchronizingSelection = previous;
         }
     }
 

@@ -305,28 +305,39 @@ internal sealed class StructuredRichNativeMap
         anchor ??= _text.GetPoint(ToSource(selection.Anchor));
         active ??= _text.GetPoint(ToSource(selection.Active));
         if (anchor is null || active is null) throw new ArgumentException("The native range does not have valid rich endpoints.", nameof(selection));
-        var firstCell = CellFor(anchor.Value.Paragraph);
-        var lastCell = CellFor(active.Value.Paragraph);
-        if (firstCell is { } first && lastCell is { } last && first != last)
+        // Native table selections include cell/row separators. Their exclusive
+        // end can be the next cell's start, so use the paragraphs inside the
+        // selected interval rather than the caret at its end.
+        if (!selection.Range.IsEmpty &&
+            _ordered.FirstOrDefault(paragraph => paragraph.End >= selection.Range.Start && paragraph.Start < selection.Range.End) is { } firstParagraph &&
+            _ordered.LastOrDefault(paragraph => paragraph.Start < selection.Range.End && paragraph.End >= selection.Range.Start) is { } lastParagraph)
         {
-            var firstRow = Snapshot.Get<RichTableRow>(Snapshot.Get<RichTableCell>(first).Parent!.Value);
-            var lastRow = Snapshot.Get<RichTableRow>(Snapshot.Get<RichTableCell>(last).Parent!.Value);
-            if (firstRow.Parent == lastRow.Parent)
+            var lastCells = CellsFor(lastParagraph.Id).ToDictionary(cell => Snapshot.Get<RichTableRow>(cell.Parent!.Value).Parent!.Value);
+            foreach (var first in CellsFor(firstParagraph.Id))
             {
-                var grid = Snapshot.GetTableGrid(firstRow.Parent!.Value);
-                var a = grid.GetExtent(first); var b = grid.GetExtent(last);
+                var table = Snapshot.Get<RichTableRow>(first.Parent!.Value).Parent!.Value;
+                if (!lastCells.TryGetValue(table, out var last)) continue;
+                var grid = Snapshot.GetTableGrid(table);
+                if (first.Id == last.Id)
+                {
+                    var paragraphs = Snapshot.EnumerateParagraphs(first.Id).ToArray();
+                    if (paragraphs.All(_paragraphs.ContainsKey) && selection.Range.Start <= _paragraphs[paragraphs[0]].Start &&
+                        selection.Range.End > _paragraphs[paragraphs[^1]].End)
+                        return grid.GetExtent(first.Id);
+                    break;
+                }
+                var a = grid.GetExtent(first.Id); var b = grid.GetExtent(last.Id);
                 var top = Math.Min(a.Row, b.Row); var left = Math.Min(a.Column, b.Column);
-                return grid.Expand(new(firstRow.Parent.Value, top, left,
+                return grid.Expand(new(table, top, left,
                     Math.Max(a.Row + a.RowCount, b.Row + b.RowCount) - top, Math.Max(a.Column + a.ColumnCount, b.Column + b.ColumnCount) - left));
             }
         }
         return new RichEdit.Core.RichTextSelection(anchor.Value, active.Value);
 
-        RichNodeId? CellFor(RichNodeId paragraph)
+        IEnumerable<RichTableCell> CellsFor(RichNodeId paragraph)
         {
             for (var node = Snapshot.Get<RichNode>(paragraph); node.Parent is { } parent; node = Snapshot.Get<RichNode>(parent))
-                if (Snapshot.Get<RichNode>(parent) is RichTableCell cell) return cell.Id;
-            return null;
+                if (Snapshot.Get<RichNode>(parent) is RichTableCell cell) yield return cell;
         }
     }
 

@@ -89,7 +89,8 @@ public class NativeTableContractTests
         var lastParagraph = snapshot.Get<RichEdit.Core.RichTableCell>(grid[1, 1]).Blocks[0];
         var firstPosition = resolved.Map.ToNative(new(snapshot.Body, firstParagraph, 0));
         var lastPosition = resolved.Map.ToNative(new(snapshot.Body, lastParagraph, 0));
-        Assert.Equal(new RichEdit.Core.RichCellSelection(table.Id, 0, 0, 2, 2), resolved.Map.SelectionFromNative(new(firstPosition, lastPosition)));
+        // Include the empty final cell's paragraph mark; the native end is exclusive.
+        Assert.Equal(new RichEdit.Core.RichCellSelection(table.Id, 0, 0, 2, 2), resolved.Map.SelectionFromNative(new(firstPosition, lastPosition + 1)));
         Assert.Equal(new RichEdit.Core.RichBoundarySelection(snapshot.Body, table.Id, RichEdit.Core.RichBlockEdge.After),
             resolved.Map.SelectionFromNative(new(resolved.Map.NativeText.Length - 1, resolved.Map.NativeText.Length - 1)));
         native.Document.GetText(TextGetOptions.FormatRtf, out var saved);

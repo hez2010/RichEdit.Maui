@@ -236,7 +236,10 @@ public partial class RichEditorHandler
         // Preserve stable multi-caret identities when the primary text range is
         // unchanged. A native structural selection deliberately replaces the set.
         if (session.Selection is RichTextSelectionSet set && selection is RichEdit.Core.RichTextSelection text && set.Primary.Selection == text) return true;
-        session.Selection = selection;
+        // Native input owns its live range, including a table drag's anchor.
+        // Publish the rich selection without replacing the table or its range.
+        _structuredSelection = native;
+        VirtualView.UpdateStructuredSelectionFromPlatform(selection);
         return true;
     }
 
