@@ -45,11 +45,12 @@
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <PackageTags>richtext;richeditor;editor;maui;richtexteditor;texteditor;text</PackageTags>
+        <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeCoreAssembliesInPackage</TargetsForTfmSpecificBuildOutput>
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\TextEdit.Core\TextEdit.Core.csproj" />
-        <ProjectReference Include="..\RichEdit.Core\RichEdit.Core.csproj" />
+        <ProjectReference Include="..\TextEdit.Core\TextEdit.Core.csproj" PrivateAssets="all" />
+        <ProjectReference Include="..\RichEdit.Core\RichEdit.Core.csproj" PrivateAssets="all" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.101" />
         <InternalsVisibleTo Include="RichEdit.Maui.Tests" />
         <InternalsVisibleTo Include="RichEdit.Maui.TestApp" />
@@ -62,4 +63,11 @@
     </ItemGroup>
 
 
+    <!-- Ship the core assemblies with each platform asset, without separate NuGet dependencies. -->
+    <Target Name="IncludeCoreAssembliesInPackage" DependsOnTargets="ResolveReferences">
+        <ItemGroup>
+            <BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)"
+                                  Condition="'%(ReferenceCopyLocalPaths.ReferenceSourceTarget)' == 'ProjectReference' and ('%(ReferenceCopyLocalPaths.Filename)' == 'TextEdit.Core' or '%(ReferenceCopyLocalPaths.Filename)' == 'RichEdit.Core')" />
+        </ItemGroup>
+    </Target>
 </Project>

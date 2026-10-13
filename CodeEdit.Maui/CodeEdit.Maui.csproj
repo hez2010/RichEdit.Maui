@@ -36,6 +36,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
+        <ProjectReference Include="..\TextEdit.Core\TextEdit.Core.csproj" PrivateAssets="all" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.101" />
         <InternalsVisibleTo Include="RichEdit.Maui.Tests" />
     </ItemGroup>

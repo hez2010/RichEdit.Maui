@@ -40,14 +40,14 @@ jobs:
     - name: Pack
       if: success()
       run: |
-        dotnet pack TextEdit.Core -c Release -o artifacts
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        dotnet pack RichEdit.Core -c Release -o artifacts
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         dotnet pack RichEdit.Maui -c Release -o artifacts
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         dotnet pack CodeEdit.Maui -c Release -o artifacts
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    - name: Verify NuGet package contents
+      shell: pwsh
+      run: ./.github/scripts/VerifyPackages.ps1 artifacts
 
     - name: NuGet login
       if: success() && github.event_name == 'workflow_dispatch' && inputs.publish
@@ -62,8 +62,11 @@ jobs:
       env:
         NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
       run: |
-        $packages = @(Get-ChildItem artifacts -Filter *.nupkg -File)
-        if ($packages.Count -eq 0) { throw "No NuGet packages found in artifacts." }
+        $packages = foreach ($id in @('RichEdit.Maui', 'CodeEdit.Maui')) {
+          $matchingPackages = @(Get-ChildItem artifacts -Filter "$id.*.nupkg" -File)
+          if ($matchingPackages.Count -ne 1) { throw "Expected exactly one $id package in artifacts." }
+          $matchingPackages[0]
+        }
         foreach ($package in $packages) {
           dotnet nuget push $package.FullName --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

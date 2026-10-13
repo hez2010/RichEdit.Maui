@@ -12,7 +12,7 @@ dotnet add package RichEdit.Maui --version 0.5.0-preview.1
 dotnet add package CodeEdit.Maui --version 0.5.0-preview.1
 ```
 
-The MAUI packages bring in their document-core dependencies. Register the controls in `MauiProgram`:
+`RichEdit.Maui` includes the `RichEdit.Core` and `TextEdit.Core` assemblies. `CodeEdit.Maui` depends on `RichEdit.Maui`, so installing either editor brings in the required document types without separate core packages. Register the controls in `MauiProgram`:
 
 ```csharp
 using RichEdit.Maui;

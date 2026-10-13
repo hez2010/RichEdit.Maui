@@ -91,6 +91,8 @@
     <ItemGroup>
         <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
+        <ProjectReference Include="..\RichEdit.Core\RichEdit.Core.csproj" />
+        <ProjectReference Include="..\TextEdit.Core\TextEdit.Core.csproj" />
     </ItemGroup>
 
     <PropertyGroup Condition="'$(EnableEditorTestHarness)' == 'true'">

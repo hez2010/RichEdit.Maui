@@ -29,6 +29,8 @@
     <ItemGroup>
         <ProjectReference Include="..\CodeEdit.Maui\CodeEdit.Maui.csproj" />
         <ProjectReference Include="..\RichEdit.Maui\RichEdit.Maui.csproj" />
+        <ProjectReference Include="..\RichEdit.Core\RichEdit.Core.csproj" />
+        <ProjectReference Include="..\TextEdit.Core\TextEdit.Core.csproj" />
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CodeEditorFoldIndicators.cs" Link="Samples\CodeEditorFoldIndicators.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CSharpClassifier.cs" Link="Samples\CSharpClassifier.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CodeColorizer.cs" Link="Samples\CodeColorizer.cs" />
