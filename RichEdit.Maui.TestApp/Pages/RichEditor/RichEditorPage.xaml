@@ -31,7 +31,11 @@
         </HorizontalStackLayout>
         </ScrollView>
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
-            <Picker x:Name="DemoPicker" Title="Editor tools" SelectedIndexChanged="OnDemoChanged" AutomationId="PrimitiveDemo" HorizontalOptions="Start" WidthRequest="{OnIdiom Phone=170, Default=220}" />
+            <Picker x:Name="DemoPicker" Title="Editor tools" SelectedIndexChanged="OnDemoChanged" AutomationId="PrimitiveDemo" HorizontalOptions="Start">
+                <Picker.WidthRequest>
+                    <OnIdiom x:TypeArguments="x:Double" Phone="170" Default="220" />
+                </Picker.WidthRequest>
+            </Picker>
             <HorizontalStackLayout Grid.Column="1" Spacing="6">
                 <Label Text="Track changes" VerticalOptions="Center" FontSize="12" />
                 <Switch x:Name="TrackingSwitch" Toggled="OnTrackingChanged" AutomationId="TrackRichChanges" />
