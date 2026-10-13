@@ -47,7 +47,7 @@
 - name: Platform behavior
   href: platforms.md
 - name: RTF support matrix
-  href: ../../RTF_SUPPORT.md
+  href: rtf-support.md
 - name: Troubleshooting
   href: troubleshooting.md
 - name: Migrate to 0.5

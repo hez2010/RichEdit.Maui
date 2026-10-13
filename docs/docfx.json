@@ -38,11 +38,6 @@
           "api/native/**/*.yml",
           "api/core/**/*.yml"
         ]
-      },
-      {
-        "src": "..",
-        "files": ["RTF_SUPPORT.md"],
-        "dest": "reference"
       }
     ],
     "resource": [

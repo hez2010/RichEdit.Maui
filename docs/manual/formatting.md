@@ -35,7 +35,7 @@ Use `SetStyles`, `SetParagraphStyle`, `SetCharacterStyle`, `SetCharacterFormat`,
 
 Character support includes bold, italic, underline variants/colors, strike-through, foreground/highlight, shading, baseline/script placement, spacing, horizontal scaling, language, direction, capitals, outline, shadow, and hidden state. Paragraph support includes alignment, direction, indents, before/after spacing, line spacing, tabs/leaders, headings, keep/widow settings, hyphenation, shading, and uniform borders.
 
-`FontFamily`, `FontSize`, and `TextColor` on the view are fallback appearance and do not change saved content. Presentation layers compose afterward. Native engines can approximate some retained properties; see [RTF support](../../RTF_SUPPORT.md).
+`FontFamily`, `FontSize`, and `TextColor` on the view are fallback appearance and do not change saved content. Presentation layers compose afterward. Native engines can approximate some retained properties; see [RTF support](rtf-support.md).
 
 For a light/dark app theme, bind the editor's fallback text color and background together. Explicit colors in the document keep their authored values.
 

@@ -3,7 +3,7 @@
 [![RichEdit.Maui NuGet version](https://img.shields.io/nuget/vpre/RichEdit.Maui?label=RichEdit.Maui)](https://www.nuget.org/packages/RichEdit.Maui)
 [![CodeEdit.Maui NuGet version](https://img.shields.io/nuget/vpre/CodeEdit.Maui?label=CodeEdit.Maui)](https://www.nuget.org/packages/CodeEdit.Maui)
 
-Native rich-text and source editors for .NET MAUI, with separate document models, shared-view history, multiple carets, and native input. The current package version is **0.5.0-preview.1**.
+Native rich-text and source editors for .NET MAUI, with separate document models, shared-view history, multiple carets, and native input.
 
 - **RichEdit.Core**: structured paragraphs, styles, lists, tables, images, fields, annotations, retained revision groups, and RTF persistence.
 - **TextEdit.Core**: source documents, exact line endings, immutable snapshots, tracking, transactions, composition, and history without a MAUI dependency.
@@ -12,7 +12,7 @@ Native rich-text and source editors for .NET MAUI, with separate document models
 
 RTF is the only rich-document persistence and interchange format. Source text and ordinary plain-text clipboard fallback remain text operations. The controls use no WebViews.
 
-[Manual and API reference](https://hez2010.github.io/RichEdit.Maui/) · [Migration to 0.5](docs/manual/migration-0.5.md) · [RTF support](RTF_SUPPORT.md)
+[Manual and API reference](https://hez2010.github.io/RichEdit.Maui/) · [RTF support](docs/manual/rtf-support.md)
 
 ## Requirements and installation
 
@@ -65,7 +65,7 @@ await RtfCodec.WriteAsync(capture.Snapshot, outputStream);
 savedDocument.MarkSaved(capture);
 ```
 
-Complete composition before capturing a save. Streams and atomic destination replacement belong to the application. Read [history and saving](docs/manual/history-and-saving.md) for concurrent edits and [RTF support](RTF_SUPPORT.md) for resource limits and fidelity.
+Complete composition before capturing a save. Streams and atomic destination replacement belong to the application. Read [history and saving](docs/manual/history-and-saving.md) for concurrent edits and [RTF support](docs/manual/rtf-support.md) for resource limits and fidelity.
 
 ## Source editing
 
