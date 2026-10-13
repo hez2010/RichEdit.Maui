@@ -113,11 +113,16 @@ internal sealed class StructuredRichNativeMap
         while (oldTail < before.Count && Snapshot.Get<RichBlock>(before[oldTail]) is not RichParagraph) { oldTail++; newTail++; }
 #if WINDOWS
         var oldLimit = Math.Max(0, NativeText.Length - 1); var newLimit = Math.Max(0, next.NativeText.Length - 1);
+        // Keep the unchanged context paragraph's terminator in the live story.
+        // Removing it immediately before a table makes native formatted-text
+        // replacement insert the incoming paragraphs inside the first cell.
+        const int paragraphTerminator = 0;
 #else
         var oldLimit = NativeText.Length; var newLimit = next.NativeText.Length;
+        const int paragraphTerminator = 1;
 #endif
-        var oldEnd = oldTail < before.Count ? Math.Min(oldLimit, _paragraphs[before[oldTail]].End + 1) : oldLimit;
-        var newEnd = newTail < after.Count ? Math.Min(newLimit, next._paragraphs[after[newTail]].End + 1) : newLimit;
+        var oldEnd = oldTail < before.Count ? Math.Min(oldLimit, _paragraphs[before[oldTail]].End + paragraphTerminator) : oldLimit;
+        var newEnd = newTail < after.Count ? Math.Min(newLimit, next._paragraphs[after[newTail]].End + paragraphTerminator) : newLimit;
         return (new(oldStart, oldEnd - oldStart), new(newStart, newEnd - newStart));
 
         bool Same(RichNodeId a, RichNodeId b)

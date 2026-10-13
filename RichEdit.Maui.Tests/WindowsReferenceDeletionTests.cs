@@ -9,12 +9,44 @@ public sealed class WindowsReferenceDeletionTests
 {
     private static Microsoft.UI.Xaml.Window? _window;
 
+    [Fact]
+    public Task UndoRestoresParagraphsBeforeANativeTableAtTheStartOfTheDocument() => Run(async (view, handler) =>
+    {
+        var document = view.StructuredSession!.Document;
+        var before = await Save(document);
+        var nativeBefore = NativeText(handler);
+        var body = document.CurrentSnapshot.Get<RichStory>(document.CurrentSnapshot.Body);
+        var prefix = body.Blocks.TakeWhile(id => document.CurrentSnapshot.Get<RichBlock>(id) is not RichTable).ToArray();
+        Assert.NotEmpty(prefix);
+        document.Edit(edit => { foreach (var block in prefix) edit.DeleteBlock(block); });
+        await Task.Delay(80);
+        Assert.IsType<RichTable>(document.CurrentSnapshot.Get<RichBlock>(document.CurrentSnapshot.Get<RichStory>(body.Id).Blocks[0]));
+        Assert.StartsWith("\uFFF9\r", NativeText(handler));
+        view.Undo();
+        await Task.Delay(80);
+        Assert.Equal(before, await Save(document));
+        Assert.Equal(nativeBefore, NativeText(handler));
+        view.Redo();
+        await Task.Delay(80);
+        Assert.StartsWith("\uFFF9\r", NativeText(handler));
+        view.Undo();
+        await Task.Delay(80);
+        Assert.Equal(nativeBefore, NativeText(handler));
+    });
+
     [Theory]
-    [InlineData(-3, false)]
-    [InlineData(-2, false)]
-    [InlineData(-3, true)]
-    [InlineData(-2, true)]
-    public Task DeleteFromFirstLineToTableBoundaryCanUndo(int boundaryOffset, bool priorEdit) => Run(async (view, handler) =>
+    [InlineData(-7, false, false)]
+    [InlineData(-6, false, false)]
+    [InlineData(-5, false, false)]
+    [InlineData(-4, false, false)]
+    [InlineData(-3, false, false)]
+    [InlineData(-2, false, false)]
+    [InlineData(-4, true, false)]
+    [InlineData(-3, true, false)]
+    [InlineData(-2, true, false)]
+    [InlineData(-4, false, true)]
+    [InlineData(-4, true, true)]
+    public Task DeleteFromFirstLineToTableBoundaryCanUndo(int boundaryOffset, bool priorEdit, bool reversed) => Run(async (view, handler) =>
     {
         var document = view.StructuredSession!.Document;
         if (priorEdit)
@@ -24,22 +56,54 @@ public sealed class WindowsReferenceDeletionTests
             await Task.Delay(50);
         }
         var original = await Save(document);
+        var nativeOriginal = NativeText(handler);
         var snapshot = document.CurrentSnapshot;
         var table = snapshot.Nodes.Values.OfType<RichTable>().First();
-        var first = snapshot.Get<RichTableCell>(snapshot.GetTableGrid(table.Id)[0, 0]).Blocks[0];
-        var position = snapshot.ProjectText().GetOffset(new(snapshot.Body, first, 0));
-        var tableStart = handler.NativeProjection.ToDisplay(new TextSelectionState(position, position)).Anchor;
-        handler.PlatformView.Document.Selection.SetRange(0, tableStart + boundaryOffset);
+        var tableStart = nativeOriginal.IndexOf("1st column", StringComparison.Ordinal);
+        Assert.True(tableStart >= 2);
+        Assert.Equal("\uFFF9\r", nativeOriginal[(tableStart - 2)..tableStart]);
+        var formats = new[] { "Font size 10", "Font size 12", "Underline,bold", "Underline,italic", "Font size 22", "Bold text.", "Italic text.", "1st column" }
+            .Select(text => nativeOriginal.IndexOf(text, StringComparison.Ordinal))
+            .Select(position => (Position: position, Format: handler.PlatformView.Document.GetRange(position, position + 1).CharacterFormat.GetClone())).ToArray();
+        handler.PlatformView.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        var nativeSelection = handler.PlatformView.Document.Selection;
+        nativeSelection.SetRange(0, tableStart + boundaryOffset);
+        nativeSelection.Options = reversed ? nativeSelection.Options | SelectionOptions.StartActive : nativeSelection.Options & ~SelectionOptions.StartActive;
         await Task.Delay(50);
+        var selected = view.StructuredSession.Selection;
         var diagnostic = $"Native selection {handler.PlatformView.Document.Selection.StartPosition}:{handler.PlatformView.Document.Selection.EndPosition}; rich {view.StructuredSession.Selection}";
         Delete(view, handler);
         await Task.Delay(80);
         var afterDelete = await Save(document);
         Assert.False(original.SequenceEqual(afterDelete), diagnostic);
         Assert.True(document.CurrentSnapshot.Nodes.ContainsKey(table.Id));
-        view.Undo();
-        await Task.Delay(80);
-        Assert.Equal(original, await Save(document));
+        var nativeDeleted = NativeText(handler);
+        Assert.Equal(0, nativeSelection.StartPosition);
+        Assert.Equal(0, nativeSelection.EndPosition);
+        for (var cycle = 0; cycle < 2; cycle++)
+        {
+            view.Undo();
+            await Task.Delay(80);
+            Assert.Equal(original, await Save(document));
+            Assert.Equal(nativeOriginal, NativeText(handler));
+            Assert.Equal(selected, view.StructuredSession.Selection);
+            Assert.Equal(0, nativeSelection.StartPosition);
+            // A range ending at the row separator restores to the preceding
+            // paragraph's end, with the same authored text selected.
+            Assert.Equal(Math.Min(tableStart + boundaryOffset, tableStart - 3), nativeSelection.EndPosition);
+            Assert.Equal(reversed, (nativeSelection.Options & SelectionOptions.StartActive) != 0);
+            foreach (var (position, format) in formats)
+                Assert.True(handler.PlatformView.Document.GetRange(position, position + 1).CharacterFormat.IsEqual(format), $"Native formatting changed at {position}.");
+            if (cycle == 0)
+            {
+                view.Redo();
+                await Task.Delay(80);
+                Assert.Equal(afterDelete, await Save(document));
+                Assert.Equal(nativeDeleted, NativeText(handler));
+                Assert.Equal(0, nativeSelection.StartPosition);
+                Assert.Equal(0, nativeSelection.EndPosition);
+            }
+        }
     });
 
     [Theory]
@@ -149,6 +213,13 @@ public sealed class WindowsReferenceDeletionTests
         using var stream = new MemoryStream();
         await RichEdit.Core.Rtf.RtfCodec.WriteAsync(document.CurrentSnapshot, stream);
         return stream.ToArray();
+    }
+
+    private static string NativeText(RichEditorHandler handler)
+    {
+        var range = handler.PlatformView.Document.GetRange(0, 0);
+        range.SetRange(0, range.StoryLength);
+        return range.Text;
     }
 
     private static Task Run(Func<NativeEditorView, RichEditorHandler, Task> action) => WindowsTestHost.RunAsync(async () =>
