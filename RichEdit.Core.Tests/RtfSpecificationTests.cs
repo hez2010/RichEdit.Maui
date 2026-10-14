@@ -419,6 +419,14 @@ public sealed class RtfSpecificationTests
         Assert.Equal("ソ＋±", result.Snapshot.ProjectText().Text.ToString());
     }
 
+    [Fact]
+    public async Task EscapedSemicolonsBelongToFontAndStyleNames()
+    {
+        var result = await Read(@"{\rtf1\deff0{\fonttbl{\f0 Font\'3bName;}}{\stylesheet{\s1 Style\'3bName;}}\s1 text\par}", strict: true);
+        Assert.Equal("Font;Name", result.Snapshot.DefaultCharacter.FontFamily.Value);
+        Assert.Equal("Style;Name", Assert.Single(result.Snapshot.Styles.Definitions.Values).Name);
+    }
+
     private sealed class OneByteStream(byte[] bytes) : MemoryStream(bytes)
     {
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>

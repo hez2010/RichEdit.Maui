@@ -7,6 +7,14 @@ namespace RichEdit.Core.Tests;
 public class RtfTokenReaderTests
 {
     [Fact]
+    public async Task LeadingZeroesDoNotChangeAnOtherwiseRepresentableParameter()
+    {
+        using var stream = new MemoryStream(Encoding.ASCII.GetBytes(@"{\rtf1\u00000000000000000065?\u-000000000000000010179?}"));
+        var values = (await ReadAll(new(stream))).Where(token => token.Word == "u").Select(token => token.Number).ToArray();
+        Assert.Equal(new int?[] { 65, -10179 }, values);
+    }
+
+    [Fact]
     public async Task ByteTokensRetainAnsiEscapesBinaryBracesAndOffsetsAcrossShortReads()
     {
         var prefix = Encoding.ASCII.GetBytes("{\\rtf1\\ansi A\\'e9\\u-10179?{\\*\\pict\\bin4 ");

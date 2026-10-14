@@ -78,14 +78,15 @@ internal sealed class RtfTokenReader(Stream input, long maximumBytes = 512L * 10
         var negative = await PeekAsync(cancellationToken).ConfigureAwait(false) == '-';
         if (negative) _ = await TakeAsync(cancellationToken).ConfigureAwait(false);
         long number = 0;
-        var digits = 0;
+        var hasDigits = false;
         while (await PeekAsync(cancellationToken).ConfigureAwait(false) is >= '0' and <= '9')
         {
             number = number * 10 + await TakeAsync(cancellationToken).ConfigureAwait(false) - '0';
-            if (++digits > 10 || number > (negative ? 2147483648L : int.MaxValue)) throw Error("RTF numeric parameter is outside the 32-bit range", offset);
+            hasDigits = true;
+            if (number > (negative ? 2147483648L : int.MaxValue)) throw Error("RTF numeric parameter is outside the 32-bit range", offset);
         }
-        if (negative && digits == 0) throw Error("An RTF parameter sign requires digits", offset);
-        int? parameter = digits == 0 ? null : (int)(negative ? -number : number);
+        if (negative && !hasDigits) throw Error("An RTF parameter sign requires digits", offset);
+        int? parameter = !hasDigits ? null : (int)(negative ? -number : number);
         if (await PeekAsync(cancellationToken).ConfigureAwait(false) == ' ') _ = await TakeAsync(cancellationToken).ConfigureAwait(false);
         var name = word.ToString();
         if (name != "bin") return new(RtfTokenKind.Control, offset, name, parameter);

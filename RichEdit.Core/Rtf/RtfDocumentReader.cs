@@ -25,6 +25,7 @@ internal sealed partial class RtfDocumentReader
     private readonly List<byte> _bytes = [];
     private Decoder? _decoder;
     private int _decoderCodePage;
+    private bool _dbcsTrailPending;
     private readonly Dictionary<int, (string Name, int CodePage)> _fonts = [];
     private readonly List<RichColor?> _colors = [];
     private readonly Dictionary<int, RichStyleDefinition> _styles = [];
@@ -72,13 +73,13 @@ internal sealed partial class RtfDocumentReader
             if (token.Kind is RtfTokenKind.Text or RtfTokenKind.HexByte)
             {
                 if (_states.Count == 0) throw Error("RTF must begin with a group");
-                if (token.Kind == RtfTokenKind.HexByte) Byte(token.Symbol);
+                if (token.Kind == RtfTokenKind.HexByte) Byte(token.Symbol, literal: false);
                 else foreach (var value in token.Bytes.Span) Byte(value);
                 continue;
             }
             if (token.Kind == RtfTokenKind.Symbol && token.Symbol is (byte)'{' or (byte)'}' or (byte)'\\')
             {
-                Byte(token.Symbol);
+                Byte(token.Symbol, literal: false);
                 continue;
             }
             FlushBytes();
@@ -176,7 +177,7 @@ internal sealed partial class RtfDocumentReader
         return defaults;
     }
 
-    private void Byte(byte value)
+    private void Byte(byte value, bool literal = true)
     {
         if (_fallback > 0) { _fallback--; return; }
         if (_state.Destination == "skip") return;
@@ -191,9 +192,12 @@ internal sealed partial class RtfDocumentReader
             else picture.Nibble = digit;
             return;
         }
-        // A literal semicolon terminates table entries; an escaped Unicode
-        // semicolon is part of the authored name.
-        if (value == ';' && _state.Destination is "fonttbl" or "colortbl" or "stylesheet")
+        var codePage = CurrentCodePage();
+        var trail = _dbcsTrailPending && RtfDbcs.IsTrail(value, codePage);
+        _dbcsTrailPending = !trail && RtfDbcs.IsLead(value, codePage);
+        // Only a literal, standalone semicolon terminates a table entry.
+        // Escaped semicolons and DBCS trailing bytes belong to its name.
+        if (literal && !trail && value == ';' && _state.Destination is "fonttbl" or "colortbl" or "stylesheet")
         {
             FlushBytes();
             FinishEntry();
@@ -221,7 +225,7 @@ internal sealed partial class RtfDocumentReader
             _decoder = null;
         }
         _bytes.Clear();
-        if (final) _decoder = null;
+        if (final) { _decoder = null; _dbcsTrailPending = false; }
         Text(text);
     }
 
