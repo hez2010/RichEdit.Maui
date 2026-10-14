@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.Immutable;
 
 namespace RichEdit.Core.Rtf;
 
@@ -45,12 +46,7 @@ internal sealed partial class RtfDocumentReader
             case "outl": format = format with { Outline = n != 0 }; break;
             case "shad": format = format with { Shadow = n != 0 }; break;
             case "v": format = format with { Hidden = n != 0 }; break;
-            case "lang":
-                string? language = null;
-                if (n is not (0 or 1024))
-                    try { language = CultureInfo.GetCultureInfo(n).Name; }
-                    catch (CultureNotFoundException) { Report("language", $"Language identifier {n} is unavailable."); }
-                format = format with { Language = language }; break;
+            case "lang": case "langnp": format = format with { Language = Language(n) }; break;
             case "rtlch": format = format with { Direction = RichDirection.RightToLeft }; break;
             case "ltrch": format = format with { Direction = RichDirection.LeftToRight }; break;
             default: return false;
@@ -59,6 +55,24 @@ internal sealed partial class RtfDocumentReader
             Report("field-result-format", "Formatting inside a field result was reduced to the field's outer character style.");
         _state.Character = format;
         return true;
+    }
+
+    private string? Language(int id)
+    {
+        if (id is 0 or 1024) return null;
+        try { return CultureInfo.GetCultureInfo(id).Name; }
+        catch (CultureNotFoundException) { Report("language", $"Language identifier {id} is unavailable."); return null; }
+    }
+
+    private void ResetParagraph(ResolvedParagraphStyle paragraph)
+    {
+        _state.Paragraph = RtfStyleState.Restore(paragraph, 0, 0, 0);
+        _state.LineSpacing = paragraph.LineSpacing.RtfValue;
+        _state.LineMultiple = paragraph.LineSpacing.Kind == RichLineSpacingKind.Multiple;
+        _state.Borders = paragraph.Border is { } border
+            ? BorderEdges.Where(side => (border.Sides & side) != 0).ToImmutableDictionary(side => side, side => border with { Sides = side })
+            : _state.Borders.Clear();
+        _state.BorderSide = RichBorderSides.None;
     }
 
     private bool ParagraphControl(string word, int n)

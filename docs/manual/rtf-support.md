@@ -9,6 +9,8 @@ RTF is the sole persistence and interchange format for `RichEdit.Core.RichDocume
 
 `RtfCodec.ReadAsync` returns a detached validated snapshot plus fidelity diagnostics. `RequireLossless` rejects input when unsupported content would be omitted or approximated. `Assess` examines the same frozen state used for export; `WriteAsync` refuses unsupported loss before writing bytes. Export does not offer a silent lossy-save mode.
 
+Import uses the syntax and controls of Microsoft's [RTF specification, version 1.9.1](https://officeprotocoldoc.z19.web.core.windows.net/files/Archive_References/%5BMSFT-RTF%5D.pdf). The supported document profile is described below; it does not include every Word feature defined by the specification.
+
 ## Authored profile
 
 | Feature | Model and RTF codec | Native rendering/editing notes |
@@ -135,6 +137,21 @@ All platforms provide continuous body editing. Pagination, printing, additional 
 
 Saving and reopening RTF preserves supported document content and relationships. The saved bytes need not be identical, and document-local IDs can change when importing. Other RTF applications may omit metadata they do not support.
 
+Unicode alternatives, ANSI fallbacks, and font-specific code pages are accepted. An explicit font code page takes precedence over its charset. A color-table entry at index zero can be a defined color or automatic. External RTF without an explicit font size uses the RTF default of 12 points. Paragraph and character resets use the document's declared defaults.
+
+Character and paragraph styles retain their formatting and relationships, including negative external style handles and unnamed definitions. Unnamed styles receive a display name. Character styles respect additive formatting; next-paragraph metadata applies only to paragraph styles. Simple Word 6/95 lists and modern list tables are accepted, including numbering start overrides, format overrides, unnumbered levels, and list continuation paragraphs.
+
+Some valid RTF layouts require conversion to the supported profile. Import reports these conversions:
+
+- Page, section, and column breaks become paragraph breaks in the continuous document.
+- Table rows with different widths receive empty padding cells. Row offsets are normalized while preserving cell widths.
+- Tab stops at or before the paragraph origin are omitted. Negative list start numbers become zero.
+- Custom list markers become standard markers. Script-specific font associations, section numbering rules, and unsupported formatting produce diagnostics.
+- Fields nested inside fields or comments become their displayed result text.
+- Picture scaling is applied to the displayed dimensions. Zero-sized pictures use a minimum size of one twip; mirrored scaling retains positive dimensions. Cropping and other unsupported picture transformations produce diagnostics.
+
+Unsupported destinations, including additional stories, equations, embedded objects, and document metadata, are omitted as complete groups. Their contents are not inserted into body text. Set `RequireLossless` when any reported omission or approximation should prevent opening the document.
+
 Pending revision groups survive saving and reopening with this library. Other readers may show only the current body. Word tracked-change interchange is not supported; strict import rejects unsupported revision controls.
 
 Rich fragments carry required styles and resources. Insertion remaps identities and resolves conflicting resources. Android exchanges RTF with cooperating applications and uses ordinary text when an external application supplies no supported RTF payload.
@@ -153,5 +170,7 @@ Native readers may normalize fonts, line spacing, list labels, table layout, or 
 | MaximumRevisionWork | 64,000,000 historical graph/dependency entries |
 
 The limits include retained revision content. Invalid references, identities, table grids, styles, or revision relationships fail import. Streams remain caller-owned; canceled output may be partial.
+
+A document can contain up to 32,767 named styles. Table nesting also observes `MaximumDepth`. Values outside the document model's numeric range remain invalid; compatibility conversions do not disable resource limits or structural validation.
 
 Large imports/exports should run on a worker with cancellation. The host validates diagnostics, chooses the destination, performs atomic replacement, and acknowledges the captured save token only after success.

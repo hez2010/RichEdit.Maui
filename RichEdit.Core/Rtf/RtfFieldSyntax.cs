@@ -18,13 +18,18 @@ internal static class RtfFieldSyntax
         for (var index = 1; index < tokens.Length; index++)
         {
             var token = tokens[index];
-            if (!token.Switch) { target ??= token.Value; continue; }
+            if (!token.Switch)
+            {
+                if (target is not null) return false;
+                target = token.Value; continue;
+            }
             if (token.Value.Equals("\\l", StringComparison.OrdinalIgnoreCase) && index + 1 < tokens.Length) fragment = tokens[++index].Value;
             else if (token.Value.Equals("\\o", StringComparison.OrdinalIgnoreCase) && index + 1 < tokens.Length) tip = tokens[++index].Value;
             else return false;
         }
         if (fragment is not null) target = (target ?? "") + "#" + fragment;
-        if (string.IsNullOrWhiteSpace(target)) return false;
+        if (string.IsNullOrWhiteSpace(target) || target.AsSpan().ContainsAny('\r', '\n', '\0') ||
+            tip is not null && tip.AsSpan().ContainsAny('\r', '\n', '\0')) return false;
         link = new(target, tip);
         return true;
     }

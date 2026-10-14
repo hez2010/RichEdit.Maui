@@ -172,7 +172,7 @@ internal static partial class RtfCodec
             if (word == "fcharset")
             {
                 _fontCharacterSet = parameter ?? 0;
-                state.CodePage = GetCodePageForCharacterSet(_fontCharacterSet.Value) ?? _documentCodePage;
+                state.CodePage = _fontCodePage ?? GetCodePageForCharacterSet(_fontCharacterSet.Value) ?? _documentCodePage;
                 return;
             }
 

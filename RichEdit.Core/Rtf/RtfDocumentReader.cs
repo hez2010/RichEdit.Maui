@@ -59,7 +59,7 @@ internal sealed partial class RtfDocumentReader
         _container = _body;
         while (true)
         {
-            var token = await _reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            var token = await _reader.ReadAsync(cancellationToken, CurrentCodePage()).ConfigureAwait(false);
             _offset = token.Offset;
             if (token.Kind == RtfTokenKind.End) break;
             if (_closed)
@@ -74,6 +74,11 @@ internal sealed partial class RtfDocumentReader
                 if (_states.Count == 0) throw Error("RTF must begin with a group");
                 if (token.Kind == RtfTokenKind.HexByte) Byte(token.Symbol);
                 else foreach (var value in token.Bytes.Span) Byte(value);
+                continue;
+            }
+            if (token.Kind == RtfTokenKind.Symbol && token.Symbol is (byte)'{' or (byte)'}' or (byte)'\\')
+            {
+                Byte(token.Symbol);
                 continue;
             }
             FlushBytes();
@@ -123,7 +128,6 @@ internal sealed partial class RtfDocumentReader
                 case RtfTokenKind.Symbol:
                     if (_state.Destination == "skip") break;
                     if (token.Symbol == '*') _state.Ignorable = true;
-                    else if (token.Symbol is (byte)'{' or (byte)'}' or (byte)'\\') Text(((char)token.Symbol).ToString());
                     else if (token.Symbol == '~') Text("\u00a0");
                     else if (token.Symbol == '_') Text("\u2011");
                     else if (token.Symbol == '-') Text("\u00ad");
@@ -151,7 +155,7 @@ internal sealed partial class RtfDocumentReader
         RichDocumentSnapshot snapshot;
         try
         {
-            snapshot = new(body, nodes.ToImmutable(), new(_styles.Values), assets: _assets.ToImmutableDictionary(),
+            snapshot = new(body, nodes.ToImmutable(), StyleSheet(), assets: _assets.ToImmutableDictionary(),
                 bookmarks: _bookmarks.ToImmutableDictionary(value => value.Id), comments: _comments.ToImmutableDictionary(value => value.Id),
                 defaultCharacter: _semantic ? _defaultCharacter : ExternalCharacterDefaults(), defaultParagraph: _defaultParagraph);
         }
@@ -163,8 +167,14 @@ internal sealed partial class RtfDocumentReader
         return new(snapshot, diagnostics);
     }
 
-    private RichCharacterStyle ExternalCharacterDefaults() => _defaultCharacter.FontFamily.Kind == StyleValueKind.Inherit &&
-        _fonts.TryGetValue(_defaultFont, out var font) ? _defaultCharacter with { FontFamily = font.Name } : _defaultCharacter;
+    private RichCharacterStyle ExternalCharacterDefaults()
+    {
+        var defaults = _defaultCharacter;
+        if (defaults.FontFamily.Kind == StyleValueKind.Inherit && _fonts.TryGetValue(_defaultFont, out var font))
+            defaults = defaults with { FontFamily = font.Name };
+        if (defaults.FontSize.Kind == StyleValueKind.Inherit) defaults = defaults with { FontSize = new RichFontSize(24) };
+        return defaults;
+    }
 
     private void Byte(byte value)
     {
@@ -196,8 +206,7 @@ internal sealed partial class RtfDocumentReader
     private void FlushBytes(bool final = true)
     {
         if (_bytes.Count == 0 && _decoder is null) return;
-        var codePage = _state.CodePage;
-        if (_state.Font >= 0 && _fonts.TryGetValue(_state.Font, out var font) && font.CodePage != 0) codePage = font.CodePage;
+        var codePage = CurrentCodePage();
         Encoding encoding;
         try { encoding = Encoding.GetEncoding(codePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback); }
         catch (ArgumentException) { Report("codepage", $"Code page {codePage} is unavailable; Windows-1252 was used."); encoding = Encoding.GetEncoding(1252); }
@@ -214,6 +223,17 @@ internal sealed partial class RtfDocumentReader
         _bytes.Clear();
         if (final) _decoder = null;
         Text(text);
+    }
+
+    private int CurrentCodePage()
+    {
+        if (_state.RunCodePage is { } codePage) return codePage;
+        if (_state.Destination == "fonttbl")
+        {
+            var fontCodePage = _state.ExplicitFontCodePage ?? _state.FontCodePage;
+            return fontCodePage == 0 ? _state.CodePage : fontCodePage;
+        }
+        return _state.Font >= 0 && _fonts.TryGetValue(_state.Font, out var font) && font.CodePage != 0 ? font.CodePage : _state.CodePage;
     }
 
     private void Text(string text)
@@ -328,6 +348,7 @@ internal sealed partial class RtfDocumentReader
         internal bool Ignorable;
         internal int CodePage = 1252, UnicodeSkip = 1, Font = -1, FontCodePage;
         internal int? ExplicitFontCodePage;
+        internal int? RunCodePage;
         internal int? UnicodeAlternativeCount;
         internal string? UnicodeDestination;
         internal RichCharacterStyle Character = new(), ParagraphCharacter = new();
@@ -337,7 +358,7 @@ internal sealed partial class RtfDocumentReader
         internal int Red, Green, Blue;
         internal bool ColorSpecified;
         internal int? StyleId, BasedOn, NextStyle;
-        internal bool CharacterDefinition;
+        internal bool CharacterDefinition, AdditiveStyle;
         internal int Inherit, Initial, Null;
         internal int? PropertyCount;
         internal int LineSpacing;
@@ -353,6 +374,8 @@ internal sealed partial class RtfDocumentReader
         internal ListLevelDefinition? ListLevelDefinition;
         internal ListOverrideDefinition? ListOverrideDefinition;
         internal ListLevelOverride? ListLevelOverride;
+        internal LegacyList? LegacyList;
+        internal bool ContinueList;
         internal Picture? Picture;
         internal bool ResourceOnly, Orphan;
         internal bool Reverse;

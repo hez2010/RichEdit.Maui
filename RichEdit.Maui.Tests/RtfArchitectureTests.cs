@@ -838,10 +838,10 @@ public sealed class RtfArchitectureTests
     }
 
     [Fact]
-    public void AnsiCharsetFontsFollowTheDeclaredAnsiCodePage()
+    public void DefaultCharsetFontsFollowTheDeclaredAnsiCodePage()
     {
         var document = RichTextDocument.FromRtf(
-            @"{\rtf1\ansi\ansicpg1251\deff0{\fonttbl{\f0\fcharset0 Arial;}}\f0 \'cf}");
+            @"{\rtf1\ansi\ansicpg1251\deff0{\fonttbl{\f0\fcharset1 Arial;}}\f0 \'cf}");
 
         Assert.Equal("П", document.Text);
     }

@@ -62,11 +62,22 @@ internal sealed partial class RtfDocumentReader
             case "emspace": Text("\u2003"); return;
             case "enspace": Text("\u2002"); return;
             case "qmspace": Text("\u2005"); return;
+            case "ltrmark": Text("\u200e"); return;
+            case "rtlmark": Text("\u200f"); return;
+            case "zwbo": Text("\u200b"); return;
+            case "zwnbo": Text("\ufeff"); return;
+            case "zwj": Text("\u200d"); return;
+            case "zwnj": Text("\u200c"); return;
+            case "page": case "sect": case "column":
+                Report("pagination", "Page, section and column breaks were imported as paragraph breaks in the continuous document.");
+                if (_state.Capture is not null) Text("\n"); else EndParagraph();
+                return;
             case "red": _state.Red = Component(n); _state.ColorSpecified = true; return;
             case "green": _state.Green = Component(n); _state.ColorSpecified = true; return;
             case "blue": _state.Blue = Component(n); _state.ColorSpecified = true; return;
             case "f":
                 _state.Font = n;
+                _state.RunCodePage = null;
                 if (_state.Destination == "fonttbl") { _state.Capture ??= new(); return; }
                 if (!_fonts.TryGetValue(n, out var font)) { Report("font-reference", $"Font {n} is missing; the view font will be used."); return; }
                 _state.Character = _state.Character with { FontFamily = font.Name }; return;
@@ -75,20 +86,22 @@ internal sealed partial class RtfDocumentReader
                     80 => 10008, 81 => 10002, 83 => 10005, 84 => 10004, 85 => 10006, 86 => 10081, 87 => 10021, 88 => 10029, 89 => 10007,
                     128 => 932, 129 => 949, 130 => 1361, 134 => 936, 136 => 950, 161 => 1253, 162 => 1254, 163 => 1258,
                     177 => 1255, 178 => 1256, 186 => 1257, 204 => 1251, 222 => 874, 238 => 1250, 254 => 437, 255 => 850, _ => 0 }; return;
-            case "cpg": _state.ExplicitFontCodePage = n; return;
+            case "cpg":
+                if (_state.Destination == "fonttbl") _state.ExplicitFontCodePage = n;
+                else _state.RunCodePage = n;
+                return;
+            case "deflang": _defaultCharacter = _defaultCharacter with { Language = Language(n) }; return;
             case "plain":
                 _state.Character = RtfStyleState.Restore(_semantic ? new ResolvedCharacterStyle() : ExternalCharacterDefaults().Apply(new()), 0, 0, 0);
-                _state.CharacterStyle = null; _state.Font = _defaultFont; return;
+                _state.CharacterStyle = null; _state.Font = _defaultFont; _state.RunCodePage = null; return;
             case "deff":
                 if (n < 0) throw Error("Invalid default font identifier");
                 _defaultFont = n; _state.Font = n; return;
             case "pard":
-                _state.Paragraph = RtfStyleState.Restore(new ResolvedParagraphStyle(), 0, 0, 0);
+                ResetParagraph(_semantic ? new() : _defaultParagraph.Apply(new()));
                 _state.ParagraphCharacter = new(); _state.ParagraphStyle = null;
-                _state.LineSpacing = 0; _state.LineMultiple = false;
                 _state.TabAlignment = RichTabAlignment.Left; _state.TabLeader = RichTabLeader.None;
-                _state.BorderSide = RichBorderSides.None; _state.Borders = _state.Borders.Clear();
-                _state.InTable = false; _state.ListOverride = _state.ListLevel = 0; return;
+                _state.InTable = false; _state.ListOverride = _state.ListLevel = 0; _state.ContinueList = false; return;
             case "s": case "cs":
                 if (_state.Destination == "stylesheet") { _state.StyleId = n; _state.CharacterDefinition = word == "cs"; _state.Capture ??= new(); return; }
                 if (n == 0 && !_styles.ContainsKey(0)) return;
@@ -96,23 +109,18 @@ internal sealed partial class RtfDocumentReader
                 if (word == "s") _state.ParagraphStyle = style.Id; else _state.CharacterStyle = style.Id;
                 if (!_semantic)
                 {
-                    var sheet = new RichStyleSheet(_styles.Values);
-                    _state.Character = RtfStyleState.Restore(sheet.ResolveCharacter(_state.ParagraphStyle, _state.CharacterStyle, defaults: ExternalCharacterDefaults()), 0, 0, 0);
+                    var sheet = StyleSheet();
+                    var character = word == "cs"
+                        ? sheet.ResolveCharacter(characterStyle: style.Id, defaults: _additiveStyles.Contains(n) ? _state.Character : ExternalCharacterDefaults())
+                        : sheet.ResolveCharacter(_state.ParagraphStyle, _state.CharacterStyle, defaults: ExternalCharacterDefaults());
+                    _state.Character = RtfStyleState.Restore(character, 0, 0, 0);
                     if (word == "s")
-                    {
-                        var paragraph = sheet.ResolveParagraph(style.Id);
-                        _state.Paragraph = RtfStyleState.Restore(paragraph, 0, 0, 0);
-                        _state.LineSpacing = paragraph.LineSpacing.RtfValue;
-                        _state.LineMultiple = paragraph.LineSpacing.Kind == RichLineSpacingKind.Multiple;
-                        _state.Borders = paragraph.Border is { } border
-                            ? BorderEdges.Where(side => (border.Sides & side) != 0).ToImmutableDictionary(side => side, side => border with { Sides = side })
-                            : _state.Borders.Clear();
-                        _state.BorderSide = RichBorderSides.None;
-                    }
+                        ResetParagraph(sheet.ResolveParagraph(style.Id, defaults: _defaultParagraph));
                 }
                 return;
             case "sbasedon": _state.BasedOn = n; return;
             case "snext": _state.NextStyle = n; return;
+            case "additive": _state.AdditiveStyle = n != 0; return;
             case "reinherit": _state.Inherit = n; return;
             case "reprops": if (n is < 1 or > 32) throw Error("Invalid cascade property count"); _state.PropertyCount = n; return;
             case "rebgcolor": _state.Paragraph = _state.Paragraph with { Background = Color(n) }; return;
@@ -122,7 +130,7 @@ internal sealed partial class RtfDocumentReader
             case "reanchor": _state.AnchorAffinity = (TextEdit.Core.CaretAffinity)n; return;
             case "reactive": _state.ActiveAffinity = (TextEdit.Core.CaretAffinity)n; return;
             case "intbl": _state.InTable = n != 0; return;
-            case "itap": if (n is < 0 or > 64) throw Error("Unsupported table depth"); _state.TableLevel = n; return;
+            case "itap": if (n < 0 || n > options.MaximumDepth) throw Error("RTF table nesting limit exceeded"); _state.TableLevel = n; return;
             case "trowd": BeginRow(); return;
             case "cellx": CellBoundary(n); return;
             case "clmgf": case "clvmgf": return;
@@ -150,7 +158,7 @@ internal sealed partial class RtfDocumentReader
                         3 => RichListNumberingStyle.UpperLetter, 4 => RichListNumberingStyle.LowerLetter, _ => RichListNumberingStyle.Decimal };
                 }
                 if (n is not (>= 0 and <= 4 or 23 or 255)) Report("number-format", "A list numbering format was approximated as decimal numbering."); return;
-            case "levelstartat": if (n < 0) throw Error("Invalid list start"); if ((_state.ListLevelDefinition ?? _state.List?.Default) is { } start) start.Start = n; return;
+            case "levelstartat": if ((_state.ListLevelDefinition ?? _state.List?.Default) is { } start) start.Start = ListStart(n); return;
             case "listoverridestartat": if (_state.ListLevelOverride is { } startOverride) startOverride.StartAt = n != 0; return;
             case "listoverrideformat": if (_state.ListLevelOverride is { } formatOverride) formatOverride.Format = n != 0; return;
             case "pngblip": SetPictureKind(RichImageKind.Png); return;
@@ -163,24 +171,31 @@ internal sealed partial class RtfDocumentReader
             case "picw": if (_state.Picture is { } pw) pw.PixelWidth = n; return;
             case "pich": if (_state.Picture is { } ph) ph.PixelHeight = n; return;
             case "picscalex": case "picscaley":
-                if (n <= 0) throw Error("Picture scaling must be positive");
                 if (_state.Picture is { } scaled)
                 { if (word == "picscalex") scaled.ScaleX = n; else scaled.ScaleY = n; }
                 return;
             case "atndate": if (_state.Annotation is { } annotation) annotation.Date = n; return;
-            case "adeff": case "deflang": case "deflangfe": case "viewkind": case "viewscale": case "fet":
+            case "viewkind": case "viewscale": case "fet":
             case "fnil": case "froman": case "fswiss": case "fmodern": case "fscript": case "fdecor": case "ftech": case "fbidi": case "fprq":
-            case "additive": case "sautoupd": case "slocked": case "shidden": case "slink": case "styrsid":
+            case "shidden": case "styrsid":
             case "trautofit": case "trftsWidth": case "trwWidth": case "clftsWidth": case "clwWidth":
             case "listtemplateid": case "listsimple": case "listoverridecount": case "leveljc": case "leveljcn": case "levelfollow":
-            case "loch": case "hich": case "dbch": case "ltrdoc": case "rtldoc":
+            case "loch": case "hich": case "dbch":
                 return;
         }
-        if (CellFormatControl(word, n) || CharacterControl(word, n) || ParagraphControl(word, n)) return;
+        if (LegacyListControl(word, n) || CellFormatControl(word, n) || CharacterControl(word, n) || ParagraphControl(word, n)) return;
         Report(word, $"The unsupported RTF control '{word}' was ignored.");
     }
 
     private int Component(int value) => value is >= 0 and <= 255 ? value : throw Error("Invalid color component");
+
+    private int ListStart(int number)
+    {
+        if (number >= 0) return number;
+        if (_semantic) throw Error("A retained list start must be nonnegative");
+        Report("list-start", "Negative list start values are outside the supported numbering profile and were normalized to zero.");
+        return 0;
+    }
 
     private bool Destination(string word, int? number)
     {
@@ -188,6 +203,8 @@ internal sealed partial class RtfDocumentReader
         {
             case "rtf": return false;
             case "upr": _state.UnicodeAlternativeCount = 0; return true;
+            case "pn": SetDestination(word); _state.LegacyList = new(); _state.Capture = null; return true;
+            case "pntxta": case "pntxtb": SetDestination(word); _state.Capture = new(); return true;
             case "rerevisions":
                 if (_retained || number != 1 || _revisionEnvelope) throw Error("Invalid or nested revision envelope");
                 _revisionEnvelope = true; SetDestination(word); _state.Capture = null; return true;
@@ -250,12 +267,12 @@ internal sealed partial class RtfDocumentReader
                 if (number is { } reference && _state.Annotation is { } referenced) referenced.Name = reference.ToString(CultureInfo.InvariantCulture);
                 return true;
             case "reutc": if (_state.Annotation is { } annotation) annotation.Utc = true; SetDestination(word); _state.Capture = null; return true;
-            case "field": SetDestination(word); _state.Field = new(); _state.Capture = null; return true;
+            case "field": SetDestination(word); _state.Field = new() { OuterCapture = _state.Capture }; _state.Capture = null; return true;
             case "fldinst": SetDestination(word); _state.Capture = new(); return true;
             case "fldrslt":
                 SetDestination(word);
                 if (_state.Field is not { } field) throw Error("A field result has no field");
-                if (!field.Atom && RtfFieldSyntax.TryHyperlink(field.Instruction, out var link))
+                if (!field.Atom && field.OuterCapture is null && RtfFieldSyntax.TryHyperlink(field.Instruction, out var link))
                 { field.IsLink = true; _state.Link = link; _state.Capture = null; }
                 else
                 {
@@ -265,7 +282,8 @@ internal sealed partial class RtfDocumentReader
                 }
                 return true;
             case "refieldatom": if (_state.Field is { } atom) atom.Atom = true; SetDestination(word); return true;
-            case "leveltext": case "levelnumbers": case "listtext": case "pntext":
+            case "leveltext": SetDestination(word); _state.Capture = new(); return true;
+            case "levelnumbers": case "listtext": case "pntext":
             case "generator": case "rsidtbl": case "filetbl": case "latentstyles": case "nonesttables":
                 SetDestination("skip"); return true;
             case "info": case "header": case "footer": case "headerl": case "headerr": case "footerl": case "footerr":
@@ -313,6 +331,8 @@ internal sealed partial class RtfDocumentReader
                 var styleNumber = _state.StyleId ?? 0;
                 ReportBorderFidelity(_state);
                 ChargeResource();
+                if (_state.AdditiveStyle) _additiveStyles.Add(styleNumber); else _additiveStyles.Remove(styleNumber);
+                _resolvedStyles = null;
                 _styles[styleNumber] = new(StyleIdentity(styleNumber), styleName, _state.CharacterDefinition ? RichStyleKind.Character : RichStyleKind.Paragraph)
                 {
                     BasedOn = _state.BasedOn is not { } parent || parent == 222 && !_semantic ? null : StyleIdentity(parent),
@@ -330,6 +350,23 @@ internal sealed partial class RtfDocumentReader
         if (!child.OwnDestination) return;
         switch (child.Destination)
         {
+            case "leveltext":
+                if (child.ListLevelDefinition is { } definition && !definition.NoNumber && child.Capture is { Length: > 0 } label)
+                {
+                    var length = label[0];
+                    var standard = length < label.Length && (definition.Numbered
+                        ? length == 2 && label[1] is >= '\0' and <= '\b' && label[2] == '.'
+                        : length == 1 && label[1] == '•');
+                    if (!standard) Report("list-marker", "A custom list marker was replaced with the standard marker for its numbering format.");
+                }
+                break;
+            case "pn": FinishLegacyList(child.LegacyList!); break;
+            case "pntxta": case "pntxtb":
+                var marker = child.Capture?.ToString() ?? "";
+                var expected = child.Destination == "pntxta" ? "." : child.LegacyList?.Definition.Numbered == false ? "•" : "";
+                if (marker.Length != 0 && marker != expected)
+                    Report("list-marker", "A custom list marker was replaced with the standard marker for its numbering format.");
+                break;
             case "revid": case "regroup": case "reauthor": case "redeps": case "renchanged": case "reschanged":
             case "reachanged": case "rebchanged": case "recchanged": case "rebeforeblocks": case "reafterblocks":
                 ReadRevisionMetadata(child.Destination, child.Capture?.ToString() ?? "", child.RevisionRecord!); break;
@@ -347,7 +384,10 @@ internal sealed partial class RtfDocumentReader
                 _state.ParagraphCharacter = RtfStyleState.Restore(child.Character.Apply(new()), InheritMask(child, false), child.Initial, child.Null);
                 if (_state.Destination == "body") EnsureParagraph().Character = _state.ParagraphCharacter;
                 break;
-            case "defchp": _defaultCharacter = child.Character; break;
+            case "defchp":
+                _defaultCharacter = _semantic ? child.Character : _defaultCharacter.Overlay(child.Character);
+                if (!_semantic && child.Font >= 0) _defaultFont = _state.Font = child.Font;
+                break;
             case "defpap": _defaultParagraph = child.Paragraph; break;
             case "regap":
                 if (_paragraph is not null) throw Error("A structural gap cannot split an authored paragraph");

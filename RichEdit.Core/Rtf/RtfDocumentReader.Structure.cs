@@ -69,7 +69,13 @@ internal sealed partial class RtfDocumentReader
     private ListLevelDefinition ListLevel(int number, int level)
     {
         _listOverrides.TryGetValue(number, out var overrides);
-        var definition = (_listDefinitions.GetValueOrDefault(overrides?.ListId ?? number) ?? new()).Level(level);
+        if (!_listDefinitions.TryGetValue(overrides?.ListId ?? number, out var list))
+        {
+            if (_semantic) throw Error("A retained list definition is missing");
+            Report("list-reference", "A missing list definition was imported without a marker.");
+            return new() { NoNumber = true };
+        }
+        var definition = list.Level(level);
         if (overrides is null || level >= overrides.Levels.Count) return definition;
         var entry = overrides.Levels[level];
         return new()
@@ -231,6 +237,12 @@ internal sealed partial class RtfDocumentReader
             (_tables.Count == 0 || _listStack.Count > _tables[^1].ListDepth) &&
             (number == 0 || frame.Level > _state.ListLevel || frame.Level == _state.ListLevel && frame.List.Number != number)) EndList();
         if (number == 0) return;
+        if (_state.ContinueList)
+        {
+            if (!_listStack.TryPeek(out var previous) || previous.List.Number != number)
+                Report("list-continuation", "A list continuation without a preceding item was imported as an ordinary paragraph.");
+            return;
+        }
         if (!_listStack.TryPeek(out var active) || active.Level != _state.ListLevel || active.List.Number != number ||
             _tables.Count != 0 && _listStack.Count == _tables[^1].ListDepth)
             BeginList(number, external: true, _state.ListLevel);

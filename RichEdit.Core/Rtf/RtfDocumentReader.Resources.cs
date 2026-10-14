@@ -26,6 +26,7 @@ internal sealed partial class RtfDocumentReader
         internal string Instruction = "";
         internal readonly StringBuilder Result = new();
         internal bool Atom, IsLink;
+        internal StringBuilder? OuterCapture;
     }
 
     private void SetPictureKind(RichImageKind kind) { if (_state.Picture is { } picture) picture.Kind = kind; }
@@ -43,17 +44,17 @@ internal sealed partial class RtfDocumentReader
         if (picture.Kind is not { } kind || picture.Bytes.Count == 0)
         { Report("picture", "An unsupported or empty picture was omitted."); return; }
         RichAssetId asset;
-        if (picture.Name is { Length: > 0 } name && _assetNames.TryGetValue(name, out var existing))
+        if (picture.Name is { Length: > 0 } name && _assetNames.TryGetValue(name, out var existing) &&
+            _assets[existing].Kind == kind && _assets[existing].Data.AsSpan().SequenceEqual(picture.Bytes.ToArray()))
         {
-            var resource = _assets[existing];
-            if (resource.Kind != kind || !resource.Data.AsSpan().SequenceEqual(picture.Bytes.ToArray())) throw Error("A picture identity is reused for different bytes");
             asset = existing;
         }
         else
         {
             asset = new(Allocate().Value);
             _assets.Add(asset, new(asset, kind, picture.Bytes.ToImmutableArray()));
-            if (picture.Name is { Length: > 0 } key) _assetNames.Add(key, asset);
+            if (picture.Name is { Length: > 0 } key && !_assetNames.TryAdd(key, asset) && (_semantic || _wireNodes is not null))
+                throw Error("A retained picture identity is reused for different bytes");
         }
         if (child.ResourceOnly) return;
         if (_state.Destination == "fldrslt" && _state.Capture is { } result)
@@ -74,8 +75,14 @@ internal sealed partial class RtfDocumentReader
 
         int Scale(int value, int percent)
         {
-            var scaled = ((long)value * percent + 50) / 100;
-            if (scaled is <= 0 or > int.MaxValue) throw Error("Picture dimensions exceed the supported range");
+            if (percent < 0) Report("picture-transform", "Mirrored picture scaling was imported with positive dimensions.");
+            var scaled = ((long)value * Math.Abs((long)percent) + 50) / 100;
+            if (scaled > int.MaxValue) throw Error("Picture dimensions exceed the supported range");
+            if (scaled == 0)
+            {
+                Report("picture-size", "A zero-sized picture was retained at the minimum size of one twip.");
+                scaled = 1;
+            }
             return (int)scaled;
         }
     }
@@ -142,6 +149,12 @@ internal sealed partial class RtfDocumentReader
     {
         var field = child.Field!;
         if (field.IsLink) return;
+        if (field.OuterCapture is { } outer)
+        {
+            Report("nested-field", "A field inside another field or annotation was flattened to its result text.");
+            outer.Append(field.Result);
+            return;
+        }
         if (string.IsNullOrWhiteSpace(field.Instruction))
         { Report("field-instruction", "A field without an instruction was imported as its result text."); AddText(field.Result.ToString()); return; }
         var instruction = field.Instruction;

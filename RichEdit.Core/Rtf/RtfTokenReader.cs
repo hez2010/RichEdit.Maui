@@ -19,7 +19,7 @@ internal sealed class RtfTokenReader(Stream input, long maximumBytes = 512L * 10
     private long _bytesRead;
     private long _offset;
 
-    internal async ValueTask<RtfToken> ReadAsync(CancellationToken cancellationToken = default)
+    internal async ValueTask<RtfToken> ReadAsync(CancellationToken cancellationToken = default, int codePage = 1252)
     {
         cancellationToken.ThrowIfCancellationRequested();
         int value;
@@ -43,9 +43,19 @@ internal sealed class RtfTokenReader(Stream input, long maximumBytes = 512L * 10
         if (value != '\\')
         {
             var text = new List<byte>(128) { (byte)value };
+            await ReadTrail(value);
             while (text.Count < 4096 && await PeekAsync(cancellationToken).ConfigureAwait(false) is var next && next >= 0 && next is not ('{' or '}' or '\\' or '\r' or '\n'))
+            {
                 text.Add((byte)await TakeAsync(cancellationToken).ConfigureAwait(false));
+                await ReadTrail(next);
+            }
             return new(RtfTokenKind.Text, offset, Bytes: text.ToArray());
+
+            async ValueTask ReadTrail(int lead)
+            {
+                if (RtfDbcs.IsLead(lead, codePage) && RtfDbcs.IsTrail(await PeekAsync(cancellationToken).ConfigureAwait(false), codePage))
+                    text.Add((byte)await TakeAsync(cancellationToken).ConfigureAwait(false));
+            }
         }
 
         value = await TakeAsync(cancellationToken).ConfigureAwait(false);

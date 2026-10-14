@@ -124,6 +124,12 @@ internal static partial class RtfCodec
                 return;
             }
 
+            if (word == "cpg" && parameter is > 0)
+            {
+                state.CodePage = parameter.Value;
+                return;
+            }
+
             if (word == "deff")
             {
                 _defaultFontIndex = parameter ?? 0;

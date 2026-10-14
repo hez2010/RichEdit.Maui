@@ -256,9 +256,9 @@ internal static partial class RtfCodec
 
         private static int? GetCodePageForCharacterSet(int characterSet) => characterSet switch
         {
-            // Character set 0 is the ANSI charset. It follows the document code
-            // page declared by \ansicpg rather than a hardcoded 1252.
-            0 => null,
+            // RTF 1.9.1 assigns 1252 to ANSI_CHARSET. DEFAULT_CHARSET inherits
+            // the document code page; an explicit \cpg overrides either one.
+            0 => 1252,
             1 => null,
             2 => 42,
             77 => 10000,

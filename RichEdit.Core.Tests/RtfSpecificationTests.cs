@@ -12,7 +12,7 @@ public sealed class RtfSpecificationTests
     {
         var handled = new HashSet<string>("""
             rtf upr ud fonttbl colortbl stylesheet defchp defpap listtable listoverridetable list listlevel listoverride lfolevel
-            leveltext levelnumbers listtext pntext generator rsidtbl filetbl latentstyles nonesttables nesttableprops
+            leveltext levelnumbers listtext pntext pn pntxta pntxtb generator rsidtbl filetbl latentstyles nonesttables nesttableprops
             pict blipuid sn sv picprop sp shppict bkmkstart bkmkend atrfstart atrfend annotation atnid atnauthor atndate atnref
             field fldinst fldrslt
             """.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -95,6 +95,13 @@ public sealed class RtfSpecificationTests
         Assert.Equal("П", result.Snapshot.ProjectText().Text.ToString());
     }
 
+    [Fact]
+    public async Task AnsiCharsetUses1252AndRunCodePagesOverrideTheSelectedFont()
+    {
+        var result = await Read(@"{\rtf1\ansi\ansicpg1251\deff0{\fonttbl{\f0\fcharset0 Font;}}\f0 \'cf{\cpg1251 \'cf}\'cf}", strict: true);
+        Assert.Equal("ÏПÏ", result.Snapshot.ProjectText().Text.ToString());
+    }
+
     [Theory]
     [InlineData(@"\red12\green34\blue56;", true)]
     [InlineData(";", false)]
@@ -116,7 +123,6 @@ public sealed class RtfSpecificationTests
     [InlineData("moMath")]
     [InlineData("docvar")]
     [InlineData("mmathPr")]
-    [InlineData("pn")]
     public async Task UnsupportedDestinationsCannotLeakContentOrStructuralControls(string destination)
     {
         var result = await Read(@"{\rtf1 before{\" + destination + " ignored\\\r\n" + @"\b\par\trowd\cellx100\intbl data\cell\row}after}");
@@ -269,5 +275,153 @@ public sealed class RtfSpecificationTests
         foreach (var column in new[] { 0, 1 })
             Assert.IsType<RichList>(result.Snapshot.Get<RichBlock>(Assert.Single(result.Snapshot.Get<RichTableCell>(grid[0, column]).Blocks)));
         Assert.Equal("first\nsecond\tthird", result.Snapshot.ProjectText().Text.ToString());
+    }
+
+    [Theory]
+    [InlineData(@"\ltrmark", "\u200e")]
+    [InlineData(@"\rtlmark", "\u200f")]
+    [InlineData(@"\zwbo", "\u200b")]
+    [InlineData(@"\zwnbo", "\ufeff")]
+    [InlineData(@"\zwj", "\u200d")]
+    [InlineData(@"\zwnj", "\u200c")]
+    public async Task SpecialCharacterControlsRetainTheirUnicodeCharacters(string control, string character)
+    {
+        var result = await Read(@"{\rtf1 a" + control + " b}", strict: true);
+        Assert.Equal("a" + character + "b", result.Snapshot.ProjectText().Text.ToString());
+    }
+
+    [Fact]
+    public async Task ParagraphAndCharacterResetsUseDocumentDefaults()
+    {
+        var result = await Read(@"{\rtf1\deflang1041{\*\defchp\fs30}{\*\defpap\qc\sa120\sl480\slmult1}" +
+            @"\pard\plain first\par\ql\sa0\fs20\lang1033 other\par\pard\plain last\par}", strict: true);
+        foreach (var run in result.Snapshot.Nodes.Values.OfType<RichText>().Where(run => run.Content.ToString() != "other"))
+        {
+            Assert.Equal(15d, result.Snapshot.ResolveCharacter(run.Id).FontSize?.Points);
+            // defchp without a language must not erase the document's deflang.
+            Assert.Equal("ja-JP", result.Snapshot.ResolveCharacter(run.Id).Language);
+            var paragraph = result.Snapshot.ResolveParagraph(run.Parent!.Value);
+            Assert.Equal(RichAlignment.Center, paragraph.Alignment);
+            Assert.Equal(120, paragraph.SpaceAfter.Twips);
+            Assert.Equal(480, paragraph.LineSpacing.RtfValue);
+        }
+        var minimal = await Read(@"{\rtf1 text}", strict: true);
+        Assert.Equal(12d, minimal.Snapshot.ResolveCharacter(Assert.Single(minimal.Snapshot.Nodes.Values.OfType<RichText>()).Id).FontSize?.Points);
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData(@"\additive", true)]
+    public async Task CharacterStylesRespectTheirAdditiveFlag(string additive, bool bold)
+    {
+        var result = await Read(@"{\rtf1{\stylesheet{\s0\b Normal;}{\*\cs1" + additive + @"\i Emphasis;}}\s0\cs1 text\par}", strict: true);
+        var format = result.Snapshot.ResolveCharacter(Assert.Single(result.Snapshot.Nodes.Values.OfType<RichText>()).Id);
+        Assert.Equal(bold, format.Bold);
+        Assert.True(format.Italic);
+    }
+
+    [Fact]
+    public async Task NestedFieldsFlattenIntoTheirContainingResult()
+    {
+        var result = await Read(@"{\rtf1 before{\field{\*\fldinst OUTER}{\fldrslt a{\field{\*\fldinst INNER}{\fldrslt b}}c}}after}");
+        var field = Assert.Single(result.Snapshot.Nodes.Values.OfType<RichField>());
+        Assert.Equal("abc", field.Result);
+        Assert.Equal("before\ufffcafter", result.Snapshot.ProjectText().Text.ToString());
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Feature == "nested-field");
+    }
+
+    [Theory]
+    [InlineData(@"HYPERLINK ""one"" ""two""")]
+    [InlineData(@"HYPERLINK ""one\u10?two""")]
+    public async Task UnrepresentableHyperlinksRemainFieldsInsteadOfFailingOrLosingArguments(string instruction)
+    {
+        var result = await Read(@"{\rtf1{\field{\*\fldinst " + instruction + @"}{\fldrslt label}}}");
+        var field = Assert.Single(result.Snapshot.Nodes.Values.OfType<RichField>());
+        Assert.Equal("label", field.Result);
+        Assert.Contains("two", field.Instruction, StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Feature == "hyperlink-options");
+    }
+
+    [Theory]
+    [InlineData(0, 1, "picture-size")]
+    [InlineData(-50, 50, "picture-transform")]
+    public async Task UnrepresentablePictureTransformsRetainTheImageAndReportTheApproximation(int scale, int width, string feature)
+    {
+        var result = await Read($@"{{\rtf1{{\pict\pngblip\picwgoal100\pichgoal100\picscalex{scale} 0102}}}}");
+        Assert.Equal(width, Assert.Single(result.Snapshot.Nodes.Values.OfType<RichImage>()).Width.Twips);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Feature == feature);
+    }
+
+    [Fact]
+    public async Task ImageIdentifiersCanNameDifferentRepresentationsWithoutDiscardingBytes()
+    {
+        var result = await Read(@"{\rtf1{\pict\pngblip\picwgoal100\pichgoal100{\*\blipuid abcd}0102}" +
+            @"{\pict\jpegblip\picwgoal100\pichgoal100{\*\blipuid abcd}0304}}", strict: true);
+        Assert.Equal(2, result.Snapshot.Assets.Count);
+        Assert.Equal(2, result.Snapshot.Nodes.Values.OfType<RichImage>().Count());
+    }
+
+    [Fact]
+    public async Task LegacyListItemsAndContinuationRetainTheirStructure()
+    {
+        var result = await Read(@"{\rtf1\pard{\pntext 4.\tab}{\*\pn\pnlvlbody\pndec\pnstart4}first\par" +
+            @"\pard{\*\pn\pnlvlcont\pndec\pnstart4}continued\par" +
+            @"\pard{\pntext 5.\tab}{\*\pn\pnlvlbody\pndec\pnstart4}second\par}", strict: true);
+        var list = Assert.Single(result.Snapshot.Nodes.Values.OfType<RichList>());
+        Assert.True(list.Numbered);
+        Assert.Equal(4, list.StartNumber);
+        Assert.Equal(2, list.Items.Count);
+        Assert.Equal(2, result.Snapshot.Get<RichListItem>(list.Items[0]).Blocks.Count);
+        Assert.Equal("first\ncontinued\nsecond", result.Snapshot.ProjectText().Text.ToString());
+    }
+
+    [Theory]
+    [InlineData("page")]
+    [InlineData("sect")]
+    [InlineData("column")]
+    public async Task PaginationBreaksKeepTextSeparatedInContinuousDocuments(string control)
+    {
+        var result = await Read(@"{\rtf1 first\" + control + " second}");
+        Assert.Equal("first\nsecond", result.Snapshot.ProjectText().Text.ToString());
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Feature == "pagination");
+    }
+
+    [Fact]
+    public async Task ParagraphStylesCanReferToTheImplicitNormalStyle()
+    {
+        var result = await Read(@"{\rtf1{\stylesheet{\s1\sbasedon0\snext0\b Heading;}}\s1 text\par}", strict: true);
+        var heading = Assert.Single(result.Snapshot.Styles.Definitions.Values, style => style.Name == "Heading");
+        var normal = Assert.Single(result.Snapshot.Styles.Definitions.Values, style => style.Name == "Normal");
+        Assert.Equal(normal.Id, heading.BasedOn);
+        Assert.Equal(normal.Id, heading.NextStyle);
+    }
+
+    [Theory]
+    [InlineData(932, 0x83, 0x5c)]
+    [InlineData(932, 0x81, 0x7b)]
+    [InlineData(932, 0x81, 0x7d)]
+    [InlineData(936, 0x81, 0x5c)]
+    [InlineData(950, 0xa5, 0x5c)]
+    public async Task RawDbcsTrailBytesCannotBecomeRtfDelimiters(int codePage, byte lead, byte trail)
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var expected = Encoding.GetEncoding(codePage).GetString([lead, trail]);
+        var bytes = Encoding.ASCII.GetBytes($@"{{\rtf1\ansi\ansicpg{codePage} ").Concat(new byte[] { lead, trail }).Concat("}"u8.ToArray()).ToArray();
+        using var input = new OneByteStream(bytes);
+        var imported = await RtfCodec.ReadAsync(input, new() { RequireLossless = true }, TestContext.Current.CancellationToken);
+        Assert.Equal(expected, imported.Snapshot.ProjectText().Text.ToString());
+    }
+
+    [Fact]
+    public async Task EscapedDbcsDelimitersRemainInTheSameEncodedRun()
+    {
+        var result = await Read(@"{\rtf1\ansi\ansicpg932 \'83\\\'81\{\'81\}}", strict: true);
+        Assert.Equal("ソ＋±", result.Snapshot.ProjectText().Text.ToString());
+    }
+
+    private sealed class OneByteStream(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            base.ReadAsync(buffer[..Math.Min(1, buffer.Length)], cancellationToken);
     }
 }

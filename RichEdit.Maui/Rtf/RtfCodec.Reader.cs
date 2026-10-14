@@ -204,6 +204,9 @@ internal static partial class RtfCodec
                             state.CodePage != DefaultCodePage)
                         {
                             ProcessEncodedByte((byte)character, state);
+                            if (RichEdit.Core.Rtf.RtfDbcs.IsLead(character, state.CodePage) && position + 1 < _rtf.Length &&
+                                RichEdit.Core.Rtf.RtfDbcs.IsTrail(_rtf[position + 1], state.CodePage))
+                                ProcessEncodedByte((byte)_rtf[++position], state);
                         }
                         else
                         {
@@ -318,6 +321,13 @@ internal static partial class RtfCodec
                         ProcessEncodedByte(value, state);
                     }
 
+                    state.AtGroupStart = false;
+                    return;
+                }
+
+                if (!_expectRtfHeader && symbol is '\\' or '{' or '}')
+                {
+                    ProcessEncodedByte((byte)symbol, state);
                     state.AtGroupStart = false;
                     return;
                 }
