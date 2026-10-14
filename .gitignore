@@ -4,6 +4,11 @@
 artifacts/
 TestResults/
 
+# Generated documentation
+docs/_site/
+docs/api/*.yml
+docs/api/.manifest
+
 # Visual Studio and IDE state
 .vs/
 .idea/
