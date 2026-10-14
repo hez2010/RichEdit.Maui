@@ -9,6 +9,54 @@ public sealed class WindowsReferenceDeletionTests
 {
     private static Microsoft.UI.Xaml.Window? _window;
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(8)]
+    public Task RichTablePasteImmediatelyBeforeTableKeepsNativeContent(int rows) => Run(async (view, handler) =>
+    {
+        var document = view.StructuredSession!.Document;
+        var before = document.CurrentSnapshot;
+        var nativeBefore = NativeText(handler);
+        var blocks = before.Get<RichStory>(before.Body).Blocks;
+        var table = blocks.First(id => before.Get<RichBlock>(id) is RichTable);
+        var paragraph = blocks[blocks.IndexOf(table) - 1];
+        var point = new RichTextPoint(before.Body, paragraph, before.GetParagraphLength(paragraph));
+        view.StructuredSession.Selection = new RichEdit.Core.RichTextSelection(point, point);
+        var content = RichDocumentSnapshot.Build(edit =>
+        {
+            var insertedTable = edit.InsertTable(edit.Body, 1, rows, (RichLength[])[new(1494), new(1494), new(1494), new(1494), new(1494)]);
+            var cells = edit.Snapshot.GetTableGrid(insertedTable);
+            for (var row = 0; row < rows; row++)
+                for (var column = 0; column < 5; column++)
+                {
+                    var cellParagraph = edit.Snapshot.Get<RichTableCell>(cells[row, column]).Blocks[0];
+                    edit.ReplaceText(new(edit.Body, cellParagraph, 0), 0, $"Pasted {row}:{column}");
+                }
+            edit.InsertParagraph(edit.Body, 2, "");
+            edit.ApplyCharacterFormat(new RichCellSelection(insertedTable, 0, 0, rows, 5), new() { Bold = true, Italic = true });
+        });
+        view.StructuredSession.ReplaceSelection(new RichDocumentFragment(content));
+        await Task.Delay(30);
+        var nativeAfter = NativeText(handler);
+        Assert.Equal(handler.NativeProjection.StructuredDisplay!.Text, nativeAfter.Replace('\r', '\n').Replace('\v', RichTextDocument.SoftLineBreakCharacter));
+        Assert.Contains("Pasted 0:0", nativeAfter);
+        Assert.Contains("1st column", nativeAfter);
+        var inserted = nativeAfter.IndexOf("Pasted 0:0", StringComparison.Ordinal);
+        var format = handler.PlatformView.Document.GetRange(inserted, inserted + 1).CharacterFormat;
+        Assert.Equal(FormatEffect.On, format.Bold);
+        Assert.Equal(FormatEffect.On, format.Italic);
+        view.Undo();
+        Assert.Equal(nativeBefore, NativeText(handler));
+        view.Redo();
+        Assert.Equal(nativeAfter, NativeText(handler));
+        var pasted = document.CurrentSnapshot;
+        handler.PlatformView.Document.Selection.TypeText("X");
+        Assert.Equal(pasted.ProjectText().Text.Length + 1, document.CurrentSnapshot.ProjectText().Text.Length);
+        view.Undo();
+        Assert.Equal(nativeAfter, NativeText(handler));
+    });
+
     [Fact]
     public Task UndoRestoresParagraphsBeforeANativeTableAtTheStartOfTheDocument() => Run(async (view, handler) =>
     {

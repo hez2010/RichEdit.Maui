@@ -98,6 +98,7 @@ internal static partial class ReferenceEditingScenarios
             Check(!context.Rich.CanUndo, "read-only input creates no history");
         });
         foreach (var test in ContentCases()) yield return test;
+        foreach (var test in ClipboardCases()) yield return test;
         foreach (var test in DeletionCases()) yield return test;
         foreach (var test in ServiceCases()) yield return test;
     }
