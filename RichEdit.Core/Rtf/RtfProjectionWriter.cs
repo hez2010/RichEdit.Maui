@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
 using TextEdit.Core;
 
 namespace RichEdit.Core.Rtf;
@@ -61,7 +62,16 @@ internal sealed partial class RtfProjectionWriter(RichDocumentSnapshot snapshot,
         {
             await S("{");
             await C("f", font.Value);
-            await Name(font.Key);
+            await C("fnil");
+            if (font.Key.Any(character => character > 127 || character == ';'))
+            {
+                // RichEdit treats Unicode controls in font names as body text.
+                // A per-font UTF-8 code page keeps the name in the font table.
+                var bytes = new UTF8Encoding(false, true).GetBytes(font.Key);
+                await C("cpg", 65001);
+                foreach (var value in bytes) await S("\\'" + value.ToString("x2", CultureInfo.InvariantCulture));
+            }
+            else await Name(font.Key);
             await S(";}");
         }
         await S(@"}{\colortbl;");

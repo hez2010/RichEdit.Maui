@@ -114,16 +114,6 @@ public partial class RichEditorHandler
                     target.SetRange(0, Math.Max(0, target.StoryLength - 1));
                     target.FormattedText = incoming;
                 }
-                if (ReadNativeStoryText(PlatformView.Document) != resolved.Map.NativeText)
-                {
-                    // TOM can merge or remove table boundaries during formatted
-                    // range replacement. Rebuild from the already validated RTF
-                    // before publishing the new address map.
-                    PlatformView.Document.SetText(TextSetOptions.FormatRtf | TextSetOptions.ApplyRtfDocumentDefaults, prepared.Rtf);
-                    foreach (var removal in resolved.Removals.Reverse())
-                        PlatformView.Document.GetRange(removal.Start, removal.End).Delete(TextRangeUnit.Character, 0);
-                    ApplyStructuredCellInsets(PlatformView.Document, resolved.Map);
-                }
                 // The mandatory final paragraph mark is excluded from the text
                 // transfer. Its paragraph attributes still belong to the document.
                 var terminal = Math.Max(0, resolved.Map.NativeText.Length - 1);
