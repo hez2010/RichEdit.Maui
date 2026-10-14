@@ -121,7 +121,7 @@ public partial class RichEditorHandler
     {
         if (VirtualView is { IsReadOnly: false })
         {
-            VirtualView.Undo();
+            VirtualView.Commands.Undo.Execute(null);
         }
     }
 
@@ -129,7 +129,7 @@ public partial class RichEditorHandler
     {
         if (VirtualView is { IsReadOnly: false })
         {
-            VirtualView.Redo();
+            VirtualView.Commands.Redo.Execute(null);
         }
     }
 
@@ -138,7 +138,7 @@ public partial class RichEditorHandler
         if (VirtualView is { IsReadOnly: false } editor &&
             (editor.MaxLength < 0 || editor.Document.Length - editor.SelectedRange.Length < editor.MaxLength))
         {
-            editor.Selection.ReplaceText("\t");
+            editor.Commands.TryExecute(() => editor.Selection.ReplaceText("\t"));
         }
     }
 

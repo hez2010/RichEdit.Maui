@@ -184,6 +184,9 @@ public partial class RichEditorHandler
         $"\"{target.Replace("\"", "%22", StringComparison.Ordinal)}\"";
 
     private void OnNativeDocumentChanged(RichEditBox sender, RichEditBoxTextChangingEventArgs eventArgs)
+        => VirtualView?.Commands.TryExecute(() => OnNativeDocumentChangedCore(sender, eventArgs));
+
+    private void OnNativeDocumentChangedCore(RichEditBox sender, RichEditBoxTextChangingEventArgs eventArgs)
     {
         if (_applyingDocument || VirtualView is null)
         {
@@ -212,6 +215,11 @@ public partial class RichEditorHandler
         PlatformView.DispatcherQueue.TryEnqueue(() =>
         {
             _nativeFormatReadbackQueued = false;
+            VirtualView?.Commands.TryExecute(Readback);
+        });
+
+        void Readback()
+        {
             if (_applyingDocument || !ReferenceEquals(VirtualView?.Document, document) || document.Version != version)
                 return;
             // Formatting also raises IsContentChanging=false. Once the native
@@ -228,7 +236,7 @@ public partial class RichEditorHandler
                 }
                 ReadNativeDocumentChange();
             }
-        });
+        }
     }
 
     private void ReadNativeDocumentChange()
@@ -524,6 +532,9 @@ public partial class RichEditorHandler
     }
 
     private void OnNativeSelectionChanged(object sender, RoutedEventArgs eventArgs)
+        => VirtualView?.Commands.TryExecute(() => OnNativeSelectionChangedCore(sender, eventArgs));
+
+    private void OnNativeSelectionChangedCore(object sender, RoutedEventArgs eventArgs)
     {
         if (_applyingDocument || VirtualView is null)
         {

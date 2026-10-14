@@ -542,7 +542,7 @@ public partial class RichEditorHandler
                 _queuedProjectionGeneration == _projectionGeneration && _observedTextStorage is not null &&
                 (_readNativeGeneration != _nativeEditGeneration || !NativeTextMatchesDisplay))
             {
-                OnNativeDocumentChanged(PlatformView, mergeWithPrevious: _queuedNativeContinuation || _queuedDocument!.Version != _queuedVersion);
+                VirtualView.Commands.TryExecute(() => OnNativeDocumentChanged(PlatformView, mergeWithPrevious: _queuedNativeContinuation || _queuedDocument!.Version != _queuedVersion));
             }
         });
     }
@@ -823,7 +823,7 @@ public partial class RichEditorHandler
         {
             if (_handler.TryGetTarget(out var target))
             {
-                target.OnNativeDocumentChanged(textView);
+                target.VirtualView?.Commands.TryExecute(() => target.OnNativeDocumentChanged(textView));
             }
         }
 
@@ -831,7 +831,7 @@ public partial class RichEditorHandler
         {
             if (_handler.TryGetTarget(out var target))
             {
-                target.OnNativeSelectionChanged(textView);
+                target.VirtualView?.Commands.TryExecute(() => target.OnNativeSelectionChanged(textView));
             }
         }
 

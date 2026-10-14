@@ -4,6 +4,41 @@ namespace RichEdit.Maui.Tests;
 
 public sealed class TransferTests
 {
+    [Theory]
+    [InlineData(@"{\rtf1\expnd2147483647 text}")]
+    [InlineData(@"{\rtf1{\pict\pngblip\picw2147483647\pich1 00}}")]
+    public Task NativeTransferReportsParserFailureAndAllowsExplicitRecovery(string rtf) => WindowsTestHost.RunAsync(async () =>
+    {
+        var document = RichDocument.FromPlainText("original text");
+        var view = new NativeEditorView();
+        view.BindStructuredDocument(document);
+        var before = document.CurrentSnapshot;
+        var selection = view.StructuredSession!.Selection;
+        var failures = new List<Exception>();
+        view.Commands.Failed += (_, args) => failures.Add(args.Exception);
+        var content = new NativeEditorView.TransferContent("recovered text", rtf);
+        Task<bool> Transfer() => view.InsertTransferAsync(0, () => Task.FromResult(content));
+
+        // Direct callers can catch the original parser failure.
+        await Assert.ThrowsAsync<OverflowException>(Transfer);
+        Assert.Empty(failures);
+        // Native callbacks use the same boundary as clipboard commands.
+        await view.Commands.ExecuteClipboardAsync(Transfer);
+        Assert.IsType<OverflowException>(Assert.Single(failures));
+        Assert.Same(before, document.CurrentSnapshot);
+        Assert.Equal(selection, view.StructuredSession.Selection);
+        Assert.False(document.CanUndo);
+
+        // Recovery is an explicit application decision, not silent style loss.
+        content = content with { Rtf = null };
+        Assert.True(await Transfer());
+        Assert.Equal("recovered textoriginal text", document.CurrentSnapshot.ProjectText().Text.ToString());
+        view.Undo();
+        Assert.Equal("original text", document.CurrentSnapshot.ProjectText().Text.ToString());
+        Assert.Equal(selection, view.StructuredSession.Selection);
+        Assert.False(document.CanUndo);
+    });
+
     [Fact]
     public Task SourceTransfersRejectStaleDestinationsAndRestoreSelectionOnUndo() => WindowsTestHost.RunAsync(async () =>
     {

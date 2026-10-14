@@ -36,7 +36,8 @@ public sealed class CodeEditorCommands
     /// <summary>Gets the plain-text paste command.</summary>
     public ICommand Paste { get; }
 
-    /// <summary>Reports an operational clipboard failure from a native event or command.</summary>
+    /// <summary>Reports a native command failure so the application can offer recovery.</summary>
+    /// <remarks>Direct editing API calls still propagate exceptions.</remarks>
     public event EventHandler<RichEdit.Maui.RichTextCommandFailedEventArgs>? Failed
     {
         add => _commands.Failed += value;

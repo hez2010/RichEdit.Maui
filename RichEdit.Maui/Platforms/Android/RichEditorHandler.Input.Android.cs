@@ -149,7 +149,7 @@ namespace RichEdit.Maui
 
             public bool OnPrepareActionMode(NativeActionMode? mode, NativeMenu? menu)
             {
-                if (menu is null)
+                if (menu is null || !_handler.TryGetTarget(out var target) || target.VirtualView is null)
                     return false;
                 if (!_includeDefaultItems)
                 {
@@ -162,7 +162,7 @@ namespace RichEdit.Maui
                 }
 
                 foreach (var (id, item) in _items)
-                    menu.FindItem(id)?.SetEnabled(EditorMenu.CanExecute(item));
+                    menu.FindItem(id)?.SetEnabled(target.VirtualView.CanExecuteMenuItem(item));
 
                 return true;
             }
@@ -172,7 +172,7 @@ namespace RichEdit.Maui
                 if (item is null || !_items.TryGetValue(item.ItemId, out var command) || command is IMenuFlyoutSubItem)
                     return false;
 
-                EditorMenu.Execute(command);
+                if (_handler.TryGetTarget(out var target)) target.VirtualView?.ExecuteMenuItem(command);
                 mode?.Finish();
                 return true;
             }
@@ -185,6 +185,7 @@ namespace RichEdit.Maui
 
             private void AddItems(NativeMenu menu, IEnumerable<IMenuElement> items)
             {
+                if (!_handler.TryGetTarget(out var target) || target.VirtualView is null) return;
                 if (OperatingSystem.IsAndroidVersionAtLeast(28))
                     menu.SetGroupDividerEnabled(true);
 
@@ -202,11 +203,11 @@ namespace RichEdit.Maui
                     if (item is IMenuFlyoutSubItem submenu)
                     {
                         var nativeSubmenu = menu.AddSubMenu(group, id, 0, item.Text)!;
-                        nativeSubmenu.Item?.SetEnabled(EditorMenu.CanExecute(item));
+                        nativeSubmenu.Item?.SetEnabled(target.VirtualView.CanExecuteMenuItem(item));
                         AddItems(nativeSubmenu, submenu);
                     }
                     else
-                        menu.Add(group, id, 0, item.Text)?.SetEnabled(EditorMenu.CanExecute(item));
+                        menu.Add(group, id, 0, item.Text)?.SetEnabled(target.VirtualView.CanExecuteMenuItem(item));
                 }
             }
         }

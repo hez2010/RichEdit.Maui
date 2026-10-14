@@ -11,7 +11,11 @@ public partial class NativeEditorView
     /// <summary>Customizes the native context or selection menu. Apple platforms require iOS or Mac Catalyst 16 or later.</summary>
     public event EventHandler<EditorContextMenuEventArgs>? ContextMenuOpening;
 
-    internal bool SendKeyDown(EditorKey key, EditorKeyModifiers modifiers)
+    // A failed gesture is consumed so native fallback cannot perform another edit.
+    internal bool SendKeyDown(EditorKey key, EditorKeyModifiers modifiers) =>
+        Commands.Execute(() => SendKeyDownCore(key, modifiers), true);
+
+    private bool SendKeyDownCore(EditorKey key, EditorKeyModifiers modifiers)
     {
         if (HasCurrentStructuredCoordinator) return StructuredInputCoordinator!.SendKeyDown(key, modifiers);
         if (key == EditorKey.None)
@@ -28,7 +32,14 @@ public partial class NativeEditorView
         return true;
     }
 
-    internal EditorContextMenuEventArgs CreateContextMenu()
+    internal EditorContextMenuEventArgs CreateContextMenu() =>
+        Commands.Execute(CreateContextMenuCore, new EditorContextMenuEventArgs(null) { IncludeDefaultItems = false });
+
+    internal bool CanExecuteMenuItem(IMenuElement item) => Commands.Execute(() => EditorMenu.CanExecute(item), false);
+
+    internal void ExecuteMenuItem(IMenuElement item) => Commands.TryExecute(() => EditorMenu.Execute(item));
+
+    private EditorContextMenuEventArgs CreateContextMenuCore()
     {
         if (HasCurrentStructuredCoordinator) return StructuredInputCoordinator!.CreateContextMenu();
         var args = new EditorContextMenuEventArgs(FlyoutBase.GetContextFlyout(this) as MenuFlyout);

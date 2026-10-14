@@ -1,7 +1,7 @@
 namespace RichEdit.Maui;
 
-/// <summary>Describes an operational failure of a native clipboard command.</summary>
-/// <param name="exception">The failure reported by the clipboard operation.</param>
+/// <summary>Describes a native command failure.</summary>
+/// <param name="exception">The original failure reported by the command.</param>
 public sealed class RichTextCommandFailedEventArgs(Exception exception) : EventArgs
 {
     /// <summary>Gets the original exception.</summary>

@@ -84,7 +84,7 @@ namespace RichEdit.Maui.Platforms.Apple
 
             return MarkedTextRange is null && withSender is UIKeyCommand { PropertyList: NSNumber gesture } &&
                 EditorKeyBindings?.Find((EditorKey)(gesture.Int32Value & 0xFFFF), (EditorKeyModifiers)(gesture.Int32Value >> 16)) is { } binding &&
-                binding.Command.CanExecute(binding.CommandParameter);
+                ProjectionHandler?.VirtualView.Commands.Execute(() => binding.Command.CanExecute(binding.CommandParameter), false) == true;
         }
 
         [Export("richEditPerformKeyBinding:")]
@@ -296,7 +296,7 @@ namespace RichEdit.Maui
             return UIMenu.Create([.. elements]);
         }
 
-        private static UIMenuElement[] CreateAppleMenuItems(IEnumerable<IMenuElement> items, bool parentEnabled = true)
+        private UIMenuElement[] CreateAppleMenuItems(IEnumerable<IMenuElement> items, bool parentEnabled = true)
         {
             var result = new List<UIMenuElement>();
             var group = new List<UIMenuElement>();
@@ -308,7 +308,7 @@ namespace RichEdit.Maui
                     continue;
                 }
 
-                var enabled = parentEnabled && EditorMenu.CanExecute(item);
+                var enabled = parentEnabled && VirtualView.CanExecuteMenuItem(item);
                 if (item is IMenuFlyoutSubItem submenu)
                     group.Add(UIMenu.Create(item.Text, CreateAppleMenuItems(submenu, enabled)));
                 else
@@ -316,7 +316,7 @@ namespace RichEdit.Maui
                     var action = UIAction.Create(item.Text, null, null, _ =>
                     {
                         if (parentEnabled)
-                            EditorMenu.Execute(item);
+                            VirtualView?.ExecuteMenuItem(item);
                     });
                     action.Attributes = enabled ? 0 : UIMenuElementAttributes.Disabled;
                     group.Add(action);

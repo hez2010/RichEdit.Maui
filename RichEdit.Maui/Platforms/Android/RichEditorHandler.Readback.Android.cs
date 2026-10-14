@@ -130,6 +130,9 @@ public partial class RichEditorHandler
     }
 
     private void OnNativeDocumentChanged(object? sender, Android.Text.TextChangedEventArgs eventArgs)
+        => VirtualView?.Commands.TryExecute(() => OnNativeDocumentChangedCore(sender, eventArgs));
+
+    private void OnNativeDocumentChangedCore(object? sender, Android.Text.TextChangedEventArgs eventArgs)
     {
         if (_applyingDocument || VirtualView is null || PlatformView?.EditableText is not { } editable)
         {
@@ -261,6 +264,11 @@ public partial class RichEditorHandler
         PlatformView.Post(() =>
         {
             _nativeFormatReadbackQueued = false;
+            VirtualView?.Commands.TryExecute(Readback);
+        });
+
+        void Readback()
+        {
             if (_applyingDocument || _formatWatcher is null || !ReferenceEquals(VirtualView?.Document, _queuedDocument) || _queuedProjectionGeneration != _projectionGeneration)
                 return;
             if (_structuredNativeMap is not null && TryReadStructuredNativeChange(PlatformView.Text ?? "",
@@ -271,7 +279,7 @@ public partial class RichEditorHandler
             var end = Math.Clamp(Math.Max(PlatformView.SelectionStart, PlatformView.SelectionEnd), start, snapshot.Length);
             UpdateDocumentFromDisplay(snapshot, start, end - start, _sourceToken, mergeWithPrevious: _queuedDocument!.Version != _queuedVersion);
             UpdateTypingFormatsFromPlatform();
-        });
+        }
     }
 
     private sealed class NativeFormatWatcher(RichEditorHandler handler) : Java.Lang.Object, ISpanWatcher, INoCopySpan
@@ -300,6 +308,9 @@ public partial class RichEditorHandler
     }
 
     private void OnNativeSelectionChanged(object? sender, NativeSelectionChangedEventArgs eventArgs)
+        => VirtualView?.Commands.TryExecute(() => OnNativeSelectionChangedCore(sender, eventArgs));
+
+    private void OnNativeSelectionChangedCore(object? sender, NativeSelectionChangedEventArgs eventArgs)
     {
         if (_applyingDocument || _nativeTextChangeDepth != 0 || HasTransientInputSelection || VirtualView is null)
         {

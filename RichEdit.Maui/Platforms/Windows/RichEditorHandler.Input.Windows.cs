@@ -55,13 +55,13 @@ public partial class RichEditorHandler
                     continue;
                 }
 
-                var button = new AppBarButton { Label = item.Text, IsEnabled = EditorMenu.CanExecute(item) };
+                var button = new AppBarButton { Label = item.Text, IsEnabled = VirtualView.CanExecuteMenuItem(item) };
                 if (item is IMenuFlyoutSubItem submenu)
                     button.Flyout = CreateMenuFlyout(submenu, flyout.Hide);
                 else
                     button.Click += (_, _) =>
                     {
-                        EditorMenu.Execute(item);
+                        VirtualView?.ExecuteMenuItem(item);
                         flyout.Hide();
                     };
 
@@ -75,7 +75,7 @@ public partial class RichEditorHandler
         }
     }
 
-    private static NativeMenuFlyout CreateMenuFlyout(IEnumerable<IMenuElement> items, Action close)
+    private NativeMenuFlyout CreateMenuFlyout(IEnumerable<IMenuElement> items, Action close)
     {
         var flyout = new NativeMenuFlyout();
         foreach (var item in items)
@@ -84,23 +84,23 @@ public partial class RichEditorHandler
         return flyout;
     }
 
-    private static MenuFlyoutItemBase CreateMenuItem(IMenuElement item, Action close)
+    private MenuFlyoutItemBase CreateMenuItem(IMenuElement item, Action close)
     {
         if (item is IMenuFlyoutSeparator)
             return new NativeMenuFlyoutSeparator();
         if (item is IMenuFlyoutSubItem submenu)
         {
-            var parent = new NativeMenuFlyoutSubItem { Text = item.Text, IsEnabled = EditorMenu.CanExecute(item) };
+            var parent = new NativeMenuFlyoutSubItem { Text = item.Text, IsEnabled = VirtualView.CanExecuteMenuItem(item) };
             foreach (var child in submenu)
                 parent.Items.Add(CreateMenuItem(child, close));
 
             return parent;
         }
 
-        var button = new NativeMenuFlyoutItem { Text = item.Text, IsEnabled = EditorMenu.CanExecute(item) };
+        var button = new NativeMenuFlyoutItem { Text = item.Text, IsEnabled = VirtualView.CanExecuteMenuItem(item) };
         button.Click += (_, _) =>
         {
-            EditorMenu.Execute(item);
+            VirtualView?.ExecuteMenuItem(item);
             close();
         };
         return button;

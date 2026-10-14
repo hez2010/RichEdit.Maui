@@ -15,6 +15,25 @@ public partial class WindowsEditorTests
     private static Microsoft.UI.Xaml.Window? _sampleWindow;
 
     [Fact]
+    public Task NativeFormattingFailuresAreReported() => WindowsTestHost.RunAsync(async () =>
+    {
+        using var fixture = new EditorFixture();
+        var editor = fixture.Editor;
+        editor.Document = RichTextDocument.FromPlainText("text");
+        editor.SelectAll();
+        var failure = new InvalidOperationException("Formatting notification failure");
+        var reported = new TaskCompletionSource<Exception>();
+        editor.Commands.Failed += (_, args) => reported.TrySetResult(args.Exception);
+        void OnChanged(object? sender, RichTextContentChangedEventArgs args) => throw failure;
+        editor.ContentChanged += OnChanged;
+        fixture.Handler.PlatformView.Document.Selection.CharacterFormat.Bold = FormatEffect.On;
+        Assert.Same(failure, await reported.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        editor.ContentChanged -= OnChanged;
+        editor.Selection.ToggleItalic();
+        Assert.Equal("text", editor.Document.Text);
+    });
+
+    [Fact]
     public Task AuthoredColorsSurviveFocusAndEnabledStateChanges() => WindowsTestHost.RunAsync(async () =>
     {
         using var fixture = new EditorFixture();

@@ -173,13 +173,13 @@ public partial class RichTextView : UITextView
         public override void Undo()
         {
             if (CanUndo)
-                Editor?.Undo();
+                Editor?.Commands.Undo.Execute(null);
         }
 
         public override void Redo()
         {
             if (CanRedo)
-                Editor?.Redo();
+                Editor?.Commands.Redo.Execute(null);
         }
 
         public void NotifyStateChanged()

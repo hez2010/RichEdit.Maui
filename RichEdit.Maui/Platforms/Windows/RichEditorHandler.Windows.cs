@@ -323,6 +323,12 @@ public partial class RichEditorHandler
 
     private void OnPlatformKeyDown(object sender, KeyRoutedEventArgs eventArgs)
     {
+        if (VirtualView is { } editor && !editor.Commands.TryExecute(() => OnPlatformKeyDownCore(sender, eventArgs)))
+            eventArgs.Handled = true;
+    }
+
+    private void OnPlatformKeyDownCore(object sender, KeyRoutedEventArgs eventArgs)
+    {
         if (VirtualView is null || eventArgs.Handled || _isComposing)
         {
             return;

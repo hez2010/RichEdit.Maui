@@ -53,8 +53,8 @@ public sealed class RichEditorCommands
     /// <summary>Gets the select-all command.</summary>
     public ICommand SelectAll { get; }
 
-    /// <summary>Reports an operational clipboard failure from a native event or command.</summary>
-    /// <remarks>Direct calls to the editor's task-based clipboard methods still propagate exceptions.</remarks>
+    /// <summary>Reports a native command failure so the application can offer recovery.</summary>
+    /// <remarks>Direct editing API calls still propagate exceptions. Cancellation is not reported as a failure.</remarks>
     public event EventHandler<RichTextCommandFailedEventArgs>? Failed;
 
     internal void Refresh()
@@ -114,11 +114,21 @@ public sealed class RichEditorCommands
         }
     }
 
-    private static Command Create(Action execute, Func<bool> canExecute) =>
-        new(execute, canExecute);
+    private Command Create(Action execute, Func<bool> canExecute) =>
+        new(() => TryExecute(execute), () => Execute(canExecute, false));
 
     private Command Create(Func<Task> execute, Func<bool> canExecute) =>
-        new(async () => await ExecuteClipboardAsync(execute), canExecute);
+        new(async () => await ExecuteClipboardAsync(execute), () => Execute(canExecute, false));
+
+    internal bool TryExecute(Action execute) => Execute(() => { execute(); return true; }, false);
+
+    internal T Execute<T>(Func<T> execute, T failureResult)
+    {
+        try { return execute(); }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { ReportFailure(exception); }
+        return failureResult;
+    }
 
     internal Task ClipboardCompletion { get; private set; } = Task.CompletedTask;
 
@@ -134,11 +144,24 @@ public sealed class RichEditorCommands
         {
             // Cancellation of a native clipboard request has no pending caller to notify.
         }
-        catch (Exception exception) when (IsClipboardFailure(exception))
+        catch (Exception exception)
         {
-            System.Diagnostics.Trace.TraceError("Clipboard command failed: {0}", exception);
-            Failed?.Invoke(this, new(exception));
+            // Native callbacks and ICommand.Execute are async void: their callers
+            // cannot observe exceptions. Report every failure at this boundary.
+            ReportFailure(exception);
         }
+    }
+
+    private void ReportFailure(Exception exception)
+    {
+        if (_editor.StructuredInputCoordinator is { } coordinator &&
+            ReferenceEquals(_editor.StructuredSession, coordinator.StructuredSession))
+        {
+            coordinator.Commands.ReportFailure(exception);
+            return;
+        }
+        System.Diagnostics.Trace.TraceError("Editor command failed: {0}", exception);
+        Failed?.Invoke(this, new(exception));
     }
 
     private static bool IsClipboardFailure(Exception exception) =>

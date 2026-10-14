@@ -378,7 +378,13 @@ public partial class EditorApiTests
         await editor.Commands.ExecuteClipboardAsync(() => Task.FromException(failure));
         Assert.Same(failure, observed);
         Assert.Same(failure, await Assert.ThrowsAsync<System.Runtime.InteropServices.COMException>(() => RichEditorCommands.ExecuteAsync(() => Task.FromException(failure))));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => editor.Commands.ExecuteClipboardAsync(() => throw new InvalidOperationException("Application callback failure")));
+        var callbackFailure = new InvalidOperationException("Application callback failure");
+        await editor.Commands.ExecuteClipboardAsync(() => throw callbackFailure);
+        Assert.Same(callbackFailure, observed);
+        Assert.Same(callbackFailure, await Assert.ThrowsAsync<InvalidOperationException>(() => RichEditorCommands.ExecuteAsync(() => throw callbackFailure)));
+        observed = null;
+        await editor.Commands.ExecuteClipboardAsync(() => Task.FromCanceled(new CancellationToken(true)));
+        Assert.Null(observed);
     });
 
     private sealed partial class RichFixture : IDisposable

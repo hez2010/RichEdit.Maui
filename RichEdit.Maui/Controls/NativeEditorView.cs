@@ -881,7 +881,9 @@ public partial class NativeEditorView : View
         return !args.Handled;
     }
 
-    internal void RaiseCompleted()
+    internal void RaiseCompleted() => Commands.TryExecute(RaiseCompletedCore);
+
+    private void RaiseCompletedCore()
     {
         if (ReturnCommand?.CanExecute(ReturnCommandParameter) == true)
         {

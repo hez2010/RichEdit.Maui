@@ -340,21 +340,20 @@ internal sealed partial class CodeEditorTestPage
             return Task.CompletedTask;
         });
 
-        await Test("Android command exceptions reach native key callback caller", () =>
+        await Test("Android command exceptions are reported through Failed", () =>
         {
             var native = (RichEdit.Maui.Platforms.Android.RichEditText)_textView.Handler!.PlatformView!;
             var failure = new InvalidOperationException("Application command failure");
             _editor.KeyBindings.Add(new(EditorKey.F1, EditorKeyModifiers.None, new Command(() => throw failure)));
             using var key = new Android.Views.KeyEvent(Android.Views.KeyEventActions.Down, Android.Views.Keycode.F1);
             Exception? actual = null;
+            void OnFailed(object? sender, RichTextCommandFailedEventArgs args) => actual = args.Exception;
+            _editor.Commands.Failed += OnFailed;
             try
             {
-                native.OnKeyDown(Android.Views.Keycode.F1, key);
+                Equal(true, native.OnKeyDown(Android.Views.Keycode.F1, key));
             }
-            catch (InvalidOperationException exception)
-            {
-                actual = exception;
-            }
+            finally { _editor.Commands.Failed -= OnFailed; }
 
             Equal(true, ReferenceEquals(failure, actual));
             return Task.CompletedTask;

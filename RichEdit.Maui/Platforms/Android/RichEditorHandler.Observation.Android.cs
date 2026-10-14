@@ -72,7 +72,7 @@ namespace RichEdit.Maui
                 UpdateDocumentFromDisplay(snapshot, start, end - start, _sourceToken);
             }
 
-            OnNativeSelectionChanged(PlatformView, new(PlatformView.SelectionStart, PlatformView.SelectionEnd));
+            OnNativeSelectionChangedCore(PlatformView, new(PlatformView.SelectionStart, PlatformView.SelectionEnd));
         }
 
         private bool OnObservedPointer(MotionEvent e)
