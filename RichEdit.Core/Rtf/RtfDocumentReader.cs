@@ -77,12 +77,26 @@ internal sealed partial class RtfDocumentReader
                 continue;
             }
             FlushBytes();
+            // RTF counts each control (including a complete binary payload) as
+            // one fallback character. Group delimiters end the fallback early.
+            if (_fallback > 0 && token.Kind is RtfTokenKind.Control or RtfTokenKind.Symbol or RtfTokenKind.Binary)
+            {
+                _fallback--;
+                continue;
+            }
             switch (token.Kind)
             {
                 case RtfTokenKind.StartGroup:
                     _fallback = 0;
+                    var alternative = _state.UnicodeAlternativeCount;
+                    if (alternative is not null) _state.UnicodeAlternativeCount++;
                     _states.Push(_state);
                     _state = _state.Child();
+                    if (alternative is not null)
+                    {
+                        if (alternative == 1) _state.UnicodeDestination = _state.Destination;
+                        _state.Destination = "skip";
+                    }
                     break;
                 case RtfTokenKind.EndGroup:
                     _fallback = 0;
@@ -107,8 +121,8 @@ internal sealed partial class RtfDocumentReader
                     Control(token.Word!, token.Number);
                     break;
                 case RtfTokenKind.Symbol:
+                    if (_state.Destination == "skip") break;
                     if (token.Symbol == '*') _state.Ignorable = true;
-                    else if (_fallback > 0) _fallback--;
                     else if (token.Symbol is (byte)'{' or (byte)'}' or (byte)'\\') Text(((char)token.Symbol).ToString());
                     else if (token.Symbol == '~') Text("\u00a0");
                     else if (token.Symbol == '_') Text("\u2011");
@@ -208,9 +222,9 @@ internal sealed partial class RtfDocumentReader
         if (_structuralGap) throw Error("A structural RTF gap must be followed by its paragraph mark");
         _budget.TextLength = checked(_budget.TextLength + text.Length);
         if (_budget.TextLength > options.MaximumTextLength) throw Error("RTF text limit exceeded");
+        _state.AtStart = false;
         if (_state.Capture is { } capture) { capture.Append(text); return; }
         if (_state.Destination is not ("body" or "nesttableprops" or "fldrslt")) return;
-        _state.AtStart = false;
         var pieces = text.Split(['\r', '\n', '\u2028']);
         if (pieces.Length > 1)
         {
@@ -243,6 +257,9 @@ internal sealed partial class RtfDocumentReader
 
     private Paragraph EnsureParagraph()
     {
+        // Nested row descriptors may follow their cell contents. Start a pending
+        // row at its table depth so the later descriptors describe those cells.
+        if (_state.InTable && _tables.Count < Math.Max(1, _state.TableLevel)) BeginRow();
         if (_paragraph is not null) return _paragraph;
         if (!_state.InTable) CloseTables(0);
         else
@@ -310,13 +327,16 @@ internal sealed partial class RtfDocumentReader
         internal bool AtStart = true;
         internal bool Ignorable;
         internal int CodePage = 1252, UnicodeSkip = 1, Font = -1, FontCodePage;
+        internal int? ExplicitFontCodePage;
+        internal int? UnicodeAlternativeCount;
+        internal string? UnicodeDestination;
         internal RichCharacterStyle Character = new(), ParagraphCharacter = new();
         internal RichParagraphStyle Paragraph = new();
         internal RichStyleId? CharacterStyle, ParagraphStyle;
         internal StringBuilder? Capture;
         internal int Red, Green, Blue;
         internal bool ColorSpecified;
-        internal int StyleId = -1, BasedOn = -1, NextStyle = -1;
+        internal int? StyleId, BasedOn, NextStyle;
         internal bool CharacterDefinition;
         internal int Inherit, Initial, Null;
         internal int? PropertyCount;
@@ -331,6 +351,8 @@ internal sealed partial class RtfDocumentReader
         internal int ListId, ListOverride, ListLevel;
         internal ListDefinition? List;
         internal ListLevelDefinition? ListLevelDefinition;
+        internal ListOverrideDefinition? ListOverrideDefinition;
+        internal ListLevelOverride? ListLevelOverride;
         internal Picture? Picture;
         internal bool ResourceOnly, Orphan;
         internal bool Reverse;
@@ -338,6 +360,7 @@ internal sealed partial class RtfDocumentReader
         internal RevisionRecord? RevisionRecord;
         internal CaretAffinity AnchorAffinity = CaretAffinity.Downstream, ActiveAffinity = CaretAffinity.Downstream;
         internal Annotation? Annotation;
+        internal string AnnotationName = "", AnnotationAuthor = "";
         internal Field? Field;
         internal RichHyperlink? Link;
         internal State Child()
@@ -346,6 +369,8 @@ internal sealed partial class RtfDocumentReader
             child.AtStart = true;
             child.OwnDestination = false;
             child.Ignorable = false;
+            child.UnicodeAlternativeCount = null;
+            child.UnicodeDestination = null;
             if (Destination is "fonttbl" or "stylesheet") child.Capture = new();
             return child;
         }

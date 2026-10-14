@@ -30,6 +30,7 @@ internal sealed partial class RtfDocumentReader
         }
         switch (word)
         {
+            case "trleft": frame.Row!.Left = number; return true;
             case "clvertalt": frame.CellFormat = format with { VerticalAlignment = RichCellVerticalAlignment.Top }; return true;
             case "clvertalc": frame.CellFormat = format with { VerticalAlignment = RichCellVerticalAlignment.Center }; return true;
             case "clvertalb": frame.CellFormat = format with { VerticalAlignment = RichCellVerticalAlignment.Bottom }; return true;

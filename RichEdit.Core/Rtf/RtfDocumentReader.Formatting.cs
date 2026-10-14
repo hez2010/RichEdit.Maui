@@ -24,6 +24,7 @@ internal sealed partial class RtfDocumentReader
             case "strike": if (n != 0 || format.Strike.ApplyValue() != RichStrike.Double) format = format with { Strike = n == 0 ? RichStrike.None : RichStrike.Single }; break;
             case "striked": if (n != 0) format = format with { Strike = RichStrike.Double }; else if (format.Strike.ApplyValue() == RichStrike.Double) format = format with { Strike = RichStrike.None }; break;
             case "cf": format = format with { Foreground = Color(n) }; break;
+            case "cb":
             case "highlight": format = format with { Background = Color(n) }; break;
             case "chshdng": case "chcfpat": case "chcbpat":
                 format = format with { Shading = ReadShading(format.Shading.ApplyValue(), word, n) }; break;
@@ -82,8 +83,8 @@ internal sealed partial class RtfDocumentReader
             case "tleq": _state.TabLeader = RichTabLeader.Equals; return true;
             case "tx":
                 ChargeResource();
-                if (n <= 0) throw Error("Tab positions must be positive");
-                format = format with { TabStops = (format.TabStops.ApplyValue() ?? RichTabStops.Empty).Set(new(new(n), _state.TabAlignment, _state.TabLeader)) };
+                if (n <= 0) Report("tab-position", "Tab stops at or before the paragraph origin are outside the supported layout and were omitted.");
+                else format = format with { TabStops = (format.TabStops.ApplyValue() ?? RichTabStops.Empty).Set(new(new(n), _state.TabAlignment, _state.TabLeader)) };
                 _state.TabAlignment = RichTabAlignment.Left; _state.TabLeader = RichTabLeader.None; break;
             case "hyphpar": format = format with { Hyphenation = n != 0 }; break;
             case "sl":
@@ -119,7 +120,7 @@ internal sealed partial class RtfDocumentReader
 
     private RichColor? Color(int index)
     {
-        if (index == 0) return null;
+        if (index == 0 && _colors.Count == 0) return null;
         if (index < 0 || index >= _colors.Count) { Report("color-reference", $"Color {index} is missing; the default color was used."); return null; }
         return _colors[index];
     }

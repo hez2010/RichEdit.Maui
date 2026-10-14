@@ -37,6 +37,7 @@
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CodeEditorActions.cs" Link="Samples\CodeEditorActions.cs" />
         <Compile Include="..\RichEdit.Maui.TestApp\Pages\CodeEditor\CodeEditorFeatures.cs" Link="Samples\CodeEditorFeatures.cs" />
         <EmbeddedResource Include="Fixtures\ReferenceDocument.rtf" LogicalName="ReferenceDocument" />
+        <EmbeddedResource Include="Fixtures\Rtf191Destinations.txt" LogicalName="Rtf191Destinations" />
     </ItemGroup>
 
 </Project>

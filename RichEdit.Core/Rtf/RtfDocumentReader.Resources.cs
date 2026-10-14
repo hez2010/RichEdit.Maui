@@ -10,6 +10,7 @@ internal sealed partial class RtfDocumentReader
         internal RichImageKind? Kind;
         internal readonly List<byte> Bytes = [];
         internal int Width, Height, PixelWidth, PixelHeight;
+        internal int ScaleX = 100, ScaleY = 100;
         internal int? Nibble;
         internal string? Name, Alt, Property;
     }
@@ -64,10 +65,19 @@ internal sealed partial class RtfDocumentReader
         var width = picture.Width > 0 ? picture.Width : picture.PixelWidth > 0 ? checked(picture.PixelWidth * 15) : 1440;
         var height = picture.Height > 0 ? picture.Height : picture.PixelHeight > 0 ? checked(picture.PixelHeight * 15) : 1440;
         if (picture.Width <= 0 || picture.Height <= 0) Report("picture-size", "Missing picture dimensions were inferred at 96 DPI, with a one-inch fallback.");
+        width = Scale(width, picture.ScaleX);
+        height = Scale(height, picture.ScaleY);
         var paragraph = EnsureParagraph();
         paragraph.Inlines.Add(new RichImage(Allocate(), paragraph.Id, asset, new(width), new(height))
         { Format = child.Character, Style = child.CharacterStyle, Link = child.Link, AlternativeText = picture.Alt });
         paragraph.Length++;
+
+        int Scale(int value, int percent)
+        {
+            var scaled = ((long)value * percent + 50) / 100;
+            if (scaled is <= 0 or > int.MaxValue) throw Error("Picture dimensions exceed the supported range");
+            return (int)scaled;
+        }
     }
 
     private void StartAnchor(State child, Dictionary<string, Anchor> anchors)

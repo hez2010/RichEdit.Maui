@@ -136,8 +136,15 @@ internal static partial class RtfCodec
                         FlushEncodedBytes();
                         EndUnicodeFallbackAtGroupDelimiter();
                         var isRoot = depth == 0;
+                        var alternative = state.UnicodeAlternativeCount;
+                        if (alternative is not null) state.UnicodeAlternativeCount++;
                         stack.Push(state);
                         state = state.CloneForGroup();
+                        if (alternative is not null)
+                        {
+                            state.SkipDestination = true;
+                            state.InUnicodePreferred = alternative == 1;
+                        }
                         depth++;
                         if (isRoot)
                         {
@@ -411,8 +418,8 @@ internal static partial class RtfCodec
                     }
                 }
 
-                _ = ConsumeUnicodeFallback();
-                if (state.Destination == Destination.Picture && state.Picture is { } picture)
+                var fallback = ConsumeUnicodeFallback();
+                if (!fallback && !state.SkipDestination && state.Destination == Destination.Picture && state.Picture is { } picture)
                 {
                     for (var index = 0; index < byteCount; index++)
                     {

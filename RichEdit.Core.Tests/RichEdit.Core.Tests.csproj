@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="../RichEdit.Maui.Tests/Fixtures/ReferenceDocument.rtf" LogicalName="ReferenceDocument" />
+    <EmbeddedResource Include="../RichEdit.Maui.Tests/Fixtures/Rtf191Destinations.txt" LogicalName="Rtf191Destinations" />
     <ProjectReference Include="../RichEdit.Core/RichEdit.Core.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageReference Include="xunit.v3" Version="4.0.0" />

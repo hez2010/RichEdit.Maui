@@ -234,6 +234,7 @@ internal static partial class RtfCodec
             public bool SkipDestination { get; set; }
 
             public bool InUnicodePreferred { get; set; }
+            public int? UnicodeAlternativeCount { get; set; }
 
             public bool CompletesCapture { get; set; }
 
@@ -292,7 +293,6 @@ internal static partial class RtfCodec
                 TableLevel = TableLevel,
                 AtGroupStart = true,
                 SkipDestination = SkipDestination,
-                InUnicodePreferred = InUnicodePreferred,
                 Capture = Capture,
                 ListLevelTextCapture = ListLevelTextCapture,
                 ListLevelTextIsOverride = ListLevelTextIsOverride,

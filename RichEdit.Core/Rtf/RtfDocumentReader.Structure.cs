@@ -7,7 +7,7 @@ internal sealed partial class RtfDocumentReader
     private readonly List<TableFrame> _tables = [];
     private readonly Stack<ListFrame> _listStack = [];
     private readonly Dictionary<int, ListDefinition> _listDefinitions = [];
-    private readonly Dictionary<int, int> _listOverrides = [];
+    private readonly Dictionary<int, ListOverrideDefinition> _listOverrides = [];
     private readonly Dictionary<(int Number, int Level), long> _nextListNumbers = [];
 
     private sealed class Table(RichNodeId id) : Block(id) { internal readonly List<Row> Rows = []; }
@@ -16,6 +16,7 @@ internal sealed partial class RtfDocumentReader
         internal readonly List<CellSpec> Definitions = [];
         internal readonly List<List<Block>> Cells = [];
         internal bool Complete;
+        internal int Left;
         internal int CellGap;
         internal RichCellPadding Padding;
         internal RichBorderSides PaddingUnits;
@@ -31,6 +32,7 @@ internal sealed partial class RtfDocumentReader
         internal RichCellFormat CellFormat = new();
         internal RichBorderSides CellBorderSide;
         internal RichBorderSides CellPaddingUnits;
+        internal int ListDepth;
     }
     private sealed class ListBlock(RichNodeId id, int number, bool numbered, int start, RichListNumberingStyle numberStyle) : Block(id)
     {
@@ -47,7 +49,37 @@ internal sealed partial class RtfDocumentReader
         internal readonly ListLevelDefinition Default = new();
         internal ListLevelDefinition Level(int level) => level >= 0 && level < Levels.Count ? Levels[level] : Default;
     }
-    private sealed class ListLevelDefinition { internal bool Numbered; internal int Start = 1; internal RichListNumberingStyle NumberStyle; }
+    private sealed class ListLevelDefinition
+    {
+        internal bool Numbered, NoNumber, ModernNumberFormat;
+        internal int Start = 1;
+        internal RichListNumberingStyle NumberStyle;
+    }
+    private sealed class ListOverrideDefinition
+    {
+        internal int ListId;
+        internal readonly List<ListLevelOverride> Levels = [];
+    }
+    private sealed class ListLevelOverride
+    {
+        internal bool StartAt, Format;
+        internal readonly ListLevelDefinition Definition = new();
+    }
+
+    private ListLevelDefinition ListLevel(int number, int level)
+    {
+        _listOverrides.TryGetValue(number, out var overrides);
+        var definition = (_listDefinitions.GetValueOrDefault(overrides?.ListId ?? number) ?? new()).Level(level);
+        if (overrides is null || level >= overrides.Levels.Count) return definition;
+        var entry = overrides.Levels[level];
+        return new()
+        {
+            Numbered = entry.Format ? entry.Definition.Numbered : definition.Numbered,
+            NoNumber = entry.Format ? entry.Definition.NoNumber : definition.NoNumber,
+            NumberStyle = entry.Format ? entry.Definition.NumberStyle : definition.NumberStyle,
+            Start = entry.StartAt ? entry.Definition.Start : definition.Start,
+        };
+    }
 
     private void BeginRow()
     {
@@ -61,6 +93,7 @@ internal sealed partial class RtfDocumentReader
             var table = new Table(Allocate());
             _container.Add(table);
             frame = new(level, table, _container);
+            frame.ListDepth = _listStack.Count;
             _tables.Add(frame);
         }
         if (frame.Row is { Complete: false } existing)
@@ -68,7 +101,7 @@ internal sealed partial class RtfDocumentReader
             // RTF may repeat row descriptors after cell contents. WinUI needs
             // these final descriptors to retain widths, merges, and shading.
             existing.Definitions.Clear();
-            existing.CellGap = 0; existing.Padding = default; existing.PaddingUnits = RichBorderSides.None;
+            existing.Left = 0; existing.CellGap = 0; existing.Padding = default; existing.PaddingUnits = RichBorderSides.None;
             frame.HorizontalContinue = frame.VerticalContinue = false;
             frame.CellFormat = new(); frame.CellBorderSide = RichBorderSides.None;
             frame.CellPaddingUnits = RichBorderSides.None;
@@ -90,7 +123,7 @@ internal sealed partial class RtfDocumentReader
     {
         if (_tables.Count == 0 || _tables[^1].Row is not { } row) throw Error("A cell definition has no table row");
         var frame = _tables[^1];
-        if (boundary <= 0 || row.Definitions.Count > 0 && boundary <= row.Definitions[^1].Boundary)
+        if (row.Definitions.Count > 0 && boundary <= row.Definitions[^1].Boundary)
             throw Error("Table cell boundaries must increase");
         ChargeResource();
         row.Definitions.Add(new(boundary, frame.HorizontalContinue, frame.VerticalContinue, frame.CellFormat, frame.CellPaddingUnits));
@@ -109,6 +142,7 @@ internal sealed partial class RtfDocumentReader
         _state.TableLevel = level;
         if (_container.Count == 0) EnsureParagraph();
         if (_paragraph is not null) CaptureParagraphProperties();
+        while (_listStack.Count > _tables[^1].ListDepth && _listStack.Peek().External) EndList();
         _paragraph = null;
         _container = [];
         row.Cells.Add(_container);
@@ -120,7 +154,7 @@ internal sealed partial class RtfDocumentReader
         // A following row may reuse its predecessor's properties without
         // another \trowd. Start it before content enters the parent story.
         ChargeResource();
-        var row = new Row { CellGap = previous.CellGap, Padding = previous.Padding, PaddingUnits = previous.PaddingUnits };
+        var row = new Row { Left = previous.Left, CellGap = previous.CellGap, Padding = previous.Padding, PaddingUnits = previous.PaddingUnits };
         foreach (var definition in previous.Definitions) { ChargeResource(); row.Definitions.Add(definition); }
         var frame = _tables[^1];
         frame.Row = row;
@@ -137,6 +171,7 @@ internal sealed partial class RtfDocumentReader
         var frame = _tables[^1];
         if (row.Cells.Count == row.Definitions.Count + 1 && row.Cells[^1].Count == 0) row.Cells.RemoveAt(row.Cells.Count - 1);
         if (row.Cells.Count != row.Definitions.Count || row.Cells.Count == 0) throw Error("Table cell contents do not match the row definitions");
+        if (row.Definitions[0].Boundary <= row.Left) throw Error("Table cell boundaries must follow the row's left edge");
         row.Complete = true;
         _paragraph = null;
         _container = frame.Parent;
@@ -157,8 +192,7 @@ internal sealed partial class RtfDocumentReader
     private void BeginList(int number, bool external = false, int level = 0)
     {
         _paragraph = null;
-        var id = _listOverrides.GetValueOrDefault(number, number);
-        var definition = (_listDefinitions.GetValueOrDefault(id) ?? new()).Level(external ? level : 0);
+        var definition = ListLevel(number, external ? level : 0);
         var start = external && definition.Numbered ? _nextListNumbers.GetValueOrDefault((number, level), definition.Start) : definition.Start;
         if (start > int.MaxValue) throw Error("List numbering exceeds the supported range");
         var list = new ListBlock(Allocate(), number, definition.Numbered, (int)start, definition.NumberStyle);
@@ -191,11 +225,15 @@ internal sealed partial class RtfDocumentReader
 
     private void ApplyExternalList()
     {
+        var number = _state.ListOverride;
+        if (number != 0 && ListLevel(number, _state.ListLevel).NoNumber) number = 0;
         while (_listStack.TryPeek(out var frame) && frame.External &&
-            (_state.ListOverride == 0 || frame.Level > _state.ListLevel || frame.Level == _state.ListLevel && frame.List.Number != _state.ListOverride)) EndList();
-        if (_state.ListOverride == 0) return;
-        if (!_listStack.TryPeek(out var active) || active.Level != _state.ListLevel || active.List.Number != _state.ListOverride)
-            BeginList(_state.ListOverride, external: true, _state.ListLevel);
+            (_tables.Count == 0 || _listStack.Count > _tables[^1].ListDepth) &&
+            (number == 0 || frame.Level > _state.ListLevel || frame.Level == _state.ListLevel && frame.List.Number != number)) EndList();
+        if (number == 0) return;
+        if (!_listStack.TryPeek(out var active) || active.Level != _state.ListLevel || active.List.Number != number ||
+            _tables.Count != 0 && _listStack.Count == _tables[^1].ListDepth)
+            BeginList(number, external: true, _state.ListLevel);
         ListItem();
     }
 
@@ -226,7 +264,9 @@ internal sealed partial class RtfDocumentReader
 
     private void MaterializeTable(Table table, RichNodeId parent, ImmutableDictionary<RichNodeId, RichNode>.Builder nodes)
     {
-        var boundaries = table.Rows.SelectMany(row => row.Definitions).Select(cell => cell.Boundary).Distinct().Order().ToArray();
+        var boundaries = table.Rows.SelectMany(row => row.Definitions.Select(cell => Boundary(row, cell))).Distinct().Order().ToArray();
+        if (table.Rows.Any(row => row.Left != 0))
+            Report("table-row-offset", "Table row offsets were normalized to a common origin while retaining cell widths.");
         if ((long)boundaries.Length * table.Rows.Count > Math.Min(options.MaximumNodes, 1_000_000)) throw Error("Table grid limit exceeded");
         var widths = boundaries.Select((value, index) => new RichLength(value - (index == 0 ? 0 : boundaries[index - 1]))).ToImmutableArray();
         var grid = new RichNodeId[table.Rows.Count, boundaries.Length];
@@ -241,7 +281,7 @@ internal sealed partial class RtfDocumentReader
             {
                 var definition = row.Definitions[cellIndex];
                 var format = ResolveCellFormat(row, definition);
-                var endColumn = Array.BinarySearch(boundaries, definition.Boundary) + 1;
+                var endColumn = Array.BinarySearch(boundaries, Boundary(row, definition)) + 1;
                 RichNodeId id;
                 if (definition.HorizontalContinue && column > 0)
                 {
@@ -256,7 +296,7 @@ internal sealed partial class RtfDocumentReader
                     var cell = (RichTableCell)nodes[id];
                     var mergedEnd = endColumn;
                     for (var next = cellIndex + 1; next < row.Definitions.Count && row.Definitions[next].HorizontalContinue; next++)
-                        mergedEnd = Array.BinarySearch(boundaries, row.Definitions[next].Boundary) + 1;
+                        mergedEnd = Array.BinarySearch(boundaries, Boundary(row, row.Definitions[next])) + 1;
                     if (cell.Column != column || cell.ColumnSpan != mergedEnd - column) throw Error("Vertical table merges must have matching columns");
                     nodes[id] = cell with { RowSpan = cell.RowSpan + 1 };
                     RetainMergedContent(id, row.Cells[cellIndex]);
@@ -269,10 +309,26 @@ internal sealed partial class RtfDocumentReader
                 }
                 for (; column < endColumn; column++) grid[rowIndex, column] = id;
             }
-            if (column != boundaries.Length) throw Error("Table rows must cover the complete grid");
+            if (column != boundaries.Length)
+            {
+                Report("table-row-width", "Shorter table rows were padded with an empty cell to fit the document's rectangular table grid.");
+                var cellId = Allocate();
+                var paragraphId = Allocate();
+                nodes.Add(paragraphId, new RichParagraph(paragraphId, cellId, []));
+                nodes.Add(cellId, new RichTableCell(cellId, rowId, column, boundaries.Length - column, 1, [paragraphId]));
+                cells.Add(cellId);
+                for (; column < boundaries.Length; column++) grid[rowIndex, column] = cellId;
+            }
             nodes.Add(rowId, new RichTableRow(rowId, table.Id, cells.ToImmutable()));
         }
         nodes.Add(table.Id, new RichTable(table.Id, parent, widths, rows.ToImmutable()));
+
+        int Boundary(Row row, CellSpec cell)
+        {
+            var offset = (long)cell.Boundary - row.Left;
+            if (offset is <= 0 or > int.MaxValue) throw Error("Table width exceeds the supported range");
+            return (int)offset;
+        }
 
         void RetainMergedContent(RichNodeId id, List<Block> content)
         {

@@ -126,14 +126,21 @@ internal static partial class RtfCodec
                 case "shppict":
                     // The ignorable wrapper contains the preferred Word 97+ picture.
                     return true;
+                case "sp" when state.Destination == Destination.PictureProperties:
+                case "nesttableprops" when state.Destination == Destination.Body:
+                case "ud":
+                    return true;
                 case "upr":
                     // Skip the ANSI alternative; the paired \*\ud destination
                     // supplies the preferred Unicode representation.
-                    state.SkipDestination = true;
-                    state.InUnicodePreferred = true;
+                    state.UnicodeAlternativeCount = 0;
                     return true;
                 default:
-                    if (SkippedDestinations.Contains(word))
+                    if (word == "rtf" ||
+                        state.Destination == Destination.ListTable && word is "list" or "listlevel" ||
+                        state.Destination == Destination.ListOverrideTable && word is "listoverride" or "lfolevel" or "listlevel")
+                        return false;
+                    if (SkippedDestinations.Contains(word) || RichEdit.Core.Rtf.RtfStandardDestinations.Contains(word))
                     {
                         state.Destination = Destination.Skip;
                         state.SkipDestination = true;
