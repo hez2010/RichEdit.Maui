@@ -267,7 +267,9 @@ internal sealed partial class RtfDocumentReader
                 _styles[styleNumber] = new(new(id), styleName, _state.CharacterDefinition ? RichStyleKind.Character : RichStyleKind.Paragraph)
                 {
                     BasedOn = _state.BasedOn is < 0 or 222 ? null : new(_state.BasedOn == 0 ? short.MaxValue : _state.BasedOn),
-                    NextStyle = _state.NextStyle < 0 ? null : new(_state.NextStyle == 0 ? short.MaxValue : _state.NextStyle),
+                    // Some producers emit \snext on character styles too;
+                    // it only governs the paragraph style after a paragraph break.
+                    NextStyle = _state.CharacterDefinition || _state.NextStyle < 0 ? null : new(_state.NextStyle == 0 ? short.MaxValue : _state.NextStyle),
                     Character = _state.Character, Paragraph = _state.CharacterDefinition ? new() : _state.Paragraph,
                 };
                 _state.Capture = new(); _state.StyleId = -1; return;

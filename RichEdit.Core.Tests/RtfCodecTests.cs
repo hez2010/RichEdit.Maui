@@ -6,6 +6,33 @@ namespace RichEdit.Core.Tests;
 
 public sealed class RtfCodecTests
 {
+    [Theory]
+    [InlineData(15)]
+    [InlineData(0)]
+    [InlineData(999)]
+    public async Task CharacterStyleNextParagraphMetadataDoesNotInvalidateTheStyleSheet(int nextStyle)
+    {
+        using var input = new MemoryStream(Encoding.ASCII.GetBytes(
+            @"{\rtf1{\stylesheet{\s0\snext1 Normal;}{\s1\sbasedon0\snext0\qc Heading;}" +
+            $@"{{\*\cs15\snext{nextStyle}\b Emphasis;}}" +
+            @"{\*\cs16\sbasedon15\i Strong;}}\pard\s1 title\par\pard\s0{\cs16 body}\par}"));
+        var imported = await RtfCodec.ReadAsync(input, new() { RequireLossless = true }, TestContext.Current.CancellationToken);
+        var snapshot = imported.Snapshot;
+        Assert.Empty(imported.Diagnostics);
+        Assert.Equal("title\nbody", snapshot.ProjectText().Text.ToString());
+        Assert.Null(snapshot.Styles.Definitions[new(15)].NextStyle);
+        Assert.Equal(new RichStyleId(15), snapshot.Styles.Definitions[new(16)].BasedOn);
+        Assert.Equal(new RichStyleId(1), snapshot.Styles.Definitions[new(short.MaxValue)].NextStyle);
+        Assert.Equal(new RichStyleId(short.MaxValue), snapshot.Styles.Definitions[new(1)].NextStyle);
+        var body = Assert.Single(snapshot.Nodes.Values.OfType<RichText>(), run => run.Content.ToString() == "body");
+        Assert.True(snapshot.ResolveCharacter(body.Id).Bold);
+        Assert.True(snapshot.ResolveCharacter(body.Id).Italic);
+        var restored = await RoundTrip(snapshot);
+        Assert.Equal(snapshot.ProjectText().Text.ToString(), restored.ProjectText().Text.ToString());
+        foreach (var style in snapshot.Styles.Definitions)
+            Assert.Equal(style.Value, restored.Styles.Definitions[style.Key]);
+    }
+
     [Fact]
     public async Task ImplicitNormalStyleCanBeTheBaseOfAnExplicitParagraphStyle()
     {
