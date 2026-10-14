@@ -25,6 +25,23 @@ public partial class RichEditorHandler
     private TextCommandBarFlyout? _contextFlyout;
     private TextCommandBarFlyout? _selectionFlyout;
 
+    private sealed partial class SourceRichEditBox
+    {
+        protected override void OnApplyTemplate()
+        {
+            base.OnApplyTemplate();
+            if (!handler._hasCompletedInitialLoad) return; // Loaded will restore the initial projection.
+            // A collapsed split view can load before its template is applied.
+            // WinUI initializes the story's fonts after OnApplyTemplate returns.
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (!ReferenceEquals(handler.VirtualView?.Handler, handler) || !ReferenceEquals(handler.PlatformView, this)) return;
+                handler.UpdateForegroundStateResources();
+                handler.ApplyInitializedDocument(resetFormatting: true);
+            });
+        }
+    }
+
     /// <inheritdoc />
     protected override RichEditBox CreatePlatformView() => new SourceRichEditBox(this)
     {
@@ -580,9 +597,14 @@ public partial class RichEditorHandler
             }
         }
 
-        // Applying the WinUI template initializes native font defaults. The
-        // pre-load projection is not a valid formatting baseline for that story.
-        if (!_hasCompletedInitialLoad) _structuredNativeMap = null;
+        ApplyInitializedDocument(resetFormatting: !_hasCompletedInitialLoad);
+    }
+
+    private void ApplyInitializedDocument(bool resetFormatting)
+    {
+        // Template initialization changes native defaults without changing text.
+        // The old projection is no longer a valid incremental formatting baseline.
+        if (resetFormatting) _structuredNativeMap = null;
         ApplyCurrentDocument(
             VirtualView.SelectedRange.Start,
             VirtualView.SelectedRange.Length);
