@@ -2,6 +2,92 @@ namespace RichEdit.Maui.Tests;
 
 public sealed partial class CodeEditorTests
 {
+    [Fact]
+    public Task TabsAfterDifferentLengthFieldNamesAlignSeparators() => WindowsTestHost.RunAsync(async () =>
+    {
+        string[] fieldNames = ["1", "22", "333", "4444", "55555", "666666", "7777777", "88888888", "999999999"];
+        // One leading tab starts each field at column 4 (zero-based).
+        // Add enough tabs to place every separator at column 20.
+        string[] lines = fieldNames.Select(fieldName => "\t" + fieldName + new string('\t', (19 - (4 + fieldName.Length)) / 4 + 1) + "= value").ToArray();
+        string source = string.Join("\n", lines);
+        using var fixture = new CodeEditorFixture(source);
+        fixture.Editor.TabSize = 4;
+        fixture.Editor.FontFamily = "Consolas";
+        var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
+        window.AppWindow.Show(activateWindow: false);
+        try
+        {
+            await Task.Delay(150);
+            double? expectedPosition = null;
+            int lineStart = 0;
+            foreach (string line in lines)
+            {
+                int equalsOffset = lineStart + line.IndexOf('=');
+                double actualPosition = fixture.Handler.GetTextCaretBounds(equalsOffset, RichTextCaretAffinity.Downstream)!.Value.Left;
+                expectedPosition ??= actualPosition;
+                Assert.True(Math.Abs(actualPosition - expectedPosition.Value) <= 1, $"{line}: expected X={expectedPosition}, actual X={actualPosition}");
+                lineStart += line.Length + 1;
+            }
+            Assert.Equal(source, fixture.Editor.Document.Text);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    });
+
+    // Compare native caret positions with spaces, rather than assuming a pixel width
+    // for Consolas. Exact tab boundaries must advance to the following stop.
+    [Theory]
+    [InlineData(4, 3, 1)]
+    [InlineData(4, 4, 1)]
+    [InlineData(4, 5, 1)]
+    [InlineData(4, 7, 1)]
+    [InlineData(4, 8, 1)]
+    [InlineData(4, 9, 1)]
+    [InlineData(4, 4, 3)]
+    [InlineData(4, 8, 3)]
+    [InlineData(8, 7, 1)]
+    [InlineData(8, 8, 1)]
+    [InlineData(8, 9, 1)]
+    [InlineData(8, 8, 3)]
+    public Task TabsAdvanceToTheNextColumnStop(int tabSize, int prefixLength, int tabCount) => WindowsTestHost.RunAsync(async () =>
+    {
+        int expectedColumn = (prefixLength / tabSize + tabCount) * tabSize;
+        string tabbedLine = new string('x', prefixLength) + new string('\t', tabCount) + "=";
+        string referenceLine = new string(' ', expectedColumn) + "=";
+        string source = tabbedLine + "\n" + referenceLine;
+        using var fixture = new CodeEditorFixture(source);
+        fixture.Editor.FontFamily = "Consolas";
+        fixture.Editor.FontSize = 14;
+        fixture.Editor.TabSize = tabSize;
+        var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
+        window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
+        window.AppWindow.Show(activateWindow: false);
+        try
+        {
+            await Task.Delay(150);
+            var snapshot = fixture.Editor.Document.CurrentSnapshot;
+            int actualOffset = tabbedLine.Length - 1;
+            int referenceOffset = tabbedLine.Length + 1 + expectedColumn;
+            var actualBounds = fixture.Handler.GetTextCaretBounds(actualOffset, RichTextCaretAffinity.Downstream);
+            var referenceBounds = fixture.Handler.GetTextCaretBounds(referenceOffset, RichTextCaretAffinity.Downstream);
+            Assert.NotNull(actualBounds);
+            Assert.NotNull(referenceBounds);
+            double actualPosition = actualBounds.Value.Left;
+            double expectedPosition = referenceBounds.Value.Left;
+            Assert.True(Math.Abs(actualPosition - expectedPosition) <= 1, $"TabSize={tabSize}, prefixLength={prefixLength}, tabCount={tabCount}: expected column {expectedColumn} at X={expectedPosition}, actual X={actualPosition}");
+            Assert.Same(snapshot, fixture.Editor.Document.CurrentSnapshot);
+            Assert.Equal(source, fixture.Editor.Document.Text);
+            Assert.False(fixture.Editor.Document.IsModified);
+            Assert.False(fixture.Editor.CanUndo);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    });
     private static Microsoft.UI.Xaml.Window? _tabWindow;
     [Fact]
     public Task SpaceIndentationMeasuresExistingTabsWithTheirDisplayWidth() => WindowsTestHost.RunAsync(() =>
