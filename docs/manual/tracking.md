@@ -32,3 +32,5 @@ editor.Edit(edit =>
 ```
 
 Annotations retain semantic anchors and can become orphaned when their content is removed. `SetAnnotationRange` reattaches them; `SetCommentText` and `RemoveAnnotation` are authored edits. Undo restores their content and anchor state. RTF persistence preserves supported annotation relationships independently of disposable source trackers.
+
+See [Comments and bookmarks](annotations.md) for creating annotation UI, navigating to current anchors, and handling orphaned annotations.
