@@ -12,7 +12,7 @@ Both controls use native text engines and input on Windows, Android, iOS, and Ma
 
 [Get started](manual/getting-started.md) · [User manual](manual/index.md) · [API reference](api/index.md) · [RTF support](manual/rtf-support.md) · [Migration to 0.5](manual/migration-0.5.md)
 
-Read the [platform profile](manual/platforms.md) for rendering, large-document, and accessibility boundaries of 0.5.0-preview.1.
+Read the [platform profile](manual/platforms.md) for rendering, large-document, and accessibility boundaries of 0.5.0-preview.3.
 
 ![Native rich editor](../Assets/rich-editor.png)
 

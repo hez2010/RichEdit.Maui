@@ -14,4 +14,4 @@ description: Public document cores and native editor APIs.
 
 The document cores target ordinary .NET 10 and have no MAUI dependency. Live editor mutations run on the owner dispatcher; immutable snapshots can be inspected on worker threads. Native API signatures use the Windows MAUI target.
 
-Start with the [manual](../manual/index.md) for ownership, persistence, coordinate, and rendering contracts. The [migration guide](../manual/migration-0.5.md) covers application changes for 0.5.0-preview.1.
+Start with the [manual](../manual/index.md) for ownership, persistence, coordinate, and rendering contracts. The [migration guide](../manual/migration-0.5.md) covers application changes for 0.5.0-preview.3.

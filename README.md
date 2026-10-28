@@ -19,8 +19,8 @@ RTF is the only rich-document persistence and interchange format. Source text an
 The libraries target .NET 10. Supported minimums are Android API 26, iOS 15, Mac Catalyst 15, and Windows 10.0.17763.
 
 ```sh
-dotnet add package RichEdit.Maui --version 0.5.0-preview.1
-dotnet add package CodeEdit.Maui --version 0.5.0-preview.1
+dotnet add package RichEdit.Maui --version 0.5.0-preview.3
+dotnet add package CodeEdit.Maui --version 0.5.0-preview.3
 ```
 
 ```csharp

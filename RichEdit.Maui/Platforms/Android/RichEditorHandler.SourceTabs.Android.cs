@@ -30,7 +30,13 @@ public partial class RichEditorHandler
     {
         var value = Java.Lang.ICharSequenceExtensions.SubSequence(text, start, end) ?? "";
         if (!value.Contains('\t')) return;
-        var interval = Math.Max(1, PlatformView.Paint!.MeasureText(" ") * VirtualView.SourceTabSize);
+        // MeasureText rounds each measurement up to a pixel. GetRunAdvance
+        // preserves fractional glyph metrics, including linear/subpixel text.
+        var advance = PlatformView.Paint!.GetRunAdvance(" ", 0, 1, 0, 1, false, 1);
+        // TabStopSpan accepts whole pixels. Round the interval down once and
+        // keep all stops on that grid, so text after an earlier tab cannot end
+        // just short of a stop because successive stops were rounded differently.
+        var interval = Math.Max(1, Math.Floor(advance * VirtualView.SourceTabSize));
         if (VirtualView.SourceWordWrap)
         {
             // A wrapped visual line restarts its tab grid at the leading edge.
@@ -48,9 +54,9 @@ public partial class RichEditorHandler
             // line needs only the stops actually reached by its authored tabs.
             var width = Android.Text.Layout.GetDesiredWidth(text, start, start + offset, PlatformView.Paint!);
             var next = (Math.Floor((width + 0.001) / interval) + 1) * interval;
-            var pixels = checked((int)Math.Ceiling(next));
+            var pixels = checked((int)next);
             if (stops.Add(pixels)) AddStop(pixels);
         }
-        void AddStop(double pixels) => text.SetSpan(new TabStopSpanStandard(checked((int)Math.Ceiling(pixels))), start, end, SpanTypes.Paragraph);
+        void AddStop(double pixels) => text.SetSpan(new TabStopSpanStandard(checked((int)pixels)), start, end, SpanTypes.Paragraph);
     }
 }

@@ -8,8 +8,8 @@ description: Install the packages and create native rich and source editors.
 Use .NET 10 and the MAUI workload for each target. Minimum supported targets are Android API 26, iOS 15, Mac Catalyst 15, and Windows 10.0.17763.
 
 ```sh
-dotnet add package RichEdit.Maui --version 0.5.0-preview.1
-dotnet add package CodeEdit.Maui --version 0.5.0-preview.1
+dotnet add package RichEdit.Maui --version 0.5.0-preview.3
+dotnet add package CodeEdit.Maui --version 0.5.0-preview.3
 ```
 
 `RichEdit.Maui` includes the `RichEdit.Core` and `TextEdit.Core` assemblies. `CodeEdit.Maui` depends on `RichEdit.Maui`, so installing either editor brings in the required document types without separate core packages. Register the controls in `MauiProgram`:

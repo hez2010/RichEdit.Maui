@@ -1,9 +1,9 @@
 ---
 title: Migrate to 0.5
-description: Upgrade applications to 0.5.0-preview.1.
+description: Upgrade applications to 0.5.0-preview.3.
 ---
 
-# Migrate to 0.5.0-preview.1
+# Migrate to 0.5.0-preview.3
 
 This is a breaking release. Upgrade the MAUI packages together and restore their `TextEdit.Core` and `RichEdit.Core` dependencies. The libraries target .NET 10.
 
