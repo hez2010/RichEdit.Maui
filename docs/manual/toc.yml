@@ -2,10 +2,10 @@
   href: index.md
 - name: Getting started
   href: getting-started.md
-- name: XAML and data binding
-  href: binding.md
 - name: Control configuration
   href: configuration.md
+- name: XAML and data binding
+  href: binding.md
 - name: Documents and editing
   items:
     - name: Documents and snapshots
@@ -30,25 +30,25 @@
       href: annotations.md
     - name: Tracked revisions and review
       href: review.md
+- name: Source editing
+  items:
+    - name: Code editor
+      href: code-editor.md
+    - name: Editing recipes
+      href: source-workflows.md
+    - name: Tracked positions and ranges
+      href: tracking.md
+    - name: Folding
+      href: folding.md
 - name: Input, commands, and clipboard
   href: input.md
-- name: Code editor
-  items:
-    - name: Configuration and selections
-      href: code-editor.md
-    - name: Source editing recipes
-      href: source-workflows.md
 - name: Extending the editors
   items:
     - name: Background work and checked edits
       href: background-work.md
     - name: Decorations and syntax colors
       href: decorations.md
-    - name: Tracked positions and ranges
-      href: tracking.md
-    - name: Range folding
-      href: folding.md
-    - name: Anchored views
+    - name: Widgets and anchored views
       href: adornments.md
     - name: Layout, hit testing, and composition
       href: layout.md
@@ -62,5 +62,3 @@
   items:
     - name: Migrate to 0.5
       href: migration-0.5.md
-- name: RichEdit Studio sample reference
-  href: sample-app.md

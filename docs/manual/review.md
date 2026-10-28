@@ -18,16 +18,13 @@ Reuse a group for one logical change. Revision metadata contains author, group I
 
 Use `snapshot.GetRevisionResolution(groupId, accept)` to inspect the complete affected closure before presenting a review command. Acceptance includes prerequisites; rejection includes dependents. Whole groups resolve atomically. Untracked edits overlapping unresolved retained state are rejected so later rejection cannot silently overwrite unrelated work.
 
-```csharp
-editor.Edit(edit => edit.AcceptRevision(group.Group));
-// Or: editor.Edit(edit => edit.RejectRevision(group.Group));
-```
-
 Resolution must not share a transaction with unrelated authored edits. It is undoable and does not depend on retaining the original edit in undo history.
 
 ## Build a revision list
 
 `snapshot.Revisions.Values` contains retained transactions. Group them by `revision.Info.Group` for review UI; one logical group can contain several transactions. `Info` supplies `Author` and `Created`, while the revision exposes changed nodes, styles, assets, comments, and bookmarks. Clear or replace `Session.RevisionTracking` when an authoring group ends; it is view/session state, so configure it on each editing session that should track changes.
+
+## Accept or reject a group
 
 Before a user confirms an accept/reject command, compute the affected group set from a captured snapshot:
 

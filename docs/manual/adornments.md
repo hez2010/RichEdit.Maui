@@ -7,6 +7,10 @@ description: Inline hints, block actions, and other transient interactive conten
 
 Widgets are view-owned presentation and never enter authored content, undo, or RTF. Use a data-backed source for many hints or actions; its factories run near the viewport and recycle views outside it.
 
+## Source widgets
+
+Source widgets use UTF-16 offsets in the current document. The offset in this example requires at least 12 UTF-16 units of source:
+
 ```csharp
 using var source = code.Adornments.CreateSource(
     widget => new Label { Text = (string?)widget.Data },
@@ -20,9 +24,9 @@ source.TryPublish(source.BeginUpdate(), new[]
 });
 ```
 
-Stable IDs preserve unchanged live views and measurement. Increment `ContentVersion` when mutable application data changes in place. Estimates must be finite and nonnegative; an explicit inline baseline must fit the estimated height.
+## Rich widgets
 
-Rich widgets use paragraph identities:
+Rich widgets use paragraph identities and a valid insertion point in the current snapshot:
 
 ```csharp
 using var source = editor.Presentation.CreateWidgetSource(
@@ -39,13 +43,17 @@ The rich anchor's affinity controls insertion behavior. Widgets follow structura
 
 Block widgets in tables measure against the containing cell's width, including column spans and excluding cell padding and paragraph indents. They remeasure when columns, padding, or the available viewport change. Inline widgets retain their intrinsic width. An explicitly fixed widget width can overflow its available space.
 
+## Placement and lifetime
+
 | Placement | Behavior |
 | --- | --- |
 | Overlay | Overlaps text without reserving space |
-| LeftMargin | Uses the source view's reserved margin |
+| LeftMargin | Uses the native text surface's reserved margin |
 | Inline | Reserves space at a native text position |
 | AboveLine / BelowLine | Reserves a block row next to the anchor's logical line |
 
 `code.Adornments.Add(position, view, options)` is a convenience for a small number of eagerly supplied interactive views. Set `code.Adornments.MarginWidth` or `editor.Presentation.MarginWidth` for margin content. The rich margin applies to each native text surface, including cells.
+
+Stable IDs preserve unchanged live views and measurement. Increment `ContentVersion` when mutable application data changes in place. Estimates must be finite and nonnegative; an explicit inline baseline must fit the estimated height. Retain the source for the feature's lifetime and dispose it on the owner thread when the feature ends.
 
 Keep factories and measurement fast so widget creation does not delay interaction. Factories run only when a usable viewport is available. Provide accessible descriptions for meaningful interactive content. Large sets of rich widgets can reduce responsiveness.

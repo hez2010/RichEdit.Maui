@@ -5,6 +5,8 @@ description: Bind native controls to shared documents and typed selection state.
 
 # XAML and data binding
 
+## Rich documents
+
 Bind the rich control to a `RichEdit.Core.RichDocument` property. The document is a long-lived model; the control creates and owns its view session.
 
 ```xml
@@ -25,7 +27,9 @@ Bind the rich control to a `RichEdit.Core.RichDocument` property. The document i
 
 The view model's selection property is `RichSelection`. It can contain a text selection set, object, cell, block, or boundary selection. Use `GetSelectedCharacterFormats` to compute application toolbar mixed-state summaries. View fallback font/color properties do not author formatting.
 
-For source editing, bind `CodeEditor.Document` to `CodeDocument` and `Selections` to `TextSelectionSet`. Primary `SelectedRange` and `SelectionState` conveniences remain available.
+## Source documents
+
+Bind `CodeEditor.Document` to `CodeDocument` and `Selections` to `TextSelectionSet`. `SelectedRange` and `SelectionState` address the primary selection.
 
 ```xml
 <ContentPage
@@ -59,10 +63,10 @@ var previewPane = new RichEdit.Maui.RichEditor
 };
 ```
 
-Use separate selection properties for each pane. Binding both panes to one selection property intentionally synchronizes their selections. View fonts, read-only state, presentation producers, and scroll positions remain independent. For linked source scrolling, see [Layout](layout.md).
+Use separate selection properties for each pane. Binding both panes to one selection property intentionally synchronizes their selections. View fonts, read-only state, presentation producers, and scroll positions remain independent.
 
 ## Dirty state and toolbar updates
 
 Both document models expose `IsModified`, `CanUndo`, `CanRedo`, `UndoDescription`, and `RedoDescription`. `CodeDocument` implements `INotifyPropertyChanged`, so source dirty state can bind to `code.Document.IsModified`. `RichDocument` uses `StateChanged` instead; forward that event into view-model property notifications, or bind to `RichEditor.IsModified`, `CanUndo`, and `CanRedo`, which the control notifies. Save completion and edits from any pane can change these values without a local selection change.
 
-Use `SelectionChanged` and `ContentChanged` to refresh [formatting summaries](formatting.md#toolbar-state). Use `CodeEditor.SelectionsChanged` when the toolbar depends on secondary carets. `DocumentChanged` signals replacement, so detach handlers from the previous document and attach to the new one. [Events and threading](events-and-threading.md) explains notification order and reentrancy.
+Use `SelectionChanged` and `ContentChanged` to refresh formatting summaries. Use `CodeEditor.SelectionsChanged` when the toolbar depends on secondary carets. `DocumentChanged` signals replacement, so detach handlers from the previous document and attach to the new one.

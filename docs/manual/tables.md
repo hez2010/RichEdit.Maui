@@ -101,10 +101,10 @@ editor.Edit(edit => edit.SetCellFormat(
     }));
 ```
 
-`RichCellBorders` also supports independent left, top, right, and bottom edges. Character and paragraph formatting still applies to content within the cells; use the selection-aware methods in [Formatting](formatting.md).
+`RichCellBorders` also supports independent left, top, right, and bottom edges. To format text inside cells, pass the cell selection to `edit.ApplyCharacterFormat` or `edit.ApplyParagraphFormat`.
 
 ## Navigation and native layout
 
 `editor.MoveToAdjacentCell(forward: true, appendRow: true)` moves in row order and can append a row when moving beyond the final cell. Pass `appendRow: false` for navigation that must not grow the table. The appended row is undoable. Native Up/Down and Shift-arrow navigation use text geometry and rich addresses.
 
-On Android, coordinated native cell editors participate in the same session. Use `editor.TextLayout` for editor-relative geometry and typed points for cell content. [Widgets](adornments.md) inside cells measure against the available cell width. Rendering differences and large-table limits are described in [RTF support](rtf-support.md) and [Platform behavior](platforms.md).
+On Android, coordinated native cell editors participate in the same session. Use `editor.TextLayout` for editor-relative geometry and typed points for cell content. Block widgets inside cells measure against the available cell width, accounting for spans, padding, and paragraph indents. Large tables can reduce native layout responsiveness.

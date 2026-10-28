@@ -75,7 +75,7 @@ The following matrices describe rich editing on Windows 10.0.17763+, iOS 15+, Ma
 | Explicit character LTR/RTL direction | Retained; paragraph direction and Unicode bidi text determine display | Supported | Supported | Retained; paragraph direction and Unicode bidi text determine display |
 | Character shading patterns | Approximate; native appearance can vary | Approximate; native appearance can vary | Approximate; native appearance can vary | Retained; a separate solid highlight is displayed |
 
-Missing fonts use the platform fallback. Font metrics, device text scaling, and glyph availability can change wrapping and appearance. Explicit RTF foreground and highlight colors remain authored colors when the app theme changes. Bind the view's fallback text and background colors together for theme-aware unformatted text; see [formatting](formatting.md).
+Missing fonts use the platform fallback. Font metrics, device text scaling, and glyph availability can change wrapping and appearance. Explicit RTF foreground and highlight colors remain authored colors when the app theme changes. Bind the view's fallback text and background colors together for theme-aware unformatted text.
 
 ### Paragraph formatting
 
@@ -131,7 +131,7 @@ An unsupported or undecodable image can display as an object placeholder without
 - **Mac Catalyst:** the formatting profile matches iOS. Font-size and line-spacing edits can reposition the viewport; native table and font metrics can differ from iOS devices.
 - **Android:** table size and the number of list items or embedded resources can affect responsiveness. Paragraph properties shared by a contiguous text region have the limits listed above. Use app-theme bindings for fallback text and background colors.
 
-All platforms provide continuous body editing. Pagination, printing, additional document stories, inline redline markup, and Word-native tracked-change interchange are not provided. See [platform behavior](platforms.md) for general input and large-document guidance.
+All platforms provide continuous body editing. Pagination, printing, additional document stories, inline redline markup, and Word-native tracked-change interchange are not provided.
 
 ## Interoperability
 
@@ -166,7 +166,7 @@ Native readers may normalize fonts, line spacing, list labels, table layout, or 
 | MaximumDepth | 128 groups |
 | MaximumAssetBytes | 64 MiB per picture/binary payload |
 | MaximumTextLength | 64 Mi UTF-16 units across content and metadata |
-| MaximumNodes | 1,000,000 document and resource records |
+| MaximumNodes | 1,000,000 allocation records, including parser buffers, resources, anchors, table descriptors, and distinct diagnostics |
 | MaximumRevisionWork | 64,000,000 historical graph/dependency entries |
 
 The limits include retained revision content. Invalid references, identities, table grids, styles, or revision relationships fail import. Streams remain caller-owned; canceled output may be partial.

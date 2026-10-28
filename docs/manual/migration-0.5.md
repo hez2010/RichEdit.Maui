@@ -5,9 +5,9 @@ description: Upgrade applications to 0.5.0-preview.3.
 
 # Migrate to 0.5.0-preview.3
 
-This is a breaking release. Upgrade the MAUI packages together and restore their `TextEdit.Core` and `RichEdit.Core` dependencies. The libraries target .NET 10.
+Version 0.5 changes the document and selection APIs. Upgrade the MAUI packages together. RichEdit.Maui includes the `TextEdit.Core` and `RichEdit.Core` assemblies; they are not separate package dependencies. The libraries target .NET 10.
 
-The rich control now takes a structured `RichEdit.Core.RichDocument`. Source editing uses `CodeDocument` over the separate text core. Both controls share native infrastructure; CodeEditor does not wrap the public RichEditor. A document can serve multiple views on one dispatcher.
+The rich control takes a structured `RichEdit.Core.RichDocument`. Source editing uses `CodeDocument` over the separate text core. Both controls share native infrastructure; CodeEditor does not wrap the public RichEditor. A document can serve multiple views on one dispatcher.
 
 ## API replacements
 
@@ -29,8 +29,6 @@ The rich control now takes a structured `RichEdit.Core.RichDocument`. Source edi
 | Source `Decorations` / `Adornments` | Retained source presentation concepts, now using text-core coordinates and generation-checked requests |
 | Generic persisted metadata | Supported document semantics such as comments/bookmarks; application metadata remains application-owned |
 
-Use `RichDocument` as the document shared by rich-editor controls.
-
 ## Load existing RTF with diagnostics
 
 ```csharp
@@ -47,7 +45,7 @@ editor.Document = new RichDocument(result.Snapshot);
 
 There is no format-conversion step to HTML, JSON, or a package file. RTF remains the rich format. Set `RequireLossless = true` when any diagnosed approximation must reject import.
 
-Review [RTF support](rtf-support.md) against your documents. The structured authored profile includes semantic tables and revisions but does not represent every flat formatting/list option: arbitrary numeric font weights, custom list prefix/suffix and marker fonts/picture bullets, custom metadata, and paragraph min/max-height pairs need an application policy. Do not silently translate an unsupported feature and then mark the file as losslessly saved. The core uses bold/normal, standard list counters, and explicit line-spacing modes.
+The structured authored profile includes semantic tables and revisions but does not represent every flat formatting/list option: arbitrary numeric font weights, custom list prefix/suffix and marker fonts/picture bullets, custom metadata, and paragraph min/max-height pairs need an application policy. Do not silently translate an unsupported feature and then mark the file as losslessly saved. The core uses bold/normal, standard list counters, and explicit line-spacing modes.
 
 Standard Word tracked-change controls are not converted into the retained revision model. The codec's own revision metadata round-trips supported pending groups, while independent RTF readers receive the current body.
 

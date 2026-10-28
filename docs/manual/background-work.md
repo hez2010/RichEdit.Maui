@@ -7,6 +7,8 @@ description: Revision checks, producer generations, and cancellation.
 
 Capture an immutable snapshot and source revision before starting background analysis. Return to the owner dispatcher to publish. Cancellation saves work; revision checks provide correctness even when cancellation arrives too late.
 
+## Apply checked edits
+
 ```csharp
 using TextEdit.Core;
 
@@ -21,6 +23,8 @@ bool accepted = code.TryApplyEdits(snapshot.Revision, edits,
 Every replacement in this batch addresses the original captured snapshot. Reject overlapping ranges before publication. Capture selection generation for completion and similar actions whose validity also depends on the current caret.
 
 For rich content, `RichEditor.Edit` accepts `expectedRevision` and optional `expectedSelectionGeneration`; its callback uses typed rich addresses. Inspect `RichEditResult.Rejection` instead of retrying a stale operation at unrelated coordinates.
+
+## Publish presentation results
 
 A revision alone cannot order two computations made with different settings against unchanged text. Decoration layers and widget sources therefore expose `BeginUpdate` and `TryPublish`. The request captures both document revision and producer generation. A later request, clear, disposal, or document replacement invalidates older publication.
 

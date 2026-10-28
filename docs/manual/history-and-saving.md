@@ -7,7 +7,7 @@ description: Shared history, retention limits, and snapshot-bound save acknowled
 
 The document owns one global undo sequence. A view's Undo or Redo restores the transaction's saved selection in that view; other views map their independent selections. Native undo commands route to document history. Detaching a native handler does not clear history.
 
-Every authored change, including formatting, styles, comments, and revision resolution, participates in history. Decorations and widgets do not. `BeginUndoGroup` combines independently committed operations into one undo unit; nested groups close in reverse order. A group is not rollback for already committed operations.
+Every authored change, including formatting, styles, comments, and revision resolution, participates in history. Decorations and widgets do not.
 
 `HistoryLimit` and `HistoryByteLimit` bound retained entries and estimated memory. `RetainedHistoryByteEstimate` is an estimate, not process memory. Application-held snapshots and pending tracked revisions can retain content independently of history. Automatic typing coalescing is session-owned and ends at selection, input-mode, other-view, save, and composition boundaries.
 
@@ -24,7 +24,7 @@ using (editor.Document.BeginUndoGroup("Emphasize selection"))
 }
 ```
 
-Dispose the group on the owning thread. Do not keep it open across unrelated user interaction or asynchronous work. If a later operation fails, earlier committed operations remain; an undo group does not provide transaction rollback.
+Dispose the group on the owning thread; nested groups close in reverse order. Do not keep it open across unrelated user interaction or asynchronous work. If a later operation fails, earlier committed operations remain; an undo group does not provide transaction rollback.
 
 `RichDocument.ClearHistory()` and `CodeDocument.ClearUndoHistory()` discard undo/redo entries. They do not accept tracked revisions or save the file. Use `UndoDescription` and `RedoDescription` for application menu labels, and acknowledge actual writes with `MarkSaved(capture)` to update dirty state.
 
@@ -55,4 +55,4 @@ The application owns destination selection, temporary files, atomic replacement,
 
 Source documents use `CaptureSave` and `MarkSaved(capture)` with ordinary text output. Encoding, BOM, and invalid-byte policy belong to the application's file session; source snapshots preserve UTF-16 content and line endings.
 
-See [Save source text](source-workflows.md#save-source-text) for a text-file example using a frozen capture and a temporary destination. Serialize writes to the same destination so an older save cannot finish after a newer one and replace it.
+Serialize writes to the same destination so an older save cannot finish after a newer one and replace it.

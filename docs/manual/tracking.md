@@ -1,36 +1,45 @@
 ---
-title: Tracking and persistent annotations
-description: Disposable source anchors and document-owned rich comments and bookmarks.
+title: Tracked positions and ranges
+description: Keep temporary source locations aligned with document edits.
 ---
 
-# Tracking and persistent annotations
+# Tracked positions and ranges
 
-Use `CodeDocument.Tracking` for temporary source anchors. `TrackPosition` and `TrackRange` return disposable handles that move through edits. Insertion affinity chooses which side of an insertion retains the anchor. Deletion behavior determines whether removed content invalidates the handle or collapses its range.
+`CodeDocument.Tracking` creates temporary source anchors for search results, snippets, navigation history, and hover UI. `TrackPosition` and `TrackRange` return disposable handles that move through edits. They are document-bound application state and are not saved with the text.
+
+## Track a position
+
+Positions use zero-based UTF-16 offsets. Insertion affinity chooses which side of text inserted at that position retains the anchor:
 
 ```csharp
 using TextEdit.Core;
+using CodeEdit.Maui;
 
-using var caret = code.Document.Tracking.TrackPosition(
+var document = new CodeDocument("first\nsecond");
+using var caret = document.Tracking.TrackPosition(
     3, PositionAffinity.AfterInsertion);
-code.Document.Edit(edit => edit.InsertText(0, "prefix "));
-int? current = caret.Position;
+document.Edit(edit => edit.InsertText(0, "prefix "));
+int? current = caret.Position; // 10
 ```
 
-Tracking handles are view/application tools, not persistence. Invalidated handles are not resurrected by undo. Dispose them when a hover, search session, snippet, or other feature ends.
+`AfterInsertion` places the anchor after inserted text; `BeforeInsertion` keeps it before the insertion. Read `Position` when using the anchor rather than retaining the original offset.
 
-Rich document changes expose `RichAddressMap.Map(point)`. It preserves moved node identities, maps paragraph split/join offsets, and returns null for removed paragraphs. Rich presentation producers apply these maps automatically.
+## Track a range
 
-Persistent rich bookmarks and comments belong to the document:
+The default range affinities exclude insertions at both boundaries. To include text inserted at either boundary, use `BeforeInsertion` for the start and `AfterInsertion` for the end:
 
 ```csharp
-editor.Edit(edit =>
-{
-    edit.AddBookmark("intro", new RichEdit.Core.RichTextSelection(startPoint, endPoint));
-    edit.AddComment(new RichEdit.Core.RichTextSelection(startPoint, endPoint),
-        "Check this wording.", author: "Reviewer");
-});
+using var tracked = document.Tracking.TrackRange(new TextSpan(0, 6),
+    startAffinity: PositionAffinity.BeforeInsertion,
+    endAffinity: PositionAffinity.AfterInsertion,
+    deletion: TrackingDeletionBehavior.Preserve);
+TextSpan? currentRange = tracked.Range;
 ```
 
-Annotations retain semantic anchors and can become orphaned when their content is removed. `SetAnnotationRange` reattaches them; `SetCommentText` and `RemoveAnnotation` are authored edits. Undo restores their content and anchor state. RTF persistence preserves supported annotation relationships independently of disposable source trackers.
+`TrackingDeletionBehavior.Invalidate` is the default: replacing or deleting a tracked position, or any source covered by a tracked range, invalidates the handle. `Preserve` keeps a mapped boundary or range when that source is replaced. An invalidated or disposed handle has `IsValid = false` and returns null from `Position` or `Range`.
 
-See [Comments and bookmarks](annotations.md) for creating annotation UI, navigating to current anchors, and handling orphaned annotations.
+## Lifetime and document replacement
+
+Keep handles alive while their feature is active and dispose them on the document's owner thread when it ends. Invalidated handles are not resurrected by undo.
+
+Replacing a control's document does not move application-held trackers to the replacement document. Dispose old trackers and create new ones for the new file. A source offset from one document must not be applied to another document's selection.

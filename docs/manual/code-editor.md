@@ -21,8 +21,6 @@ var editor = new CodeEditor
 };
 ```
 
-`IndentSize` controls inserted indentation; `TabSize` controls native tab display. `NewLine` is an insertion policy. Use an explicit document edit with `NormalizeLineEndings` to change existing terminators.
-
 | Option | Default and behavior |
 | --- | --- |
 | `ShowLineNumbers` | `true`; displays logical line numbers, including a trailing empty line. |
@@ -34,7 +32,7 @@ var editor = new CodeEditor
 | `LineCommentPrefix` | `"//"`; set a nonempty prefix without whitespace, such as `"#"`, for the document's language. |
 | `NewLine` | Controls newly inserted line endings; set it explicitly to LF, CRLF, or CR for your file policy. |
 
-For appearance, placeholders, and editing limits, see [Control configuration](configuration.md). `NewLine` is a CLR property rather than a bindable property; set it from application code when opening or changing a file's insertion policy.
+`NewLine` is a CLR property rather than a bindable property; set it from application code when opening or changing a file's insertion policy. Use `CodeDocument.Edit` with `NormalizeLineEndings` to change existing terminators explicitly.
 
 `Indent()`, `Outdent()`, `InsertNewLine()`, and `ToggleLineComment()` apply the same editing policies as their keyboard bindings to all current selections. Use these methods for toolbar and menu commands. Each operation is one undoable edit and respects read-only mode and the length limit.
 
@@ -46,12 +44,8 @@ For appearance, placeholders, and editing limits, see [Control configuration](co
 
 Alt-pointer gestures add carets and derive rectangular selections from native visual rows. A drag retains its source anchor and scrolls when the pointer leaves the text viewport; rows already traversed remain selected. Native glyph bounds determine disjoint selections within bidi rows, including tabs, wrapping, and variable-width text. `SelectRectangle` applies the same geometry rules to the currently visible rows. Virtual space begins at logical line ends, never at a soft wrap. Logical columns must not be treated as pixel X positions.
 
-`RevealAsync` supports nearest-edge, top, center, and bottom alignment without moving selection or focus. `CaptureScrollAnchor` creates a disposable position that follows document edits and can be restored in another view of the same document. `ViewportChanged` includes source coordinates and a caller-supplied cause token for linked scrolling. See [layout](layout.md).
-
 ## Language features
 
-Applications own parsing, language servers, completion UI, diagnostics, project systems, and debugging. Use immutable snapshots for background analysis, checked edits for completion/refactoring, input rules for dependent typing, decoration layers for colors, and lazy widget sources for hints and actions. See [background work](background-work.md).
+Applications own parsing, language servers, completion UI, diagnostics, project systems, and debugging. Use immutable snapshots for background analysis, `TryApplyEdits` for completion/refactoring, `InputRules` for dependent typing, `Decorations` for colors, and `Adornments` for hints and actions. The library does not select a language service or provide a built-in search or completion panel.
 
-Start with [source editing recipes](source-workflows.md) for find/replace, go-to-line, explicit multiple selections, virtual carets, line-ending conversion, and saving. The library does not select a language service or provide a built-in search or completion panel.
-
-For large files, give the editor finite viewport constraints and fill alignment. Set `WordWrap = false` when wrapping very long logical lines is unsuitable. Large files and long lines can still reduce responsiveness; see [platform behavior](platforms.md).
+For large files, give the editor finite viewport constraints and fill alignment. Set `WordWrap = false` when wrapping very long logical lines is unsuitable. Large files and long lines can still reduce responsiveness.

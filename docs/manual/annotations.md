@@ -5,7 +5,7 @@ description: Author, locate, update, and reattach persistent rich-document annot
 
 # Comments and bookmarks
 
-Comments and bookmarks are document-owned annotations in `RichEdit.Core`. They participate in undo, tracked revisions, and the library's RTF persistence. The library stores annotations and maps their anchors; the application supplies a comment sidebar, bookmark list, and navigation UI. Use [decorations](decorations.md) and [widgets](adornments.md) to show annotations beside text.
+Comments and bookmarks are document-owned annotations in `RichEdit.Core`. They participate in undo, tracked revisions, and the library's RTF persistence. The library stores annotations and maps their anchors; the application supplies a comment sidebar, bookmark list, and navigation UI. `editor.Presentation` can display annotation highlights and anchored controls without changing authored content.
 
 ## Add an annotation
 
@@ -59,4 +59,4 @@ editor.Edit(edit => edit.SetCommentText(commentId, "Opening reviewed."),
 
 When the anchored content is deleted, an annotation can remain with `Range = null` and `IsOrphaned = true`. Display that state in your annotation list and let the user remove it or attach it to a new range. An orphaned comment's text remains available. Undo restores the annotation and anchor state associated with the undone edit.
 
-Annotations are distinct from temporary [source trackers](tracking.md). A disposable tracker is useful for a hover or snippet session, but it does not create a saved bookmark. For rich transient anchors, use `RichAddressMap` or the automatic mapping provided by rich presentation producers.
+For temporary rich anchors, use `RichAddressMap` or the automatic mapping provided by rich presentation producers. These anchors do not create saved annotations.

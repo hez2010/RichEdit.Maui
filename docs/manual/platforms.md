@@ -9,7 +9,7 @@ The editors support Windows, Android, iOS, and Mac Catalyst. They provide native
 
 ## Fidelity
 
-Some formatting properties are preserved in saved documents but displayed approximately on a particular platform. Fonts, line wrapping, and table appearance can differ between devices. See [RTF support](rtf-support.md) for individual features.
+Some formatting properties are preserved in saved documents but displayed approximately on a particular platform. Fonts, line wrapping, and table appearance can differ between devices.
 
 Rich editing includes body paragraphs, semantic lists/tables, inline resources, annotations, and retained revision groups. Original and Final review views are available. Inline redline markup, Word-native revision interchange, pagination, printing, sections, headers/footers, notes, floating objects, and editable equations are outside this preview's feature profile.
 
@@ -21,4 +21,4 @@ Extremely large Windows documents can show blank text at distant scroll position
 
 ## Accessibility and input
 
-Use native touch handles and menus for the primary selection. Give meaningful widgets an `AccessibleDescription`, and make their interactive controls keyboard-accessible. Input and accessibility behavior follows the device's language, keyboard, text scaling, and assistive-technology settings. See [input](input.md) for composition and clipboard behavior.
+Use native touch handles and menus for the primary selection. Give meaningful widgets an `AccessibleDescription`, and make their interactive controls keyboard-accessible. Input and accessibility behavior follows the device's language, keyboard, text scaling, and assistive-technology settings.

@@ -38,7 +38,8 @@ The last matching entry takes precedence. Remove that same binding from `KeyBind
 
 | Gesture | Behavior |
 | --- | --- |
-| Tab / Shift+Tab | Indent / outdent all selected source lines. |
+| Tab | Insert indentation at collapsed carets; otherwise indent selected source lines. |
+| Shift+Tab | Outdent selected source lines. |
 | Enter | Insert `NewLine` and apply the configured indentation policy. |
 | Ctrl+/ or Command+/ | Toggle `LineCommentPrefix` on selected lines. |
 | Ctrl+B/I/U or Command+B/I/U | Consume rich-formatting shortcuts in the plain-source editor. |

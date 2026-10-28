@@ -5,11 +5,7 @@ description: Structured content and resource ownership.
 
 # Links, fields, images, and fragments
 
-Tables, lists, and inline objects belong to the same document and history as surrounding paragraphs. Cells hold blocks, including nested tables.
-
-## Tables
-
-See [Tables and cell editing](tables.md) for insertion, cell content, merged selections, row/column operations, widths, cell formatting, and native navigation.
+Hyperlinks, fields, images, and soft breaks are authored inline content in rich paragraphs. Fragments transfer selected content and its resources between documents. These operations share the document's undo history.
 
 ## Hyperlinks
 
@@ -31,7 +27,7 @@ Pass `null` as the link to unlink the range while retaining its text and formatt
 
 ## Fields and soft breaks
 
-Use `SetHyperlink` for a text range, `InsertField` for an instruction/result pair, and `SetFieldResult` to update a retained field result. A field is an atomic authored object; the application supplies field evaluation. `LinkInvoked` and `ObjectInvoked` support application handling.
+Use `InsertField` for an instruction/result pair and `SetFieldResult` to update the retained result. A field is an atomic authored object; the application supplies field evaluation.
 
 ```csharp
 RichNodeId field = default;
@@ -75,6 +71,4 @@ var destination = new RichEditor();
 destination.ReplaceSelection(fragment);
 ```
 
-Use fragments to transfer authored structure between documents without carrying source node IDs into the destination. For insertion at a block boundary, `edit.InsertFragment(parent, index, fragment)` returns the inserted block IDs. Clipboard commands perform their own capture and validation; see [Input and clipboard](input.md).
-
-Application widgets are transient view objects and do not enter the rich schema, clipboard RTF, or undo history. Use [presentation widgets](adornments.md) for completion actions, hints, or review controls.
+For insertion at a block boundary, `edit.InsertFragment(parent, index, fragment)` returns the inserted block IDs. Application widgets are transient view objects and do not enter fragments, clipboard RTF, or undo history.

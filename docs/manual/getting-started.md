@@ -22,6 +22,8 @@ builder.UseRichEdit();
 builder.UseCodeEditor();
 ```
 
+`UseCodeEditor()` also registers the rich-editor infrastructure. An application using only `CodeEditor` can call it on its own; an application using only `RichEditor` needs `UseRichEdit()`.
+
 Create rich content using the structured model:
 
 ```csharp
@@ -49,4 +51,4 @@ var code = new CodeEditor
 };
 ```
 
-Give the editor a bounded layout area, such as a star-sized Grid row. Native scrolling and lazy widget realization depend on a finite viewport. Use [RTF streams](documents.md) to load rich documents and [binding](binding.md) to connect toolbar state.
+Add the control to the page in a bounded layout area, such as a star-sized Grid row. Native scrolling and lazy widget realization depend on a finite viewport.

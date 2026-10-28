@@ -16,9 +16,14 @@ static void GoToLine(CodeEditor code, int lineNumber, int columnNumber = 1)
 {
     ArgumentOutOfRangeException.ThrowIfLessThan(lineNumber, 1);
     ArgumentOutOfRangeException.ThrowIfLessThan(columnNumber, 1);
+    if (!code.TryCompleteComposition()) return;
     int line = Math.Min(lineNumber, code.LineCount) - 1;
     var range = code.GetLineRange(line);
     int offset = range.Start + Math.Min(columnNumber - 1, range.Length);
+
+    foreach (var fold in code.Folding.CollapsedRanges
+        .Where(fold => fold.Start <= offset && offset < fold.End).ToArray())
+        code.Folding.Expand(fold);
 
     code.SelectedRange = new TextSpan(offset, 0);
     code.ScrollIntoView(code.SelectedRange);
@@ -26,7 +31,7 @@ static void GoToLine(CodeEditor code, int lineNumber, int columnNumber = 1)
 }
 ```
 
-A column counts UTF-16 units, not graphemes or visual tab cells. For visual navigation, use native [layout and hit testing](layout.md). `RevealAsync` controls viewport alignment without moving selection or focus.
+A column counts UTF-16 units, not graphemes or visual tab cells. The command defers navigation if native composition cannot complete, then expands folds covering the destination. Use `code.TextLayout` for native geometry and hit testing. `RevealAsync` controls viewport alignment without moving selection or focus.
 
 ## Find and replace literal text
 
@@ -56,7 +61,7 @@ static bool ReplaceAll(CodeEditor code, string query, string replacement)
 
 `TryApplyEdits` respects the view's read-only state, composition, length limit, and document revision. A false return must not trigger an unchecked retry at the same offsets. This recipe also returns false when there are no matches. For a find-only command, assign the matched `TextSpan` to `SelectedRange` and reveal it.
 
-The example materializes the source with `snapshot.Text`. For large files, use `snapshot.TextBuffer.GetChunks(range)` or bounded `GetText` reads and account for matches crossing chunk boundaries. Background search must return to the owner dispatcher before publishing; see [checked edits](background-work.md). Case folding, whole-word rules, regular expressions, and search wrapping are application policies.
+The example materializes the source with `snapshot.Text`. For large files, use `snapshot.TextBuffer.GetChunks(range)` or bounded `GetText` reads and account for matches crossing chunk boundaries. Background search must return to the owner dispatcher before publishing against the captured revision. Case folding, whole-word rules, regular expressions, and search wrapping are application policies.
 
 ## Edit several ranges together
 
@@ -146,4 +151,4 @@ static async Task<bool> SaveSourceAsync(CodeEditor code, string destination,
 
 Call this method from the UI thread so acknowledgement resumes on the owner context. It uses UTF-8 without a BOM and rejects invalid surrogate encoding. Adapt file replacement to your storage provider's durability and atomicity requirements. The chunk writer itself has no cancellation parameter; cancellation here is checked before writing and before replacement. Surface I/O errors in application UI and serialize saves targeting the same file. Edits made during writing remain modified because `MarkSaved` acknowledges the captured state.
 
-For opening a text file, decode it with your encoding policy, construct a `CodeDocument` on the UI thread, and assign it after resolving composition. Encoding detection, BOM preservation, and file-system watching belong to the application; the document preserves decoded UTF-16 text and exact line endings. See [History and saving](history-and-saving.md) for saved-state behavior.
+For opening a text file, decode it with your encoding policy, construct a `CodeDocument` on the UI thread, and assign it after resolving composition. Encoding detection, BOM preservation, and file-system watching belong to the application; the document preserves decoded UTF-16 text and exact line endings.

@@ -7,6 +7,8 @@ description: Native geometry and snapshot-bound coordinate mapping.
 
 Layout captures describe the editor's visible lines and identify the document and layout they belong to. Stale or foreign captures return no result; geometry queries never move the caret.
 
+## Capture geometry
+
 For source text:
 
 ```csharp
@@ -24,7 +26,9 @@ For rich text, `editor.TextLayout` uses `RichTextPoint`, typed selections, and a
 
 `Changed` signals document, presentation, or viewport invalidation. Capture again after scrolling, resizing, changing fonts, or changing widget reservations. `GetSelectionBounds` returns separate rectangles; it does not assume a bidi selection is one rectangle.
 
-`ScrollIntoView` reveals a source range or rich point using native scrolling. Selection and scroll positions are independent between views. Scrolling, momentum, and edge bounce follow platform behavior.
+## Scroll and restore viewports
+
+`CodeEditor.ScrollIntoView(TextSpan)` reveals a source range, and `RichEditor.TextLayout.ScrollIntoView(RichTextPoint)` reveals a rich point. Selection and scroll positions are independent between views. Scrolling, momentum, and edge bounce follow platform behavior.
 
 Source editors also provide aligned, cancellable scrolling:
 
@@ -39,6 +43,8 @@ if (anchor is not null)
 
 `CodeScrollAnchor` stores a tracked source boundary, wrap/bidi affinity, and the caret's offset from the text viewport in DIPs. It retains no native view. Dispose it on the document's owning thread. Restoration requires the same document identity; a disposed anchor or an unavailable view returns `false`. Native scroll limits clamp placement at document edges. A superseding navigation request, pointer press, hardware key, focus loss, composition, document replacement, or handler change ends pending navigation. Cancellation throws `OperationCanceledException`. A reveal or restoration moves the viewport once; later layout changes and user scrolling remain independent of that request.
 
-`CaptureViewport` returns a value-only observation with a revision, position, affinity, viewport rectangle, and relative offset. Its position is bound to that revision; use a live anchor when it must follow edits. `ViewportChanged` reports changed source-based observations after scrolling or layout. During an explicit navigation request its `CauseToken` is the caller's object. Linked panes should forward the token and ignore events carrying their own synchronization token, avoiding pixel-offset feedback loops. Changes unrelated to a navigation request carry `null`.
+## Observe viewport and pointer changes
+
+`CodeEditor.CaptureViewport` returns a value-only observation with a revision, position, affinity, viewport rectangle, and relative offset. Its position is bound to that revision; use a live anchor when it must follow edits. `ViewportChanged` reports changed source-based observations after scrolling or layout. During an explicit navigation request its `CauseToken` is the caller's object. Linked panes should forward the token and ignore events carrying their own synchronization token, avoiding pixel-offset feedback loops. Changes unrelated to a navigation request carry `null`.
 
 `PointerPressed`, `PointerMoved`, and `PointerExited` expose observations for application UI. Keep adornment hit testing and document hit testing distinct. All returned rectangles are device-independent control coordinates, not physical pixels.

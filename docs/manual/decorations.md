@@ -7,7 +7,9 @@ description: Transient appearance with explicit ownership and freshness checks.
 
 Decorations change view appearance without changing authored content, RTF, saved state, or history. Higher-priority layers override lower-priority layers. Equal priorities compose in creation order; only specified properties override preceding appearance.
 
-Source layers use UTF-16 `TextSpan` values:
+## Source decorations
+
+Source layers use UTF-16 `TextSpan` values. Each range must fit the snapshot used for the publication request:
 
 ```csharp
 using TextEdit.Core;
@@ -23,6 +25,8 @@ layer.TryPublish(request, new[]
 ```
 
 Keep the layer alive for the feature's lifetime. Source ranges within a layer must be nonempty, ordered, and nonoverlapping. `Clear` removes appearance; `Dispose` releases ownership.
+
+## Rich decorations
 
 Rich layers use typed addresses:
 

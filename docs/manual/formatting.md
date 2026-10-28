@@ -80,13 +80,13 @@ editor.Edit(edit => edit.ApplyParagraphFormat(editor.Selection,
 
 `FirstLineIndent` is relative to `LeadingIndent`; a negative value creates a hanging indent. Tab stops have unique positive positions measured from the paragraph's leading edge. `RichLineSpacing` offers `Automatic`, `AtLeast`, `Exactly`, and `Multiple`; a fixed height can clip content on some native engines. Use `Direction` for paragraph flow and character direction for inline overrides.
 
-`HeadingLevel`, `KeepWithNext`, `KeepTogether`, `WidowControl`, and `Hyphenation` retain document intent. This continuous editor does not provide paginated layout, so retained pagination properties are not a promise of visible page behavior. See the [platform matrices](rtf-support.md).
+`HeadingLevel`, `KeepWithNext`, `KeepTogether`, `WidowControl`, and `Hyphenation` retain document intent. This continuous editor does not provide paginated layout, so retained pagination properties do not produce page-layout behavior.
 
 ## Reusable styles
 
 `RichStyleSheet` contains named paragraph and character definitions with `BasedOn` and `NextStyle` references. Inheritance must be acyclic. The cascade applies document defaults, paragraph styles and overrides, then inline character styles and direct overrides. `ResolveCharacter`, `ResolveParagraph`, and selected-format queries expose resolved values.
 
-Use `SetStyles`, `SetParagraphStyle`, `SetCharacterStyle`, `SetCharacterFormat`, and `SetParagraphFormat` inside a rich edit. Set-format operations replace the specified direct record; preserve other direct properties explicitly when modifying only part of it. Changing a style affects all content that references it.
+Changing a style affects all content that references it. Style definitions and assignments are authored inside a document transaction.
 
 For a new document, define a body style and a heading whose next paragraph uses the body style:
 
@@ -140,14 +140,6 @@ Refresh toolbar state on `SelectionChanged` and `ContentChanged`, including chan
 
 Character support includes bold, italic, underline variants/colors, strike-through, foreground/highlight, shading, baseline/script placement, spacing, horizontal scaling, language, direction, capitals, outline, shadow, and hidden state. Paragraph support includes alignment, direction, indents, before/after spacing, line spacing, tabs/leaders, headings, keep/widow settings, hyphenation, shading, and uniform borders.
 
-`FontFamily`, `FontSize`, and `TextColor` on the view are fallback appearance and do not change saved content. Presentation layers compose afterward. Native engines can approximate some retained properties; see [RTF support](rtf-support.md).
-
-For a light/dark app theme, bind the editor's fallback text color and background together. Explicit colors in the document keep their authored values.
-
-```xml
-<rich:RichEditor
-    TextColor="{AppThemeBinding Light=Black, Dark=White}"
-    BackgroundColor="{AppThemeBinding Light=White, Dark=#192933}" />
-```
+`FontFamily`, `FontSize`, and `TextColor` on the view are fallback appearance and do not change saved content. Presentation layers compose afterward. Native engines can approximate some retained properties. Explicit colors in the document keep their authored values when the application theme changes.
 
 Body text wraps within the editor's available width, accounting for paragraph indents. Table text uses the cell's width. Alignment does not change font size: each paragraph's text keeps its resolved character formatting.
