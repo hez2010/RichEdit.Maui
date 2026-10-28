@@ -2,6 +2,8 @@ namespace RichEdit.Maui.Tests;
 
 public sealed partial class CodeEditorTests
 {
+    private static Microsoft.UI.Xaml.Window? _tabWindow;
+
     [Fact]
     public Task TabsAfterDifferentLengthFieldNamesAlignSeparators() => WindowsTestHost.RunAsync(async () =>
     {
@@ -18,7 +20,7 @@ public sealed partial class CodeEditorTests
         window.AppWindow.Show(activateWindow: false);
         try
         {
-            await Task.Delay(150);
+            await WaitForTabTestLayoutAsync(fixture);
             double? expectedPosition = null;
             int lineStart = 0;
             foreach (string line in lines)
@@ -52,23 +54,42 @@ public sealed partial class CodeEditorTests
     [InlineData(8, 8, 1)]
     [InlineData(8, 9, 1)]
     [InlineData(8, 8, 3)]
-    public Task TabsAdvanceToTheNextColumnStop(int tabSize, int prefixLength, int tabCount) => WindowsTestHost.RunAsync(async () =>
+    [InlineData(3, 3, 1)]
+    [InlineData(3, 6, 3)]
+    [InlineData(4, 0, 3)]
+    [InlineData(4, 4, 3, "Consolas", 10)]
+    [InlineData(4, 4, 3, "Consolas", 11)]
+    [InlineData(4, 4, 3, "Consolas", 12)]
+    [InlineData(4, 4, 3, "Consolas", 13.5)]
+    [InlineData(4, 4, 3, "Consolas", 13.51)]
+    [InlineData(8, 8, 3, "Consolas", 14.02)]
+    [InlineData(8, 8, 3, "Consolas", 14.03)]
+    [InlineData(4, 4, 3, "Consolas", 18)]
+    [InlineData(8, 8, 3, "Consolas", 20)]
+    [InlineData(4, 4, 3, "Courier New", 10)]
+    [InlineData(4, 4, 3, "Courier New", 11)]
+    [InlineData(4, 4, 3, "Courier New", 12)]
+    [InlineData(4, 4, 3, "Courier New", 13.5)]
+    [InlineData(4, 4, 3, "Courier New", 13.52)]
+    [InlineData(8, 8, 3, "Courier New", 14.02)]
+    [InlineData(8, 8, 3, "Courier New", 16)]
+    public Task TabsAdvanceToTheNextColumnStop(int tabSize, int prefixLength, int tabCount, string fontFamily = "Consolas", double fontSize = 14) => WindowsTestHost.RunAsync(async () =>
     {
         int expectedColumn = (prefixLength / tabSize + tabCount) * tabSize;
         string tabbedLine = new string('x', prefixLength) + new string('\t', tabCount) + "=";
         string referenceLine = new string(' ', expectedColumn) + "=";
         string source = tabbedLine + "\n" + referenceLine;
         using var fixture = new CodeEditorFixture(source);
-        fixture.Editor.FontFamily = "Consolas";
-        fixture.Editor.FontSize = 14;
+        var snapshot = fixture.Editor.Document.CurrentSnapshot;
+        fixture.Editor.FontFamily = fontFamily;
+        fixture.Editor.FontSize = fontSize;
         fixture.Editor.TabSize = tabSize;
         var window = _tabWindow ??= new Microsoft.UI.Xaml.Window();
         window.Content = fixture.Handler.ContainerView ?? fixture.Handler.PlatformView;
         window.AppWindow.Show(activateWindow: false);
         try
         {
-            await Task.Delay(150);
-            var snapshot = fixture.Editor.Document.CurrentSnapshot;
+            await WaitForTabTestLayoutAsync(fixture);
             int actualOffset = tabbedLine.Length - 1;
             int referenceOffset = tabbedLine.Length + 1 + expectedColumn;
             var actualBounds = fixture.Handler.GetTextCaretBounds(actualOffset, RichTextCaretAffinity.Downstream);
@@ -77,7 +98,7 @@ public sealed partial class CodeEditorTests
             Assert.NotNull(referenceBounds);
             double actualPosition = actualBounds.Value.Left;
             double expectedPosition = referenceBounds.Value.Left;
-            Assert.True(Math.Abs(actualPosition - expectedPosition) <= 1, $"TabSize={tabSize}, prefixLength={prefixLength}, tabCount={tabCount}: expected column {expectedColumn} at X={expectedPosition}, actual X={actualPosition}");
+            Assert.True(Math.Abs(actualPosition - expectedPosition) <= 1, $"Font={fontFamily}, FontSize={fontSize}, TabSize={tabSize}, prefixLength={prefixLength}, tabCount={tabCount}: expected column {expectedColumn} at X={expectedPosition}, actual X={actualPosition}");
             Assert.Same(snapshot, fixture.Editor.Document.CurrentSnapshot);
             Assert.Equal(source, fixture.Editor.Document.Text);
             Assert.False(fixture.Editor.Document.IsModified);
@@ -88,7 +109,22 @@ public sealed partial class CodeEditorTests
             window.Content = null;
         }
     });
-    private static Microsoft.UI.Xaml.Window? _tabWindow;
+
+    private static async Task WaitForTabTestLayoutAsync(CodeEditorFixture fixture)
+    {
+        var view = fixture.Handler.PlatformView;
+        if (!view.IsLoaded)
+        {
+            var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs args) => loaded.TrySetResult();
+            view.Loaded += OnLoaded;
+            try { await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            finally { view.Loaded -= OnLoaded; }
+        }
+        view.UpdateLayout();
+        await Task.Delay(30);
+    }
+
     [Fact]
     public Task SpaceIndentationMeasuresExistingTabsWithTheirDisplayWidth() => WindowsTestHost.RunAsync(() =>
     {
@@ -112,7 +148,7 @@ public sealed partial class CodeEditorTests
         window.AppWindow.Show(activateWindow: false);
         try
         {
-            await Task.Delay(100);
+            await WaitForTabTestLayoutAsync(fixture);
             var snapshot = editor.Document.CurrentSnapshot;
             double X(int offset) => fixture.Handler.GetTextCaretBounds(offset, RichTextCaretAffinity.Downstream)!.Value.Left;
             var fourSpaces = X(7) - X(3);
